@@ -1,0 +1,68 @@
+# Personal raw exports and local datasets
+Google/原始数据/
+GPT/原始数据/
+Agent/原始数据/
+
+# Structured and analytical outputs are reproducible and may contain private content.
+Google/结构化数据/*
+!Google/结构化数据/README.md
+!Google/结构化数据/脚本/
+!Google/结构化数据/脚本/**
+Google/分析数据/*
+!Google/分析数据/README.md
+
+GPT/结构化数据/*
+!GPT/结构化数据/README.md
+!GPT/结构化数据/脚本/
+!GPT/结构化数据/脚本/**
+GPT/分析数据/*
+!GPT/分析数据/README.md
+
+Agent/结构化数据/*
+!Agent/结构化数据/README.md
+!Agent/结构化数据/脚本/
+!Agent/结构化数据/脚本/**
+Agent/分析数据/*
+!Agent/分析数据/README.md
+
+统合模块/原始输入索引/
+统合模块/结构化数据/
+统合模块/分析数据/
+统合模块/SQLite数据库/
+
+# Import batches, duplicate manifests, and quarantine may include private file names.
+imports/*
+!imports/README.md
+new_import/duplicate_audit/
+
+# Local generated data and binary outputs
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.csv
+*.tsv
+*.json
+*.jsonl
+*.xlsx
+*.xls
+*.parquet
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.html
+*.tar
+*.tar.gz
+*.zip
+
+# Python and local tooling caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
