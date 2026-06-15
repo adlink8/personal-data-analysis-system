@@ -60,17 +60,314 @@ Agent/
 - `统合模块/分析数据/统合画像_数据增长图.png`
 - `统合模块/分析数据/统合画像_数据流向.csv`
 - `统合模块/分析数据/统合画像_个人思考模式.csv`
+- **交互式仪表盘**:`统合模块/脚本/dashboard.py`(见下文"交互式可视化")
+- **统一检索 CLI**:`统合模块/脚本/unified_search.py` —— 语义检索 + 精确查询(见下文"统一检索层")
+- **MCP Server**:`统合模块/脚本/mcp_server.py` —— 把数据暴露给 AI 客户端(见下文"MCP 接入")
+- **REST API**:`统合模块/脚本/api_server.py` —— 零依赖 HTTP 接口(见下文"REST API 接入")
+- **接入示例**:`统合模块/脚本/examples/` —— OpenAI 函数调用 / LangChain / RAG 注入(见下文"接入 RAG 平台 / Agent 框架")
 
 ## 重跑链路
 
-从项目根目录执行：
+从项目根目录执行(顺序固定,每步幂等):
 
 ```powershell
 python 统合模块\脚本\build_integrated_system.py
+python 统合模块\脚本\enrich_unified_events.py
 python 统合模块\脚本\build_deep_profiles.py
+python 统合模块\脚本\build_vector_store.py
+python 统合模块\脚本\build_context_doc.py
 ```
 
-第一步重建统合 SQLite，第二步基于统合 SQLite 生成模块画像和统合画像。
+1. `build_integrated_system.py` —— 重建统合 SQLite(`personal_system.sqlite`),含 9 张原始表(统一事件、实体、跨模块链接等)。
+2. `enrich_unified_events.py` —— **语义增强层**:在统合库追加 3 张增强表(`unified_events_rich` / `event_categories_v2` / `entity_links_v2`),修复三类数据质量问题(见下文"语义增强层")。
+3. `build_deep_profiles.py` —— 基于统合库 + 增强表生成模块画像和统合画像。
+4. `build_vector_store.py` —— **向量库构建**:把 `content_rich` 经 ollama bge-m3 向量化,写入 chroma `personal_events` collection(见下文"向量库与 AI 上下文")。
+5. `build_context_doc.py` —— 生成 `统合模块/分析数据/ai_context/person_profile.md`(AI 长期上下文文档)。
+
+> ⚠️ 第 2 步必须紧跟第 1 步:第 1 步会删除并重建整个库文件,增强表会随之丢失,需重跑第 2 步补回。第 3 步依赖增强表,缺它则画像会回退到修复前的污染数据。第 4-5 步依赖前 3 步的统合库与增强表。
+>
+> 第 4 步首次构建约需 45-60 分钟(7723 条 × bge-m3 向量化),支持 `--resume` 断点续传。需先启动 ollama 服务并 `ollama pull bge-m3`。
+
+## 语义增强层(阶段1)
+
+`enrich_unified_events.py` 修复三类在静态报告里被掩盖的数据质量缺陷:
+
+**A. 补真实文本(`unified_events_rich`)**
+- 问题:Agent session 事件的 `content` 字段存的是 uuid/时间戳(无语义),真实对话在原始 jsonl 里没被接进统合层。
+- 修复:联接 `agent_data.sqlite.session_messages`,按 session 聚合真实 user/assistant 对话(过滤 uuid/路径/系统指令噪声),写入 `content_rich`。GPT/Google/skill/memory 的 content 已有真实文本,直接透传。
+
+**B. 纯净分类(`event_categories_v2`)**
+- 问题:老分类器把 `service`/`source_table` 元数据拼进分类文本,导致 Agent 模块(其 service=Codex、source_table=sessions)99.9% 自我命中"AI/Agent/模型"。
+- 修复:新分类器(`rules.PURE_TOPIC_RULES`)只对 `title + content_rich` 分类,关键词不含工具名/表名。修复后 Agent 从单一类别垄断变成 8 类真实分布。
+
+**C. 真实跨模块连接(`entity_links_v2`)**
+- 问题:老 `entity_links` 只有 19 条(类型B是死代码,类型A要求跨模块同名碰撞,而 Agent 的 session/file 实体全是全局唯一 UUID)。
+- 修复:用三种真实信号建连 —— 共享域名、共享项目名、时序链路(同年同月内 Google搜索→GPT提问→Agent执行)。修复后生成 7182 条链接,含 33 条完整"搜索→执行"链。
+
+**修复前后对比(统合层关注点分布):**
+
+| | 修复前 | 修复后 |
+|---|---|---|
+| #1 关注点 | AI/Agent/模型 7327(90%) | 编程/调试/开发 1833(22%) |
+| 思考模式 | 工具链驱动 5007(61.5%) | 系统化整理+工具链+其他 三足鼎立 |
+
+## 交互式可视化
+
+启动本地仪表盘(浏览器自动打开):
+
+```powershell
+streamlit run 统合模块\脚本\dashboard.py
+```
+
+四个页面:
+
+1. **总览** —— 三源事件总数、按月堆叠增长图(plotly 可悬停/缩放/筛选图例)、分类修复前后对比。
+2. **模块下钻** —— 选 Google/GPT/Agent,看该模块关注主题/思考模式/服务分布,按月份和服务下钻到真实事件。
+3. **事件明细** —— 全量事件搜索过滤(源/分类/月份/服务/关键词),点开看完整 `content_rich`(真实对话)。这是查看"我具体在做什么"的核心入口。
+4. **跨模块链路** —— 展示"搜索→提问→执行"时序链(架构图核心承诺),以及共享项目名/域名的跨模块连接。
+5. **向量检索** —— 用自然语言语义搜索历史数据(跨三源),返回按相似度排序的真实事件。首次查询约 20 秒(ollama 加载 bge-m3)。
+
+仪表盘从 `personal_system.sqlite` 实时查询,重跑数据后刷新页面即可更新。侧栏显示增强表与向量库就绪状态。
+
+## 共享脚本模块
+
+- `统合模块/脚本/common.py` —— 纯工具函数(sha256/norm/short/write_csv 等),消除原 build_integrated_system 与 build_deep_profiles 的重复定义。
+- `统合模块/脚本/rules.py` —— 统一分类规则:`TOPIC_RULES`/`THINKING_RULES`(老规则,对照基线)+ `PURE_TOPIC_RULES`/`PURE_THINKING_RULES`(纯净规则,剥离元数据污染)。
+- `统合模块/脚本/chroma_client.py` —— 轻量 chroma REST 客户端(基于 requests,绕开 chromadb 官方客户端的 httpx 兼容性问题)。
+- `统合模块/脚本/ollama_embed.py` —— ollama embedding 客户端,封装 bge-m3 批量向量化(批量 64 条时每条 0.4s)。
+- `统合模块/脚本/unified_search.py` —— **统一检索层**:把语义检索 + 精确查询合成一组纯函数(`search_semantic` / `query_events` / `get_event_detail` / `stats`),CLI / MCP / Agent 共用同一后端,见下文"统一检索层(CLI)"。
+- `统合模块/脚本/mcp_server.py` —— **MCP Server**:把统合库 + 向量库暴露成 5 个 MCP tools,支持 MCP 的 AI 客户端零代码接入,见下文"MCP 接入"。
+- `统合模块/脚本/api_server.py` —— **REST API**:纯标准库 `http.server` 实现,把检索能力暴露成 7 个 HTTP 接口,零额外依赖,见下文"REST API 接入"。
+- `统合模块/脚本/examples/` —— **接入示例**:`openai_function_calling.py` / `langchain_tool.py` / `rag_inject.py`,见下文"接入 RAG 平台 / Agent 框架"。
+
+## 向量库与 AI 上下文(阶段2)
+
+把 8136 条事件的 `content_rich` 向量化,让 AI 能按需语义检索用户历史,并生成可直接注入 system prompt 的长期上下文文档。
+
+### 依赖
+
+- **ollama**(本地模型服务)+ `bge-m3` 模型(1024 维,中英双语):`ollama pull bge-m3`
+- **chromadb**(Docker):本项目用独立 collection `personal_events`,**不触碰**你已有的 `novel_6`/`novel_7` collection
+- 不依赖 chromadb Python 客户端包(因 httpx 与本地 chroma 服务有 502 兼容性问题,改用自写的 `chroma_client.py` 直调 REST API)
+
+### 向量库结构
+
+单 collection `personal_events` + 元数据过滤(不分模块多库,保留阶段一跨模块时序链的价值):
+
+```
+chroma: personal_events
+├─ documents: content_rich(真实文本)
+├─ embeddings: bge-m3 1024 维
+├─ ids: event_id(与统合库对齐)
+└─ metadatas: source / category_v2 / event_time / month / service / event_type / title
+```
+
+### 关键产物
+
+- **向量库**:chroma `personal_events`(~7700 条可语义检索事件)
+- **`统合模块/分析数据/ai_context/person_profile.md`** —— AI 长期上下文文档,含数据概览/工具偏好/关注主题/思考模式/跨模块协作/检索说明,可注入 AI system prompt
+- **`统合模块/脚本/search_vectors.py`** —— 检索脚本,AI 想知道"用户之前怎么处理 X"时调用:
+  ```python
+  from search_vectors import search
+  results = search("PPT 排版怎么做", top_k=5)        # 跨三源检索
+  results = search("数据库调试", source="Agent")      # 按源过滤
+  ```
+  命令行:`python 统合模块\脚本\search_vectors.py "PPT 排版" --source Agent --top-k 5`
+
+### 性能说明
+
+- bge-m3 经 ollama 逐条 embedding 约 21 秒/条(不可行),改用批量 `/api/embed` 接口后 64 条/批每条仅 0.4 秒,7723 条约 45-60 分钟
+- `build_vector_store.py` 支持 `--resume` 断点续传,进度存 `vector_build_progress.json`
+- 查询时首次约 20 秒(ollama 加载 bge-m3 到内存),后续单次查询约 0.5 秒
+
+## 统一检索层(阶段3 · CLI)
+
+`unified_search.py` 是所有程序化接入的公共后端。把"语义检索"和"精确查询"合成一组纯函数,**CLI / MCP / 以后的 Agent / RAG 平台都共用这一个文件**,保证四种接入方式行为一致。
+
+两类检索互补:
+- **语义检索**(`search_semantic`):自然语言 → 向量库召回,适合"我大概记得做过类似的事"。
+- **精确查询**(`query_events`):按源/时间/分类/关键词 AND 过滤 sqlite,适合"列出 2025 年 3 月所有 Agent 事件"。
+
+### 命令行用法
+
+```powershell
+# 语义检索(模糊召回)
+python 统合模块\脚本\unified_search.py semantic "PPT 排版怎么做" --top-k 3
+python 统合模块\脚本\unified_search.py semantic "数据库调试" --source Agent
+
+# 精确查询(结构化过滤,所有参数可选)
+python 统合模块\脚本\unified_search.py query --source GPT --month 2025-03
+python 统合模块\脚本\unified_search.py query --category 编程 --keyword 报错 --limit 10
+
+# 单条详情(拿到 event_id 后看完整内容)
+python 统合模块\脚本\unified_search.py detail <event_id>
+
+# 数据库 + 向量库统计概览
+python 统合模块\脚本\unified_search.py stats
+
+# 向量库聚类/去重(对检索结果二次加工)
+python 统合模块\脚本\unified_search.py cluster --source Agent --threshold 0.92
+python 统合模块\脚本\unified_search.py cluster --threshold 0.88 --min-cluster-size 3 --json
+
+# JSON 输出(给其他程序消费)
+python 统合模块\脚本\unified_search.py semantic "PPT" --json
+python 统合模块\脚本\unified_search.py cluster --json --limit 500   # 调试用小样本
+```
+
+加 `--json` 任何子命令都输出结构化 JSON,便于脚本/管道消费;不加则是人类可读文本。CLI 依赖 Python 标准库 + numpy/sklearn(`cluster` 用 numpy 算余弦相似度)。
+
+### 管道加工:聚类/去重
+
+`cluster` 子命令把向量库做**二次加工**:拉出全部 embedding,算两两余弦相似度,相似度 ≥ 阈值的连通成簇,每簇只保留一个代表点。本质是把"一堆高度重复的历史"压成"一组去重后的代表事件"。
+
+- **去重场景**(高阈值 0.95+):压掉几乎逐字重复的事件(同一对话被多次记录、重复的系统指令)
+- **聚类场景**(低阈值 0.85-0.92):把语义相近的事件归为主题簇(同一问题的多次提问、同类文件)
+
+参数:`--threshold`(相似度阈值,0-1,越大越严格)、`--min-cluster-size`(只保留 size≥N 的簇)、`--source`(按源过滤)、`--limit`(调试限流)、`--members`(人类可读模式展示成员 id)。
+
+```powershell
+# 看去重效果(全量,7723 条 → 3786 代表,压缩约 51%)
+python 统合模块\脚本\unified_search.py cluster --threshold 0.92
+
+# 管道链:聚类拿代表点 → 喂给 detail 看完整内容
+for /f %i in ('python 统合模块\脚本\unified_search.py cluster --threshold 0.92 --json ^
+    ^| python -c "import sys,json;[print(c[\"representative_id\"]) for c in json.load(sys.stdin)[\"clusters\"][:5]]"') ^
+    do python 统合模块\脚本\unified_search.py detail %i
+
+# 用 jq 提取代表点 id 列表(下游消费)
+python 统合模块\脚本\unified_search.py cluster --json ^
+  | jq -r ".clusters[].representative_id"
+```
+
+> ⚠️ 全量(7700+)在低阈值下会抓到超大簇(如所有 SKILL.md、所有 json 配置归一簇)——这是结构相似而非语义重复。建议去重用 ≥0.95,主题聚类用 0.85-0.92 并关注 `mean_similarity` 高的小簇。
+
+### 模块用法(给上层接入用)
+
+```python
+import sys; sys.path.insert(0, "统合模块/脚本")
+import unified_search as us
+
+us.search_semantic("PPT 排版怎么做", top_k=5)          # 模糊召回
+us.query_events(source="Agent", month="2025-03")        # 结构化过滤
+us.get_event_detail("gpt_xxx")                          # 单条全字段
+us.stats()                                              # 概览
+us.cluster(threshold=0.92)                              # 聚类/去重
+```
+
+## MCP 接入(阶段3 · 零代码接 AI 客户端)
+
+`mcp_server.py` 把统合库 + 向量库暴露成 5 个 [MCP](https://modelcontextprotocol.io) tools。任何支持 MCP 的 AI 客户端(Claude Desktop / Cursor / ZCode / Continue 等)**配置一行即可检索你的历史数据,无需写集成代码**。
+
+所有 tool 内部都走 `unified_search` 后端,和 CLI 行为完全一致。
+
+| Tool | 作用 | 何时用 |
+|---|---|---|
+| `search_semantic` | 自然语言 → 向量库 → top-K 事件 | "我大概记得做过类似的事" |
+| `query_events` | 按源/时间/分类/关键词精确过滤 | "列出 2025-03 的 Agent 事件" |
+| `get_event_detail` | 按 event_id 取单条全字段 | 点开看详情 |
+| `stats` | 数据库 + 向量库统计概览 | AI 建立全局认知的第一步 |
+| `list_categories` | 列出所有 category_v2 分布 | 知道有哪些维度可过滤 |
+
+### 启动与配置
+
+server 走 stdio 传输(无端口、无网络,本地安全):
+
+```powershell
+python 统合模块\脚本\mcp_server.py
+```
+
+客户端配置(把下面这段加进对应 MCP 配置文件,如 Claude Desktop 的 `claude_desktop_config.json`、Cursor 的 `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "personal-data": {
+      "command": "python",
+      "args": ["C:/Users/li/Desktop/数据分析/统合模块/脚本/mcp_server.py"]
+    }
+  }
+}
+```
+
+依赖:`pip install mcp`(见 `requirements.txt`)。配好后客户端会自动发现这 5 个 tools,AI 可直接调用检索你的历史。
+
+## REST API 接入(阶段3 · HTTP)
+
+`api_server.py` 用 Python 标准库实现,**零额外依赖**。把统合库 + 向量库暴露成 HTTP 接口,任何能发 HTTP 请求的环境(curl/前端/其他服务/Dify 等 RAG 平台)都能接入。所有接口同样走 `unified_search` 后端,行为与 CLI/MCP 一致。
+
+### 接口
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| GET | `/health` | 健康检查 |
+| GET | `/stats` | 数据库 + 向量库统计概览 |
+| GET | `/categories?source=` | 分类分布(可选按源过滤) |
+| POST | `/search/semantic` | 语义检索(body: query/top_k/source) |
+| POST | `/search/query` | 精确查询(body: source/month/category/keyword/limit) |
+| GET | `/event/<id>` | 单条事件全字段 |
+| GET | `/profile` | AI 长期上下文文档内容(RAG 注入用) |
+
+统一返回 `{"ok": bool, "data": ..., "error": ...}`。
+
+### 启动与示例
+
+```powershell
+# 默认 127.0.0.1:8000(仅本地,不对外暴露)
+python 统合模块\脚本\api_server.py
+# 指定端口
+python 统合模块\脚本\api_server.py --port 9000
+
+# 统计概览
+curl http://127.0.0.1:8000/stats
+
+# 语义检索
+curl -X POST http://127.0.0.1:8000/search/semantic ^
+     -H "Content-Type: application/json" ^
+     -d "{\"query\": \"PPT 排版\", \"top_k\": 3}"
+
+# 精确查询
+curl -X POST http://127.0.0.1:8000/search/query ^
+     -H "Content-Type: application/json" ^
+     -d "{\"source\": \"Agent\", \"month\": \"2025-03\"}"
+```
+
+> ⚠️ 默认只监听 127.0.0.1。若需对外/跨机访问,自行加反向代理 + 鉴权(API 本身不带鉴权)。
+
+## 接入 RAG 平台 / Agent 框架(阶段3 · 示例)
+
+`统合模块/脚本/examples/` 下有 3 个可运行示例,覆盖三类典型接入。详见 `examples/README.md`。
+
+| 示例 | 接入方式 | 适用 | 依赖 |
+|---|---|---|---|
+| `openai_function_calling.py` | OpenAI 函数调用 | GPT/DeepSeek/千问 等按需检索历史 | `openai` |
+| `langchain_tool.py` | LangChain Tool | 已用 LangChain/LangGraph 的项目 | `langchain` 全家桶 |
+| `rag_inject.py` | RAG 上下文注入 | Dify/FastGPT/自建 RAG 静默增强 | 仅标准库(调 HTTP API) |
+
+**选型建议:**
+- 想让模型**自己决定何时查数据** → OpenAI 函数调用 / LangChain Tool
+- 想**无脑增强每次回答**(任何 LLM 都行)→ RAG 注入
+- 在 **Dify/FastGPT/Coze** 等平台 → 用上面的 REST API 配成"自定义 HTTP 工具",无需写 Python
+
+RAG 注入示例同时提供两种增强策略,可叠加:
+- **长期画像**(静态):把 `/profile` 的内容塞进 system prompt,让 AI"知道你是谁"
+- **相关事件**(动态):用当前问题调 `/search/semantic`,把 top-K 历史塞进 user prompt,让 AI"记得你做过什么"
+
+```powershell
+# 先启动 API(另开终端),再跑 RAG 示例
+python 统合模块\脚本\api_server.py
+python 统合模块\脚本\examples\rag_inject.py "上次怎么调试 Docker 的"
+```
+
+## 四种接入方式总览
+
+| 方式 | 文件 | 交互对象 | 何时用 |
+|---|---|---|---|
+| 交互式仪表盘 | `dashboard.py` | 人(streamlit) | 自己探索、看图、下钻 |
+| CLI | `unified_search.py` | 脚本/管道 | 自动化、cron、给别的脚本调 |
+| MCP | `mcp_server.py` | AI 客户端(Claude/Cursor 等) | 让支持 MCP 的客户端零代码接入 |
+| REST API | `api_server.py` | 任何 HTTP 客户端 | RAG 平台、前端、跨语言、远程 |
+
+四者**共用同一个 `unified_search` 后端**,语义检索 / 精确查询 / 详情 / 统计的行为完全一致,只是面向的调用方不同。`examples/` 里的 OpenAI/LangChain 示例则进一步把后端包成 Agent tool。
 
 ## 注意
 

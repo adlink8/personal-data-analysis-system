@@ -4,10 +4,15 @@ import csv
 import html
 import json
 import sqlite3
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+
+# 引入共享规则与工具(阶段1提取)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rules as _rules
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,49 +26,9 @@ MODULES = {
     "Agent": ROOT / "Agent",
 }
 
-TOPIC_RULES = [
-    ("AI / Agent / 模型", ["ai", "agent", "gpt", "gemini", "codex", "claude", "hermes", "模型", "智能体", "提示词", "mcp"]),
-    ("编程 / 调试 / 工具", ["python", "sqlite", "数据库", "代码", "脚本", "debug", "bug", "报错", "接口", "api", "docker", "wsl"]),
-    ("数据分析 / 个人系统", ["数据分析", "takeout", "画像", "统合", "结构化", "分析数据", "原始数据", "sqlite"]),
-    ("课程 / 学习 / 文档", ["课程", "学习", "考试", "ppt", "文档", "报告", "论文", "教材", "anki"]),
-    ("项目 / 工作流", ["项目", "workflow", "工作流", "gsd", "roadmap", "计划", "milestone", "phase"]),
-    ("搜索 / 信息获取", ["search", "google", "查询", "搜索", "browser", "chrome"]),
-    ("地图 / 地点 / 本地生活", ["地图", "地点", "location", "maps", "地址", "路线"]),
-    ("娱乐 / 视频 / 生活内容", ["youtube", "视频", "游戏", "音乐", "娱乐", "生活", "体育"]),
-]
-
-THINKING_RULES = [
-    (
-        "系统化整理",
-        ["结构化", "分类", "数据库", "sqlite", "readme", "规范", "目录", "整理", "去重", "统合"],
-        "倾向先把混乱信息变成可维护结构，再进行后续分析。",
-    ),
-    (
-        "工具链驱动",
-        ["脚本", "自动", "pipeline", "workflow", "gsd", "agent", "codex", "cli", "插件"],
-        "倾向把一次性任务沉淀成可重复运行的工具链。",
-    ),
-    (
-        "调试验证",
-        ["报错", "debug", "修复", "验证", "测试", "检查", "失败", "日志", "status"],
-        "倾向通过证据、日志和验证闭环推动问题解决。",
-    ),
-    (
-        "学习建模",
-        ["课程", "学习", "模型", "知识", "笔记", "文档", "报告", "分析", "画像"],
-        "倾向把经验和资料抽象成模型、说明和长期可复用知识。",
-    ),
-    (
-        "AI 协作编排",
-        ["gpt", "gemini", "claude", "codex", "hermes", "workbuddy", "agent", "memory", "skills"],
-        "倾向把多个 AI 工具视为协作系统，并关注 memory、skills、会话和执行能力。",
-    ),
-    (
-        "探索式信息消费",
-        ["youtube", "search", "maps", "chrome", "浏览", "查询", "频道", "视频"],
-        "存在搜索、观看、地点等外部信息输入流，为后续想法提供素材。",
-    ),
-]
+# 分类与思考模式规则已迁移到 rules.py(阶段1统一)。
+# 使用 _rules.PURE_TOPIC_RULES / _rules.PURE_THINKING_RULES(剥离元数据污染)。
+# 旧规则 _rules.TOPIC_RULES / _rules.THINKING_RULES 保留在 rules.py 中作对照基线。
 
 
 def ensure_dirs() -> None:
@@ -73,9 +38,32 @@ def ensure_dirs() -> None:
 
 
 def read_events() -> list[dict]:
+    """读取统合事件,并 LEFT JOIN 语义增强层(content_rich / category_v2)。
+
+    增强表由 enrich_unified_events.py 生成。若增强表不存在(用户只跑了
+    build_integrated_system 没跑 enrich),回退到旧 content/category,保证向后兼容。
+    """
     con = sqlite3.connect(INTEGRATED_DB)
     con.row_factory = sqlite3.Row
-    rows = [dict(r) for r in con.execute("select * from unified_events")]
+    # 检测增强表是否存在,不存在则回退
+    has_rich = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='unified_events_rich'"
+    ).fetchone() is not None
+    has_catv2 = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_categories_v2'"
+    ).fetchone() is not None
+    if has_rich and has_catv2:
+        rows = [
+            dict(r)
+            for r in con.execute(
+                "select ue.*, r.content_rich, c.category_v2 "
+                "from unified_events ue "
+                "left join unified_events_rich r on r.event_id = ue.event_id "
+                "left join event_categories_v2 c on c.event_id = ue.event_id"
+            )
+        ]
+    else:
+        rows = [dict(r) for r in con.execute("select * from unified_events")]
     con.close()
     return rows
 
@@ -95,13 +83,23 @@ def norm(value: object) -> str:
 
 
 def event_text(event: dict) -> str:
+    """拼接用于分类的文本。
+
+    修复(阶段1):剥离 service / source_table 元数据字段。
+    老版本拼入了这两个字段,导致 Agent 模块(其 service=Codex/Claude、
+    source_table=sessions/skills 等几乎必然含 "agent/codex/skills/memory")
+    被 TOPIC_RULES/THINKING_RULES 的元数据词 100% 自我命中。
+
+    现在只用 title + content_rich(优先)/content + category_v2(优先)/category,
+    让分类反映"用户真实在做什么",而不是"数据来自哪个工具"。
+    """
+    content = norm(event.get("content_rich")) or norm(event.get("content"))
+    category = norm(event.get("category_v2")) or norm(event.get("category"))
     return " ".join(
         [
             norm(event.get("title")),
-            norm(event.get("content")),
-            norm(event.get("category")),
-            norm(event.get("service")),
-            norm(event.get("source_table")),
+            content,
+            category,
         ]
     )
 
@@ -199,16 +197,25 @@ def module_specific_metrics(source: str, module_events: list[dict], table_counts
 
 
 def focus_rows(source: str, events: list[dict]) -> list[dict]:
+    """统计关注主题/思考模式/服务/分类。
+
+    修复(阶段1):主题和思考模式改用 PURE 规则(_rules.PURE_TOPIC_RULES /
+    PURE_THINKING_RULES),且 event_text 已剥离元数据,修复 Agent 自我命中。
+    保留"原始分类"维度透传 category_v2/category,供对照。
+    """
     topic_counts = Counter()
     thinking_counts = Counter()
     service_counts = Counter()
     category_counts = Counter()
     for event in events:
         text = event_text(event)
-        topic_counts[classify(text, TOPIC_RULES, "其他 / 未分类")] += 1
-        thinking_counts[classify(text, THINKING_RULES, "其他 / 未分类")] += 1
+        topic_counts[classify(text, _rules.PURE_TOPIC_RULES, _rules.PURE_TOPIC_DEFAULT)] += 1
+        # 思考模式用 PURE 规则(三元组格式)
+        thinking_rules_two = [(label, keys) for label, keys, _ in _rules.PURE_THINKING_RULES]
+        thinking_counts[classify(text, thinking_rules_two, _rules.PURE_THINKING_DEFAULT)] += 1
         service_counts[norm(event.get("service")) or "未标记"] += 1
-        category_counts[norm(event.get("category")) or "未标记"] += 1
+        category = norm(event.get("category_v2")) or norm(event.get("category")) or "未标记"
+        category_counts[category] += 1
 
     rows = []
     for rank, (name, count) in enumerate(topic_counts.most_common(12), start=1):
@@ -223,17 +230,23 @@ def focus_rows(source: str, events: list[dict]) -> list[dict]:
 
 
 def thinking_profile(events: list[dict], source: str = "All") -> list[dict]:
+    """思考模式画像。
+
+    修复(阶段1):改用 PURE_THINKING_RULES,剥离元数据污染。
+    evidence 优先用 content_rich(真实对话)而非旧 content(可能是 uuid)。
+    """
     counts = Counter()
     evidence = defaultdict(list)
     for event in events:
         text = event_text(event)
-        label = classify(text, THINKING_RULES, "其他 / 未分类")
+        thinking_rules_two = [(label, keys) for label, keys, _ in _rules.PURE_THINKING_RULES]
+        label = classify(text, thinking_rules_two, _rules.PURE_THINKING_DEFAULT)
         counts[label] += 1
         if len(evidence[label]) < 3:
-            title = norm(event.get("title")) or norm(event.get("content"))[:90]
+            title = norm(event.get("title")) or (norm(event.get("content_rich")) or norm(event.get("content")))[:90]
             evidence[label].append(title)
 
-    explanations = {label: explanation for label, _, explanation in THINKING_RULES}
+    explanations = {label: explanation for label, _, explanation in _rules.PURE_THINKING_RULES}
     rows = []
     total = max(sum(counts.values()), 1)
     for rank, (label, count) in enumerate(counts.most_common(), start=1):

@@ -1,0 +1,22 @@
+# 个人数据分析系统依赖
+# Python 3.14 已验证可用 (cp314 wheel)
+# 安装: pip install -r requirements.txt
+
+# 已有数据处理栈
+pandas>=3.0
+numpy>=2.4
+matplotlib>=3.10
+scikit-learn>=1.8
+
+# 阶段1: 交互式可视化
+streamlit>=1.58
+plotly>=6.8
+
+# 阶段2 (本次未启用, 留作向量库准备):
+# torch>=2.12  # CPU 版, embedding 用
+# sentence-transformers  # 本地中文 embedding, 首选 BAAI/bge-small-zh-v1.5
+
+# 阶段3: 程序化接入
+# CLI (unified_search.py) 只用标准库, 无额外依赖
+# MCP server 需要官方 SDK
+mcp>=1.0
