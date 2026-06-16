@@ -1,12 +1,12 @@
 """向量库构建脚本(阶段二核心)。
 
 从统合库 personal_system.sqlite 读取 content_rich(阶段一补全的真实文本),
-经 ollama bge-m3 向量化,写入 chroma personal_events collection。
+经本地 bge-small-zh-v1.5 向量化,写入 chroma personal_events collection。
 
 管道:
   unified_events_rich (8136 条)
     │ 过滤:content_rich 非空且 >=10 字符
-    │ 批量 ollama embed(每批 32 条,带进度)
+    │ 本地批量 embed(每批 64 条,带进度)
     ▼
   chroma personal_events collection
     元数据: source / category_v2 / event_time / month / service / event_type
@@ -16,7 +16,7 @@
 - 不动 SQLite 表(只读)
 - 不碰 chroma 的 novel_6/novel_7(只操作 personal_events)
 - 断点续传:进度存 JSON,中断后可从断点继续
-- 失败重试:ollama 单条失败重试,不中断整批
+- 失败重试:批次失败时保留进度,支持断点续传
 
 运行: python 统合模块\\脚本\\build_vector_store.py
 """

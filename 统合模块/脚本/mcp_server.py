@@ -3,7 +3,7 @@
 让任何支持 MCP 的 AI 客户端(Claude Desktop / Cursor / ZCode / Continue 等)
 能直接检索用户的历史数据,无需手写集成代码。
 
-暴露 5 个 tools(全部走 unified_search 后端,保证 CLI / MCP / Agent 行为一致):
+暴露 5 个 tools(共享同一统合库与检索语义):
 
   1. search_semantic  自然语言 → 向量库 → top-K 真实事件(模糊召回)
   2. query_events     按源/时间/分类/关键词精确过滤 sqlite(结构化查询)
@@ -27,17 +27,21 @@
     }
 
 设计原则:
-- 复用 unified_search.py 的纯函数后端,不重复实现检索逻辑
+- 精确查询、详情和统计复用 unified_search.py,直接读取本地 SQLite
+- 语义检索调用常驻的本地 REST API,复用已加载的嵌入模型与 Chroma
 - 所有 tool 返回结构化文本(AI 友好),内部异常被捕获转成错误提示
-- stdio 传输,无端口、无网络,本地安全
+- MCP 本身使用 stdio;语义检索只访问 127.0.0.1 本地回环地址
 - 每次调用记录简要日志到 stderr(不影响 stdio 协议)
 """
 
 from __future__ import annotations
 
+import os
+import json
 import sys
 import traceback
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 # 让本模块能找到同目录依赖(unified_search / search_vectors / ...)
 _THIS_DIR = Path(__file__).resolve().parent
@@ -46,9 +50,35 @@ if str(_THIS_DIR) not in sys.path:
 
 import mcp.types as types  # noqa: E402
 from mcp.server import Server  # noqa: E402
+from mcp.server.lowlevel.server import NotificationOptions  # noqa: E402
+from mcp.server.models import InitializationOptions  # noqa: E402
 from mcp.server.stdio import stdio_server  # noqa: E402
 
+# MCP server 是按客户端启动的短生命周期进程。默认用 CPU 生成查询向量，
+# 避免与常驻 REST API 的 GPU 模型发生 CUDA 初始化竞争。
+os.environ.setdefault("PERSONAL_DATA_EMBED_DEVICE", "cpu")
 import unified_search as backend  # noqa: E402
+
+SEMANTIC_API_URL = os.environ.get(
+    "PERSONAL_DATA_SEMANTIC_API",
+    "http://127.0.0.1:8000/search/semantic",
+)
+
+
+def _search_semantic_via_api(query: str, top_k: int, source: str | None) -> list[dict]:
+    """通过常驻 REST API 调用语义检索，避免 MCP 子进程重复加载模型。"""
+    payload = {"query": query, "top_k": top_k, "source": source}
+    request = Request(
+        SEMANTIC_API_URL,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=120) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    if not body.get("ok"):
+        raise RuntimeError(body.get("error") or "REST API 语义检索失败")
+    return body.get("data") or []
 
 
 # === Tool 定义 ============================================================
@@ -287,7 +317,7 @@ async def handle_call_tool(
 
     try:
         if name == "search_semantic":
-            results = backend.search_semantic(
+            results = _search_semantic_via_api(
                 query=arguments.get("query", ""),
                 top_k=arguments.get("top_k", 5),
                 source=arguments.get("source"),
@@ -337,12 +367,12 @@ async def main() -> None:
         await server.run(
             read_stream,
             write_stream,
-            types.InitializationOptions(
+            InitializationOptions(
                 server_name="personal-data",
                 server_version="1.0.0",
                 capabilities=server.get_capabilities(
-                    notification_options=None,
-                    experimental_capabilities=None,
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
                 ),
             ),
         )

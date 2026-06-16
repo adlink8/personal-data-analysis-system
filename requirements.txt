@@ -12,9 +12,10 @@ scikit-learn>=1.8
 streamlit>=1.58
 plotly>=6.8
 
-# 阶段2 (本次未启用, 留作向量库准备):
-# torch>=2.12  # CPU 版, embedding 用
-# sentence-transformers  # 本地中文 embedding, 首选 BAAI/bge-small-zh-v1.5
+# 阶段2:向量库。当前环境使用本地 BAAI/bge-small-zh-v1.5(512维)。
+# torch / sentence-transformers 已由本机模型环境提供；新机器需单独安装。
+# torch>=2.12
+# sentence-transformers
 
 # 阶段3: 程序化接入
 # CLI (unified_search.py) 只用标准库, 无额外依赖

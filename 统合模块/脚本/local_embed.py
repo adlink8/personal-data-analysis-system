@@ -32,7 +32,9 @@ os.environ.setdefault('HF_HUB_OFFLINE', '1')
 MODEL_PATH = r"D:\models\bge-small-zh-v1.5"
 EMBED_MODEL = "bge-small-zh-v1.5"  # 模型名(展示用,兼容 ollama_embed 接口)
 EMBED_DIM = 512  # bge-small-zh-v1.5 维度
-DEVICE = "cuda"  # GPU 推理;无 GPU 时回退 cpu
+DEVICE = os.environ.get("PERSONAL_DATA_EMBED_DEVICE", "cuda")
+# 默认 GPU；MCP 等短生命周期子进程可设置为 cpu，避免与常驻 API
+# 同时初始化 CUDA。模型和向量维度保持一致。
 
 # 模型单例(避免重复加载)
 _MODEL = None

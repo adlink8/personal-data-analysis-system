@@ -83,12 +83,12 @@ python 统合模块\脚本\build_context_doc.py
 2. `enrich_unified_events.py` —— **语义增强层**:在统合库追加 3 张增强表(`unified_events_rich` / `event_categories_v2` / `entity_links_v2`),修复三类数据质量问题(见下文"语义增强层")。
 3. `build_merge_layer.py` —— **合并层**(去重折叠):把相似事件折叠成簇,新建 `merge_clusters`/`merge_members` 2 张叠加表(原始数据零损失)。三层分类:L1 真重复→1 条代表,L2 同主题→簇摘要,L3 保留(见下文"合并层(去重折叠)")。
 4. `build_deep_profiles.py` —— 基于统合库 + 增强表生成模块画像和统合画像。支持 `--use-merged` 生成去重视图(排除重复成员,避免计数虚高)。
-5. `build_vector_store.py` —— **向量库构建**:把 `content_rich` 经 ollama bge-m3 向量化,写入 chroma `personal_events` collection(见下文"向量库与 AI 上下文")。
+5. `build_vector_store.py` —— **向量库构建**:把 `content_rich` 经本地 `bge-small-zh-v1.5` 向量化,写入 chroma `personal_events` collection(见下文"向量库与 AI 上下文")。
 6. `build_context_doc.py` —— 生成 `统合模块/分析数据/ai_context/person_profile.md`(AI 长期上下文文档)。
 
 > ⚠️ 第 2 步必须紧跟第 1 步:第 1 步会删除并重建整个库文件,增强表会随之丢失,需重跑第 2 步补回。第 3 步(合并层)依赖第 2 步的 `content_rich`;第 4 步依赖增强表,缺它则画像会回退到修复前的污染数据。第 5-6 步依赖前 4 步的统合库与增强表。
 >
-> 第 5 步首次构建约需 45-60 分钟(7723 条 × bge-m3 向量化),支持 `--resume` 断点续传。需先启动 ollama 服务并 `ollama pull bge-m3`。
+> 第 5 步使用本机 `D:\models\bge-small-zh-v1.5`(512维)批量向量化,支持 `--resume` 断点续传。Ollama `bge-m3` 客户端保留为备用实现,不是当前 `personal_events` collection 的构建模型。
 
 ## 语义增强层(阶段1)
 
@@ -169,7 +169,7 @@ streamlit run 统合模块\脚本\dashboard.py
 2. **模块下钻** —— 选 Google/GPT/Agent,看该模块关注主题/思考模式/服务分布,按月份和服务下钻到真实事件。
 3. **事件明细** —— 全量事件搜索过滤(源/分类/月份/服务/关键词),点开看完整 `content_rich`(真实对话)。这是查看"我具体在做什么"的核心入口。
 4. **跨模块链路** —— 展示"搜索→提问→执行"时序链(架构图核心承诺),以及共享项目名/域名的跨模块连接。
-5. **向量检索** —— 用自然语言语义搜索历史数据(跨三源),返回按相似度排序的真实事件。首次查询约 20 秒(ollama 加载 bge-m3)。
+5. **向量检索** —— 用自然语言语义搜索历史数据(跨三源),返回按相似度排序的真实事件。首次查询约 20 秒(本地模型加载),后续查询明显更快。
 
 仪表盘从 `personal_system.sqlite` 实时查询,重跑数据后刷新页面即可更新。侧栏显示增强表、向量库、合并层就绪状态,支持原始/去重视图切换。
 
@@ -178,7 +178,8 @@ streamlit run 统合模块\脚本\dashboard.py
 - `统合模块/脚本/common.py` —— 纯工具函数(sha256/norm/short/write_csv 等),消除原 build_integrated_system 与 build_deep_profiles 的重复定义。
 - `统合模块/脚本/rules.py` —— 统一分类规则:`TOPIC_RULES`/`THINKING_RULES`(老规则,对照基线)+ `PURE_TOPIC_RULES`/`PURE_THINKING_RULES`(纯净规则,剥离元数据污染)。
 - `统合模块/脚本/chroma_client.py` —— 轻量 chroma REST 客户端(基于 requests,绕开 chromadb 官方客户端的 httpx 兼容性问题)。
-- `统合模块/脚本/ollama_embed.py` —— ollama embedding 客户端,封装 bge-m3 批量向量化(批量 64 条时每条 0.4s)。
+- `统合模块/脚本/local_embed.py` —— 当前生产 embedding 实现:`bge-small-zh-v1.5`,512维。
+- `统合模块/脚本/ollama_embed.py` —— 备用 Ollama embedding 客户端,支持 `bge-m3` 1024维,当前 collection 未使用。
 - `统合模块/脚本/unified_search.py` —— **统一检索层**:把语义检索 + 精确查询合成一组纯函数(`search_semantic` / `query_events` / `get_event_detail` / `stats`),CLI / MCP / Agent 共用同一后端,见下文"统一检索层(CLI)"。
 - `统合模块/脚本/mcp_server.py` —— **MCP Server**:把统合库 + 向量库暴露成 5 个 MCP tools,支持 MCP 的 AI 客户端零代码接入,见下文"MCP 接入"。
 - `统合模块/脚本/api_server.py` —— **REST API**:纯标准库 `http.server` 实现,把检索能力暴露成 7 个 HTTP 接口,零额外依赖,见下文"REST API 接入"。
@@ -190,7 +191,8 @@ streamlit run 统合模块\脚本\dashboard.py
 
 ### 依赖
 
-- **ollama**(本地模型服务)+ `bge-m3` 模型(1024 维,中英双语):`ollama pull bge-m3`
+- **当前模型**:`D:\models\bge-small-zh-v1.5`(512维,通过 sentence-transformers 本地加载)
+- **备用模型**:Ollama `bge-m3`(1024维),代码保留但当前 collection 未使用
 - **chromadb**(Docker):本项目用独立 collection `personal_events`,**不触碰**你已有的 `novel_6`/`novel_7` collection
 - 不依赖 chromadb Python 客户端包(因 httpx 与本地 chroma 服务有 502 兼容性问题,改用自写的 `chroma_client.py` 直调 REST API)
 
@@ -201,7 +203,7 @@ streamlit run 统合模块\脚本\dashboard.py
 ```
 chroma: personal_events
 ├─ documents: content_rich(真实文本)
-├─ embeddings: bge-m3 1024 维
+├─ embeddings: bge-small-zh-v1.5 512 维
 ├─ ids: event_id(与统合库对齐)
 └─ metadatas: source / category_v2 / event_time / month / service / event_type / title
 ```
@@ -220,9 +222,9 @@ chroma: personal_events
 
 ### 性能说明
 
-- bge-m3 经 ollama 逐条 embedding 约 21 秒/条(不可行),改用批量 `/api/embed` 接口后 64 条/批每条仅 0.4 秒,7723 条约 45-60 分钟
+- 当前构建使用本地 sentence-transformers 批量向量化,避免 Ollama 批处理不稳定问题
 - `build_vector_store.py` 支持 `--resume` 断点续传,进度存 `vector_build_progress.json`
-- 查询时首次约 20 秒(ollama 加载 bge-m3 到内存),后续单次查询约 0.5 秒
+- 查询时首次约 20 秒(本地 bge-small-zh 模型加载到内存),后续查询明显更快
 
 ## 统一检索层(阶段3 · CLI)
 
@@ -315,7 +317,7 @@ us.cluster(threshold=0.92)                              # 聚类/去重
 
 `mcp_server.py` 把统合库 + 向量库暴露成 5 个 [MCP](https://modelcontextprotocol.io) tools。任何支持 MCP 的 AI 客户端(Claude Desktop / Cursor / ZCode / Continue 等)**配置一行即可检索你的历史数据,无需写集成代码**。
 
-所有 tool 内部都走 `unified_search` 后端,和 CLI 行为完全一致。
+精确查询、详情与统计直接复用 `unified_search` 读取 SQLite；语义检索通过本地 REST API 复用常驻的嵌入模型与 Chroma，结果口径与 CLI 一致，同时避免每个 MCP 客户端重复加载模型。
 
 | Tool | 作用 | 何时用 |
 |---|---|---|
@@ -327,7 +329,13 @@ us.cluster(threshold=0.92)                              # 聚类/去重
 
 ### 启动与配置
 
-server 走 stdio 传输(无端口、无网络,本地安全):
+先保持 REST API 启动，供 `search_semantic` 复用常驻模型：
+
+```powershell
+python 统合模块\脚本\api_server.py
+```
+
+MCP server 本身走 stdio 传输；只有语义检索访问 `127.0.0.1:8000` 本地回环地址：
 
 ```powershell
 python 统合模块\脚本\mcp_server.py

@@ -156,13 +156,16 @@ class Collection:
 class ChromaClient:
     """chroma 服务客户端(REST API v2,基于 requests)。"""
 
-    def __init__(self, host: str = "localhost", port: int = 8001, tenant: str = "default_tenant", database: str = "default_database"):
+    def __init__(self, host: str = "127.0.0.1", port: int = 8001, tenant: str = "default_tenant", database: str = "default_database"):
         self.host = host
         self.port = port
         self.tenant = tenant
         self.database = database
         self._base = f"http://{host}:{port}/api/v2/tenants/{tenant}/databases/{database}"
         self._session = requests.Session()
+        # Chroma 是本机服务。禁用系统代理环境，避免 localhost 首次请求
+        # 被代理探测拖慢约 20 秒或返回 502。
+        self._session.trust_env = False
         self._session.headers.update({"Content-Type": "application/json"})
 
     def heartbeat(self, timeout: int = 10) -> int:
@@ -189,6 +192,13 @@ class ChromaClient:
 
         幂等:同名已存在则返回现有(不报错)。
         """
+        # Chroma 对“已存在 collection 的 create 请求”可能等待较久才返回
+        # 冲突。查询路径会频繁调用本方法，因此先读取现有 collection，
+        # 只有确实不存在时才发创建请求。
+        existing = self._find_collection_by_name(name)
+        if existing:
+            return Collection(self, existing["id"], existing["name"], existing.get("dimension"))
+
         if metadata is None:
             metadata = {"hnsw:space": "cosine"}
         payload = {"name": name, "metadata": metadata}

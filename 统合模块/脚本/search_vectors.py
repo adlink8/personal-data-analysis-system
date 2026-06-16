@@ -8,7 +8,7 @@
 2. 模块:from search_vectors import search; results = search("查询")
 
 检索流程:
-  查询文本 -> ollama bge-m3 向量化 -> chroma cosine 检索 -> 返回 top-K 事件
+  查询文本 -> 本地 bge-small-zh-v1.5 向量化 -> chroma cosine 检索 -> 返回 top-K 事件
 """
 
 from __future__ import annotations
