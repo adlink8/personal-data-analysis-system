@@ -73,6 +73,7 @@ Agent/
 ```powershell
 python 统合模块\脚本\build_integrated_system.py
 python 统合模块\脚本\enrich_unified_events.py
+python 统合模块\脚本\build_merge_layer.py
 python 统合模块\脚本\build_deep_profiles.py
 python 统合模块\脚本\build_vector_store.py
 python 统合模块\脚本\build_context_doc.py
@@ -80,13 +81,14 @@ python 统合模块\脚本\build_context_doc.py
 
 1. `build_integrated_system.py` —— 重建统合 SQLite(`personal_system.sqlite`),含 9 张原始表(统一事件、实体、跨模块链接等)。
 2. `enrich_unified_events.py` —— **语义增强层**:在统合库追加 3 张增强表(`unified_events_rich` / `event_categories_v2` / `entity_links_v2`),修复三类数据质量问题(见下文"语义增强层")。
-3. `build_deep_profiles.py` —— 基于统合库 + 增强表生成模块画像和统合画像。
-4. `build_vector_store.py` —— **向量库构建**:把 `content_rich` 经 ollama bge-m3 向量化,写入 chroma `personal_events` collection(见下文"向量库与 AI 上下文")。
-5. `build_context_doc.py` —— 生成 `统合模块/分析数据/ai_context/person_profile.md`(AI 长期上下文文档)。
+3. `build_merge_layer.py` —— **合并层**(去重折叠):把相似事件折叠成簇,新建 `merge_clusters`/`merge_members` 2 张叠加表(原始数据零损失)。三层分类:L1 真重复→1 条代表,L2 同主题→簇摘要,L3 保留(见下文"合并层(去重折叠)")。
+4. `build_deep_profiles.py` —— 基于统合库 + 增强表生成模块画像和统合画像。支持 `--use-merged` 生成去重视图(排除重复成员,避免计数虚高)。
+5. `build_vector_store.py` —— **向量库构建**:把 `content_rich` 经 ollama bge-m3 向量化,写入 chroma `personal_events` collection(见下文"向量库与 AI 上下文")。
+6. `build_context_doc.py` —— 生成 `统合模块/分析数据/ai_context/person_profile.md`(AI 长期上下文文档)。
 
-> ⚠️ 第 2 步必须紧跟第 1 步:第 1 步会删除并重建整个库文件,增强表会随之丢失,需重跑第 2 步补回。第 3 步依赖增强表,缺它则画像会回退到修复前的污染数据。第 4-5 步依赖前 3 步的统合库与增强表。
+> ⚠️ 第 2 步必须紧跟第 1 步:第 1 步会删除并重建整个库文件,增强表会随之丢失,需重跑第 2 步补回。第 3 步(合并层)依赖第 2 步的 `content_rich`;第 4 步依赖增强表,缺它则画像会回退到修复前的污染数据。第 5-6 步依赖前 4 步的统合库与增强表。
 >
-> 第 4 步首次构建约需 45-60 分钟(7723 条 × bge-m3 向量化),支持 `--resume` 断点续传。需先启动 ollama 服务并 `ollama pull bge-m3`。
+> 第 5 步首次构建约需 45-60 分钟(7723 条 × bge-m3 向量化),支持 `--resume` 断点续传。需先启动 ollama 服务并 `ollama pull bge-m3`。
 
 ## 语义增强层(阶段1)
 
@@ -111,6 +113,48 @@ python 统合模块\脚本\build_context_doc.py
 | #1 关注点 | AI/Agent/模型 7327(90%) | 编程/调试/开发 1833(22%) |
 | 思考模式 | 工具链驱动 5007(61.5%) | 系统化整理+工具链+其他 三足鼎立 |
 
+## 合并层(去重折叠 · 阶段1.5)
+
+`build_merge_layer.py` 在**不改动原始 9 张表**的前提下,新建 `merge_clusters`/`merge_members`/`merge_build_meta` 3 张叠加表,把相似事件折叠成簇。核心承诺:**合并=折叠,不是删除。任何时刻 JOIN 回去都能拿到每条原始事件的完整内容。**
+
+### 三层分类算法
+
+| 层 | 含义 | 判据 | 处理 |
+|---|---|---|---|
+| **L1 真重复** | 同一事件被记录多次 | 余弦≥0.97 + 原始 Jaccard≥0.80 + 语义骨架 Jaccard≥0.75 + **内容区分度<0.5** | 折叠为 1 条(保留时间最早的代表) |
+| **L2 同主题** | 同一主题的不同操作/提问 | 余弦 0.88~0.97 连通分量 | 聚成簇(留代表+标题摘要) |
+| **L3 保留** | 独立事件或结构相似超大簇 | 超大簇保护(size>50)或无相似邻居 | 保持原样 |
+
+**内容区分度**(第 4 道门槛):对 L1 候选簇,把每个成员的"语义骨架"(去数字/路径/UUID)去重,唯一值比例 ≥ 0.5 判为结构相似(如 15 个不同文件名的 umath-*.csv 路径,公共前缀长但文件名各异)→ 降级进 L2;真重复(如 26 条完全相同的"文档产物"文本)骨架唯一值=1 → 确认 L1。
+
+### 产出表
+
+- `merge_clusters`:簇主表(cluster_id / level / representative_id / member_count / summary / mean_similarity)
+- `merge_members`:成员明细(cluster_id / event_id / is_representative / role)—— 100% 可追溯
+- `merge_build_meta`:构建元数据(输入事件数/压缩率/阈值/耗时)—— 幂等校验用
+
+### 实测效果(7723 条输入)
+
+```
+L1 真重复:  521 条 → 118 代表  (省 403)
+L2 同主题:  1364 条 → 398 簇   (省 966)
+L3 结构保护:3337 条(5 超大簇保持独立)
+L3 保留原样:2501 条
+净压缩率: 17.7% (7,723 → 6,354)
+耗时: ~24s
+```
+
+### 下游消费
+
+合并层是**可选增强**,所有脚本向后兼容:
+- `unified_search.py`:加 `--dedup` 标志按合并层折叠检索结果;`merge-stats` 子命令查看压缩报告
+- `build_deep_profiles.py`:加 `--use-merged` 生成去重视图(产物加 `_去重` 后缀,不覆盖全量版)
+- `dashboard.py`:侧栏"原始/去重"视图切换
+
+### 幂等性
+
+重复运行先 `DROP IF EXISTS` 再建,结果一致。
+
 ## 交互式可视化
 
 启动本地仪表盘(浏览器自动打开):
@@ -127,7 +171,7 @@ streamlit run 统合模块\脚本\dashboard.py
 4. **跨模块链路** —— 展示"搜索→提问→执行"时序链(架构图核心承诺),以及共享项目名/域名的跨模块连接。
 5. **向量检索** —— 用自然语言语义搜索历史数据(跨三源),返回按相似度排序的真实事件。首次查询约 20 秒(ollama 加载 bge-m3)。
 
-仪表盘从 `personal_system.sqlite` 实时查询,重跑数据后刷新页面即可更新。侧栏显示增强表与向量库就绪状态。
+仪表盘从 `personal_system.sqlite` 实时查询,重跑数据后刷新页面即可更新。侧栏显示增强表、向量库、合并层就绪状态,支持原始/去重视图切换。
 
 ## 共享脚本模块
 
@@ -195,9 +239,15 @@ chroma: personal_events
 python 统合模块\脚本\unified_search.py semantic "PPT 排版怎么做" --top-k 3
 python 统合模块\脚本\unified_search.py semantic "数据库调试" --source Agent
 
+# 语义检索 + 去重(合并层折叠重复命中)
+python 统合模块\脚本\unified_search.py semantic "PPT" --top-k 8 --dedup
+
 # 精确查询(结构化过滤,所有参数可选)
 python 统合模块\脚本\unified_search.py query --source GPT --month 2025-03
 python 统合模块\脚本\unified_search.py query --category 编程 --keyword 报错 --limit 10
+
+# 精确查询 + 去重
+python 统合模块\脚本\unified_search.py query --source Agent --dedup --limit 30
 
 # 单条详情(拿到 event_id 后看完整内容)
 python 统合模块\脚本\unified_search.py detail <event_id>
@@ -205,12 +255,16 @@ python 统合模块\脚本\unified_search.py detail <event_id>
 # 数据库 + 向量库统计概览
 python 统合模块\脚本\unified_search.py stats
 
+# 合并层压缩报告(L1/L2 去重情况)
+python 统合模块\脚本\unified_search.py merge-stats
+
 # 向量库聚类/去重(对检索结果二次加工)
 python 统合模块\脚本\unified_search.py cluster --source Agent --threshold 0.92
 python 统合模块\脚本\unified_search.py cluster --threshold 0.88 --min-cluster-size 3 --json
 
 # JSON 输出(给其他程序消费)
 python 统合模块\脚本\unified_search.py semantic "PPT" --json
+python 统合模块\脚本\unified_search.py merge-stats --json
 python 统合模块\脚本\unified_search.py cluster --json --limit 500   # 调试用小样本
 ```
 
@@ -248,9 +302,12 @@ import sys; sys.path.insert(0, "统合模块/脚本")
 import unified_search as us
 
 us.search_semantic("PPT 排版怎么做", top_k=5)          # 模糊召回
+us.search_semantic("PPT 排版怎么做", top_k=5, dedup=True)  # 去重召回
 us.query_events(source="Agent", month="2025-03")        # 结构化过滤
+us.query_events(source="Agent", month="2025-03", dedup=True)  # 去重过滤
 us.get_event_detail("gpt_xxx")                          # 单条全字段
 us.stats()                                              # 概览
+us.merge_stats()                                        # 合并层压缩报告
 us.cluster(threshold=0.92)                              # 聚类/去重
 ```
 

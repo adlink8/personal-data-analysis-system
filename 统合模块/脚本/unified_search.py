@@ -37,19 +37,62 @@ def search_semantic(
     query: str,
     top_k: int = 5,
     source: Optional[str] = None,
+    dedup: bool = False,
 ) -> list[dict]:
     """语义检索:自然语言召回用户历史事件。
 
     query: 自然语言(如"PPT 排版怎么做")
     top_k: 返回条数
     source: 过滤数据源("Google"/"GPT"/"Agent"),None=全源
+    dedup:  True=按合并层折叠重复命中(L1 真重复/L2 同主题只留代表),
+            返回结果里多一个 merged_count 字段表示该代表背后折叠了几条。
+            折叠后实际条数可能少于 top_k。
     返回: list[dict],按相似度降序,字段:
         event_id, source, category_v2, event_type, service,
-        event_time, month, title, content, score
+        event_time, month, title, content, score[, merged_count]
     """
     if not query or not query.strip():
         return []
-    return _semantic_search(query, top_k=top_k, source=source)
+    # dedup 模式多召回一些,折叠后仍有足够结果
+    fetch_k = top_k * 3 if dedup else top_k
+    results = _semantic_search(query, top_k=fetch_k, source=source)
+    if not dedup or not results:
+        return results[:top_k]
+    if not _merge_layer_ready():
+        return results[:top_k]
+
+    # 按合并层折叠:同簇只留首个(分数最高)命中,附 merged_count
+    kept_ids, dup_map = _dedup_event_ids([r["event_id"] for r in results])
+    rep_first_idx: dict[str, int] = {}
+    for i, r in enumerate(results):
+        rep = dup_map.get(r["event_id"], r["event_id"])
+        if rep not in rep_first_idx:
+            rep_first_idx[rep] = i
+
+    # 统计每个代表折叠了多少条命中
+    con = sqlite3.connect(UNIFIED_DB)
+    rep_counts: dict[str, int] = {}
+    for rep in rep_first_idx:
+        try:
+            n = con.execute(
+                "SELECT COUNT(*) FROM merge_members WHERE cluster_id IN "
+                "(SELECT cluster_id FROM merge_members WHERE event_id=?)",
+                (rep,),
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            n = 0
+        # 独立事件(不在任何簇)代表它自己,计 1
+        rep_counts[rep] = n if n > 0 else 1
+    con.close()
+
+    out = []
+    for rep, idx in sorted(rep_first_idx.items(), key=lambda x: x[1]):
+        r = dict(results[idx])
+        r["merged_count"] = rep_counts.get(rep, 1)
+        out.append(r)
+        if len(out) >= top_k:
+            break
+    return out
 
 
 def query_events(
@@ -58,6 +101,7 @@ def query_events(
     category: Optional[str] = None,
     keyword: Optional[str] = None,
     limit: int = 50,
+    dedup: bool = False,
 ) -> list[dict]:
     """精确查询:按结构化条件过滤原始 sqlite 库。
 
@@ -67,11 +111,15 @@ def query_events(
     category: category_v2 子串匹配(如"编程")
     keyword:  title + content_rich + content 的子串匹配
     limit:    最多返回条数(默认 50,上限 200)
+    dedup:    True=按合并层折叠(L1/L2 同簇只留代表,代表保留首次命中),
+              结果含 merged_count 字段。折叠后条数可能少于 limit。
     返回: list[dict],含 event_id/source/event_time/service/category_v2/title/content_rich
     """
     limit = max(1, min(int(limit), 200))
     con = sqlite3.connect(UNIFIED_DB)
     con.row_factory = sqlite3.Row
+    # dedup 模式:多拉再折叠。内层 fetch_limit 放大,折叠后裁到 limit
+    fetch_limit = limit * 4 if dedup else limit
     sql = (
         "SELECT ue.event_id, ue.source, ue.service, ue.event_time, ue.month, "
         "ue.title, (r.content_rich IS NOT NULL) AS has_rich, "
@@ -97,10 +145,38 @@ def query_events(
         kw = f"%{keyword}%"
         params.extend([kw, kw])
     sql += " ORDER BY ue.event_time DESC LIMIT ?"
-    params.append(limit)
+    params.append(fetch_limit)
     rows = [dict(r) for r in con.execute(sql, params)]
     con.close()
-    return rows
+
+    if not dedup or not rows or not _merge_layer_ready():
+        return rows
+
+    kept_ids, dup_map = _dedup_event_ids([r["event_id"] for r in rows])
+    # 保留首次出现的代表行,附 merged_count(该代表所属簇的总成员数)
+    con = sqlite3.connect(UNIFIED_DB)
+    seen_rep: set[str] = set()
+    out: list[dict] = []
+    for r in rows:
+        rep = dup_map.get(r["event_id"], r["event_id"])
+        if rep in seen_rep:
+            continue
+        seen_rep.add(rep)
+        r2 = dict(r)
+        try:
+            n = con.execute(
+                "SELECT COUNT(*) FROM merge_members WHERE cluster_id IN "
+                "(SELECT cluster_id FROM merge_members WHERE event_id=?)",
+                (rep,),
+            ).fetchone()[0]
+        except sqlite3.OperationalError:
+            n = 0
+        r2["merged_count"] = n if n > 0 else 1  # 独立事件代表自身,计 1
+        out.append(r2)
+        if len(out) >= limit:
+            break
+    con.close()
+    return out
 
 
 def get_event_detail(event_id: str) -> Optional[dict]:
@@ -147,6 +223,123 @@ def stats() -> dict:
         out["vector_available"] = False
         out["vector_error"] = str(e)[:120]
     return out
+
+
+# === 合并层(去重视图)====================================================
+
+def _merge_layer_ready() -> bool:
+    """合并层是否已构建(merge_clusters 表存在且非空)。"""
+    con = sqlite3.connect(UNIFIED_DB)
+    try:
+        n = con.execute("SELECT COUNT(*) FROM merge_clusters").fetchone()[0]
+    except sqlite3.OperationalError:
+        n = 0
+    con.close()
+    return n > 0
+
+
+def _dedup_event_ids(event_ids: list[str]) -> tuple[list[str], dict[str, str]]:
+    """按合并层折叠一批 event_id。
+
+    返回 (kept_ids, dup_map):
+      kept_ids: 去重后保留的代表 id 列表(保持输入顺序)
+      dup_map:  {被折叠的成员id → 代表id}(仅含实际被折叠的;代表/独立点不入表)
+
+    规则:若 event_id 是某簇的成员,用该簇代表点替换它;
+          代表点或非合并表成员保持原样。多个成员属同一簇只留一个代表。
+    """
+    if not event_ids:
+        return [], {}
+    con = sqlite3.connect(UNIFIED_DB)
+    con.row_factory = sqlite3.Row
+    placeholders = ",".join("?" * len(event_ids))
+    # 每个 event_id → 其所属簇的代表(若有)
+    rows = con.execute(
+        f"SELECT mm.event_id AS eid, mc.representative_id AS rep_id "
+        f"FROM merge_members mm JOIN merge_clusters mc "
+        f"ON mc.cluster_id = mm.cluster_id "
+        f"WHERE mm.event_id IN ({placeholders})",
+        event_ids,
+    ).fetchall()
+    con.close()
+    eid_to_rep = {r["eid"]: r["rep_id"] for r in rows}
+
+    kept: list[str] = []
+    seen_reps: set[str] = set()
+    dup_map: dict[str, str] = {}
+    for eid in event_ids:
+        rep = eid_to_rep.get(eid, eid)  # 不在合并表 → 自身即代表
+        if rep in seen_reps:
+            dup_map[eid] = rep
+            continue
+        seen_reps.add(rep)
+        kept.append(eid if eid == rep else rep)
+        if eid != rep:
+            dup_map[eid] = rep
+    return kept, dup_map
+
+
+def merge_stats() -> dict:
+    """返回合并层构建报告(merge_build_meta + 簇分布)。
+
+    若合并层未构建,返回 {"available": False, "hint": ...}。
+    """
+    if not _merge_layer_ready():
+        return {
+            "available": False,
+            "hint": "合并层未构建。运行: python 统合模块/脚本/build_merge_layer.py",
+        }
+    con = sqlite3.connect(UNIFIED_DB)
+    con.row_factory = sqlite3.Row
+    meta = {r["key"]: r["value"] for r in con.execute(
+        "SELECT key, value FROM merge_build_meta"
+    )}
+    by_level = {
+        r["level"]: r["n"] for r in con.execute(
+            "SELECT level, COUNT(*) AS n FROM merge_clusters GROUP BY level"
+        )
+    }
+    top_l1 = [dict(r) for r in con.execute(
+        "SELECT mc.cluster_id, mc.member_count, ue.title "
+        "FROM merge_clusters mc JOIN unified_events ue "
+        "ON ue.event_id = mc.representative_id "
+        "WHERE mc.level='L1_duplicate' "
+        "ORDER BY mc.member_count DESC LIMIT 5"
+    )]
+    top_l2 = [dict(r) for r in con.execute(
+        "SELECT mc.cluster_id, mc.member_count, substr(mc.summary,1,60) AS summary "
+        "FROM merge_clusters mc WHERE mc.level='L2_topic' "
+        "ORDER BY mc.member_count DESC LIMIT 5"
+    )]
+    con.close()
+
+    def num(k):
+        try:
+            return int(float(meta.get(k, 0)))
+        except (ValueError, TypeError):
+            return meta.get(k)
+
+    return {
+        "available": True,
+        "n_input": num("n_input"),
+        "l1_clusters": by_level.get("L1_duplicate", 0),
+        "l1_events": num("l1_events"),
+        "l2_clusters": by_level.get("L2_topic", 0),
+        "l2_events": num("l2_events"),
+        "structural_clusters": num("structural_clusters"),
+        "structural_events": num("structural_events"),
+        "effective_events": num("effective_events"),
+        "compression": float(meta.get("compression", 0)),
+        "thresholds": {
+            "l1_cos": float(meta.get("threshold_l1_cos", 0)),
+            "l1_jac": float(meta.get("threshold_l1_jac", 0)),
+            "l1_sem_jac": float(meta.get("threshold_l1_sem_jac", 0)),
+            "l1_distinct": float(meta.get("threshold_l1_distinct", 0)),
+            "l2_cos": float(meta.get("threshold_l2_cos", 0)),
+        },
+        "top_l1_clusters": top_l1,
+        "top_l2_clusters": top_l2,
+    }
 
 
 # === 聚类 / 去重(对向量库二次加工)======================================
@@ -301,23 +494,29 @@ def _cli() -> None:
   python unified_search.py semantic "PPT 排版怎么做" --top-k 3
   python unified_search.py semantic "数据库调试" --source Agent
 
+  # 语义检索 + 去重(合并层折叠重复命中)
+  python unified_search.py semantic "PPT" --top-k 8 --dedup
+
   # 精确查询(结构化过滤)
   python unified_search.py query --source GPT --month 2025-03
   python unified_search.py query --category 编程 --keyword 报错 --limit 10
+  python unified_search.py query --source Agent --dedup --limit 30
 
   # 单条详情
   python unified_search.py detail <event_id>
 
   # 统计概览
   python unified_search.py stats
+  python unified_search.py merge-stats        # 合并层压缩报告
 
-  # 向量库聚类/去重(管道加工)
+  # 向量库聚类/去重(管道加工,即时计算,不依赖合并层)
   python unified_search.py cluster --source Agent --threshold 0.92
   python unified_search.py cluster --threshold 0.88 --min-cluster-size 3 --json
 
   # JSON 输出(便于其他程序消费)—— --json 跟在子命令后
   python unified_search.py semantic "PPT" --json
   python unified_search.py stats --json
+  python unified_search.py merge-stats --json
   python unified_search.py cluster --json --limit 500    # 调试用小样本
         """,
     )
@@ -327,6 +526,8 @@ def _cli() -> None:
     ps.add_argument("query")
     ps.add_argument("--top-k", type=int, default=5)
     ps.add_argument("--source", default=None)
+    ps.add_argument("--dedup", action="store_true",
+                    help="按合并层折叠重复命中(L1/L2 同簇只留代表,附 merged_count)")
     ps.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
 
     pq = sub.add_parser("query", help="精确查询(结构化过滤)")
@@ -335,6 +536,8 @@ def _cli() -> None:
     pq.add_argument("--category", default=None, help="category_v2 子串")
     pq.add_argument("--keyword", default=None, help="title+content 子串")
     pq.add_argument("--limit", type=int, default=20)
+    pq.add_argument("--dedup", action="store_true",
+                    help="按合并层折叠(L1/L2 同簇只留代表,附 merged_count)")
     pq.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
 
     pd = sub.add_parser("detail", help="单条事件详情")
@@ -343,6 +546,9 @@ def _cli() -> None:
 
     pst = sub.add_parser("stats", help="数据库+向量库统计")
     pst.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
+
+    pms = sub.add_parser("merge-stats", help="合并层压缩报告(L1/L2 去重情况)")
+    pms.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
 
     pc = sub.add_parser(
         "cluster", help="向量库相似度聚类/去重(管道加工)"
@@ -369,11 +575,12 @@ def _cli() -> None:
     args = p.parse_args()
 
     if args.cmd == "semantic":
-        data = search_semantic(args.query, top_k=args.top_k, source=args.source)
+        data = search_semantic(args.query, top_k=args.top_k, source=args.source, dedup=args.dedup)
     elif args.cmd == "query":
         data = query_events(
             source=args.source, month=args.month,
             category=args.category, keyword=args.keyword, limit=args.limit,
+            dedup=args.dedup,
         )
     elif args.cmd == "detail":
         data = get_event_detail(args.event_id)
@@ -382,6 +589,8 @@ def _cli() -> None:
             return
     elif args.cmd == "stats":
         data = stats()
+    elif args.cmd == "merge-stats":
+        data = merge_stats()
     elif args.cmd == "cluster":
         data = cluster(
             source=args.source, threshold=args.threshold,
@@ -398,18 +607,22 @@ def _cli() -> None:
             print("无匹配结果")
             return
         for i, r in enumerate(data, 1):
-            print(f"\n#{i} [score={r['score']}] [{r['source']}] {(r.get('title') or '(无标题)')[:50]}")
+            mc = r.get("merged_count")
+            tail = f"  (折叠 {mc} 条)" if mc and mc > 1 else ""
+            print(f"\n#{i} [score={r['score']}] [{r['source']}] {(r.get('title') or '(无标题)')[:50]}{tail}")
             print(f"   时间: {r.get('event_time','')}  分类: {r.get('category_v2','')}")
             c = (r.get("content") or "")[:200]
             print(f"   内容: {c}{'…' if len(r.get('content',''))>200 else ''}")
-        print(f"\n共 {len(data)} 条")
+        print(f"\n共 {len(data)} 条" + ("(已去重)" if args.dedup else ""))
     elif args.cmd == "query":
         if not data:
             print("无匹配结果")
             return
         for r in data:
-            print(f"[{r['source']}] {r['event_time']} | {(r.get('title') or '')[:40]} | {r.get('category_v2','')}")
-        print(f"\n共 {len(data)} 条(上限 {args.limit})")
+            mc = r.get("merged_count")
+            tail = f" ×{mc}" if mc and mc > 1 else ""
+            print(f"[{r['source']}] {r['event_time']} | {(r.get('title') or '')[:40]} | {r.get('category_v2','')}{tail}")
+        print(f"\n共 {len(data)} 条(上限 {args.limit})" + ("(已去重)" if args.dedup else ""))
     elif args.cmd == "detail":
         for k, v in data.items():
             val = str(v) if v is not None else ""
@@ -426,6 +639,25 @@ def _cli() -> None:
             print(f"向量库: {data['vector_count']:,} 条")
         else:
             print(f"向量库: 不可用({data.get('vector_error','')})")
+    elif args.cmd == "merge-stats":
+        if not data.get("available"):
+            print(data.get("hint", "合并层未构建"))
+            return
+        print(f"输入事件: {data['n_input']:,}  →  等效事件: {data['effective_events']:,}"
+              f"  (压缩 {data['compression']:.1%})")
+        print(f"L1 真重复: {data['l1_clusters']} 簇 / {data['l1_events']} 条")
+        print(f"L2 同主题: {data['l2_clusters']} 簇 / {data['l2_events']} 条")
+        print(f"L3 结构保护: {data['structural_clusters']} 簇 / {data['structural_events']} 条")
+        th = data["thresholds"]
+        print(f"阈值: L1={th['l1_cos']}/J{th['l1_jac']}/SJ{th['l1_sem_jac']}/DR{th['l1_distinct']} L2={th['l2_cos']}")
+        if data.get("top_l1_clusters"):
+            print("\nL1 Top 簇:")
+            for c in data["top_l1_clusters"]:
+                print(f"  size={c['member_count']} '{(c['title'] or '')[:45]}'")
+        if data.get("top_l2_clusters"):
+            print("\nL2 Top 簇:")
+            for c in data["top_l2_clusters"]:
+                print(f"  size={c['member_count']} {c['summary']}")
     elif args.cmd == "cluster":
         print(f"输入事件: {data['n_input']:,}")
         print(f"保留(代表): {data['n_kept']:,}  合并掉: {data['n_merged']:,}"

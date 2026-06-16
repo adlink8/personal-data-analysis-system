@@ -34,8 +34,11 @@ INTEGRATED_DB = ROOT / "统合模块" / "SQLite数据库" / "personal_system.sql
 # === 数据加载(带缓存)===
 
 @st.cache_data(ttl=300, show_spinner="加载统合数据...")
-def load_events() -> pd.DataFrame:
-    """加载 unified_events + 增强表(content_rich / category_v2)。"""
+def load_events(use_merged: bool = False) -> pd.DataFrame:
+    """加载 unified_events + 增强表(content_rich / category_v2)。
+
+    use_merged: True=去重视图,排除合并层中非代表的重复成员,只留代表+独立事件。
+    """
     import sqlite3
     con = sqlite3.connect(INTEGRATED_DB)
     has_rich = con.execute(
@@ -44,14 +47,30 @@ def load_events() -> pd.DataFrame:
     has_catv2 = con.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_categories_v2'"
     ).fetchone() is not None
+
+    # 去重视图需要合并层
+    if use_merged:
+        has_merge = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='merge_members'"
+        ).fetchone() is not None
+        if not has_merge:
+            st.warning("合并层未构建,回退到原始视图。请先运行 `build_merge_layer.py`。")
+            use_merged = False
+
     if has_rich and has_catv2:
-        df = pd.read_sql_query(
+        sql = (
             "SELECT ue.*, r.content_rich, c.category_v2 "
             "FROM unified_events ue "
             "LEFT JOIN unified_events_rich r ON r.event_id = ue.event_id "
-            "LEFT JOIN event_categories_v2 c ON c.event_id = ue.event_id",
-            con,
+            "LEFT JOIN event_categories_v2 c ON c.event_id = ue.event_id"
         )
+        if use_merged:
+            sql += (
+                " WHERE ue.event_id NOT IN ("
+                "  SELECT event_id FROM merge_members WHERE is_representative = 0"
+                ")"
+            )
+        df = pd.read_sql_query(sql, con)
     else:
         df = pd.read_sql_query("SELECT * FROM unified_events", con)
         st.warning(
@@ -89,6 +108,32 @@ def data_status() -> tuple[bool, bool, bool]:
         ).fetchone() is not None)
     con.close()
     return tuple(res)
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def merge_layer_status() -> dict:
+    """检查合并层状态。返回 {available, n_clusters, compression, meta}。"""
+    import sqlite3
+    con = sqlite3.connect(INTEGRATED_DB)
+    try:
+        n = con.execute("SELECT COUNT(*) FROM merge_clusters").fetchone()[0]
+        if n == 0:
+            return {"available": False, "n_clusters": 0, "compression": 0, "meta": {}}
+        meta = {r[0]: r[1] for r in con.execute("SELECT key, value FROM merge_build_meta")}
+        return {
+            "available": True,
+            "n_clusters": n,
+            "compression": float(meta.get("compression", 0)),
+            "n_input": int(float(meta.get("n_input", 0))),
+            "effective_events": int(float(meta.get("effective_events", 0))),
+            "l1_clusters": int(float(meta.get("l1_clusters", 0))),
+            "l2_clusters": int(float(meta.get("l2_clusters", 0))),
+            "meta": meta,
+        }
+    except sqlite3.OperationalError:
+        return {"available": False, "n_clusters": 0, "compression": 0, "meta": {}}
+    finally:
+        con.close()
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -567,6 +612,30 @@ def main() -> None:
             st.markdown(f"✅ 向量库({vstatus['count']:,} 条)")
         else:
             st.markdown("⚠️ 向量库(未构建)")
+
+        # 合并层状态 + 视图切换
+        st.divider()
+        mstatus = merge_layer_status()
+        if mstatus["available"]:
+            st.markdown(f"✅ 合并层({mstatus['n_clusters']} 簇, 压缩 {mstatus['compression']:.1%})")
+            view_mode = st.radio(
+                "📊 视图模式",
+                ["原始(全量)", "去重(合并层)"],
+                index=0,
+                key="view_mode",
+                help="去重视图排除 L1/L2 重复成员,只留代表+独立事件。",
+            )
+            use_merged = view_mode.startswith("去重")
+            with st.expander("合并层详情"):
+                st.markdown(f"- 输入: {mstatus['n_input']:,}")
+                st.markdown(f"- 等效: {mstatus['effective_events']:,}")
+                st.markdown(f"- L1 真重复: {mstatus['l1_clusters']} 簇")
+                st.markdown(f"- L2 同主题: {mstatus['l2_clusters']} 簇")
+        else:
+            st.markdown("⚠️ 合并层(未构建)")
+            st.caption("运行 `build_merge_layer.py` 后可启用去重视图")
+            use_merged = False
+
         if not (has_rich and has_catv2 and has_links):
             st.info(
                 "增强表未完整。请运行:\n"
@@ -575,8 +644,8 @@ def main() -> None:
         st.divider()
         st.caption("数据源:\n统合模块/SQLite数据库/\npersonal_system.sqlite")
 
-    # 加载数据
-    df = load_events()
+    # 加载数据(根据视图模式)
+    df = load_events(use_merged=use_merged)
 
     # 导航
     page = st.sidebar.radio(

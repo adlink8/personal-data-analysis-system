@@ -26,6 +26,10 @@ MODULES = {
     "Agent": ROOT / "Agent",
 }
 
+# 输出文件后缀:--use-merged 时加 "_去重",避免覆盖全量产物。
+# 由 main() 设置,read/write 函数读取。空串=全量模式(默认,向后兼容)。
+OUTPUT_SUFFIX = ""
+
 # 分类与思考模式规则已迁移到 rules.py(阶段1统一)。
 # 使用 _rules.PURE_TOPIC_RULES / _rules.PURE_THINKING_RULES(剥离元数据污染)。
 # 旧规则 _rules.TOPIC_RULES / _rules.THINKING_RULES 保留在 rules.py 中作对照基线。
@@ -37,11 +41,16 @@ def ensure_dirs() -> None:
         (module / "分析数据").mkdir(parents=True, exist_ok=True)
 
 
-def read_events() -> list[dict]:
+def read_events(use_merged: bool = False) -> list[dict]:
     """读取统合事件,并 LEFT JOIN 语义增强层(content_rich / category_v2)。
 
     增强表由 enrich_unified_events.py 生成。若增强表不存在(用户只跑了
     build_integrated_system 没跑 enrich),回退到旧 content/category,保证向后兼容。
+
+    use_merged: True=按合并层去重视图,只保留每个 L1/L2 簇的代表点 + 所有独立
+        事件,重复成员排除。这样画像统计不会被高频重复事件(如 26 条相同的
+        "文档产物")虚高。需要先运行 build_merge_layer.py 构建合并层;
+        合并层不存在时静默回退到全量(并打印提示)。
     """
     con = sqlite3.connect(INTEGRATED_DB)
     con.row_factory = sqlite3.Row
@@ -52,16 +61,45 @@ def read_events() -> list[dict]:
     has_catv2 = con.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_categories_v2'"
     ).fetchone() is not None
+
+    # 合并层可用性(use_merged 模式下才检测)
+    if use_merged:
+        has_merge = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='merge_members'"
+        ).fetchone() is not None
+        if not has_merge:
+            print("[warn] --use-merged 但合并层未构建,回退全量。"
+                  "请先运行 build_merge_layer.py")
+            use_merged = False
+
     if has_rich and has_catv2:
-        rows = [
-            dict(r)
-            for r in con.execute(
-                "select ue.*, r.content_rich, c.category_v2 "
-                "from unified_events ue "
-                "left join unified_events_rich r on r.event_id = ue.event_id "
-                "left join event_categories_v2 c on c.event_id = ue.event_id"
-            )
-        ]
+        if use_merged:
+            # 去重视图:排除非代表的合并成员(只留代表 + 独立事件)。
+            # 一个 event_id 被排除当且仅当:它在 merge_members 里,且
+            # is_representative=0。代表点(is_representative=1)和不在
+            # 合并表里的独立事件都保留。
+            rows = [
+                dict(r)
+                for r in con.execute(
+                    "select ue.*, r.content_rich, c.category_v2 "
+                    "from unified_events ue "
+                    "left join unified_events_rich r on r.event_id = ue.event_id "
+                    "left join event_categories_v2 c on c.event_id = ue.event_id "
+                    "where ue.event_id not in ("
+                    "  select event_id from merge_members where is_representative = 0"
+                    ")"
+                )
+            ]
+        else:
+            rows = [
+                dict(r)
+                for r in con.execute(
+                    "select ue.*, r.content_rich, c.category_v2 "
+                    "from unified_events ue "
+                    "left join unified_events_rich r on r.event_id = ue.event_id "
+                    "left join event_categories_v2 c on c.event_id = ue.event_id"
+                )
+            ]
     else:
         rows = [dict(r) for r in con.execute("select * from unified_events")]
     con.close()
@@ -647,30 +685,32 @@ def render_integrated_html(
 
 def build_module_profile(source: str, events: list[dict], table_counts: list[dict]) -> dict:
     analysis_dir = MODULES[source] / "分析数据"
+    sfx = OUTPUT_SUFFIX
     module_growth = build_growth_rows(events)
     module_focus = focus_rows(source, events)
     module_thinking = thinking_profile(events, source)
     metrics = module_specific_metrics(source, events, table_counts)
 
-    write_csv(analysis_dir / "模块画像_核心指标.csv", metrics, ["metric", "value", "note"])
-    write_csv(analysis_dir / "模块画像_关注点.csv", module_focus, ["source", "dimension", "rank", "name", "event_count"])
-    write_csv(analysis_dir / "模块画像_数据增长_按月.csv", module_growth, ["month", "source", "event_count"])
-    write_csv(analysis_dir / "模块画像_思考模式.csv", module_thinking, ["source", "rank", "thinking_pattern", "event_count", "share", "interpretation", "evidence_examples"])
-    plot_growth(module_growth, analysis_dir / "模块画像_数据增长图.png", f"{source} monthly data growth", [source])
+    write_csv(analysis_dir / f"模块画像_核心指标{sfx}.csv", metrics, ["metric", "value", "note"])
+    write_csv(analysis_dir / f"模块画像_关注点{sfx}.csv", module_focus, ["source", "dimension", "rank", "name", "event_count"])
+    write_csv(analysis_dir / f"模块画像_数据增长_按月{sfx}.csv", module_growth, ["month", "source", "event_count"])
+    write_csv(analysis_dir / f"模块画像_思考模式{sfx}.csv", module_thinking, ["source", "rank", "thinking_pattern", "event_count", "share", "interpretation", "evidence_examples"])
+    plot_growth(module_growth, analysis_dir / f"模块画像_数据增长图{sfx}.png", f"{source} monthly data growth{sfx}", [source])
 
     top_topics = [r for r in module_focus if r["dimension"] == "关注主题"][:8]
     top_thinking = module_thinking[:6]
     profile = {
         "source": source,
+        "mode": "dedup" if sfx else "full",
         "metrics": metrics,
         "top_focus": top_topics,
         "thinking_profile": top_thinking,
         "growth_rows": module_growth,
         "caveat": "思考模式为基于本地数据文本的行为推断，不是心理诊断。",
     }
-    write_json(analysis_dir / "模块画像.json", profile)
+    write_json(analysis_dir / f"模块画像{sfx}.json", profile)
 
-    md = f"""# {source} 模块画像
+    md = f"""# {source} 模块画像{('（' + sfx.lstrip('_') + '）') if sfx else ''}
 
 ## 结论
 
@@ -692,8 +732,8 @@ def build_module_profile(source: str, events: list[dict], table_counts: list[dic
 
 ## 数据增长
 
-- 明细：`模块画像_数据增长_按月.csv`
-- 图表：`模块画像_数据增长图.png`
+- 明细：`模块画像_数据增长_按月{sfx}.csv`
+- 图表：`模块画像_数据增长图{sfx}.png`
 
 ## 该模块在个人系统中的用处
 
@@ -701,12 +741,13 @@ def build_module_profile(source: str, events: list[dict], table_counts: list[dic
 - 判断数据是否持续增长，是否需要批次化追加。
 - 为统合画像提供可追溯证据，而不是只依赖主观记忆。
     """
-    (analysis_dir / "模块画像.md").write_text(md, encoding="utf-8")
-    (analysis_dir / "模块画像.html").write_text(render_module_html(source, metrics, top_topics, top_thinking), encoding="utf-8")
+    (analysis_dir / f"模块画像{sfx}.md").write_text(md, encoding="utf-8")
+    (analysis_dir / f"模块画像{sfx}.html").write_text(render_module_html(source, metrics, top_topics, top_thinking), encoding="utf-8")
     return profile
 
 
 def build_integrated_profile(events: list[dict], table_counts: list[dict], module_profiles: dict[str, dict]) -> None:
+    sfx = OUTPUT_SUFFIX
     growth = build_growth_rows(events)
     focus = []
     for source in MODULES:
@@ -715,15 +756,16 @@ def build_integrated_profile(events: list[dict], table_counts: list[dict], modul
     thinking = thinking_profile(events, "All")
     flow = data_flow_rows(table_counts, events)
 
-    write_csv(INTEGRATED_ANALYSIS / "统合画像_数据流向.csv", flow, ["source", "flow_step", "location", "description", "record_count"])
-    write_csv(INTEGRATED_ANALYSIS / "统合画像_数据增长_按月.csv", growth, ["month", "source", "event_count"])
-    write_csv(INTEGRATED_ANALYSIS / "统合画像_关注点.csv", integrated_focus, ["source", "dimension", "rank", "name", "event_count"])
-    write_csv(INTEGRATED_ANALYSIS / "统合画像_各模块关注点.csv", focus, ["source", "dimension", "rank", "name", "event_count"])
-    write_csv(INTEGRATED_ANALYSIS / "统合画像_个人思考模式.csv", thinking, ["source", "rank", "thinking_pattern", "event_count", "share", "interpretation", "evidence_examples"])
-    plot_growth(growth, INTEGRATED_ANALYSIS / "统合画像_数据增长图.png", "Integrated monthly data growth", list(MODULES))
+    write_csv(INTEGRATED_ANALYSIS / f"统合画像_数据流向{sfx}.csv", flow, ["source", "flow_step", "location", "description", "record_count"])
+    write_csv(INTEGRATED_ANALYSIS / f"统合画像_数据增长_按月{sfx}.csv", growth, ["month", "source", "event_count"])
+    write_csv(INTEGRATED_ANALYSIS / f"统合画像_关注点{sfx}.csv", integrated_focus, ["source", "dimension", "rank", "name", "event_count"])
+    write_csv(INTEGRATED_ANALYSIS / f"统合画像_各模块关注点{sfx}.csv", focus, ["source", "dimension", "rank", "name", "event_count"])
+    write_csv(INTEGRATED_ANALYSIS / f"统合画像_个人思考模式{sfx}.csv", thinking, ["source", "rank", "thinking_pattern", "event_count", "share", "interpretation", "evidence_examples"])
+    plot_growth(growth, INTEGRATED_ANALYSIS / f"统合画像_数据增长图{sfx}.png", f"Integrated monthly data growth{sfx}", list(MODULES))
 
     source_counts = Counter(e["source"] for e in events)
     profile = {
+        "mode": "dedup" if sfx else "full",
         "event_count": len(events),
         "source_event_counts": dict(source_counts),
         "module_profiles": module_profiles,
@@ -732,11 +774,11 @@ def build_integrated_profile(events: list[dict], table_counts: list[dict], modul
         "data_flow": flow,
         "caveat": "个人思考画像是行为数据推断，用于自我复盘、系统优化和模型上下文建设，不是医学或心理诊断。",
     }
-    write_json(INTEGRATED_ANALYSIS / "统合画像.json", profile)
+    write_json(INTEGRATED_ANALYSIS / f"统合画像{sfx}.json", profile)
 
     top_focus = [r for r in integrated_focus if r["dimension"] == "关注主题"][:10]
     top_services = [r for r in integrated_focus if r["dimension"] == "服务/工具"][:10]
-    md = f"""# 统合画像
+    md = f"""# 统合画像{('（' + sfx.lstrip('_') + '）') if sfx else ''}
 
 ## 结论
 
@@ -748,8 +790,8 @@ def build_integrated_profile(events: list[dict], table_counts: list[dict], modul
 
 ## 数据增长
 
-- 明细：`统合画像_数据增长_按月.csv`
-- 图表：`统合画像_数据增长图.png`
+- 明细：`统合画像_数据增长_按月{sfx}.csv`
+- 图表：`统合画像_数据增长图{sfx}.png`
 
 当前进入统合层的事件数：{len(events)}。
 
@@ -778,31 +820,47 @@ def build_integrated_profile(events: list[dict], table_counts: list[dict], modul
 
 ## 产物索引
 
-- `统合画像.json`
-- `统合画像_数据流向.csv`
-- `统合画像_数据增长_按月.csv`
-- `统合画像_数据增长图.png`
-- `统合画像_关注点.csv`
-- `统合画像_各模块关注点.csv`
-- `统合画像_个人思考模式.csv`
+- `统合画像{sfx}.json`
+- `统合画像_数据流向{sfx}.csv`
+- `统合画像_数据增长_按月{sfx}.csv`
+- `统合画像_数据增长图{sfx}.png`
+- `统合画像_关注点{sfx}.csv`
+- `统合画像_各模块关注点{sfx}.csv`
+- `统合画像_个人思考模式{sfx}.csv`
 """
-    (INTEGRATED_ANALYSIS / "统合画像.md").write_text(md, encoding="utf-8")
-    (INTEGRATED_ANALYSIS / "统合画像.html").write_text(
+    (INTEGRATED_ANALYSIS / f"统合画像{sfx}.md").write_text(md, encoding="utf-8")
+    (INTEGRATED_ANALYSIS / f"统合画像{sfx}.html").write_text(
         render_integrated_html(events, source_counts, flow, top_focus, top_services, thinking),
         encoding="utf-8",
     )
 
 
 def main() -> None:
+    import argparse
+    p = argparse.ArgumentParser(description="构建深度画像(模块画像 + 统合画像)")
+    p.add_argument("--use-merged", action="store_true",
+                   help="按合并层去重视图:只用代表点 + 独立事件做统计,"
+                        "排除 L1/L2 重复成员,避免高频重复事件虚高计数。"
+                        "产物文件加 _去重 后缀,不覆盖全量版。")
+    args = p.parse_args()
+
+    global OUTPUT_SUFFIX
+    OUTPUT_SUFFIX = "_去重" if args.use_merged else ""
+
     ensure_dirs()
-    events = read_events()
+    events = read_events(use_merged=args.use_merged)
     table_counts = read_table_counts()
+    mode_label = "去重视图" if args.use_merged else "全量"
+    print(f"[build_deep_profiles] 模式={mode_label} 事件数={len(events)}")
     module_profiles = {}
     for source in MODULES:
         module_events = [event for event in events if event["source"] == source]
         module_profiles[source] = build_module_profile(source, module_events, table_counts)
     build_integrated_profile(events, table_counts, module_profiles)
-    print(json.dumps({"status": "ok", "events": len(events), "modules": list(MODULES)}, ensure_ascii=False))
+    print(json.dumps({
+        "status": "ok", "mode": mode_label, "events": len(events),
+        "modules": list(MODULES),
+    }, ensure_ascii=False))
 
 
 if __name__ == "__main__":
