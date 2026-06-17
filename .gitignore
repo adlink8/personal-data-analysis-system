@@ -33,7 +33,6 @@ Agent/分析数据/*
 # Import batches, duplicate manifests, and quarantine may include private file names.
 imports/*
 !imports/README.md
-new_import/duplicate_audit/
 
 # Local generated data and binary outputs
 *.sqlite

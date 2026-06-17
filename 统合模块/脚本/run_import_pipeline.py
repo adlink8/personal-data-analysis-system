@@ -15,11 +15,11 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 IMPORTS = ROOT / "imports"
 BATCHES = IMPORTS / "batches"
 INCOMING = IMPORTS / "incoming"
-QUARANTINE = ROOT / "duplicate_audit" / "quarantine"
+QUARANTINE = IMPORTS / "duplicate_audit" / "quarantine"
 GOOGLE_DB = ROOT / "Google" / "结构化数据" / "SQLite数据库" / "google_data.sqlite"
 GPT_DB = ROOT / "GPT" / "结构化数据" / "SQLite数据库" / "chatgpt_data.db"
 
@@ -155,7 +155,7 @@ def init_all() -> None:
 
 def existing_hashes() -> dict[str, str]:
     """Return one canonical path per hash outside imports and duplicate audit."""
-    ignored = [IMPORTS.resolve(), (ROOT / "duplicate_audit").resolve()]
+    ignored = [IMPORTS.resolve(), (IMPORTS / "duplicate_audit").resolve()]
     hashes: dict[str, str] = {}
     for path in ROOT.rglob("*"):
         if not path.is_file():

@@ -12,8 +12,8 @@ imports/
 然后从工作区根目录运行：
 
 ```powershell
-python pipelines\run_import_pipeline.py --source google --input imports\incoming\google
-python pipelines\run_import_pipeline.py --source gpt --input imports\incoming\gpt
+python 统合模块\脚本\run_import_pipeline.py --source google --input imports\incoming\google
+python 统合模块\脚本\run_import_pipeline.py --source gpt --input imports\incoming\gpt
 ```
 
 脚本会创建批次目录：
@@ -29,6 +29,6 @@ imports/batches/<batch_id>/
 重复文件不会删除，会移动到：
 
 ```text
-duplicate_audit/quarantine/
+imports/duplicate_audit/quarantine/
 ```
 
