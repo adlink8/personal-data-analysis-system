@@ -2,37 +2,35 @@
 
 本项目用于把个人数字足迹整理成可持续追加、可查询、可分析的本地数据系统。
 
-核心结构只保留三类数据模块：
+## 顶层目录
 
 ```text
-Google/
-  原始数据/
-  结构化数据/
-  分析数据/
-
-GPT/
-  原始数据/
-  结构化数据/
-  分析数据/
-
-Agent/
-  原始数据/
-  结构化数据/
-  分析数据/
-
-统合模块/
-  原始输入索引/
-  结构化数据/
-  分析数据/
-  SQLite数据库/
-  脚本/
+数据分析/
+├── Google/         GPT/         Agent/         # 三源原始数据(对称结构:原始/结构化/分析)
+├── 统合模块/                                    # 核心:整合三源的脚本与产出
+│   ├── 脚本/                                   # 全部 Python 脚本(构建/检索/服务层)
+│   ├── lib/                                    # 前端依赖(query_graph 可视化用)
+│   ├── SQLite数据库/                           # personal_system.sqlite(统合库)
+│   ├── 分析数据/                               # 画像、_schema.json、ai_context/
+│   └── 结构化数据/  原始输入索引/
+├── imports/                                    # 增量导入暂存区
+│   ├── incoming/                               # 新导出文件先放这里
+│   ├── batches/                                # 每次导入一个批次目录
+│   └── duplicate_audit/                        # 重复文件隔离区
+├── .planning/                                  # 规划文档(codebase map + 架构图.drawio)
+├── .gsd/                                       # GSD 工作流状态
+├── README.md
+└── requirements.txt
 ```
 
-## 三层含义
+每个数据源(Google/GPT/Agent)内部三层:
 
-- `原始数据`：平台导出、本机工具文件、会话、memory、skills 等未加工数据。
-- `结构化数据`：清洗后的 CSV、SQLite、索引表、明细表和脚本。
-- `分析数据`：报告、画像、增长图、关注点统计、思考模式推断。
+```text
+<模块>/
+  原始数据/    # 平台导出、本机工具文件、会话、memory、skills 等未加工数据
+  结构化数据/  # 清洗后的 CSV、SQLite、索引表、明细表和脚本
+  分析数据/    # 报告、画像、增长图、关注点统计、思考模式推断
+```
 
 ## 分析目标
 
@@ -68,27 +66,53 @@ Agent/
 
 ## 重跑链路
 
-从项目根目录执行(顺序固定,每步幂等):
+### 推荐:统一管道入口
 
 ```powershell
-python 统合模块\脚本\build_integrated_system.py
-python 统合模块\脚本\enrich_unified_events.py
-python 统合模块\脚本\build_merge_layer.py
-python 统合模块\脚本\build_deep_profiles.py
-python 统合模块\脚本\build_vector_store.py
-python 统合模块\脚本\build_context_doc.py
+python 统合模块\脚本\run_pipeline.py               # 全量重跑(步骤 1-11)
+python 统合模块\脚本\run_pipeline.py --from 5      # 从步骤 5 恢复(跳过重建库)
+python 统合模块\脚本\run_pipeline.py --only 3,4    # 只跑步骤 3 和 4
+python 统合模块\脚本\run_pipeline.py --skip 10     # 跳过向量化(省时间)
+python 统合模块\脚本\run_pipeline.py --dry-run     # 只打印顺序,不执行
 ```
 
-1. `build_integrated_system.py` —— 重建统合 SQLite(`personal_system.sqlite`),含 9 张原始表(统一事件、实体、跨模块链接等)。
-2. `enrich_unified_events.py` —— **语义增强层**:在统合库追加 3 张增强表(`unified_events_rich` / `event_categories_v2` / `entity_links_v2`),修复三类数据质量问题(见下文"语义增强层")。
-3. `build_merge_layer.py` —— **合并层**(去重折叠):把相似事件折叠成簇,新建 `merge_clusters`/`merge_members` 2 张叠加表(原始数据零损失)。三层分类:L1 真重复→1 条代表,L2 同主题→簇摘要,L3 保留(见下文"合并层(去重折叠)")。
-4. `build_deep_profiles.py` —— 基于统合库 + 增强表生成模块画像和统合画像。支持 `--use-merged` 生成去重视图(排除重复成员,避免计数虚高)。
-5. `build_vector_store.py` —— **向量库构建**:把 `content_rich` 经本地 `bge-small-zh-v1.5` 向量化,写入 chroma `personal_events` collection(见下文"向量库与 AI 上下文")。
-6. `build_context_doc.py` —— 生成 `统合模块/分析数据/ai_context/person_profile.md`(AI 长期上下文文档)。
+任一步失败即中止并打印恢复命令(`--from N`),防止下游跑污染数据。
 
-> ⚠️ 第 2 步必须紧跟第 1 步:第 1 步会删除并重建整个库文件,增强表会随之丢失,需重跑第 2 步补回。第 3 步(合并层)依赖第 2 步的 `content_rich`;第 4 步依赖增强表,缺它则画像会回退到修复前的污染数据。第 5-6 步依赖前 4 步的统合库与增强表。
+### 完整步骤(顺序固定,每步幂等)
+
+| # | 脚本 | 作用 |
+|---|------|------|
+| 1 | `build_integrated_system.py` | 重建统合 SQLite(`personal_system.sqlite`),含 9 张原始表 |
+| 2 | `enrich_unified_events.py` | **语义增强层**:追加 3 张增强表(`unified_events_rich`/`event_categories_v2`/`entity_links_v2`),修复三类数据质量问题 |
+| 3 | `build_merge_layer.py` | **合并层**(去重折叠):新建 `merge_clusters`/`merge_members` 叠加表(原始数据零损失)。三层分类:L1 真重复→1 条代表,L2 同主题→簇摘要,L3 保留 |
+| 4 | `build_deep_profiles.py` | 基于统合库 + 增强表生成模块画像和统合画像。`--use-merged` 生成去重视图 |
+| 5 | `build_memory_store.py` | **记忆层**(Phase 04):tooling 工具偏好记忆 |
+| 6 | `build_capability_memory.py` | 记忆层:capability 能力使用记忆 |
+| 7 | `build_context_memory.py` | 记忆层:fact / project / habit 上下文记忆 |
+| 8 | `build_preference_memory.py` | 记忆层:preference 关注偏好记忆(Google 信号) |
+| 9 | `build_memory_graph.py` | 记忆图谱:节点 + 5 种跨类关系边 |
+| 10 | `build_vector_store.py` | **向量库构建**:把 `content_rich` 经本地 `bge-small-zh-v1.5` 向量化,写入 chroma `personal_events`(支持 `--resume`) |
+| 11 | `build_context_doc.py` | 生成 `统合模块/分析数据/ai_context/person_profile.md` |
+
+> ⚠️ 第 2 步必须紧跟第 1 步:第 1 步会删除并重建整个库文件,增强表会随之丢失,需重跑第 2 步补回。第 3 步(合并层)依赖第 2 步的 `content_rich`;第 4 步依赖增强表,缺它则画像会回退到修复前的污染数据。第 5-9 步(记忆层)依赖前 4 步的统合库与增强表;第 10-11 步依赖前 9 步。
 >
-> 第 5 步使用本机 `D:\models\bge-small-zh-v1.5`(512维)批量向量化,支持 `--resume` 断点续传。Ollama `bge-m3` 客户端保留为备用实现,不是当前 `personal_events` collection 的构建模型。
+> 第 10 步使用本机 `D:\models\bge-small-zh-v1.5`(512维)批量向量化,支持 `--resume` 断点续传。Ollama `bge-m3` 客户端保留为备用实现,不是当前 `personal_events` collection 的构建模型。
+
+## 增量导入
+
+新导出的原始文件先放到 `imports/incoming/`,再用导入脚本解析入库(不直接动 `Google/原始数据/` 等源目录):
+
+```powershell
+# 1. 把新导出文件放进对应 incoming 目录
+#    imports/incoming/google/<新 takeout>
+#    imports/incoming/gpt/<新 chatgpt 导出>
+
+# 2. 跑导入脚本(从项目根目录)
+python 统合模块\脚本\run_import_pipeline.py --source google --input imports\incoming\google
+python 统合模块\脚本\run_import_pipeline.py --source gpt    --input imports\incoming\gpt
+```
+
+每次导入在 `imports/batches/<batch_id>/` 下留批次记录(`raw/` + `extracted/` + `manifest.json`)。重复文件按 sha256 比对后隔离到 `imports/duplicate_audit/quarantine/`,不删除原文件。导入完成后跑重跑链路即可把新数据纳入统合层。
 
 ## 语义增强层(阶段1)
 
@@ -175,14 +199,31 @@ streamlit run 统合模块\脚本\dashboard.py
 
 ## 共享脚本模块
 
+**入口与编排:**
+- `统合模块/脚本/run_pipeline.py` —— **统一管道入口**:按依赖顺序串联全部 build_* 步骤,支持 `--from`/`--only`/`--skip`/`--dry-run`(见上文"重跑链路")。
+- `统合模块/脚本/run_import_pipeline.py` —— **增量导入管道**:把 `imports/incoming/` 下的新导出文件解析入库,生成批次记录并隔离重复文件(见上文"增量导入")。
+- `统合模块/脚本/dump_schema.py` —— 打印统合库 schema,产出 `统合模块/分析数据/_schema.json`(表清单 + `unified_events` 列)。
+
+**共享工具:**
 - `统合模块/脚本/common.py` —— 纯工具函数(sha256/norm/short/write_csv 等),消除原 build_integrated_system 与 build_deep_profiles 的重复定义。
 - `统合模块/脚本/rules.py` —— 统一分类规则:`TOPIC_RULES`/`THINKING_RULES`(老规则,对照基线)+ `PURE_TOPIC_RULES`/`PURE_THINKING_RULES`(纯净规则,剥离元数据污染)。
 - `统合模块/脚本/chroma_client.py` —— 轻量 chroma REST 客户端(基于 requests,绕开 chromadb 官方客户端的 httpx 兼容性问题)。
 - `统合模块/脚本/local_embed.py` —— 当前生产 embedding 实现:`bge-small-zh-v1.5`,512维。
 - `统合模块/脚本/ollama_embed.py` —— 备用 Ollama embedding 客户端,支持 `bge-m3` 1024维,当前 collection 未使用。
+
+**记忆层(Phase 04):**
+- `统合模块/脚本/build_memory_store.py` —— tooling 工具偏好记忆基础表。
+- `统合模块/脚本/build_capability_memory.py` —— capability 能力使用记忆。
+- `统合模块/脚本/build_context_memory.py` —— fact / project / habit 上下文记忆。
+- `统合模块/脚本/build_preference_memory.py` —— preference 关注偏好记忆。
+- `统合模块/脚本/build_memory_graph.py` —— 记忆关系图谱(节点 + 5 种跨类边)。
+- `统合模块/脚本/query_graph.py` —— 记忆图谱查询与可视化(命令行遍历 + networkx 成图,依赖 `统合模块/lib/`)。
+
+**服务层与接入:**
 - `统合模块/脚本/unified_search.py` —— **统一检索层**:把语义检索 + 精确查询合成一组纯函数(`search_semantic` / `query_events` / `get_event_detail` / `stats`),CLI / MCP / Agent 共用同一后端,见下文"统一检索层(CLI)"。
 - `统合模块/脚本/mcp_server.py` —— **MCP Server**:把统合库 + 向量库暴露成 5 个 MCP tools,支持 MCP 的 AI 客户端零代码接入,见下文"MCP 接入"。
 - `统合模块/脚本/api_server.py` —— **REST API**:纯标准库 `http.server` 实现,把检索能力暴露成 7 个 HTTP 接口,零额外依赖,见下文"REST API 接入"。
+- `统合模块/脚本/dashboard.py` —— Streamlit 交互仪表盘,见下文"交互式可视化"。
 - `统合模块/脚本/examples/` —— **接入示例**:`openai_function_calling.py` / `langchain_tool.py` / `rag_inject.py`,见下文"接入 RAG 平台 / Agent 框架"。
 
 ## 向量库与 AI 上下文(阶段2)
