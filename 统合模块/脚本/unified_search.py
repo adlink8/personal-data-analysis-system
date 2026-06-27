@@ -232,6 +232,13 @@ def stats() -> dict:
         coll = client.get_or_create_collection("personal_events")
         out["vector_count"] = coll.count()
         out["vector_available"] = True
+        # Wave 7: conversation_turns 独立 collection 统计
+        try:
+            turns_coll = client.get_or_create_collection("conversation_turns")
+            out["conversation_turns_count"] = turns_coll.count()
+            out["conversation_turns_available"] = True
+        except Exception:
+            out["conversation_turns_available"] = False
     except Exception as e:
         out["vector_available"] = False
         out["vector_error"] = str(e)[:120]
@@ -968,7 +975,9 @@ def _cli() -> None:
         for s, n in data["by_source"].items():
             print(f"  {s}: {n:,}")
         if data.get("vector_available"):
-            print(f"向量库: {data['vector_count']:,} 条")
+            print(f"向量库: {data['vector_count']:,} 条 (personal_events)")
+            if data.get("conversation_turns_available"):
+                print(f"turn 叙述: {data['conversation_turns_count']:,} 条 (conversation_turns)")
         else:
             print(f"向量库: 不可用({data.get('vector_error','')})")
     elif args.cmd == "merge-stats":

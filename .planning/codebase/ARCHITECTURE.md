@@ -48,6 +48,14 @@
 │  ├─ embeddings: bge-small-zh-v1.5 512维                         │
 │  ├─ ids: event_id (与 SQLite 对齐)                               │
 │  └─ metadatas: source/category_v2/event_time/month/service      │
+│                                                                   │
+│  conversation_turns collection (Phase 07 Wave 7 · 独立)           │
+│  ├─ documents: turn 叙述(含因果链,非单条 message)                │
+│  ├─ ids: session_id#turn_id (幂等)                               │
+│  └─ metadatas: session_id/turn_id/turn_no/main_topic/source     │
+│                                                                   │
+│  跨 collection 检索: search_vectors.search_all()                  │
+│  unified_search 默认 include_turns=True                           │
 └────────────────────────┬────────────────────────────────────────┘
                          │
                          ▼
@@ -168,9 +176,9 @@ Phase 06 不回写 `memory_items`，而是在 `统合模块/分析数据/ai_cont
 
 这层的职责是把浅层标签升级成模式、演化、关系强度和反例约束，但不把推测写回长期记忆库。
 
-### Phase 07 候选记忆层（Agent 对话规范化 + mem0 旁路）
+### Phase 07 对话叙述层（Agent 对话规范化 + LLM 叙述压缩回流）
 
-Phase 07 同样**不回写 `memory_items`**，定位是"更可靠的输入 + 候选压缩"，输出全部是旁路文件：
+Phase 07 同样**不回写 `memory_items`**，定位是"更可靠的对话输入 + 可检索的 turn 叙述回流"：
 
 **Agent 对话规范化**（`Agent/结构化数据/SQLite数据库/agent_data.sqlite` v2 旁路表，不动旧表）：
 - `agent_sessions_meta` / `agent_turns`：会话和 turn 边界（turn_id 前向填充，96.4% user 消息可串联）
@@ -183,8 +191,24 @@ Phase 07 同样**不回写 `memory_items`**，定位是"更可靠的输入 + 候
 - 输入只来自 `agent_messages` 和 GPT `messages` 的 `role=user`
 - 列表项/双换行/超长句确定性切分，丢弃过短噪声
 
-**mem0 候选压缩**（`统合模块/分析数据/ai_context/mem0_candidate_memories.json`）：
-- 报错堆栈/代码粘贴/系统配置文档在压缩前被噪声过滤（实测过滤率约 50%）
-- 候选强制带 `source_segment_ids` + `source_refs`，证据链比例 100%
-- mem0 是**可选依赖**：缺失时降级到本地启发式模式，前三波不受影响
-- 候选的 `acceptance_status` 默认 `candidate`，需人工 review 后才考虑晋级到 Phase 05 的 memory store
+**mem0 候选压缩**（⚠️ 已降级为可选实验）：
+- 实测 mem0 压缩度太狠，把一次性操作指令误判为稳定偏好，且丢失因果链
+- 保留脚本和候选文件作为实验记录，不进入主路径
+
+**LLM 叙述压缩（★ Phase 07 主线）**：
+- `build_conversation_summary.py`：对每个 Agent session 逐 turn 生成中文叙述摘要，保留主干+分支+细节因果，用 MiMo/OpenAI 兼容 API
+- `conversation_summaries.json`：turn 级叙述段，非 mem0 风格离散 claim
+
+**Prompt Lab 评测门（★ Wave 6）**：
+- `build_conversation_eval_set.py`：7 类真实 Codex session turn 固定评测样本集
+- `prompts/conversation_compression/`：版本化 prompt（v1_main/v1_schema/eval_rubric），7 维评分 + faithfulness 硬门槛 + 一次性任务误判为偏好专项检查
+- `evaluate_conversation_prompt.py`：两轮 LLM（压缩轮 + LLM-as-judge 评分轮），gate 通过才允许回流
+- 实测 7/7 样本 gate 通过（faithfulness 全 5，pass_rate=1.00）
+
+**turn 叙述回流向量库（★ Wave 7）**：
+- `build_conversation_vector_store.py`：turn 叙述向量化入库到独立 collection `conversation_turns`
+- 检索单元 = turn 叙述（含 user+assistant+tool 因果链），不是单条 message
+- 不碰 `personal_events` collection（用户拍板 B 方案，隔离风险）
+- `search_vectors.py` 新增 `search_all`：跨 collection 合并检索（personal_events + conversation_turns）
+- `unified_search.py` 的 `search_semantic` 默认 `include_turns=True`，CLI/MCP/Agent 全接入
+- `run_pipeline.py` 新增步骤 13

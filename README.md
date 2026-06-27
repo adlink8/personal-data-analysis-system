@@ -236,13 +236,17 @@ streamlit run 统合模块\脚本\dashboard.py
 - `统合模块/分析数据/ai_context/deep_profile_evaluation.md` —— 浅层 `person_profile_v2.md` 与深层 profile 的对比评估。
 - Phase 06 **不自动写回** `memory_items`，只产出旁路分析结果，避免把推测污染长期记忆。
 
-**Agent 对话规范化 + mem0 候选压缩(Phase 07):**
+**Agent 对话规范化 + LLM 叙述压缩回流(Phase 07):**
 - `Agent/结构化数据/脚本/normalize_agent_conversations.py` —— 把 Codex rollout jsonl 拆成 turn/message/tool/event 旁路表(`agent_messages` 等),role 归一化,带 `raw_file + line_no` 证据链,不动旧 `sessions`/`session_messages` 表。
 - `统合模块/脚本/build_conversation_segments.py` —— 从清洗后的 Agent/GPT `role=user` 消息切出"用户想法片段",确定性规则切分(列表/换行/长度上限)。
-- `统合模块/脚本/build_mem0_candidate_memory.py` —— mem0 候选记忆压缩实验,噪声预过滤 + 证据链强制,**只产候选不写 `memory_items`**;mem0 可选,缺依赖时降级本地启发式。
-- `统合模块/分析数据/ai_context/conversation_segments.json` / `mem0_candidate_memories.json` / `mem0_candidate_evaluation.md` —— Phase 07 旁路产物。
+- `统合模块/脚本/build_mem0_candidate_memory.py` —— mem0 候选记忆压缩实验(⚠️ 已降级为可选实验,压缩度太狠不匹配需求),噪声预过滤 + 证据链强制,**只产候选不写 `memory_items`**;mem0 可选,缺依赖时降级本地启发式。
+- `统合模块/脚本/build_conversation_summary.py` —— **(★ Phase 07 主线)** 对每个 Agent session 逐 turn 生成中文叙述摘要,用 MiMo/OpenAI 兼容 API 保留对话主干+分支+细节因果,而非 mem0 风格离散 claim。
+- `统合模块/脚本/build_conversation_eval_set.py` + `统合模块/prompts/conversation_compression/` —— **(★ Wave 6 Prompt Lab)** 7 类真实样本评测集 + 版本化 prompt(v1_main/v1_schema/eval_rubric)。prompt 不经固定样本评测 gate 不许回流。
+- `统合模块/脚本/evaluate_conversation_prompt.py` —— 两轮 LLM 评测(压缩轮 + LLM-as-judge 评分轮),7 维评分 + faithfulness 硬门槛 + 一次性任务误判为偏好专项检查。实测 7/7 样本 gate 通过(faithfulness 全 5)。
+- `统合模块/脚本/build_conversation_vector_store.py` —— **(★ Wave 7 回流)** 把 turn 叙述向量化入库到独立 collection `conversation_turns`(不碰 `personal_events`),检索单元是含因果链的 turn 叙述而非单条 message。
+- `统合模块/分析数据/ai_context/conversation_segments.json` / `conversation_summaries.json` / `prompt_eval_results.json` —— Phase 07 旁路产物。
 - `tests/test_agent_conversation_normalization.py` —— 覆盖 jsonl 解析 / role 过滤 / 证据链回溯 / 候选不污染 memory_items。
-- Phase 06 负责深层洞察,Phase 07 负责更可靠的输入和候选压缩;两层都不回写 `memory_items`。
+- Phase 06 负责深层洞察,Phase 07 负责更可靠的对话输入和叙述压缩回流;两层都不回写 `memory_items`。Wave 7 回流走独立向量 collection,不污染旧数据。
 
 **服务层与接入:**
 - `统合模块/脚本/unified_search.py` —— **统一检索层**:把语义检索、精确查询、事件详情、统计、记忆查询合成一组纯函数,CLI / MCP / Agent 共用同一后端,见下文"统一检索层(CLI)"。
@@ -488,11 +492,25 @@ python 统合模块\脚本\build_deep_memory_profile.py --evaluate
 ### Phase 07 验证命令
 
 ```powershell
+# Wave 1-3: 清洗层
 python Agent\结构化数据\脚本\normalize_agent_conversations.py --dry-run --limit-files 5
 python Agent\结构化数据\脚本\normalize_agent_conversations.py --write
 python 统合模块\脚本\build_conversation_segments.py --write
-python 统合模块\脚本\build_mem0_candidate_memory.py --sample --force-local
+
+# Wave 6: Prompt Lab 评测门(★ 入库前硬门槛)
+python 统合模块\脚本\build_conversation_eval_set.py --write
+python 统合模块\脚本\evaluate_conversation_prompt.py --dry-run      # 验证脚本结构 + 评分阈值逻辑
+python 统合模块\脚本\evaluate_conversation_prompt.py --write         # 真实评测,gate 通过才允许回流
+
+# Wave 7: turn 叙述回流向量库(★ 主线,需 chroma 服务 + LLM 配置)
+python 统合模块\脚本\build_conversation_summary.py --write           # 生成全量 turn 叙述(需 OPENAI_API_KEY 等)
+python 统合模块\脚本\build_conversation_vector_store.py --dry-run    # 看会向量化多少 turn
+python 统合模块\脚本\build_conversation_vector_store.py --write      # 入库到独立 collection conversation_turns
+python 统合模块\脚本\unified_search.py semantic "MQTT 怎么调试的" --top-k 5   # 跨 collection 检索验证
+
+# 回归 + mem0 可选实验(非主路径)
 python tests\test_agent_conversation_normalization.py
+python 统合模块\脚本\build_mem0_candidate_memory.py --sample --force-local
 ```
 
 ### 启动与示例

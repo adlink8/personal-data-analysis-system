@@ -105,13 +105,26 @@ python 统合模块\脚本\build_deep_memory_profile.py --evaluate
 ### 2.8 Phase 07 Agent 对话规范化验证
 
 ```powershell
+# Wave 1-3: 清洗层
 python Agent\结构化数据\脚本\normalize_agent_conversations.py --dry-run --limit-files 5
 python Agent\结构化数据\脚本\normalize_agent_conversations.py --write
 python 统合模块\脚本\build_conversation_segments.py --dry-run --source Agent --limit 20
 python 统合模块\脚本\build_conversation_segments.py --write
-python 统合模块\脚本\build_mem0_candidate_memory.py --dry-run --limit 10
-python 统合模块\脚本\build_mem0_candidate_memory.py --sample --force-local
+
+# Wave 6: Prompt Lab 评测门
+python 统合模块\脚本\build_conversation_eval_set.py --write
+python 统合模块\脚本\evaluate_conversation_prompt.py --dry-run
+python 统合模块\脚本\evaluate_conversation_prompt.py --write   # 需环境变量
+
+# Wave 7: turn 叙述回流向量库(需 chroma 服务 + LLM 配置)
+python 统合模块\脚本\build_conversation_summary.py --write
+python 统合模块\脚本\build_conversation_vector_store.py --dry-run
+python 统合模块\脚本\build_conversation_vector_store.py --write
+python 统合模块\脚本\unified_search.py semantic "MQTT" --top-k 5
+
+# 回归 + mem0 可选实验(非主路径)
 python tests\test_agent_conversation_normalization.py
+python 统合模块\脚本\build_mem0_candidate_memory.py --sample --force-local
 ```
 
 检查点：
@@ -121,8 +134,9 @@ python tests\test_agent_conversation_normalization.py
 - `agent_messages` 的 role 只有 user/assistant/developer 三值（无 user_message/agent_message）
 - user 消息 turn_id 覆盖率 ≥ 96%
 - 每条 `agent_messages` 都能回溯到 `raw_file + line_no`
-- mem0 候选 `acceptance_status` 全部为 `candidate`，**不写入** `memory_items`
-- mem0 依赖缺失时降级到本地启发式模式，不崩溃，前三波验证不受影响
+- mem0 候选 `acceptance_status` 全部为 `candidate`，**不写入** `memory_items`（⚠️ mem0 已降级为可选实验）
+- **Wave 6 gate**: 7 样本全通过，faithfulness ≥ 4，oneoff_as_preference=false，refs_coverage ≥ 90%
+- **Wave 7 回流**: conversation_turns collection 独立，不碰 personal_events；turn 叙述可跨 collection 检索
 
 ---
 
