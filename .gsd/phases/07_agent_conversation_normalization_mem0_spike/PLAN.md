@@ -306,13 +306,26 @@ git diff --check
 
 ## Execution Order
 
-1. Wave 1：解析 taxonomy 和 dry-run 统计。
-2. Wave 2：写入 Agent v2 旁路表。
-3. Wave 3：生成 user thought segments。
-4. Wave 4：接 mem0 小样本候选压缩。**(⚠️ 已降级为可选实验)**
-5. Wave 5：补测试和文档。
-6. **Wave 6:Prompt Lab 与压缩效果评测(★ 入库前硬门槛)**。
-7. **Wave 7:清洗产物回流主流水线(★ Phase 07 主线,2026-06-27 新增)**。
+1. Wave 1：解析 taxonomy 和 dry-run 统计。✅ 已完成
+2. Wave 2：写入 Agent v2 旁路表。✅ 已完成
+3. Wave 3：生成 user thought segments。✅ 已完成
+4. Wave 4：接 mem0 小样本候选压缩。**(⚠️ 已降级为可选实验)** ✅ 完成(降级)
+5. Wave 5：补测试和文档。✅ 已完成
+6. **Wave 6:Prompt Lab 与压缩效果评测(★ 入库前硬门槛)**。✅ 已完成 gate 通过(7/7 样本 faithfulness 全 5)
+7. **Wave 7:清洗产物回流主流水线(★ Phase 07 主线,2026-06-27 新增)**。🔄 代码完成,入库待 chroma 服务
+
+## Wave 7 实施记录(2026-06-27)
+
+- **回流去向**:用户拍板 B 方案(独立 collection `conversation_turns`,不碰 `personal_events`)。
+- **代码完成**:
+  - `build_conversation_vector_store.py`:turn 叙述向量化入库,独立 collection,幂等。
+  - `search_vectors.py` 改造:新增 `search_conversation_turns` + `search_all`(跨 collection 合并检索)。
+  - `unified_search.py` 改造:`search_semantic` 默认 `include_turns=True`,CLI/MCP/Agent 全接入。
+  - `run_pipeline.py` 新增步骤 13(turn 叙述回流)。
+- **待执行**(需 chroma 服务在线):
+  - Wave 7-2: `build_conversation_summary.py --write` 生成全量 turn 叙述(105 个 session,约 200-400 次 LLM 调用)。
+  - 步骤 13 实际入库验证。
+- **Wave 7-4 降级**:GPT 对话因果断裂修复需先建 GPT turn 切分层,且会改动 `personal_events`,违背"不破坏原数据"惯例。降级为后续增强,主线(Agent 回流)已闭环。
 
 ## Phase Verification
 

@@ -3,7 +3,7 @@
 把所有 build_* 步骤按依赖顺序串联，避免手动依次运行出错。
 每步幂等，失败时打印错误并停止（不跳过，防止下游跑污染数据）。
 
-管道步骤（固定顺序）:
+管道步骤（固定顺序):
   1  build_integrated_system    重建统合 SQLite（9张原始表）
   2  enrich_unified_events      语义增强（补文本/修分类/建跨模块链接）必须紧跟步骤1
   3  build_merge_layer          去重折叠（叠加表，不破坏原数据）
@@ -16,6 +16,11 @@
   10 build_vector_store         向量化到 ChromaDB（约 53s，支持 --resume）
   11 build_context_doc          生成 AI 长期上下文文档
   12 build_profile_from_memory  生成记忆图谱版 AI 上下文文档
+  13 build_conversation_vector_store  [Phase 07 Wave 7] turn 叙述回流向量库（独立 collection）
+
+注意：步骤 13 依赖 conversation_summaries.json（由 build_conversation_summary.py 生成，
+需 LLM 配置），且需 chroma 服务在线。缺失时步骤 13 会报错但不影响前 12 步。
+建议手动单独运行：python build_conversation_summary.py --write 后再跑步骤 13。
 
 用法:
   python 统合模块\\脚本\\run_pipeline.py               # 全量重跑（步骤 1-12）
@@ -110,6 +115,12 @@ STEPS: list[dict] = [
         "name": "build_profile_from_memory",
         "desc": "生成记忆图谱版 AI 上下文文档 person_profile_v2.md",
         "extra_args": [],
+    },
+    {
+        "num": 13,
+        "name": "build_conversation_vector_store",
+        "desc": "[Phase 07 Wave 7] turn 叙述回流向量库（独立 collection，需 summary+chroma）",
+        "extra_args": ["--write"],
     },
 ]
 

@@ -28,7 +28,7 @@ _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
-from search_vectors import search as _semantic_search  # noqa: E402
+from search_vectors import search as _semantic_search, search_all as _semantic_search_all  # noqa: E402
 
 ROOT = _THIS_DIR.parents[1]
 UNIFIED_DB = ROOT / "统合模块" / "SQLite数据库" / "personal_system.sqlite"
@@ -39,8 +39,12 @@ def search_semantic(
     top_k: int = 5,
     source: Optional[str] = None,
     dedup: bool = False,
+    include_turns: bool = True,
 ) -> list[dict]:
     """语义检索:自然语言召回用户历史事件。
+
+    Wave 7 起默认跨 collection 检索:personal_events(单条事件) +
+    conversation_turns(turn 叙述,含因果链)。适合"用户做过什么/怎么做的"类查询。
 
     query: 自然语言(如"PPT 排版怎么做")
     top_k: 返回条数
@@ -48,15 +52,23 @@ def search_semantic(
     dedup:  True=按合并层折叠重复命中(L1 真重复/L2 同主题只留代表),
             返回结果里多一个 merged_count 字段表示该代表背后折叠了几条。
             折叠后实际条数可能少于 top_k。
+            注意:dedup 只作用于 personal_events(conversation_turns 不参与合并层折叠)。
+    include_turns: True=同时搜 conversation_turns turn 叙述(Wave 7 默认);
+                   False=只搜 personal_events(旧行为)。collection 不存在时自动降级。
     返回: list[dict],按相似度降序,字段:
         event_id, source, category_v2, event_type, service,
         event_time, month, title, content, score[, merged_count]
+        turn 叙述额外带: session_id, turn_id, turn_no, main_topic
     """
     if not query or not query.strip():
         return []
     # dedup 模式多召回一些,折叠后仍有足够结果
     fetch_k = top_k * 3 if dedup else top_k
-    results = _semantic_search(query, top_k=fetch_k, source=source)
+    # Wave 7: 跨 collection 检索(include_turns=True 时合并 turn 叙述)
+    if include_turns:
+        results = _semantic_search_all(query, top_k=fetch_k, source=source)
+    else:
+        results = _semantic_search(query, top_k=fetch_k, source=source)
     if not dedup or not results:
         return results[:top_k]
     if not _merge_layer_ready():

@@ -25,6 +25,7 @@ from chroma_client import ChromaClient, ChromaError
 
 
 COLLECTION_NAME = "personal_events"
+CONVERSATION_COLLECTION = "conversation_turns"  # Wave 7 新增:turn 叙述(含因果链)
 DEFAULT_TOP_K = 5
 
 
@@ -34,7 +35,7 @@ def search(
     source: Optional[str] = None,
     client: Optional[ChromaClient] = None,
 ) -> list[dict]:
-    """语义检索用户历史事件。
+    """语义检索用户历史事件(personal_events collection)。
 
     参数:
         query: 自然语言查询(如 "PPT 排版怎么做"、"上次怎么调试数据库的")
@@ -45,7 +46,7 @@ def search(
     返回: list[dict],按相关度降序,每条含:
         - event_id, source, category_v2, event_time, month, service, title
         - content: 原始内容(chroma 存的 document)
-        - score: 相似度分数(chroma distance 越小越相似,这里转成 0-1 的相似度)
+        - score: 相似度分数(chroma distance 转成 0-1 相似度)
     """
     if not query or not query.strip():
         return []
@@ -101,6 +102,115 @@ def search(
             }
         )
     return results
+
+
+def search_conversation_turns(
+    query: str,
+    top_k: int = DEFAULT_TOP_K,
+    source: Optional[str] = None,
+    client: Optional[ChromaClient] = None,
+) -> list[dict]:
+    """检索 turn 叙述(conversation_turns collection,Wave 7 新增)。
+
+    与 search() 的区别:检索单元是 turn 级叙述(含 user+assistant+tool 因果链),
+    不是单条 message。适合"用户做过什么/怎么做的"类查询。
+
+    collection 不存在或为空时返回 [](向后兼容,不影响主流程)。
+
+    返回: list[dict],每条含:
+        - event_id: "{session_id}#{turn_id}"(可回溯)
+        - source, event_type(固定 conversation_turn)
+        - session_id, turn_id, turn_no, main_topic
+        - content: turn 叙述
+        - score: 相似度
+    """
+    if not query or not query.strip():
+        return []
+    query_vec = ollama_embed.embed(query)
+    if client is None:
+        client = ChromaClient()
+    try:
+        coll = client.get_or_create_collection(CONVERSATION_COLLECTION)
+    except ChromaError:
+        return []
+
+    where = {"source": source} if source else None
+    try:
+        raw = coll.query(
+            query_embeddings=[query_vec],
+            n_results=top_k,
+            where=where,
+            include=["metadatas", "documents", "distances"],
+        )
+    except ChromaError:
+        return []
+
+    if not raw.get("ids") or not raw["ids"][0]:
+        return []
+
+    results = []
+    ids = raw["ids"][0]
+    distances = raw.get("distances", [[]])[0]
+    documents = raw.get("documents", [[]])[0]
+    metadatas = raw.get("metadatas", [[]])[0]
+
+    for i, eid in enumerate(ids):
+        dist = distances[i] if i < len(distances) else 1.0
+        meta = metadatas[i] if i < len(metadatas) else {}
+        doc = documents[i] if i < len(documents) else ""
+        similarity = max(0.0, 1.0 - dist / 2.0)
+        results.append({
+            "event_id": eid,
+            "source": meta.get("source", ""),
+            "event_type": meta.get("event_type", "conversation_turn"),
+            "session_id": meta.get("session_id", ""),
+            "turn_id": meta.get("turn_id", ""),
+            "turn_no": meta.get("turn_no", 0),
+            "main_topic": meta.get("main_topic", ""),
+            "title": meta.get("main_topic", ""),  # 统一字段,便于上层展示
+            "category_v2": "对话叙述",  # 标记来源类型,便于区分
+            "service": meta.get("source", ""),
+            "event_time": "",
+            "month": "",
+            "content": doc,
+            "score": round(similarity, 4),
+        })
+    return results
+
+
+def search_all(
+    query: str,
+    top_k: int = DEFAULT_TOP_K,
+    source: Optional[str] = None,
+    include_turns: bool = True,
+) -> list[dict]:
+    """跨 collection 合并检索(personal_events + conversation_turns)。
+
+    Wave 7 主线检索入口:同时搜单条事件和 turn 叙述,按相似度统一排序。
+    适合上层(unified_search/MCP/Agent)一站式召回。
+
+    include_turns: True=同时搜 conversation_turns;False=只搜 personal_events
+                  (collection 不存在时自动降级为只搜 personal_events)
+    """
+    if not query or not query.strip():
+        return []
+    client = ChromaClient()
+
+    # 1. 搜 personal_events(单条事件)
+    results = search(query, top_k=top_k, source=source, client=client)
+
+    # 2. 搜 conversation_turns(turn 叙述,失败降级)
+    if include_turns:
+        try:
+            turns = search_conversation_turns(
+                query, top_k=top_k, source=source, client=client)
+            results.extend(turns)
+        except (ChromaError, Exception):
+            pass  # collection 不存在或服务问题,降级为只返回 personal_events
+
+    # 3. 统一按 score 降序,裁到 top_k
+    results.sort(key=lambda r: r.get("score", 0), reverse=True)
+    return results[:top_k]
 
 
 def format_result(r: dict, show_content: int = 200) -> str:
