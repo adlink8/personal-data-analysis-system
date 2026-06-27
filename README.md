@@ -69,7 +69,7 @@
 ### 推荐:统一管道入口
 
 ```powershell
-python 统合模块\脚本\run_pipeline.py               # 全量重跑(步骤 1-11)
+python 统合模块\脚本\run_pipeline.py               # 全量重跑(步骤 1-12)
 python 统合模块\脚本\run_pipeline.py --from 5      # 从步骤 5 恢复(跳过重建库)
 python 统合模块\脚本\run_pipeline.py --only 3,4    # 只跑步骤 3 和 4
 python 统合模块\脚本\run_pipeline.py --skip 10     # 跳过向量化(省时间)
@@ -93,8 +93,10 @@ python 统合模块\脚本\run_pipeline.py --dry-run     # 只打印顺序,不�
 | 9 | `build_memory_graph.py` | 记忆图谱:节点 + 5 种跨类关系边 |
 | 10 | `build_vector_store.py` | **向量库构建**:把 `content_rich` 经本地 `bge-small-zh-v1.5` 向量化,写入 chroma `personal_events`(支持 `--resume`) |
 | 11 | `build_context_doc.py` | 生成 `统合模块/分析数据/ai_context/person_profile.md` |
+| 12 | `build_profile_from_memory.py` | 生成记忆图谱版 `统合模块/分析数据/ai_context/person_profile_v2.md` |
+| P5 | `evaluate_memory_depth.py` | **Phase 05 准入评估**:抽样检查 memory item / relation 的证据链、时间跨度、复现度、关系强度,输出 `memory_depth_readiness.md` |
 
-> ⚠️ 第 2 步必须紧跟第 1 步:第 1 步会删除并重建整个库文件,增强表会随之丢失,需重跑第 2 步补回。第 3 步(合并层)依赖第 2 步的 `content_rich`;第 4 步依赖增强表,缺它则画像会回退到修复前的污染数据。第 5-9 步(记忆层)依赖前 4 步的统合库与增强表;第 10-11 步依赖前 9 步。
+> ⚠️ 第 2 步必须紧跟第 1 步:第 1 步会删除并重建整个库文件,增强表会随之丢失,需重跑第 2 步补回。第 3 步(合并层)依赖第 2 步的 `content_rich`;第 4 步依赖增强表,缺它则画像会回退到修复前的污染数据。第 5-9 步(记忆层)依赖前 4 步的统合库与增强表;第 10-12 步依赖前 9 步。
 >
 > 第 10 步使用本机 `D:\models\bge-small-zh-v1.5`(512维)批量向量化,支持 `--resume` 断点续传。Ollama `bge-m3` 客户端保留为备用实现,不是当前 `personal_events` collection 的构建模型。
 
@@ -209,7 +211,6 @@ streamlit run 统合模块\脚本\dashboard.py
 - `统合模块/脚本/rules.py` —— 统一分类规则:`TOPIC_RULES`/`THINKING_RULES`(老规则,对照基线)+ `PURE_TOPIC_RULES`/`PURE_THINKING_RULES`(纯净规则,剥离元数据污染)。
 - `统合模块/脚本/chroma_client.py` —— 轻量 chroma REST 客户端(基于 requests,绕开 chromadb 官方客户端的 httpx 兼容性问题)。
 - `统合模块/脚本/local_embed.py` —— 当前生产 embedding 实现:`bge-small-zh-v1.5`,512维。
-- `统合模块/脚本/ollama_embed.py` —— 备用 Ollama embedding 客户端,支持 `bge-m3` 1024维,当前 collection 未使用。
 
 **记忆层(Phase 04):**
 - `统合模块/脚本/build_memory_store.py` —— tooling 工具偏好记忆基础表。
@@ -218,11 +219,27 @@ streamlit run 统合模块\脚本\dashboard.py
 - `统合模块/脚本/build_preference_memory.py` —— preference 关注偏好记忆。
 - `统合模块/脚本/build_memory_graph.py` —— 记忆关系图谱(节点 + 5 种跨类边)。
 - `统合模块/脚本/query_graph.py` —— 记忆图谱查询与可视化(命令行遍历 + networkx 成图,依赖 `统合模块/lib/`)。
+- `统合模块/脚本/build_profile_from_memory.py` —— 从 `memory_items` + `memory_relations` 生成 `person_profile_v2.md`。
+- `统合模块/脚本/mine_deep_memory_graph.py` —— **Phase 06 深挖入口**:只消费 readiness 通过的主题,产出带证据/时间/关系/反例的 `deep_memory_mining.*`。
+- `统合模块/脚本/build_deep_memory_profile.py` —— **Phase 06 深层画像**:把深挖 JSON 转成 `deep_memory_insights.*`、`deep_memory_profile.md` 和评估报告。
+
+**记忆层补强(Phase 05):**
+- `统合模块/脚本/source_adapters/` —— source adapter contract + Google activities 样例 adapter,为后续输入模块化做准备。
+- `统合模块/脚本/memory_governance.py` —— 统一 `evidence_ids` / `confidence` / `last_seen` / `source_hash` / `merge_key` metadata。
+- `统合模块/脚本/evaluate_memory_depth.py` —— 深挖准入评估,输出 `统合模块/分析数据/ai_context/memory_depth_readiness.md`。
+- `tests/test_memory_contracts.py` —— core / CLI / REST / MCP 四层记忆查询契约测试。
+
+**深层记忆图谱(Phase 06):**
+- `统合模块/分析数据/ai_context/deep_memory_mining.json` —— readiness 通过主题的深挖事实层结果。
+- `统合模块/分析数据/ai_context/deep_memory_insights.md` —— strong / moderate / weak / unsupported 洞察清单。
+- `统合模块/分析数据/ai_context/deep_memory_profile.md` —— 面向 agent prompt 的深层画像。
+- `统合模块/分析数据/ai_context/deep_profile_evaluation.md` —— 浅层 `person_profile_v2.md` 与深层 profile 的对比评估。
+- Phase 06 **不自动写回** `memory_items`，只产出旁路分析结果，避免把推测污染长期记忆。
 
 **服务层与接入:**
-- `统合模块/脚本/unified_search.py` —— **统一检索层**:把语义检索 + 精确查询合成一组纯函数(`search_semantic` / `query_events` / `get_event_detail` / `stats`),CLI / MCP / Agent 共用同一后端,见下文"统一检索层(CLI)"。
-- `统合模块/脚本/mcp_server.py` —— **MCP Server**:把统合库 + 向量库暴露成 5 个 MCP tools,支持 MCP 的 AI 客户端零代码接入,见下文"MCP 接入"。
-- `统合模块/脚本/api_server.py` —— **REST API**:纯标准库 `http.server` 实现,把检索能力暴露成 7 个 HTTP 接口,零额外依赖,见下文"REST API 接入"。
+- `统合模块/脚本/unified_search.py` —— **统一检索层**:把语义检索、精确查询、事件详情、统计、记忆查询合成一组纯函数,CLI / MCP / Agent 共用同一后端,见下文"统一检索层(CLI)"。
+- `统合模块/脚本/mcp_server.py` —— **MCP Server**:把统合库、向量库、记忆图谱暴露成 MCP tools,支持 MCP 的 AI 客户端零代码接入,见下文"MCP 接入"。
+- `统合模块/脚本/api_server.py` —— **REST API**:纯标准库 `http.server` 实现,把检索与记忆能力暴露成 HTTP 接口,零额外依赖,见下文"REST API 接入"。
 - `统合模块/脚本/dashboard.py` —— Streamlit 交互仪表盘,见下文"交互式可视化"。
 - `统合模块/脚本/examples/` —— **接入示例**:`openai_function_calling.py` / `langchain_tool.py` / `rag_inject.py`,见下文"接入 RAG 平台 / Agent 框架"。
 
@@ -233,7 +250,6 @@ streamlit run 统合模块\脚本\dashboard.py
 ### 依赖
 
 - **当前模型**:`D:\models\bge-small-zh-v1.5`(512维,通过 sentence-transformers 本地加载)
-- **备用模型**:Ollama `bge-m3`(1024维),代码保留但当前 collection 未使用
 - **chromadb**(Docker):本项目用独立 collection `personal_events`,**不触碰**你已有的 `novel_6`/`novel_7` collection
 - 不依赖 chromadb Python 客户端包(因 httpx 与本地 chroma 服务有 502 兼容性问题,改用自写的 `chroma_client.py` 直调 REST API)
 
@@ -269,11 +285,24 @@ chroma: personal_events
 
 ## 统一检索层(阶段3 · CLI)
 
-`unified_search.py` 是所有程序化接入的公共后端。把"语义检索"和"精确查询"合成一组纯函数,**CLI / MCP / 以后的 Agent / RAG 平台都共用这一个文件**,保证四种接入方式行为一致。
+`unified_search.py` 是所有程序化接入的公共后端。把"语义检索"、"精确查询"和"记忆查询"合成一组纯函数,**CLI / MCP / 以后的 Agent / RAG 平台都共用这一个文件**,保证四种接入方式行为一致。
 
 两类检索互补:
 - **语义检索**(`search_semantic`):自然语言 → 向量库召回,适合"我大概记得做过类似的事"。
 - **精确查询**(`query_events`):按源/时间/分类/关键词 AND 过滤 sqlite,适合"列出 2025 年 3 月所有 Agent 事件"。
+- **记忆查询**(`get_memory_profile` / `get_memory_by_subject`):读取 `memory_items` + `memory_relations`,适合"我长期偏好什么工具/主题/工作流"。
+
+Phase 05 起,记忆对象 metadata 统一包含:
+- `evidence_ids`
+- `confidence`
+- `last_seen`
+- `source_hash`
+- `merge_key`
+
+`build_profile_from_memory.py` 和 `unified_search.py memory --subject ...` 会同步展示关键证据摘要,不再只给结论。
+
+- `person_profile_v2.md` 适合做**浅层长期记忆注入**: 工具偏好、项目、习惯、事实清单。
+- `deep_memory_profile.md` 适合做**深层模式注入**: 时间演化、主题簇、能力路径、反例约束。
 
 ### 命令行用法
 
@@ -301,6 +330,12 @@ python 统合模块\脚本\unified_search.py stats
 # 合并层压缩报告(L1/L2 去重情况)
 python 统合模块\脚本\unified_search.py merge-stats
 
+# 长期记忆对象
+python 统合模块\脚本\unified_search.py memory
+python 统合模块\脚本\unified_search.py memory --type tooling
+python 统合模块\脚本\unified_search.py memory --subject Codex
+python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 2
+
 # 向量库聚类/去重(对检索结果二次加工)
 python 统合模块\脚本\unified_search.py cluster --source Agent --threshold 0.92
 python 统合模块\脚本\unified_search.py cluster --threshold 0.88 --min-cluster-size 3 --json
@@ -311,7 +346,7 @@ python 统合模块\脚本\unified_search.py merge-stats --json
 python 统合模块\脚本\unified_search.py cluster --json --limit 500   # 调试用小样本
 ```
 
-加 `--json` 任何子命令都输出结构化 JSON,便于脚本/管道消费;不加则是人类可读文本。CLI 依赖 Python 标准库 + numpy/sklearn(`cluster` 用 numpy 算余弦相似度)。
+加 `--json` 任何子命令都输出结构化 JSON,便于脚本/管道消费;不加则是人类可读文本。CLI 依赖 Python 标准库 + numpy(`cluster` 用 numpy 算余弦相似度)。
 
 ### 管道加工:聚类/去重
 
@@ -351,12 +386,15 @@ us.query_events(source="Agent", month="2025-03", dedup=True)  # 去重过滤
 us.get_event_detail("gpt_xxx")                          # 单条全字段
 us.stats()                                              # 概览
 us.merge_stats()                                        # 合并层压缩报告
+us.get_memory_profile(memory_type="tooling")             # 记忆概览
+us.get_memory_by_subject("Codex")                        # 单条记忆 + 关系
+us.get_memory_neighbors("Codex", hops=2)                 # 记忆图谱邻居
 us.cluster(threshold=0.92)                              # 聚类/去重
 ```
 
 ## MCP 接入(阶段3 · 零代码接 AI 客户端)
 
-`mcp_server.py` 把统合库 + 向量库暴露成 5 个 [MCP](https://modelcontextprotocol.io) tools。任何支持 MCP 的 AI 客户端(Claude Desktop / Cursor / ZCode / Continue 等)**配置一行即可检索你的历史数据,无需写集成代码**。
+`mcp_server.py` 把统合库 + 向量库 + 记忆图谱暴露成 [MCP](https://modelcontextprotocol.io) tools。任何支持 MCP 的 AI 客户端(Claude Desktop / Cursor / ZCode / Continue 等)**配置一行即可检索你的历史数据和长期记忆,无需写集成代码**。
 
 精确查询、详情与统计直接复用 `unified_search` 读取 SQLite；语义检索通过本地 REST API 复用常驻的嵌入模型与 Chroma，结果口径与 CLI 一致，同时避免每个 MCP 客户端重复加载模型。
 
@@ -367,6 +405,8 @@ us.cluster(threshold=0.92)                              # 聚类/去重
 | `get_event_detail` | 按 event_id 取单条全字段 | 点开看详情 |
 | `stats` | 数据库 + 向量库统计概览 | AI 建立全局认知的第一步 |
 | `list_categories` | 列出所有 category_v2 分布 | 知道有哪些维度可过滤 |
+| `get_memory_profile` | 长期记忆概览 | 先理解你的工具/能力/偏好结构 |
+| `get_memory_by_subject` | 单条记忆 + 关系 + 可选邻居 | 点查 Codex / GSD / 项目主题等 |
 
 ### 启动与配置
 
@@ -395,7 +435,7 @@ python 统合模块\脚本\mcp_server.py
 }
 ```
 
-依赖:`pip install mcp`(见 `requirements.txt`)。配好后客户端会自动发现这 5 个 tools,AI 可直接调用检索你的历史。
+依赖:`pip install mcp`(见 `requirements.txt`)。配好后客户端会自动发现这 7 个 tools,AI 可直接调用检索你的历史和长期记忆。
 
 ## REST API 接入(阶段3 · HTTP)
 
@@ -408,12 +448,34 @@ python 统合模块\脚本\mcp_server.py
 | GET | `/health` | 健康检查 |
 | GET | `/stats` | 数据库 + 向量库统计概览 |
 | GET | `/categories?source=` | 分类分布(可选按源过滤) |
+| GET | `/memory?type=&limit=` | 长期记忆概览(可选按类型过滤) |
+| GET | `/memory/<subject>?neighbors=N` | 单条记忆详情 + 关系 + 可选 N 跳邻居 |
 | POST | `/search/semantic` | 语义检索(body: query/top_k/source) |
 | POST | `/search/query` | 精确查询(body: source/month/category/keyword/limit) |
 | GET | `/event/<id>` | 单条事件全字段 |
 | GET | `/profile` | AI 长期上下文文档内容(RAG 注入用) |
 
 统一返回 `{"ok": bool, "data": ..., "error": ...}`。
+
+### Phase 05 验证命令
+
+```powershell
+python tests\test_memory_contracts.py
+python 统合模块\脚本\source_adapters\google_activities.py --limit 2
+python 统合模块\脚本\run_pipeline.py --dry-run
+python 统合模块\脚本\run_pipeline.py --only 5,6,7,8,9,11,12
+python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 1
+python 统合模块\脚本\evaluate_memory_depth.py
+```
+
+### Phase 06 验证命令
+
+```powershell
+python 统合模块\脚本\mine_deep_memory_graph.py --dry-run
+python 统合模块\脚本\mine_deep_memory_graph.py --output-json
+python 统合模块\脚本\build_deep_memory_profile.py
+python 统合模块\脚本\build_deep_memory_profile.py --evaluate
+```
 
 ### 启动与示例
 
@@ -435,6 +497,10 @@ curl -X POST http://127.0.0.1:8000/search/semantic ^
 curl -X POST http://127.0.0.1:8000/search/query ^
      -H "Content-Type: application/json" ^
      -d "{\"source\": \"Agent\", \"month\": \"2025-03\"}"
+
+# 记忆查询
+curl http://127.0.0.1:8000/memory?type=tooling
+curl http://127.0.0.1:8000/memory/Codex?neighbors=2
 ```
 
 > ⚠️ 默认只监听 127.0.0.1。若需对外/跨机访问,自行加反向代理 + 鉴权(API 本身不带鉴权)。

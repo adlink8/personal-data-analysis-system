@@ -49,6 +49,20 @@ Google / GPT / Agent 数据模块
 - `分析数据/统合画像_数据增长图.png`
 - `分析数据/统合画像_关注点.csv`
 - `分析数据/统合画像_个人思考模式.csv`
+- `分析数据/memory_report.md`
+- `分析数据/capability_report.md`
+- `分析数据/context_report.md`
+- `分析数据/preference_report.md`
+- `分析数据/graph_report.md`
+- `分析数据/memory_graph.html`
+- `分析数据/ai_context/person_profile.md`
+- `分析数据/ai_context/person_profile_v2.md`
+- `分析数据/ai_context/memory_depth_readiness.md`
+- `分析数据/ai_context/deep_memory_mining.json`
+- `分析数据/ai_context/deep_memory_insights.json`
+- `分析数据/ai_context/deep_memory_insights.md`
+- `分析数据/ai_context/deep_memory_profile.md`
+- `分析数据/ai_context/deep_profile_evaluation.md`
 
 ## 重建
 
@@ -71,6 +85,10 @@ python 统合模块\脚本\build_deep_profiles.py
 - `entities`：主题、工具、域名、文件、会话、技能等实体。
 - `event_entities`：事件和实体的关系。
 - `entity_links`：跨模块实体连接。
+- `memory_items`：长期记忆对象(tooling / preference / capability / fact / project / habit)。
+- `memory_links`：记忆对象到原始事件的证据链。
+- `memory_relations`：记忆对象之间的图谱关系。
+- `memory_items.metadata`：Phase 05 起统一含 `evidence_ids` / `confidence` / `last_seen` / `source_hash` / `merge_key`。
 - `module_summaries`：模块级摘要。
 - `cross_module_insights`：综合分析结果。
 
@@ -84,3 +102,33 @@ python 统合模块\脚本\build_deep_profiles.py
 - 数据增长：按月统计各来源进入统合层的事件增长。
 - 关注点：按主题、服务/工具、原始分类聚合。
 - 个人思考：基于行为文本的模式推断，用于复盘和 AI 上下文建设，不是心理诊断。
+
+## 记忆层
+
+记忆层基于统合事件和增强表生成，不删除原始事件。
+
+- `memory_items` 把事件折叠成可消费的长期记忆对象。
+- `memory_links` 保留每条记忆背后的原始事件证据。
+- `memory_relations` 把工具、能力、偏好、项目、事实、习惯连成图谱。
+- `person_profile_v2.md` 是面向 AI system prompt 的记忆图谱版用户画像。
+- `memory_depth_readiness.md` 是进入 Phase 06 前的深挖准入门槛报告。
+- `deep_memory_mining.json` 只保存通过 readiness gate 的深挖事实层结果。
+- `deep_memory_profile.md` 面向 agent prompt，强调模式、演化和反例，而不是静态标签。
+- Phase 06 不自动写回 `memory_items`，避免把推测污染长期记忆。
+
+Phase 05 补强：
+
+- `脚本/source_adapters/` 提供 source adapter contract 和 `google_activities.py` 样例。
+- `脚本/memory_governance.py` 统一治理 metadata。
+- `tests/test_memory_contracts.py` 验证 core / CLI / REST / MCP 记忆查询契约。
+
+消费入口：
+
+```powershell
+python 统合模块\脚本\unified_search.py memory --type tooling
+python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 2
+python 统合模块\脚本\build_profile_from_memory.py
+python 统合模块\脚本\evaluate_memory_depth.py
+python 统合模块\脚本\mine_deep_memory_graph.py --output-json
+python 统合模块\脚本\build_deep_memory_profile.py --evaluate
+```

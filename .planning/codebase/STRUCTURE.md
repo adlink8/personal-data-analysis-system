@@ -103,7 +103,6 @@ Google/                     GPT/                        Agent/
 | `rules.py` | 分类规则常量（TOPIC_RULES v1 对照 + PURE_TOPIC_RULES v2 纯净版） |
 | `local_embed.py` | bge-small-zh-v1.5 懒加载单例，CUDA 优先，CPU 回退 |
 | `chroma_client.py` | 轻量 ChromaDB REST 客户端（绕开 httpx 兼容性问题） |
-| `ollama_embed.py` | 备用 Ollama embedding 客户端（当前未使用） |
 
 ### 服务层
 

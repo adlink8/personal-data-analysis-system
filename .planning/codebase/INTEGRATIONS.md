@@ -39,6 +39,8 @@ python "C:/Users/li/Desktop/数据分析/统合模块/脚本/mcp_server.py"
 | `get_event_detail` | 按 event_id 取单条全字段详情 | `event_id` (string) | 无 |
 | `stats` | 数据库 + 向量库统计概览 | 无 | 无 |
 | `list_categories` | 列出所有 category_v2 分类及事件数 | 无 | `source` |
+| `get_memory_profile` | 长期记忆概览 | 无 | `memory_type`、`limit` |
+| `get_memory_by_subject` | 单条记忆 + 图谱关系 | `subject` | `neighbors` |
 
 > MCP Server 语义检索不直接加载模型，而是转发到本地 REST API（`http://127.0.0.1:8000/search/semantic`）。MCP 子进程强制使用 CPU 模式（`PERSONAL_DATA_EMBED_DEVICE=cpu`）。
 
@@ -57,6 +59,8 @@ python "C:/Users/li/Desktop/数据分析/统合模块/脚本/mcp_server.py"
 | GET | `/health` | 健康检查 | 无 |
 | GET | `/stats` | 数据库 + 向量库统计概览 | 无 |
 | GET | `/categories` | 所有 category_v2 分布 | `?source=Google/GPT/Agent`（可选） |
+| GET | `/memory` | 长期记忆概览 | `?type=tooling/preference/...`、`?limit=2` |
+| GET | `/memory/<subject>` | 单条记忆详情 + 可选邻居 | `?neighbors=1` |
 | POST | `/search/semantic` | 语义检索（向量库召回） | JSON body: `query`(必填), `top_k`(默认 5), `source`(可选) |
 | POST | `/search/query` | 精确查询（SQLite 过滤） | JSON body: `source`, `month`, `category`, `keyword`, `limit`（均可选） |
 | GET | `/event/<event_id>` | 单条事件全字段详情 | 路径参数 `event_id` |
@@ -77,6 +81,10 @@ curl -X POST http://127.0.0.1:8000/search/semantic `
 curl -X POST http://127.0.0.1:8000/search/query `
      -H "Content-Type: application/json" `
      -d '{"source": "Agent", "month": "2025-03"}'
+
+# 记忆查询
+curl http://127.0.0.1:8000/memory?type=tooling&limit=2
+curl http://127.0.0.1:8000/memory/Codex?neighbors=1
 ```
 
 ---

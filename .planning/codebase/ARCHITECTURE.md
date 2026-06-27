@@ -34,10 +34,10 @@
                │ build_merge_layer.py    │ build_memory_store.py 等
                ▼                         ▼
 ┌──────────────────────┐   ┌─────────────────────────────────────┐
-│   合并去重层 (L1.5)   │   │         记忆层 (Layer 4 · Phase 04) │
+│   合并去重层 (L1.5)   │   │      记忆层 (Layer 4 · Phase 04/05) │
 │  merge_clusters      │   │  memory_items / memory_links        │
 │  merge_members       │   │  memory_relations                   │
-│  merge_build_meta    │   │  (能力/上下文/偏好记忆)               │
+│  merge_build_meta    │   │  + governance metadata / readiness  │
 └──────────────┬───────┘   └─────────────────────────────────────┘
                │ build_vector_store.py
                ▼
@@ -55,14 +55,14 @@
 │              统一检索后端 (unified_search.py)                     │
 │  search_semantic() ← 语义 → Chroma REST                         │
 │  query_events()    ← 精确 → SQLite                               │
-│  get_event_detail() / stats() / cluster()                        │
+│  get_event_detail() / stats() / memory queries / cluster()       │
 └───────┬──────────────┬──────────────┬──────────────────────────┘
         │              │              │
         ▼              ▼              ▼
 ┌──────────────┐ ┌───────────┐ ┌───────────────────────────────┐
 │ Streamlit    │ │ REST API  │ │ MCP Server                    │
 │ Dashboard    │ │ :8000     │ │ (stdio → AI客户端)             │
-│ (5个页面)    │ │ 7个接口   │ │ 5个 MCP Tools                 │
+│ (5个页面)    │ │ 9个接口   │ │ 7个 MCP Tools                 │
 └──────────────┘ └───────────┘ └───────────────────────────────┘
 ```
 
@@ -112,8 +112,8 @@
 | 向量客户端 | `chroma_client.py` | 轻量 ChromaDB REST 客户端（绕开 httpx 兼容问题） |
 | 嵌入模型 | `local_embed.py` | bge-small-zh-v1.5 懒加载单例，CUDA 优先 |
 | 仪表盘 | `dashboard.py` | Streamlit 五页面交互可视化 |
-| REST API | `api_server.py` | 标准库 http.server，7个HTTP接口 |
-| MCP Server | `mcp_server.py` | stdio MCP协议，5个Tool暴露给AI客户端 |
+| REST API | `api_server.py` | 标准库 http.server，9个HTTP接口（含 memory 入口） |
+| MCP Server | `mcp_server.py` | stdio MCP协议，7个Tool暴露给AI客户端 |
 
 ---
 
@@ -147,8 +147,23 @@ merge_members:  cluster_id, event_id, is_representative, role
 
 所有原始 event_id 通过 JOIN 可完整追溯，零数据损失。
 
-### memory_items（记忆层，Phase 04）
+### memory_items（记忆层，Phase 05）
 
 ```
-memory_items: id, type(capability/context/preference/...), content, source_event_id, created_at
+memory_items: memory_id, memory_type, memory_subtype, subject, description,
+              confidence, evidence_count, metadata, created_at
 ```
+
+`metadata` 在 Phase 05 标准化为 `evidence_ids` / `confidence` / `last_seen` /
+`source_hash` / `merge_key` + 来源特有字段。
+
+### Phase 06 深层画像（旁路分析层）
+
+Phase 06 不回写 `memory_items`，而是在 `统合模块/分析数据/ai_context/` 旁路输出：
+
+- `deep_memory_mining.json`：只包含 readiness gate 通过主题的深挖事实层结果
+- `deep_memory_insights.md`：洞察清单，区分 include / review / exclude
+- `deep_memory_profile.md`：适合 agent prompt 的深层模式画像
+- `deep_profile_evaluation.md`：浅层 `person_profile_v2.md` 与深层 profile 的差异评估
+
+这层的职责是把浅层标签升级成模式、演化、关系强度和反例约束，但不把推测写回长期记忆库。

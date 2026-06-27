@@ -7,12 +7,14 @@
 
 ## 1. 当前测试覆盖状态
 
-**项目自身无 pytest/unittest 测试文件。**
+**项目已有 1 个可执行的 stdlib 自动化测试入口。**
 
-`统合模块/脚本/` 目录下无任何 `test_*.py` 或 `*_test.py` 文件。
-`.gitignore` 包含 `.pytest_cache/` 和 `.ruff_cache/` 条目，表明工具链已预留位置，但尚未编写测试。
+- `tests/test_memory_contracts.py`
+  覆盖 core / CLI / REST / MCP 四层记忆查询契约。
+- 该测试不依赖外部网络；REST 在测试里临时启动和关闭，不留下后台进程。
+- `.gitignore` 已包含 `.pytest_cache/` 和 `.ruff_cache/`，后续可继续扩展到 pytest。
 
-**覆盖率: 0%**（无自动化测试用例）
+当前自动化覆盖重点是 **Phase 05 记忆层契约**，不是全仓覆盖率。
 
 ---
 
@@ -42,6 +44,9 @@ python 统合模块\脚本\unified_search.py merge-stats
 
 # 语义检索冒烟测试
 python 统合模块\脚本\unified_search.py semantic "数据库调试" --top-k 3
+
+# 记忆查询 + 证据摘要
+python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 1
 ```
 
 ### 2.3 build_deep_profiles.py 统计输出
@@ -70,6 +75,32 @@ sqlite3 统合模块\SQLite数据库\personal_system.sqlite
 streamlit run 统合模块\脚本\dashboard.py
 # 浏览器打开确认图表正常渲染，侧栏状态灯全绿
 ```
+
+### 2.6 Phase 05 自动化验证
+
+```powershell
+python tests\test_memory_contracts.py
+python 统合模块\脚本\source_adapters\google_activities.py --limit 2
+python 统合模块\脚本\run_pipeline.py --dry-run
+python 统合模块\脚本\run_pipeline.py --only 5,6,7,8,9,11,12
+python 统合模块\脚本\evaluate_memory_depth.py
+```
+
+### 2.7 Phase 06 深层画像验证
+
+```powershell
+python 统合模块\脚本\mine_deep_memory_graph.py --dry-run
+python 统合模块\脚本\mine_deep_memory_graph.py --output-json
+python 统合模块\脚本\build_deep_memory_profile.py
+python 统合模块\脚本\build_deep_memory_profile.py --evaluate
+```
+
+检查点：
+
+- dry-run 只列出 readiness 通过候选和跳过原因
+- `deep_memory_mining.json` 至少含 5 条洞察候选
+- `deep_memory_profile.md` 只包含 strong / moderate
+- `deep_profile_evaluation.md` 明确给出 shallow vs deep 差异
 
 ---
 
@@ -128,7 +159,7 @@ test_tool_names_no_duplicates()
 test_pure_topic_default_is_used_for_unmatched()
 ```
 
-### P2 — 集成冒烟测试
+### P2 — 扩展集成冒烟测试
 
 文件: `统合模块/脚本/tests/test_smoke.py`
 
