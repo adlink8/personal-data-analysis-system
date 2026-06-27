@@ -22,7 +22,6 @@
 | pandas | ≥ 3.0 | 表格数据处理与分析 |
 | numpy | ≥ 2.4 | 数值计算 |
 | matplotlib | ≥ 3.10 | 静态图表绘制 |
-| scikit-learn | ≥ 1.8 | 机器学习 / 数据挖掘 |
 | streamlit | ≥ 1.58 | 交互式 Web 可视化 Dashboard |
 | plotly | ≥ 6.8 | 动态/交互式图表 |
 | sentence-transformers | 由本机环境提供 | 本地模型推理，生成文本向量 |

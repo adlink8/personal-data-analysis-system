@@ -6,7 +6,6 @@
 pandas>=3.0
 numpy>=2.4
 matplotlib>=3.10
-scikit-learn>=1.8
 
 # 阶段1: 交互式可视化
 streamlit>=1.58
