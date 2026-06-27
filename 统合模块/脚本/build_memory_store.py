@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import sha256_text, norm, write_json, ensure_dirs
+from memory_governance import build_governance_metadata, load_last_seen
 
 
 # === 配置 ===
@@ -342,9 +343,15 @@ def insert_memory(
 ) -> str:
     """插入一条 memory_items + memory_links 证据。"""
     memory_id = sha256_text(f"tooling|{memory_subtype}|{subject.lower()}")
-    metadata = {
+    evidence_ids = get_evidence_events(con, stat)
+    metadata = build_governance_metadata(
+        source=f"tooling:{stat['source']}",
+        evidence_ids=evidence_ids,
+        confidence=0.7,
+        merge_key=f"tooling|{memory_subtype}|{subject.lower()}",
+        last_seen=load_last_seen(con, evidence_ids),
+        extra={
         "rules_version": rules_version,
-        "source": stat["source"],
         "total_events": stat["total_events"],
         "active_months": stat.get("active_months"),
         "monthly_avg": stat.get("monthly_avg"),
@@ -355,7 +362,8 @@ def insert_memory(
         "prev_avg": stat.get("prev_avg"),
         "peak_month": stat.get("peak_month"),
         "peak_count": stat.get("peak_count"),
-    }
+        },
+    )
     con.execute(
         "INSERT OR REPLACE INTO memory_items "
         "(memory_id, memory_type, memory_subtype, subject, description, "
@@ -364,7 +372,6 @@ def insert_memory(
         (memory_id, "tooling", memory_subtype, subject, description,
          0.7, evidence_count, json.dumps(metadata, ensure_ascii=False), now)
     )
-    evidence_ids = get_evidence_events(con, stat)
     for eid in evidence_ids:
         con.execute(
             "INSERT INTO memory_links (memory_id, target_type, target_id, relation) "
@@ -497,7 +504,7 @@ def main() -> None:
     print("=" * 60)
 
     if not UNIFIED_DB.exists():
-        print(f"\n❌ 统合库不存在: {UNIFIED_DB}")
+        print(f"\n[ERROR] 统合库不存在: {UNIFIED_DB}")
         sys.exit(1)
 
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -505,21 +512,21 @@ def main() -> None:
     try:
         print("\n[1/4] 确保表结构存在...")
         ensure_schema(con)
-        print("    ✓ memory_items / memory_links / memory_relations 已就绪")
+        print("    [OK] memory_items / memory_links / memory_relations 已就绪")
 
         print("\n[2/4] 清空旧 tooling 记忆(幂等重跑)...")
         reset_memory_tables(con)
-        print("    ✓ 已清空")
+        print("    [OK] 已清空")
 
         print("\n[3/4] 抽取 tooling 记忆(v3 容忍缺失+趋势判定)...")
         stats = build_tooling_memory(con, now)
-        print(f"    ✓ 候选 {stats['total_candidates']} → 抽取 {stats['inserted']} 条记忆")
+        print(f"    [OK] 候选 {stats['total_candidates']} -> 抽取 {stats['inserted']} 条记忆")
         for subtype, items in stats["by_subtype"].items():
             print(f"      {subtype}: {len(items)} 条")
 
         print("\n[4/4] 生成报告...")
         write_report(stats, ANALYSIS_DIR)
-        print(f"    ✓ {ANALYSIS_DIR / 'memory_report.md'}")
+        print(f"    [OK] {ANALYSIS_DIR / 'memory_report.md'}")
     finally:
         con.close()
 

@@ -27,6 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import sha256_text, write_json, ensure_dirs
+from memory_governance import build_governance_metadata, load_last_seen, unique_evidence_ids
 
 
 # === 配置 ===
@@ -107,6 +108,15 @@ def reset_capability_memory(con: sqlite3.Connection) -> None:
 
 
 def _insert_memory(con, subtype, subject, description, evidence_ids, metadata, confidence, now):
+    evidence_ids = unique_evidence_ids(evidence_ids, limit=MAX_EVIDENCE_LINKS)
+    metadata = build_governance_metadata(
+        source="capability:skill",
+        evidence_ids=evidence_ids,
+        confidence=confidence,
+        merge_key=f"capability|{subtype}|{subject.lower()}",
+        last_seen=load_last_seen(con, evidence_ids),
+        extra=metadata,
+    )
     memory_id = sha256_text(f"capability|{subtype}|{subject.lower()}")
     con.execute(
         "INSERT OR REPLACE INTO memory_items "
@@ -333,7 +343,7 @@ def main():
     print("=" * 60)
 
     if not UNIFIED_DB.exists():
-        print(f"\n❌ 统合库不存在: {UNIFIED_DB}")
+        print(f"\n[ERROR] 统合库不存在: {UNIFIED_DB}")
         sys.exit(1)
 
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -341,21 +351,21 @@ def main():
     try:
         print("\n[1/4] 确保表结构...")
         ensure_schema(con)
-        print("    ✓ 已就绪")
+        print("    [OK] 已就绪")
 
         print("\n[2/4] 清空旧 capability 记忆(幂等)...")
         reset_capability_memory(con)
-        print("    ✓ 已清空")
+        print("    [OK] 已清空")
 
         print("\n[3/4] 抽取 capability(归并+强度判定)...")
         stats = build_capability_memory(con, now)
-        print(f"    ✓ {stats['total_raw_skills']}个能力 → 抽取 {stats['inserted']} 条")
+        print(f"    [OK] {stats['total_raw_skills']}个能力 -> 抽取 {stats['inserted']} 条")
         for subtype, items in stats["by_subtype"].items():
             print(f"      {subtype}: {len(items)} 条")
 
         print("\n[4/4] 生成报告...")
         write_report(stats, ANALYSIS_DIR)
-        print(f"    ✓ {ANALYSIS_DIR / 'capability_report.md'}")
+        print(f"    [OK] {ANALYSIS_DIR / 'capability_report.md'}")
     finally:
         con.close()
 

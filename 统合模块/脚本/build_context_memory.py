@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import sha256_text, write_json, ensure_dirs
+from memory_governance import build_governance_metadata, load_last_seen, unique_evidence_ids
 
 
 # === 配置 ===
@@ -78,6 +79,15 @@ def reset_context_memory(con: sqlite3.Connection) -> None:
 
 def _insert_memory(con, memory_type, subtype, subject, description,
                    evidence_ids, metadata, confidence, now):
+    evidence_ids = unique_evidence_ids(evidence_ids, limit=MAX_EVIDENCE_LINKS)
+    metadata = build_governance_metadata(
+        source=f"{memory_type}:{metadata.get('source', 'derived')}",
+        evidence_ids=evidence_ids,
+        confidence=confidence,
+        merge_key=f"{memory_type}|{subtype}|{subject.lower()}",
+        last_seen=load_last_seen(con, evidence_ids),
+        extra=metadata,
+    )
     memory_id = sha256_text(f"{memory_type}|{subtype}|{subject.lower()}")
     con.execute(
         "INSERT OR REPLACE INTO memory_items "
@@ -399,7 +409,7 @@ def main():
     print("=" * 60)
 
     if not UNIFIED_DB.exists():
-        print(f"\n❌ 统合库不存在: {UNIFIED_DB}")
+        print(f"\n[ERROR] 统合库不存在: {UNIFIED_DB}")
         sys.exit(1)
 
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -407,28 +417,28 @@ def main():
     try:
         print("\n[1/5] 确保表结构...")
         ensure_schema(con)
-        print("    ✓ 已就绪")
+        print("    [OK] 已就绪")
 
         print("\n[2/5] 清空旧 fact/project/habit 记忆(幂等)...")
         reset_context_memory(con)
-        print("    ✓ 已清空")
+        print("    [OK] 已清空")
 
         print("\n[3/5] 抽取 fact(稳定事实)...")
         facts = build_fact_memory(con, now)
-        print(f"    ✓ {len(facts)} 条 fact")
+        print(f"    [OK] {len(facts)} 条 fact")
 
         print("\n[4/5] 抽取 project(v2 噪音清洗)...")
         projects = build_project_memory(con, now)
-        print(f"    ✓ {len(projects)} 条 project")
+        print(f"    [OK] {len(projects)} 条 project")
 
         print("\n[5/5] 抽取 habit(工作流习惯)...")
         habits = build_habit_memory(con, now)
-        print(f"    ✓ {len(habits)} 条 habit")
+        print(f"    [OK] {len(habits)} 条 habit")
 
         print("\n写入数据库 + 生成报告...")
         stats = save_and_report(con, facts, projects, habits, now)
         write_report(stats, ANALYSIS_DIR)
-        print(f"    ✓ {ANALYSIS_DIR / 'context_report.md'}")
+        print(f"    [OK] {ANALYSIS_DIR / 'context_report.md'}")
     finally:
         con.close()
 

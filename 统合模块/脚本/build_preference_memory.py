@@ -36,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import sha256_text, write_json, ensure_dirs
+from memory_governance import build_governance_metadata, load_last_seen, unique_evidence_ids
 
 
 # === 配置 ===
@@ -357,15 +358,22 @@ def build_preference_memory(con: sqlite3.Connection, now: str) -> dict:
 
         subtype, description = result
         memory_id = sha256_text(f"preference|{subtype}|{topic_key}")
-
-        metadata = {
+        evidence_ids = unique_evidence_ids(td["evidence_ids"], limit=MAX_EVIDENCE_LINKS)
+        metadata = build_governance_metadata(
+            source="preference:google",
+            evidence_ids=evidence_ids,
+            confidence=0.7,
+            merge_key=f"preference|{subtype}|{topic_key}",
+            last_seen=load_last_seen(con, evidence_ids),
+            extra={
             "rules_version": RULES_VERSION,
             "topic_key": topic_key,
             "total_hits": td["total"],
             "active_months": len(td["months"]),
             "by_source": dict(td["by_source"]),
             "top_signals": td["signals"][:8],
-        }
+            },
+        )
 
         con.execute(
             "INSERT OR REPLACE INTO memory_items "
@@ -375,7 +383,7 @@ def build_preference_memory(con: sqlite3.Connection, now: str) -> dict:
             (memory_id, subtype, td["name"], description,
              0.7, td["total"], json.dumps(metadata, ensure_ascii=False), now)
         )
-        for eid in td["evidence_ids"]:
+        for eid in evidence_ids:
             con.execute(
                 "INSERT INTO memory_links (memory_id, target_type, target_id, relation) "
                 "VALUES (?, 'event', ?, 'evidenced_by')",
@@ -469,7 +477,7 @@ def main() -> None:
     print("=" * 60)
 
     if not UNIFIED_DB.exists():
-        print(f"\n❌ 统合库不存在: {UNIFIED_DB}")
+        print(f"\n[ERROR] 统合库不存在: {UNIFIED_DB}")
         sys.exit(1)
 
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -477,21 +485,21 @@ def main() -> None:
     try:
         print("\n[1/4] 确保表结构存在...")
         ensure_schema(con)
-        print("    ✓ memory_items 已就绪(与tooling共用)")
+        print("    [OK] memory_items 已就绪(与tooling共用)")
 
         print("\n[2/4] 清空旧 preference 记忆(幂等)...")
         reset_preference_memory(con)
-        print("    ✓ 已清空")
+        print("    [OK] 已清空")
 
         print("\n[3/4] 扫描信号词 + 归并主题 + 判强度...")
         stats = build_preference_memory(con, now)
-        print(f"    ✓ {stats['total_topics']}个主题 → 抽取 {stats['inserted']} 条偏好")
+        print(f"    [OK] {stats['total_topics']}个主题 -> 抽取 {stats['inserted']} 条偏好")
         for subtype, items in stats["by_subtype"].items():
             print(f"      {subtype}: {len(items)} 条")
 
         print("\n[4/4] 生成报告...")
         write_report(stats, ANALYSIS_DIR)
-        print(f"    ✓ {ANALYSIS_DIR / 'preference_report.md'}")
+        print(f"    [OK] {ANALYSIS_DIR / 'preference_report.md'}")
     finally:
         con.close()
 

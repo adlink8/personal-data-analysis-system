@@ -5,7 +5,7 @@
 
 管道步骤（固定顺序）:
   1  build_integrated_system    重建统合 SQLite（9张原始表）
-  2  enrich_unified_events      语义增强（补文本/修分类/建跨模块链接）⚠ 必须紧跟步骤1
+  2  enrich_unified_events      语义增强（补文本/修分类/建跨模块链接）必须紧跟步骤1
   3  build_merge_layer          去重折叠（叠加表，不破坏原数据）
   4  build_deep_profiles        模块画像 + 统合画像
   5  build_memory_store         记忆层基础表（tooling 工具偏好）
@@ -13,11 +13,12 @@
   7  build_context_memory       上下文记忆抽取（fact/project/habit）
   8  build_preference_memory    偏好记忆抽取（Google 关注偏好）
   9  build_memory_graph         记忆关系图谱构建
-  10 build_vector_store         向量化 → ChromaDB（约 53s，支持 --resume）
+  10 build_vector_store         向量化到 ChromaDB（约 53s，支持 --resume）
   11 build_context_doc          生成 AI 长期上下文文档
+  12 build_profile_from_memory  生成记忆图谱版 AI 上下文文档
 
 用法:
-  python 统合模块\\脚本\\run_pipeline.py               # 全量重跑（步骤 1-11）
+  python 统合模块\\脚本\\run_pipeline.py               # 全量重跑（步骤 1-12）
   python 统合模块\\脚本\\run_pipeline.py --from 2      # 从步骤2开始（跳过重建库）
   python 统合模块\\脚本\\run_pipeline.py --only 3,4    # 只跑步骤3和4
   python 统合模块\\脚本\\run_pipeline.py --skip 10     # 跳过向量化（节省时间）
@@ -41,7 +42,7 @@ STEPS: list[dict] = [
     {
         "num": 1,
         "name": "build_integrated_system",
-        "desc": "重建统合 SQLite（⚠ 会删除并重建整个库文件）",
+        "desc": "重建统合 SQLite（会删除并重建整个库文件）",
         "extra_args": [],
     },
     {
@@ -95,13 +96,19 @@ STEPS: list[dict] = [
     {
         "num": 10,
         "name": "build_vector_store",
-        "desc": "向量化 → ChromaDB personal_events（约 53s，支持断点续传）",
+        "desc": "向量化到 ChromaDB personal_events（约 53s，支持断点续传）",
         "extra_args": ["--resume"],
     },
     {
         "num": 11,
         "name": "build_context_doc",
         "desc": "生成 AI 长期上下文文档 person_profile.md",
+        "extra_args": [],
+    },
+    {
+        "num": 12,
+        "name": "build_profile_from_memory",
+        "desc": "生成记忆图谱版 AI 上下文文档 person_profile_v2.md",
         "extra_args": [],
     },
 ]
@@ -167,7 +174,7 @@ def run_step(step: dict) -> tuple[bool, float]:
     cmd = [sys.executable, str(script)] + step["extra_args"]
 
     print(f"\n{'='*70}")
-    print(f"▶  {fmt_step(step)}")
+    print(f"[RUN] {fmt_step(step)}")
     print(f"{'='*70}")
 
     t0 = time.time()
@@ -175,11 +182,11 @@ def run_step(step: dict) -> tuple[bool, float]:
     elapsed = time.time() - t0
 
     if ret.returncode != 0:
-        print(f"\n✗  步骤 {step['num']} 失败（exit {ret.returncode}），管道已中止。")
+        print(f"\n[FAIL] 步骤 {step['num']} 失败（exit {ret.returncode}），管道已中止。")
         print(f"   修复后可用 --from {step['num']} 从此步重跑。")
         return False, elapsed
 
-    print(f"\n✓  步骤 {step['num']} 完成（{elapsed:.1f}s）")
+    print(f"\n[OK] 步骤 {step['num']} 完成（{elapsed:.1f}s）")
     return True, elapsed
 
 
@@ -198,7 +205,7 @@ def main() -> None:
     print(f"{'='*70}")
     print(f"共 {len(selected)} 步将执行{'（dry-run 模式，不实际运行）' if args.dry_run else ''}：\n")
     for step in selected:
-        marker = "  " if not args.dry_run else "──"
+        marker = "  " if not args.dry_run else "--"
         print(f"  {marker} {fmt_step(step)}")
     print()
 
@@ -213,7 +220,7 @@ def main() -> None:
 
     total = time.time() - total_t0
     print(f"\n{'='*70}")
-    print(f"✅  全部 {len(selected)} 步完成，总耗时 {total:.0f}s（{total/60:.1f} 分钟）")
+    print(f"[OK] 全部 {len(selected)} 步完成，总耗时 {total:.0f}s（{total/60:.1f} 分钟）")
     print(f"{'='*70}\n")
 
 

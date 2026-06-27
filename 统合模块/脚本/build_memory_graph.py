@@ -339,7 +339,7 @@ def main():
     print("=" * 60)
 
     if not UNIFIED_DB.exists():
-        print(f"\n❌ 统合库不存在: {UNIFIED_DB}")
+        print(f"\n[ERROR] 统合库不存在: {UNIFIED_DB}")
         sys.exit(1)
 
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -347,38 +347,38 @@ def main():
     try:
         print("\n[1/5] 确保表结构...")
         ensure_schema(con)
-        print("    ✓ 已就绪")
+        print("    [OK] 已就绪")
 
         print("\n[2/5] 清空旧关系(幂等)...")
         reset_relations(con)
-        print("    ✓ 已清空")
+        print("    [OK] 已清空")
 
         print("\n[3/5] 加载记忆(minor capability 不入图)...")
         memories = load_memories(con)
-        print(f"    ✓ {len(memories)} 条记忆入图(排除了 minor capability)")
+        print(f"    [OK] {len(memories)} 条记忆入图(排除了 minor capability)")
 
         print("\n[4/5] 建 5 种跨类关系...")
         relations = build_relations(memories)
-        print(f"    ✓ {len(relations)} 条关系")
+        print(f"    [OK] {len(relations)} 条关系")
         from collections import Counter
         rel_counter = Counter(r[2] for r in relations)
         for rel, c in rel_counter.most_common():
             print(f"      {rel}: {c}")
 
         save_relations(con, relations)
-        print(f"    ✓ 已写入 memory_relations 表")
+        print(f"    [OK] 已写入 memory_relations 表")
 
         print("\n[5/5] 导入 networkx + 图统计...")
         G = build_networkx(memories, relations)
         stats = graph_stats(G, memories, relations)
         stats["build_time"] = now
-        print(f"    ✓ 节点 {stats['nodes']} / 边 {stats['edges']}")
-        print(f"    ✓ 连通分量 {stats['weakly_connected_components']} / "
+        print(f"    [OK] 节点 {stats['nodes']} / 边 {stats['edges']}")
+        print(f"    [OK] 连通分量 {stats['weakly_connected_components']} / "
               f"最大 {stats['largest_component_size']}")
-        print(f"    ✓ 孤立节点 {stats['isolated_nodes']} / 密度 {stats['density']}")
+        print(f"    [OK] 孤立节点 {stats['isolated_nodes']} / 密度 {stats['density']}")
 
         write_report(stats, relations, memories, ANALYSIS_DIR)
-        print(f"\n    ✓ {ANALYSIS_DIR / 'graph_report.md'}")
+        print(f"\n    [OK] {ANALYSIS_DIR / 'graph_report.md'}")
     finally:
         con.close()
 
