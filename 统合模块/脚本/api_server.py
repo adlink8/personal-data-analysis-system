@@ -10,6 +10,8 @@
 
 GET  /stats                 数据库 + 向量库统计概览
 GET  /categories            所有 category_v2 分布(?source=可选过滤)
+GET  /memory                长期记忆概览(?type=可选过滤)
+GET  /memory/<subject>      单条记忆详情 + 关系(?neighbors=N 可选)
 POST /search/semantic       语义检索(自然语言 → 向量库召回)
 POST /search/query          精确查询(结构化条件过滤 sqlite)
 GET  /event/<event_id>      单条事件全字段
@@ -58,7 +60,7 @@ import sys
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote
 
 # 让本模块能找到同目录依赖
 _THIS_DIR = Path(__file__).resolve().parent
@@ -70,10 +72,6 @@ import unified_search as backend  # noqa: E402
 # AI 长期上下文文档路径(给 /profile 用)
 ROOT = _THIS_DIR.parents[1]
 PROFILE_MD = ROOT / "统合模块" / "分析数据" / "ai_context" / "person_profile.md"
-
-# 默认允许跨域(RAG 平台 / 前端调试用;仅本地监听所以风险可控)
-CORS_HEADER = "http://127.0.0.1"
-
 
 def _ok(data) -> bytes:
     return json.dumps(
@@ -135,8 +133,34 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if path == "/categories":
-                rows = _list_categories(qs.get("source"))
+                rows = backend.list_categories(qs.get("source"))
                 self._send(_ok(rows))
+                return
+
+            if path == "/memory":
+                rows = backend.get_memory_profile(
+                    memory_type=qs.get("type"),
+                    limit=int(qs.get("limit", 200)),
+                )
+                self._send(_ok(rows))
+                return
+
+            if path.startswith("/memory/"):
+                subject = unquote(path[len("/memory/"):])
+                if not subject:
+                    body, code = _err("缺少 memory subject", 400)
+                    self._send(body, code)
+                    return
+                data = backend.get_memory_by_subject(subject)
+                if data is None:
+                    body, code = _err(f"未找到 memory subject={subject}", 404)
+                    self._send(body, code)
+                    return
+                if qs.get("neighbors"):
+                    data["neighbors"] = backend.get_memory_neighbors(
+                        subject, int(qs.get("neighbors", 2))
+                    )
+                self._send(_ok(data))
                 return
 
             if path == "/profile":
@@ -210,29 +234,6 @@ class Handler(BaseHTTPRequestHandler):
             body_b, code = _err(f"内部错误: {e}", 500)
             self._send(body_b, code)
 
-
-def _list_categories(source: str | None = None) -> list[dict]:
-    """复用 mcp_server 里的逻辑(独立一份避免循环 import)。"""
-    import sqlite3
-    db = ROOT / "统合模块" / "SQLite数据库" / "personal_system.sqlite"
-    con = sqlite3.connect(db)
-    con.row_factory = sqlite3.Row
-    sql = (
-        "SELECT c.category_v2, COUNT(*) AS n "
-        "FROM event_categories_v2 c "
-        "JOIN unified_events ue ON ue.event_id = c.event_id "
-        "WHERE c.category_v2 IS NOT NULL AND c.category_v2 != ''"
-    )
-    params: list = []
-    if source:
-        sql += " AND ue.source = ?"
-        params.append(source)
-    sql += " GROUP BY c.category_v2 ORDER BY n DESC"
-    rows = [dict(r) for r in con.execute(sql, params)]
-    con.close()
-    return rows
-
-
 def main() -> None:
     p = argparse.ArgumentParser(description="个人数据系统 REST API")
     p.add_argument("--host", default="127.0.0.1", help="监听地址(默认 127.0.0.1)")
@@ -246,6 +247,8 @@ def main() -> None:
     print(f"[api]   GET  /health               健康检查")
     print(f"[api]   GET  /stats                数据库+向量库统计")
     print(f"[api]   GET  /categories           分类分布(?source=可选)")
+    print(f"[api]   GET  /memory               长期记忆概览(?type=可选)")
+    print(f"[api]   GET  /memory/<subject>     单条记忆详情(+?neighbors=N)")
     print(f"[api]   POST /search/semantic      语义检索(向量库)")
     print(f"[api]   POST /search/query         精确查询(sqlite)")
     print(f"[api]   GET  /event/<id>           单条事件详情")

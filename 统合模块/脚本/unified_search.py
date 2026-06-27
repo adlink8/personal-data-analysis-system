@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -223,6 +224,300 @@ def stats() -> dict:
         out["vector_available"] = False
         out["vector_error"] = str(e)[:120]
     return out
+
+
+def list_categories(source: Optional[str] = None) -> list[dict]:
+    """返回 category_v2 分布，可按 source 过滤。"""
+    con = sqlite3.connect(UNIFIED_DB)
+    con.row_factory = sqlite3.Row
+    sql = (
+        "SELECT c.category_v2, COUNT(*) AS n "
+        "FROM event_categories_v2 c "
+        "JOIN unified_events ue ON ue.event_id = c.event_id "
+        "WHERE c.category_v2 IS NOT NULL AND c.category_v2 != ''"
+    )
+    params: list = []
+    if source:
+        sql += " AND ue.source = ?"
+        params.append(source)
+    sql += " GROUP BY c.category_v2 ORDER BY n DESC"
+    rows = [dict(r) for r in con.execute(sql, params)]
+    con.close()
+    return rows
+
+
+# === 记忆层(长期记忆对象 + 图谱关系)=====================================
+
+def _memory_layer_ready() -> bool:
+    """记忆层是否已构建。"""
+    con = sqlite3.connect(UNIFIED_DB)
+    try:
+        n = con.execute("SELECT COUNT(1) FROM memory_items").fetchone()[0]
+    except sqlite3.OperationalError:
+        n = 0
+    con.close()
+    return n > 0
+
+
+def _parse_metadata(raw: str | None) -> dict:
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {"raw": raw}
+
+
+def _memory_row_to_dict(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data["metadata"] = _parse_metadata(data.get("metadata"))
+    return data
+
+
+def _find_memory_ids_by_subject(con: sqlite3.Connection, subject: str) -> list[str]:
+    """按 subject 精确优先、再模糊匹配记忆对象。"""
+    subject = (subject or "").strip()
+    if not subject:
+        return []
+    rows = con.execute(
+        "SELECT memory_id FROM memory_items WHERE lower(subject)=lower(?) "
+        "ORDER BY evidence_count DESC, confidence DESC",
+        (subject,),
+    ).fetchall()
+    if rows:
+        return [r[0] for r in rows]
+    rows = con.execute(
+        "SELECT memory_id FROM memory_items WHERE lower(subject) LIKE lower(?) "
+        "ORDER BY evidence_count DESC, confidence DESC LIMIT 20",
+        (f"%{subject}%",),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def _get_memory_by_id(con: sqlite3.Connection, memory_id: str) -> Optional[dict]:
+    row = con.execute(
+        "SELECT memory_id, memory_type, memory_subtype, subject, description, "
+        "confidence, evidence_count, metadata, created_at "
+        "FROM memory_items WHERE memory_id=?",
+        (memory_id,),
+    ).fetchone()
+    return _memory_row_to_dict(row) if row else None
+
+
+def _get_memory_evidence_summary(
+    con: sqlite3.Connection,
+    memory_id: str,
+    limit: int = 5,
+) -> list[dict]:
+    rows = con.execute(
+        "SELECT ml.target_id, ue.source, ue.event_time, ue.title, ml.relation "
+        "FROM memory_links ml "
+        "JOIN unified_events ue ON ue.event_id = ml.target_id "
+        "WHERE ml.memory_id=? AND ml.target_type='event' "
+        "ORDER BY ue.event_time DESC, ml.id DESC LIMIT ?",
+        (memory_id, limit),
+    ).fetchall()
+    return [
+        {
+            "target_id": r["target_id"],
+            "source": r["source"],
+            "event_time": r["event_time"],
+            "title": r["title"],
+            "relation": r["relation"],
+        }
+        for r in rows
+    ]
+
+
+def get_memory_profile(memory_type: Optional[str] = None, limit: int = 200) -> dict:
+    """返回长期记忆概览,可按 memory_type 过滤。
+
+    memory_type: tooling / preference / capability / fact / project / habit
+    limit: 最多返回多少条明细,默认 200。
+    """
+    if not _memory_layer_ready():
+        return {
+            "ok": False,
+            "available": False,
+            "hint": "记忆层未构建。运行: python 统合模块/脚本/run_pipeline.py --from 5 --skip 10",
+            "count": 0,
+            "total": 0,
+            "by_type": {},
+            "items": [],
+        }
+    limit = max(1, min(int(limit), 500))
+    con = sqlite3.connect(UNIFIED_DB)
+    con.row_factory = sqlite3.Row
+    params: list = []
+    where = "WHERE 1=1"
+    if memory_type:
+        where += " AND memory_type=?"
+        params.append(memory_type)
+
+    by_type = {
+        r["memory_type"]: r["n"]
+        for r in con.execute(
+            "SELECT memory_type, COUNT(1) AS n FROM memory_items "
+            "GROUP BY memory_type ORDER BY n DESC"
+        )
+    }
+    total = con.execute(
+        f"SELECT COUNT(1) FROM memory_items {where}",
+        params,
+    ).fetchone()[0]
+    rows = [
+        _memory_row_to_dict(r)
+        for r in con.execute(
+            "SELECT memory_id, memory_type, memory_subtype, subject, description, "
+            "confidence, evidence_count, metadata, created_at "
+            f"FROM memory_items {where} "
+            "ORDER BY memory_type, evidence_count DESC, confidence DESC, subject "
+            "LIMIT ?",
+            params + [limit],
+        )
+    ]
+    con.close()
+    return {
+        "ok": True,
+        "available": True,
+        "count": len(rows),
+        "total": total,
+        "by_type": by_type,
+        "filter": {"memory_type": memory_type, "limit": limit},
+        "items": rows,
+    }
+
+
+def get_memory_relations(subject: str) -> dict:
+    """返回某个 subject 匹配记忆的所有入边/出边关系。"""
+    con = sqlite3.connect(UNIFIED_DB)
+    con.row_factory = sqlite3.Row
+    ids = _find_memory_ids_by_subject(con, subject)
+    if not ids:
+        con.close()
+        return {"found": False, "subject": subject, "matches": [], "relations": []}
+
+    placeholders = ",".join("?" * len(ids))
+    rows = con.execute(
+        "SELECT mr.relation, mr.strength, "
+        "src.memory_id AS from_memory_id, src.memory_type AS from_type, "
+        "src.memory_subtype AS from_subtype, src.subject AS from_subject, "
+        "src.description AS from_description, "
+        "dst.memory_id AS to_memory_id, dst.memory_type AS to_type, "
+        "dst.memory_subtype AS to_subtype, dst.subject AS to_subject, "
+        "dst.description AS to_description "
+        "FROM memory_relations mr "
+        "JOIN memory_items src ON src.memory_id = mr.from_memory_id "
+        "JOIN memory_items dst ON dst.memory_id = mr.to_memory_id "
+        f"WHERE mr.from_memory_id IN ({placeholders}) OR mr.to_memory_id IN ({placeholders}) "
+        "ORDER BY mr.strength DESC, mr.relation",
+        ids + ids,
+    ).fetchall()
+    matches = [_get_memory_by_id(con, mid) for mid in ids]
+    con.close()
+    return {
+        "found": True,
+        "subject": subject,
+        "matches": [m for m in matches if m],
+        "relations": [dict(r) for r in rows],
+    }
+
+
+def get_memory_by_subject(subject: str) -> Optional[dict]:
+    """按主体查记忆详情,并附带证据数量和图谱关系。"""
+    con = sqlite3.connect(UNIFIED_DB)
+    con.row_factory = sqlite3.Row
+    ids = _find_memory_ids_by_subject(con, subject)
+    if not ids:
+        con.close()
+        return None
+    primary = _get_memory_by_id(con, ids[0])
+    evidence = [
+        dict(r)
+        for r in con.execute(
+            "SELECT target_type, target_id, relation FROM memory_links "
+            "WHERE memory_id=? ORDER BY id LIMIT 20",
+            (ids[0],),
+        )
+    ]
+    evidence_summary = _get_memory_evidence_summary(con, ids[0], limit=5)
+    con.close()
+    rel = get_memory_relations(subject)
+    return {
+        "ok": True,
+        "count": len(rel.get("matches", [])),
+        "memory": primary,
+        "items": rel.get("matches", []),
+        "matches": rel.get("matches", []),
+        "relations": rel.get("relations", []),
+        "evidence": evidence,
+        "evidence_summary": evidence_summary,
+    }
+
+
+def get_memory_neighbors(subject: str, hops: int = 2) -> dict:
+    """按图谱关系返回 subject 的 N 跳邻居。"""
+    hops = max(1, min(int(hops), 4))
+    con = sqlite3.connect(UNIFIED_DB)
+    con.row_factory = sqlite3.Row
+    start_ids = _find_memory_ids_by_subject(con, subject)
+    if not start_ids:
+        con.close()
+        return {
+            "ok": False,
+            "found": False,
+            "subject": subject,
+            "hops": hops,
+            "count": 0,
+            "levels": [],
+        }
+
+    visited = set(start_ids)
+    frontier = set(start_ids)
+    levels: list[dict] = []
+    for level in range(1, hops + 1):
+        if not frontier:
+            break
+        placeholders = ",".join("?" * len(frontier))
+        rows = con.execute(
+            "SELECT mr.relation, mr.strength, mr.from_memory_id, mr.to_memory_id, "
+            "src.subject AS from_subject, src.memory_type AS from_type, "
+            "dst.subject AS to_subject, dst.memory_type AS to_type "
+            "FROM memory_relations mr "
+            "JOIN memory_items src ON src.memory_id = mr.from_memory_id "
+            "JOIN memory_items dst ON dst.memory_id = mr.to_memory_id "
+            f"WHERE mr.from_memory_id IN ({placeholders}) OR mr.to_memory_id IN ({placeholders})",
+            list(frontier) + list(frontier),
+        ).fetchall()
+        next_ids: set[str] = set()
+        edges = []
+        for r in rows:
+            other = r["to_memory_id"] if r["from_memory_id"] in frontier else r["from_memory_id"]
+            if other in visited:
+                continue
+            next_ids.add(other)
+            edges.append(dict(r))
+        nodes = [_get_memory_by_id(con, mid) for mid in sorted(next_ids)]
+        levels.append({
+            "hop": level,
+            "nodes": [n for n in nodes if n],
+            "relations": edges,
+        })
+        visited |= next_ids
+        frontier = next_ids
+    starts = [_get_memory_by_id(con, mid) for mid in start_ids]
+    con.close()
+    count = sum(len(level.get("nodes", [])) for level in levels)
+    return {
+        "ok": True,
+        "found": True,
+        "subject": subject,
+        "hops": hops,
+        "count": count,
+        "starts": [s for s in starts if s],
+        "levels": levels,
+    }
 
 
 # === 合并层(去重视图)====================================================
@@ -509,6 +804,12 @@ def _cli() -> None:
   python unified_search.py stats
   python unified_search.py merge-stats        # 合并层压缩报告
 
+  # 长期记忆对象
+  python unified_search.py memory
+  python unified_search.py memory --type tooling
+  python unified_search.py memory --subject Codex
+  python unified_search.py memory --subject Codex --neighbors 2
+
   # 向量库聚类/去重(管道加工,即时计算,不依赖合并层)
   python unified_search.py cluster --source Agent --threshold 0.92
   python unified_search.py cluster --threshold 0.88 --min-cluster-size 3 --json
@@ -549,6 +850,14 @@ def _cli() -> None:
 
     pms = sub.add_parser("merge-stats", help="合并层压缩报告(L1/L2 去重情况)")
     pms.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
+
+    pm = sub.add_parser("memory", help="长期记忆对象查询")
+    pm.add_argument("--type", dest="memory_type", default=None,
+                    help="过滤记忆类型: tooling/preference/capability/fact/project/habit")
+    pm.add_argument("--subject", default=None, help="按主体查详情,如 Codex")
+    pm.add_argument("--neighbors", type=int, default=0, help="同时返回 N 跳邻居(1-4)")
+    pm.add_argument("--limit", type=int, default=50, help="概览模式返回上限")
+    pm.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
 
     pc = sub.add_parser(
         "cluster", help="向量库相似度聚类/去重(管道加工)"
@@ -591,6 +900,17 @@ def _cli() -> None:
         data = stats()
     elif args.cmd == "merge-stats":
         data = merge_stats()
+    elif args.cmd == "memory":
+        if args.subject:
+            detail = get_memory_by_subject(args.subject)
+            if detail is None:
+                print(f"未找到 memory subject={args.subject}")
+                return
+            if args.neighbors:
+                detail["neighbors"] = get_memory_neighbors(args.subject, args.neighbors)
+            data = detail
+        else:
+            data = get_memory_profile(memory_type=args.memory_type, limit=args.limit)
     elif args.cmd == "cluster":
         data = cluster(
             source=args.source, threshold=args.threshold,
@@ -658,6 +978,41 @@ def _cli() -> None:
             print("\nL2 Top 簇:")
             for c in data["top_l2_clusters"]:
                 print(f"  size={c['member_count']} {c['summary']}")
+    elif args.cmd == "memory":
+        if args.subject:
+            memory = data["memory"]
+            print(f"[{memory['memory_type']}/{memory['memory_subtype']}] {memory['subject']}")
+            print(f"置信度: {memory.get('confidence')}  证据数: {memory.get('evidence_count')}")
+            print(f"描述: {memory.get('description')}")
+            if data.get("relations"):
+                print("\n关系:")
+                for r in data["relations"][:20]:
+                    print(f"  {r['from_subject']} --{r['relation']}({r['strength']})--> {r['to_subject']}")
+            if data.get("evidence_summary"):
+                print("\n证据摘要:")
+                for row in data["evidence_summary"][:5]:
+                    print(
+                        f"  {row.get('source','?')} {str(row.get('event_time',''))[:19]} "
+                        f"{str(row.get('title') or '(无标题)')[:60]}"
+                    )
+            if data.get("neighbors"):
+                print("\n邻居:")
+                for level in data["neighbors"].get("levels", []):
+                    names = ", ".join(f"{n['subject']}[{n['memory_type']}]" for n in level.get("nodes", []))
+                    print(f"  {level['hop']}跳: {names or '(无)'}")
+        else:
+            if not data.get("available"):
+                print(data.get("hint", "记忆层未构建"))
+                return
+            print(f"记忆总数: {data['total']}")
+            print("按类型:")
+            for t, n in data["by_type"].items():
+                print(f"  {t}: {n}")
+            print("\n明细:")
+            for item in data["items"]:
+                print(f"[{item['memory_type']}/{item['memory_subtype']}] {item['subject']} "
+                      f"(证据 {item['evidence_count']}, 置信 {item['confidence']})")
+                print(f"  {item['description'][:160]}")
     elif args.cmd == "cluster":
         print(f"输入事件: {data['n_input']:,}")
         print(f"保留(代表): {data['n_kept']:,}  合并掉: {data['n_merged']:,}"

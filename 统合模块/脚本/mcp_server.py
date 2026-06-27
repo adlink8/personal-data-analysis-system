@@ -10,6 +10,8 @@
   3. get_event_detail 按 event_id 取单条全字段(点开看详情)
   4. stats            数据库 + 向量库的统计概览(AI 建立认知的第一步)
   5. list_categories  列出所有 category_v2 分布(帮 AI 知道有哪些维度可过滤)
+  6. get_memory_profile 长期记忆概览(tooling/preference/capability/fact/project/habit)
+  7. get_memory_by_subject 按主体查询单条记忆 + 图谱关系
 
 启动方式(stdio 传输,MCP 标准协议):
 
@@ -195,6 +197,54 @@ TOOLS = [
             },
         },
     ),
+    types.Tool(
+        name="get_memory_profile",
+        description=(
+            "获取用户长期记忆概览。"
+            "适合在回答前了解用户的工具偏好、能力、项目、事实、习惯和内容偏好。"
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "memory_type": {
+                    "type": "string",
+                    "description": "可选过滤: tooling / preference / capability / fact / project / habit",
+                    "enum": ["tooling", "preference", "capability", "fact", "project", "habit"],
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "最多返回多少条明细(默认 50)",
+                    "default": 50,
+                    "minimum": 1,
+                    "maximum": 200,
+                },
+            },
+        },
+    ),
+    types.Tool(
+        name="get_memory_by_subject",
+        description=(
+            "按主体查询长期记忆详情和图谱关系,如 Codex、Python、GSD项目管理。"
+            "可选返回 N 跳邻居,用于理解相关工具/能力/项目之间的关系。"
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "subject": {
+                    "type": "string",
+                    "description": "记忆主体,如 Codex",
+                },
+                "neighbors": {
+                    "type": "integer",
+                    "description": "可选:返回 N 跳邻居(0=不返回,默认 0)",
+                    "default": 0,
+                    "minimum": 0,
+                    "maximum": 4,
+                },
+            },
+            "required": ["subject"],
+        },
+    ),
 ]
 
 
@@ -263,35 +313,56 @@ def _format_stats(data: dict) -> str:
     return "\n".join(lines)
 
 
-def _list_categories(source: str | None = None) -> list[dict]:
-    """从 sqlite 读 category_v2 分布。"""
-    import sqlite3
-    root = _THIS_DIR.parents[0]
-    db = root / "SQLite数据库" / "personal_system.sqlite"
-    con = sqlite3.connect(db)
-    con.row_factory = sqlite3.Row
-    sql = (
-        "SELECT c.category_v2, COUNT(*) AS n "
-        "FROM event_categories_v2 c "
-        "JOIN unified_events ue ON ue.event_id = c.event_id "
-        "WHERE c.category_v2 IS NOT NULL AND c.category_v2 != ''"
-    )
-    params: list = []
-    if source:
-        sql += " AND ue.source = ?"
-        params.append(source)
-    sql += " GROUP BY c.category_v2 ORDER BY n DESC"
-    rows = [dict(r) for r in con.execute(sql, params)]
-    con.close()
-    return rows
-
-
 def _format_categories(rows: list[dict]) -> str:
     if not rows:
         return "无分类数据。"
     lines = [f"共 {len(rows)} 个分类(降序):", ""]
     for r in rows:
         lines.append(f"  {r['category_v2']}: {r['n']}")
+    return "\n".join(lines)
+
+
+def _format_memory_profile(data: dict) -> str:
+    if not data.get("available"):
+        return data.get("hint", "记忆层未构建。")
+    lines = [f"记忆总数: {data.get('total', 0)}", "按类型:"]
+    for t, n in data.get("by_type", {}).items():
+        lines.append(f"  {t}: {n}")
+    lines.append("")
+    lines.append("明细:")
+    for item in data.get("items", [])[:50]:
+        lines.append(
+            f"- [{item.get('memory_type')}/{item.get('memory_subtype')}] "
+            f"{item.get('subject')} | 证据 {item.get('evidence_count')} | "
+            f"置信 {item.get('confidence')}"
+        )
+        lines.append(f"  {item.get('description', '')[:240]}")
+    return "\n".join(lines)
+
+
+def _format_memory_detail(data: dict) -> str:
+    memory = data.get("memory") or {}
+    lines = [
+        f"[{memory.get('memory_type')}/{memory.get('memory_subtype')}] {memory.get('subject')}",
+        f"置信度: {memory.get('confidence')} | 证据数: {memory.get('evidence_count')}",
+        f"描述: {memory.get('description', '')}",
+    ]
+    relations = data.get("relations") or []
+    if relations:
+        lines.extend(["", "关系:"])
+        for r in relations[:30]:
+            lines.append(
+                f"- {r.get('from_subject')} --{r.get('relation')}({r.get('strength')})--> "
+                f"{r.get('to_subject')}"
+            )
+    neighbors = data.get("neighbors") or {}
+    if neighbors.get("levels"):
+        lines.extend(["", "邻居:"])
+        for level in neighbors["levels"]:
+            nodes = ", ".join(
+                f"{n.get('subject')}[{n.get('memory_type')}]" for n in level.get("nodes", [])
+            )
+            lines.append(f"- {level.get('hop')}跳: {nodes or '(无)'}")
     return "\n".join(lines)
 
 
@@ -346,8 +417,26 @@ async def handle_call_tool(
             text = _format_stats(data)
 
         elif name == "list_categories":
-            rows = _list_categories(arguments.get("source"))
+            rows = backend.list_categories(arguments.get("source"))
             text = _format_categories(rows)
+
+        elif name == "get_memory_profile":
+            data = backend.get_memory_profile(
+                memory_type=arguments.get("memory_type"),
+                limit=arguments.get("limit", 50),
+            )
+            text = _format_memory_profile(data)
+
+        elif name == "get_memory_by_subject":
+            subject = arguments.get("subject", "")
+            data = backend.get_memory_by_subject(subject)
+            if data is None:
+                text = f"未找到 memory subject={subject}"
+            else:
+                neighbors = int(arguments.get("neighbors", 0) or 0)
+                if neighbors:
+                    data["neighbors"] = backend.get_memory_neighbors(subject, neighbors)
+                text = _format_memory_detail(data)
 
         else:
             text = f"未知工具: {name}"
