@@ -167,3 +167,24 @@ Phase 06 不回写 `memory_items`，而是在 `统合模块/分析数据/ai_cont
 - `deep_profile_evaluation.md`：浅层 `person_profile_v2.md` 与深层 profile 的差异评估
 
 这层的职责是把浅层标签升级成模式、演化、关系强度和反例约束，但不把推测写回长期记忆库。
+
+### Phase 07 候选记忆层（Agent 对话规范化 + mem0 旁路）
+
+Phase 07 同样**不回写 `memory_items`**，定位是"更可靠的输入 + 候选压缩"，输出全部是旁路文件：
+
+**Agent 对话规范化**（`Agent/结构化数据/SQLite数据库/agent_data.sqlite` v2 旁路表，不动旧表）：
+- `agent_sessions_meta` / `agent_turns`：会话和 turn 边界（turn_id 前向填充，96.4% user 消息可串联）
+- `agent_messages`：role 归一化为 user/assistant/developer 三值，提取可解释文本，带 `raw_file + line_no` 证据链
+- `agent_tool_calls` / `agent_tool_outputs`：按 `call_id` 关联的工具调用与输出（长输出截断，原文回源文件）
+- `agent_lifecycle_events` / `agent_usage_metrics`：生命周期事件与 token 指标
+- 当前只深度解析 Codex rollout 格式；Claude/WorkBuddy/Hermes 仅发现计数（`unsupported`）
+
+**用户想法片段**（`统合模块/分析数据/ai_context/conversation_segments.json`）：
+- 输入只来自 `agent_messages` 和 GPT `messages` 的 `role=user`
+- 列表项/双换行/超长句确定性切分，丢弃过短噪声
+
+**mem0 候选压缩**（`统合模块/分析数据/ai_context/mem0_candidate_memories.json`）：
+- 报错堆栈/代码粘贴/系统配置文档在压缩前被噪声过滤（实测过滤率约 50%）
+- 候选强制带 `source_segment_ids` + `source_refs`，证据链比例 100%
+- mem0 是**可选依赖**：缺失时降级到本地启发式模式，前三波不受影响
+- 候选的 `acceptance_status` 默认 `candidate`，需人工 review 后才考虑晋级到 Phase 05 的 memory store

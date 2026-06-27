@@ -236,6 +236,14 @@ streamlit run 统合模块\脚本\dashboard.py
 - `统合模块/分析数据/ai_context/deep_profile_evaluation.md` —— 浅层 `person_profile_v2.md` 与深层 profile 的对比评估。
 - Phase 06 **不自动写回** `memory_items`，只产出旁路分析结果，避免把推测污染长期记忆。
 
+**Agent 对话规范化 + mem0 候选压缩(Phase 07):**
+- `Agent/结构化数据/脚本/normalize_agent_conversations.py` —— 把 Codex rollout jsonl 拆成 turn/message/tool/event 旁路表(`agent_messages` 等),role 归一化,带 `raw_file + line_no` 证据链,不动旧 `sessions`/`session_messages` 表。
+- `统合模块/脚本/build_conversation_segments.py` —— 从清洗后的 Agent/GPT `role=user` 消息切出"用户想法片段",确定性规则切分(列表/换行/长度上限)。
+- `统合模块/脚本/build_mem0_candidate_memory.py` —— mem0 候选记忆压缩实验,噪声预过滤 + 证据链强制,**只产候选不写 `memory_items`**;mem0 可选,缺依赖时降级本地启发式。
+- `统合模块/分析数据/ai_context/conversation_segments.json` / `mem0_candidate_memories.json` / `mem0_candidate_evaluation.md` —— Phase 07 旁路产物。
+- `tests/test_agent_conversation_normalization.py` —— 覆盖 jsonl 解析 / role 过滤 / 证据链回溯 / 候选不污染 memory_items。
+- Phase 06 负责深层洞察,Phase 07 负责更可靠的输入和候选压缩;两层都不回写 `memory_items`。
+
 **服务层与接入:**
 - `统合模块/脚本/unified_search.py` —— **统一检索层**:把语义检索、精确查询、事件详情、统计、记忆查询合成一组纯函数,CLI / MCP / Agent 共用同一后端,见下文"统一检索层(CLI)"。
 - `统合模块/脚本/mcp_server.py` —— **MCP Server**:把统合库、向量库、记忆图谱暴露成 MCP tools,支持 MCP 的 AI 客户端零代码接入,见下文"MCP 接入"。
@@ -475,6 +483,16 @@ python 统合模块\脚本\mine_deep_memory_graph.py --dry-run
 python 统合模块\脚本\mine_deep_memory_graph.py --output-json
 python 统合模块\脚本\build_deep_memory_profile.py
 python 统合模块\脚本\build_deep_memory_profile.py --evaluate
+```
+
+### Phase 07 验证命令
+
+```powershell
+python Agent\结构化数据\脚本\normalize_agent_conversations.py --dry-run --limit-files 5
+python Agent\结构化数据\脚本\normalize_agent_conversations.py --write
+python 统合模块\脚本\build_conversation_segments.py --write
+python 统合模块\脚本\build_mem0_candidate_memory.py --sample --force-local
+python tests\test_agent_conversation_normalization.py
 ```
 
 ### 启动与示例

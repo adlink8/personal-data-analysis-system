@@ -102,6 +102,28 @@ python 统合模块\脚本\build_deep_memory_profile.py --evaluate
 - `deep_memory_profile.md` 只包含 strong / moderate
 - `deep_profile_evaluation.md` 明确给出 shallow vs deep 差异
 
+### 2.8 Phase 07 Agent 对话规范化验证
+
+```powershell
+python Agent\结构化数据\脚本\normalize_agent_conversations.py --dry-run --limit-files 5
+python Agent\结构化数据\脚本\normalize_agent_conversations.py --write
+python 统合模块\脚本\build_conversation_segments.py --dry-run --source Agent --limit 20
+python 统合模块\脚本\build_conversation_segments.py --write
+python 统合模块\脚本\build_mem0_candidate_memory.py --dry-run --limit 10
+python 统合模块\脚本\build_mem0_candidate_memory.py --sample --force-local
+python tests\test_agent_conversation_normalization.py
+```
+
+检查点：
+
+- `--dry-run --limit-files 5` 输出 Codex 的 raw_type / payload_type 统计，0 解析失败
+- `--write` 幂等：连跑两次 v2 表行数完全一致
+- `agent_messages` 的 role 只有 user/assistant/developer 三值（无 user_message/agent_message）
+- user 消息 turn_id 覆盖率 ≥ 96%
+- 每条 `agent_messages` 都能回溯到 `raw_file + line_no`
+- mem0 候选 `acceptance_status` 全部为 `candidate`，**不写入** `memory_items`
+- mem0 依赖缺失时降级到本地启发式模式，不崩溃，前三波验证不受影响
+
 ---
 
 ## 3. 幂等验证机制
