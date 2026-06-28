@@ -49,6 +49,60 @@ Phase 07 先把 Agent 原始会话日志从摘录索引升级为可追溯的结�
   主线改为 mimo prompt-controlled turn 叙述摘要回流到向量库(保留主干+分支+细节,而非压缩成离散 claim)。
 </deferred>
 
+<decisions_wave8>
+## Wave 8 决策 (2026-06-28 discuss)
+
+**触发**:Wave 7 完成后执行超前于规划,在压缩质量未定型时落地了三库统一灌库
+(SQLite + Chroma + DuckDB),并引入图数据库。回顾发现三个问题,补 Wave 8 收口。
+
+### 决策1: 数据库相关全部暂定
+- **问题**:图库存的是伪关系(`e_next_turn` 时序编号、`e_session_topic` 1对1属性),
+  向量库无分类策略(`personal_events` 7723条 + `conversation_turns` 563条 粒度不一)。
+- **决策**:压缩质量未定型前,不再向任何库灌新数据。已建的 `conversation_graph.duckdb`
+  标记为废弃(伪关系),不作为下游依据。
+- **rationale**:把存疑数据固化进图/向量库,后续难清理。地基不稳不盖楼。
+
+### 决策2: Wave 8 范围只管压缩质量
+- **决策**:Wave 8 只做质量收口(评估+根因修复+重跑)。图库真关系重做放 Wave 9,
+  向量库分类放 Wave 10。职责单一,避免范围蔓延。
+- **rationale**:质量是下游一切的地基。图库/向量库都依赖质量达标的 turn 叙述。
+
+### 决策3: ** 瑕疵用根因修复,不做事后补抽
+- **根因调查结论(2026-06-28)**:
+  - 瑕疵 14 个/583 turn(2.4%),正常率 96.6%,距入库门槛 98% 差 1.4 个百分点。
+  - **不是模型问题**:同一 chunk(turn 4-5)连调 6 次全正常;单 turn 调用完美。
+  - **不是约束太浅**:单 turn 测试 prompt 约束够用。
+  - **是脚本防御不足(根因)**:
+    1. `parse_turn_summaries` 不校验返回段数 == 输入 turn 数,段数对就回填,内容错位无感知。
+    2. prompt 没强制要求"段数必须等于输入,严格用 Turn {N}: 绝对编号"。
+    3. 统计铁证:14 个瑕疵 turn 编号 `[4,6,2,2,1,6,2,2,6,4,8,2,3,3]`,
+       14 个里 9 个是 turn 1/2/3(小编号);6/14 下一个 turn 以 `**` 开头(内容被吞)。
+- **决策**:从根上修 `summarize_chunk` 返回后校验段数+重试、强化 prompt 约束、正则再加固。
+  不写 `fix_conversation_flaws.py` 补抽脚本(治标不治本,后续重跑仍会产生)。
+- **rationale**:模型是触发器,脚本没做防御才是根因。好脚本应:校验段数、不匹配重试、
+  正则覆盖所有 markdown 变体。
+
+### 决策4: 修复后全量重跑 113 session
+- **问题**:现有产物是分两批跑的(前 15 个新正则 + 后 98 个 resume 跳过=旧正则),
+  逻辑不一致,且 14 个瑕疵是旧正则+旧 prompt 产物。
+- **决策**:根因修复后,对全部 113 session 全量重跑(幂等覆盖),保证产物逻辑一致。
+- **rationale**:全量重跑 ~40 分钟(3 路并发),换来产物一致性,值。
+</decisions_wave8>
+
+<gray_areas_closed_wave8>
+- [x] ** 瑕疵是模型/约束/脚本哪个问题 → 脚本防御不足(根因调查 2026-06-28 确认)
+- [x] 修复用补抽还是根因修复 → 根因修复
+- [x] 图库重做和向量库分类是否纳入 Wave 8 → 否,Wave 9/10 单独做
+- [x] 修复后重跑范围 → 全量 113 session
+</gray_areas_closed_wave8>
+
+<gray_areas_remaining_wave8>
+- [ ] 质量门槛的具体阈值(正常率 ≥ 98%? 回溯准确率?)→ Wave 8-1 评估后定
+- [ ] 根因修复后能否把瑕疵清零 → Wave 8-2 重跑验证后定
+- [ ] 图库真关系抽取的具体方法(LLM 抽实体? 规则?)→ Wave 9 discuss
+- [ ] 向量库分类策略(A 按粒度/B 按 source/C 全合一)→ Wave 10 discuss
+</gray_areas_remaining_wave8>
+
 ---
 
 *Phase: 07-agent-conversation-normalization-mem0-spike*

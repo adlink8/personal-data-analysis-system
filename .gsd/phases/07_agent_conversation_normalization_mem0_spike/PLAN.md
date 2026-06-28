@@ -372,6 +372,102 @@ git diff --check
 
 ---
 
+
+
+## Wave 8: 压缩质量收口 (★ 2026-06-28,执行超前反思后按 GSD 补规划)
+
+> **GSD 元数据**
+> - 触发:Wave 7 完成后执行超前于规划,在压缩质量未定型时落地三库统一灌库 + 图数据库。
+> - 决策依据:见 `CONTEXT.md` `<decisions_wave8>`(2026-06-28 discuss)。
+> - 范围:**只管压缩质量收口**。图库重做 → Wave 9,向量库分类 → Wave 10。
+> - 质量门槛:本 Wave 达标后才允许启动 Wave 9/10。
+
+### Wave 8 目标
+1. 建立压缩质量客观评估基线,定义"可入库"硬门槛。
+2. 从根因修复 `**` 瑕疵产生机制(脚本防御不足,非模型问题)。
+3. 全量重跑 113 session,验证瑕疵清零、产物逻辑一致。
+
+### Wave 8 任务分解(GSD 原子任务)
+
+#### Wave 8.1: 压缩质量评估基线
+
+- **任务 8.1.1** (id: `8.1.1`)
+  - description: 新增 `统合模块/脚本/evaluate_conversation_quality.py`,对 `conversation_summaries.json` 做客观质量评估
+  - 评估维度:完整度(瑕疵 turn 占比)、信息密度(长度分布)、回溯链完整率(source_refs 覆盖率)、因果完整性(瑕疵是否造成 turn 链断裂)
+  - acceptance: dry-run 输出各维度统计;能识别并列举所有 `**`/过短/空瑕疵 turn 及其 session/turn_no;生成 `conversation_quality_report.{json,md}`
+  - commit_type: feat
+
+- **任务 8.1.2** (id: `8.1.2`)
+  - description: 在评估报告中定义并写入质量门槛:正常率 ≥ 98%、回溯链覆盖率 100%
+  - acceptance: 报告含明确的 PASS/FAIL 判定;当前 96.6% 正常率判为 FAIL 并列出差距
+  - commit_type: feat
+
+#### Wave 8.2: 瑕疵根因修复(决策3:不补抽,改根因)
+
+- **任务 8.2.1** (id: `8.2.1`)
+  - description: 修复 `summarize_chunk` 返回后增加段数校验——解析段数 ≠ 输入 turn 数时自动重试(最多 2 次)
+  - 根因:`parse_turn_summaries` 不校验段数,LLM 偶发合并/错位输出时内容静默错位
+  - acceptance: 加单元测试覆盖"LLM 返回段数不足""段数过多""段数匹配"三种场景;校验失败触发重试而非静默回填
+  - commit_type: fix
+
+- **任务 8.2.2** (id: `8.2.2`)
+  - description: 强化 `SUMMARY_USER_PROMPT_TEMPLATE` 约束——明确要求"输出段数必须等于输入 turn 数,严格用 `Turn {N}:` 绝对编号(不用相对编号),每个 turn 独立成段不合并"
+  - acceptance: 改动可追溯(有 before/after prompt 文本对比);prompt_version 自增
+  - commit_type: fix
+
+- **任务 8.2.3** (id: `8.2.3`)
+  - description: 加固 `parse_turn_summaries` 正则——处理 LLM 单段内含多个 Turn 标记的合并叙述(检测并拆分),并保留上一轮已修的 markdown 加粗兼容
+  - acceptance: 单元测试覆盖"标准/加粗/标题/合并叙述"4 类 LLM 输出;全部正确切分
+  - commit_type: fix
+
+#### Wave 8.3: 全量重跑验证(决策4:全量 113 session)
+
+- **任务 8.3.1** (id: `8.3.1`)
+  - description: 备份现有 `conversation_summaries.{json,md}`,然后用修复后的脚本全量重跑 113 session(`--limit 0 --workers 3`,不用 resume 保证逻辑一致)
+  - acceptance: 重跑无报错;新产物 turn 总数与旧产物一致(583 ± 容差);`**` 瑕疵数 < 3(理想 0)
+  - commit_type: chore
+
+- **任务 8.3.2** (id: `8.3.2`)
+  - description: 重跑 `evaluate_conversation_quality.py`,确认正常率 ≥ 98% 门槛通过
+  - acceptance: 评估报告判 PASS;若仍 FAIL,列出剩余瑕疵交回 discuss(可能需 Wave 8.2 方案 B 兜底)
+  - commit_type: test
+
+- **任务 8.3.3** (id: `8.3.3`)
+  - description: 标记 `conversation_graph.duckdb` 为废弃(伪关系),写入说明文件;`build_triple_store.py` 的图部分暂挂,等 Wave 9 重做
+  - acceptance: DuckDB 目录有 DEPRECATED 说明;build_triple_store.py 图部分加注释标暂停
+  - commit_type: docs
+
+### Wave 8 验收标准(Acceptance Criteria)
+- [ ] `evaluate_conversation_quality.py` 生成报告,客观量化质量
+- [ ] `summarize_chunk` 段数校验 + 重试机制就位,有单元测试
+- [ ] prompt 约束强化,prompt_version 自增
+- [ ] 正则加固,4 类 LLM 输出单元测试全过
+- [ ] 全量重跑后正常率 ≥ 98%(理想瑕疵清零)
+- [ ] 伪关系图库标记废弃
+- [ ] 质量达标前不向任何库灌新数据
+
+### Wave 8 验证命令
+```powershell
+python 统合模块\脚本\evaluate_conversation_quality.py --write
+python tests\test_conversation_summary_parse.py    # 8.2.1/8.2.3 单元测试
+# 全量重跑
+python 统合模块\脚本\build_conversation_summary.py --write --limit 0 --workers 3
+python 统合模块\脚本\evaluate_conversation_quality.py --write   # 复评
+```
+
+### Wave 8 依赖与风险
+- **依赖**:Wave 7 已完成(summary 产物存在);MiMo 端点可用(key/base_url)
+- **风险1**:根因修复后仍偶发瑕疵 → 兜底方案 B(单 turn 强制分批,`MAX_CHARS_PER_CALL` 降到 3000)
+- **风险2**:全量重跑耗时 ~40 分钟 → 用已验证的 3 路并发,后台运行
+- **风险3**:重跑可能把原来正常的 turn 搞坏(LLM 非确定性)→ 重跑前必须备份,对比新旧
+
+### Wave 8 执行顺序
+1. Wave 8.1 → 8.2(质量评估驱动修复,修复有测试)
+2. Wave 8.3(全量重跑验证)
+3. **质量门槛**:正常率 ≥ 98% 通过后,解锁 Wave 9(图库真关系)和 Wave 10(向量库分类)
+
+---
+
 ## PLANNING COMPLETE
 
 
