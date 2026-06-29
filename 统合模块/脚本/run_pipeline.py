@@ -29,6 +29,7 @@
   python 统合模块\\脚本\\run_pipeline.py --skip 10     # 跳过向量化（节省时间）
   python 统合模块\\脚本\\run_pipeline.py --dry-run     # 只打印顺序，不执行
   python 统合模块\\脚本\\run_pipeline.py --from 5 --skip 9,10  # 组合用法
+  python 统合模块\\脚本\\run_pipeline.py --include-conversation-turns  # 显式启用步骤13
 """
 
 from __future__ import annotations
@@ -148,6 +149,10 @@ def parse_args() -> argparse.Namespace:
         "--dry-run", action="store_true",
         help="只打印将要执行的步骤，不实际运行",
     )
+    p.add_argument(
+        "--include-conversation-turns", action="store_true",
+        help="显式启用步骤13：build_conversation_vector_store（默认不纳入全量管道）",
+    )
     return p.parse_args()
 
 
@@ -166,6 +171,9 @@ def select_steps(args: argparse.Namespace) -> list[dict]:
     result = []
     for step in STEPS:
         n = step["num"]
+        if n == 13 and not args.include_conversation_turns:
+            if not only or 13 not in only:
+                continue
         if only and n not in only:
             continue
         if n < args.from_step:

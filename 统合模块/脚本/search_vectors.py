@@ -29,64 +29,63 @@ CONVERSATION_COLLECTION = "conversation_turns"  # Wave 7 新增:turn 叙述(含�
 DEFAULT_TOP_K = 5
 
 
-def search(
+def _normalize_similarity(distance: float) -> float:
+    return round(max(0.0, 1.0 - distance / 2.0), 4)
+
+
+def _query_collection(
     query: str,
-    top_k: int = DEFAULT_TOP_K,
-    source: Optional[str] = None,
-    client: Optional[ChromaClient] = None,
-) -> list[dict]:
-    """语义检索用户历史事件(personal_events collection)。
-
-    参数:
-        query: 自然语言查询(如 "PPT 排版怎么做"、"上次怎么调试数据库的")
-        top_k: 返回的最相关事件数
-        source: 可选,过滤数据源("Google"/"GPT"/"Agent"),None 则全源检索
-        client: 可复用的 ChromaClient(避免重复连接)
-
-    返回: list[dict],按相关度降序,每条含:
-        - event_id, source, category_v2, event_time, month, service, title
-        - content: 原始内容(chroma 存的 document)
-        - score: 相似度分数(chroma distance 转成 0-1 相似度)
-    """
+    collection_name: str,
+    top_k: int,
+    source: Optional[str],
+    client: Optional[ChromaClient],
+) -> tuple[list, list, list, list]:
     if not query or not query.strip():
-        return []
-
-    # 查询向量化
+        return [], [], [], []
     query_vec = ollama_embed.embed(query)
-
-    # 连 chroma
     if client is None:
         client = ChromaClient()
-    coll = client.get_or_create_collection(COLLECTION_NAME)
-
-    # 构造过滤
+    coll = client.get_or_create_collection(collection_name)
     where = {"source": source} if source else None
-
-    # 检索
     raw = coll.query(
         query_embeddings=[query_vec],
         n_results=top_k,
         where=where,
         include=["metadatas", "documents", "distances"],
     )
+    return (
+        raw.get("ids", [[]])[0],
+        raw.get("distances", [[]])[0],
+        raw.get("documents", [[]])[0],
+        raw.get("metadatas", [[]])[0],
+    )
 
-    # 解析结果(chroma 返回的是嵌套列表,每查询一组)
-    if not raw.get("ids") or not raw["ids"][0]:
+
+def search(
+    query: str,
+    top_k: int = DEFAULT_TOP_K,
+    source: Optional[str] = None,
+    client: Optional[ChromaClient] = None,
+) -> list[dict]:
+    """语义检索用户历史事件(personal_events collection)。"""
+    if not query or not query.strip():
+        return []
+
+    ids, distances, documents, metadatas = _query_collection(
+        query=query,
+        collection_name=COLLECTION_NAME,
+        top_k=top_k,
+        source=source,
+        client=client,
+    )
+    if not ids:
         return []
 
     results = []
-    ids = raw["ids"][0]
-    distances = raw.get("distances", [[]])[0]
-    documents = raw.get("documents", [[]])[0]
-    metadatas = raw.get("metadatas", [[]])[0]
-
     for i, eid in enumerate(ids):
         dist = distances[i] if i < len(distances) else 1.0
         meta = metadatas[i] if i < len(metadatas) else {}
         doc = documents[i] if i < len(documents) else ""
-        # chroma cosine distance: 0=完全相同, 2=完全相反
-        # 转成相似度: similarity = 1 - distance/2 (范围 0~1)
-        similarity = max(0.0, 1.0 - dist / 2.0)
         results.append(
             {
                 "event_id": eid,
@@ -98,7 +97,10 @@ def search(
                 "month": meta.get("month", ""),
                 "title": meta.get("title", ""),
                 "content": doc,
-                "score": round(similarity, 4),
+                "score": _normalize_similarity(dist),
+                "collection": COLLECTION_NAME,
+                "retrieval_unit": "event",
+                "rank_reason": "personal_events semantic match",
             }
         )
     return results
@@ -110,55 +112,28 @@ def search_conversation_turns(
     source: Optional[str] = None,
     client: Optional[ChromaClient] = None,
 ) -> list[dict]:
-    """检索 turn 叙述(conversation_turns collection,Wave 7 新增)。
-
-    与 search() 的区别:检索单元是 turn 级叙述(含 user+assistant+tool 因果链),
-    不是单条 message。适合"用户做过什么/怎么做的"类查询。
-
-    collection 不存在或为空时返回 [](向后兼容,不影响主流程)。
-
-    返回: list[dict],每条含:
-        - event_id: "{session_id}#{turn_id}"(可回溯)
-        - source, event_type(固定 conversation_turn)
-        - session_id, turn_id, turn_no, main_topic
-        - content: turn 叙述
-        - score: 相似度
-    """
+    """检索 turn 叙述(conversation_turns collection,Wave 7 新增)。"""
     if not query or not query.strip():
         return []
-    query_vec = ollama_embed.embed(query)
-    if client is None:
-        client = ChromaClient()
     try:
-        coll = client.get_or_create_collection(CONVERSATION_COLLECTION)
-    except ChromaError:
-        return []
-
-    where = {"source": source} if source else None
-    try:
-        raw = coll.query(
-            query_embeddings=[query_vec],
-            n_results=top_k,
-            where=where,
-            include=["metadatas", "documents", "distances"],
+        ids, distances, documents, metadatas = _query_collection(
+            query=query,
+            collection_name=CONVERSATION_COLLECTION,
+            top_k=top_k,
+            source=source,
+            client=client,
         )
     except ChromaError:
         return []
 
-    if not raw.get("ids") or not raw["ids"][0]:
+    if not ids:
         return []
 
     results = []
-    ids = raw["ids"][0]
-    distances = raw.get("distances", [[]])[0]
-    documents = raw.get("documents", [[]])[0]
-    metadatas = raw.get("metadatas", [[]])[0]
-
     for i, eid in enumerate(ids):
         dist = distances[i] if i < len(distances) else 1.0
         meta = metadatas[i] if i < len(metadatas) else {}
         doc = documents[i] if i < len(documents) else ""
-        similarity = max(0.0, 1.0 - dist / 2.0)
         results.append({
             "event_id": eid,
             "source": meta.get("source", ""),
@@ -167,15 +142,28 @@ def search_conversation_turns(
             "turn_id": meta.get("turn_id", ""),
             "turn_no": meta.get("turn_no", 0),
             "main_topic": meta.get("main_topic", ""),
-            "title": meta.get("main_topic", ""),  # 统一字段,便于上层展示
-            "category_v2": "对话叙述",  # 标记来源类型,便于区分
+            "title": meta.get("main_topic", ""),
+            "category_v2": "对话叙述",
             "service": meta.get("source", ""),
             "event_time": "",
             "month": "",
             "content": doc,
-            "score": round(similarity, 4),
+            "score": _normalize_similarity(dist),
+            "collection": CONVERSATION_COLLECTION,
+            "retrieval_unit": "conversation_turn",
+            "rank_reason": "conversation_turn causal narrative match",
         })
     return results
+
+
+def _rank_key(result: dict) -> tuple:
+    score = float(result.get("score", 0.0))
+    collection = result.get("collection", "")
+    retrieval_unit = result.get("retrieval_unit", "")
+    turn_bonus = 1 if collection == CONVERSATION_COLLECTION else 0
+    unit_bonus = 1 if retrieval_unit == "conversation_turn" else 0
+    title_len = len((result.get("title") or "").strip())
+    return (score, turn_bonus, unit_bonus, title_len)
 
 
 def search_all(
@@ -186,30 +174,25 @@ def search_all(
 ) -> list[dict]:
     """跨 collection 合并检索(personal_events + conversation_turns)。
 
-    Wave 7 主线检索入口:同时搜单条事件和 turn 叙述,按相似度统一排序。
-    适合上层(unified_search/MCP/Agent)一站式召回。
-
-    include_turns: True=同时搜 conversation_turns;False=只搜 personal_events
-                  (collection 不存在时自动降级为只搜 personal_events)
+    规则:
+    - 保留原始 score
+    - 补充 collection / retrieval_unit / rank_reason
+    - 分数接近时优先 conversation_turns,但不修改原始 score
     """
     if not query or not query.strip():
         return []
     client = ChromaClient()
-
-    # 1. 搜 personal_events(单条事件)
     results = search(query, top_k=top_k, source=source, client=client)
 
-    # 2. 搜 conversation_turns(turn 叙述,失败降级)
     if include_turns:
         try:
             turns = search_conversation_turns(
                 query, top_k=top_k, source=source, client=client)
             results.extend(turns)
         except (ChromaError, Exception):
-            pass  # collection 不存在或服务问题,降级为只返回 personal_events
+            pass
 
-    # 3. 统一按 score 降序,裁到 top_k
-    results.sort(key=lambda r: r.get("score", 0), reverse=True)
+    results.sort(key=_rank_key, reverse=True)
     return results[:top_k]
 
 
@@ -217,6 +200,7 @@ def format_result(r: dict, show_content: int = 200) -> str:
     """格式化单条结果用于打印。show_content 控制内容显示长度。"""
     lines = [
         f"[{r['score']:.3f}] [{r['source']}] {r['title'] or '(无标题)'}",
+        f"    来源库: {r.get('collection', '')} | 单元: {r.get('retrieval_unit', '')} | 原因: {r.get('rank_reason', '')}",
         f"    时间: {r['event_time']} | 分类: {r['category_v2']} | 服务: {r['service']}",
     ]
     if r["content"]:

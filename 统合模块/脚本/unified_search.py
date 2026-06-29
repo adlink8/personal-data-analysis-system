@@ -57,7 +57,8 @@ def search_semantic(
                    False=只搜 personal_events(旧行为)。collection 不存在时自动降级。
     返回: list[dict],按相似度降序,字段:
         event_id, source, category_v2, event_type, service,
-        event_time, month, title, content, score[, merged_count]
+        event_time, month, title, content, score[, merged_count],
+        collection, retrieval_unit, rank_reason
         turn 叙述额外带: session_id, turn_id, turn_no, main_topic
     """
     if not query or not query.strip():
@@ -949,6 +950,9 @@ def _cli() -> None:
             mc = r.get("merged_count")
             tail = f"  (折叠 {mc} 条)" if mc and mc > 1 else ""
             print(f"\n#{i} [score={r['score']}] [{r['source']}] {(r.get('title') or '(无标题)')[:50]}{tail}")
+            print(
+                f"   来源库: {r.get('collection','')}  单元: {r.get('retrieval_unit','')}  原因: {r.get('rank_reason','')}"
+            )
             print(f"   时间: {r.get('event_time','')}  分类: {r.get('category_v2','')}")
             c = (r.get("content") or "")[:200]
             print(f"   内容: {c}{'…' if len(r.get('content',''))>200 else ''}")
