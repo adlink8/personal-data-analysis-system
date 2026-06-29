@@ -42,6 +42,7 @@ MAX_RETRY = 4               # 429/网络错误最大重试次数
 class TurnSummary:
     turn_id: str | None
     narrative: str
+    message_count: int = 0
     tools_used: list[str] = field(default_factory=list)
     source_refs: list[str] = field(default_factory=list)
 
@@ -502,10 +503,11 @@ def summarize_session(session_id: str, turns: list[dict], client, model: str,
     for i, t in enumerate(turns):
         narrative = all_narratives[i] if i < len(all_narratives) else "(摘要缺失)"
         result.append(TurnSummary(
-            turn_id=t["turn_id"],
+            turn_id=t["turn_id"] or f"virtual-turn-{i+1:03d}",
             narrative=narrative,
+            message_count=len(t["messages"]),
             tools_used=list({tool["tool_name"] for tool in t["tools"]}),
-            source_refs=t["source_refs"][:3],  # 每个保留前3个证据引用
+            source_refs=list(dict.fromkeys(t["source_refs"]))[:3],  # 每个保留前3个证据引用
         ))
     return result, len(chunks)
 
@@ -718,25 +720,36 @@ def _incremental_write(summaries: list[SessionSummary]) -> None:
         json.dump(merged, fh, ensure_ascii=False, indent=2)
 
 
+def _render_markdown_from_entries(entries: list[dict]) -> str:
+    """从 JSON entries 重建 Markdown,避免只追加当前批次导致口径漂移。"""
+    lines = ["# 对话结构化叙述摘要", "",
+             f"共 {len(entries)} 个 session,逐 turn 叙述,保留主干与分支因果。", ""]
+    for s in entries:
+        meta = s.get("meta", {})
+        source = meta.get("source", "")
+        prefix = f"[{source}] " if source else ""
+        deduped = meta.get("deduped_messages", meta.get("raw_messages", 0))
+        lines.append(f"## {prefix}{s.get('main_topic', '')}")
+        lines.append(f"*session: `{s.get('session_id', '')}` | "
+                     f"{meta.get('turn_count', 0)} turns, "
+                     f"{deduped} 条消息(结构化后)*")
+        lines.append("")
+        for i, t in enumerate(s.get("turn_summaries", []), 1):
+            lines.append(f"**Turn {i}:**")
+            lines.append(t.get("narrative", ""))
+            tools_used = t.get("tools_used") or []
+            if tools_used:
+                lines.append(f"*工具: {', '.join(tools_used)}*")
+            lines.append("")
+        lines.append("---\n")
+    return "\n".join(lines)
+
+
 def write_outputs(summaries: list[SessionSummary]) -> None:
     """最终写 JSON + Markdown(全量)。"""
     _incremental_write(summaries)
-    lines = ["# 对话结构化叙述摘要", "",
-             f"共 {len(summaries)} 个 session,逐 turn 叙述,保留主干与分支因果。", ""]
-    for s in summaries:
-        lines.append(f"## {s.main_topic}")
-        lines.append(f"*session: `{s.session_id}` | "
-                     f"{s.meta['turn_count']} turns, "
-                     f"{s.meta['deduped_messages']} 条消息(去重后)*")
-        lines.append("")
-        for i, t in enumerate(s.turn_summaries, 1):
-            lines.append(f"**Turn {i}:**")
-            lines.append(t.narrative)
-            if t.tools_used:
-                lines.append(f"*工具: {', '.join(t.tools_used)}*")
-            lines.append("")
-        lines.append("---\n")
-    OUT_MD.write_text("\n".join(lines), encoding="utf-8")
+    merged = json.loads(OUT_JSON.read_text(encoding="utf-8"))
+    OUT_MD.write_text(_render_markdown_from_entries(merged), encoding="utf-8")
     print(f"  {OUT_JSON.relative_to(ROOT)}")
     print(f"  {OUT_MD.relative_to(ROOT)}")
 

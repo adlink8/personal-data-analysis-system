@@ -151,6 +151,43 @@ class TestSummarizeChunkRetry(unittest.TestCase):
         self.assertEqual(client.chat.completions.create.call_count, 1)
 
 
+
+class TestSummaryOutputContracts(unittest.TestCase):
+    """补充结构化输出契约:turn_id/message_count/markdown 重建。"""
+
+    def test_virtual_turn_id_and_message_count_present(self):
+        turns = [{
+            "turn_id": None,
+            "messages": [{"role": "user", "text": "a"}, {"role": "assistant", "text": "b"}],
+            "tools": [{"tool_name": "shell"}],
+            "source_refs": ["a:1", "a:1", "a:2"],
+        }]
+        with patch.object(mod, "render_turn_text", return_value="--- Turn 1 ---\n[用户] a"):
+            with patch.object(mod, "summarize_chunk", return_value="Turn 1: 摘要"):
+                out, _ = mod.summarize_session("sess", turns, client=None, model="m", max_chars=1000)
+        self.assertEqual(out[0].turn_id, "virtual-turn-001")
+        self.assertEqual(out[0].message_count, 2)
+        self.assertEqual(out[0].source_refs, ["a:1", "a:2"])
+
+    def test_markdown_rebuilt_from_entries_count(self):
+        md = mod._render_markdown_from_entries([
+            {
+                "session_id": "s1",
+                "main_topic": "主题A",
+                "turn_summaries": [{"narrative": "n1", "tools_used": [], "source_refs": [], "message_count": 1}],
+                "meta": {"turn_count": 1, "deduped_messages": 2, "source": "Agent"},
+            },
+            {
+                "session_id": "s2",
+                "main_topic": "主题B",
+                "turn_summaries": [{"narrative": "n2", "tools_used": [], "source_refs": [], "message_count": 1}],
+                "meta": {"turn_count": 1, "raw_messages": 3, "source": "GPT"},
+            },
+        ])
+        self.assertIn("共 2 个 session", md)
+        self.assertIn("## [Agent] 主题A", md)
+        self.assertIn("## [GPT] 主题B", md)
+
 class TestPromptConstraints(unittest.TestCase):
     """Wave 8.2.2:prompt 强化(绝对编号/段数/不合并约束)。"""
 
