@@ -40,7 +40,7 @@
 
 ### Updated Status
 
-以本次修复清单为准，`VERIFICATION_2026-06-29.md` 中列出的阻塞项 **C1 / C2 / C3 已关闭**。  
+以本次修复清单为准，`VERIFICATION_2026-06-29.md` 中列出的阻塞项 **C1 / C2 / C3 已关闭**。
 若后续要把整个 Phase 07 再次对外宣告为 PASS，应以这批刷新后的报告文件为准，而不是本页下方的旧 PARTIAL 叙述。
 
 Phase 07 的主线代码已经明显落地，Wave 9/10 也不是只停留在 PLAN 文本里：本地存在真实脚本、真实 SQLite/DuckDB 产物、真实测试，且三库职责边界基本遵守了 Phase 04/05/06 的既有约束。
@@ -180,7 +180,7 @@ Phase 07 的主线代码已经明显落地，Wave 9/10 也不是只停留在 PLA
 
 ### C1. 质量 gate 与当前入库语料不一致
 
-当前 `conversation_turns` / SQLite / DuckDB 链路基于 **164 sessions / 2046 turns**，但质量报告只覆盖 **113 sessions / 583 turns**。  
+当前 `conversation_turns` / SQLite / DuckDB 链路基于 **164 sessions / 2046 turns**，但质量报告只覆盖 **113 sessions / 583 turns**。
 这不是环境问题，是**验证口径不一致**。
 
 影响：
