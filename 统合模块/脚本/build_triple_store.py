@@ -24,7 +24,7 @@
   python build_triple_store.py --write                # 三库全灌
   python build_triple_store.py --write --only sqlite  # 只灌 SQLite
   python build_triple_store.py --write --only chroma  # 只灌向量库
-  python build_triple_store.py --write --only duckdb  # 只灌图库
+  python build_triple_store.py --write --only duckdb  # 已禁用，改用 build_conversation_graph.py
 """
 
 from __future__ import annotations
@@ -302,82 +302,11 @@ CREATE TABLE IF NOT EXISTS e_session_topic (
 
 
 def write_duckdb(units: list[TurnUnit], dry: bool) -> dict:
-    """写入 DuckDB 图库: 节点(Session/Turn/Tool/Topic) + 边(时序/工具/主题)。
-
-    用关系表 + 递归 CTE 表达图,支持因果/关联查询。
-    全量重建:删文件重建(嵌入式 DB,无并发顾虑)。
-    """
-    stats = {"target": "DuckDB", "dry": dry}
-    if dry:
-        sessions = {u.session_id for u in units}
-        tools = {t for u in units for t in u.tools_used}
-        topics = {u.main_topic for u in units if u.main_topic}
-        stats.update(turns=len(units), sessions=len(sessions),
-                     tools=len(tools), topics=len(topics))
-        return stats
-    import duckdb
-    DUCKDB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # 嵌入式 DB:直接覆盖重建(幂等)
-    if DUCKDB_PATH.exists():
-        DUCKDB_PATH.unlink()
-    con = duckdb.connect(str(DUCKDB_PATH))
-    con.execute(DUCKDB_SCHEMA)
-
-    # 聚合 session 级数据
-    sess_map: dict[str, dict] = {}
-    for u in units:
-        s = sess_map.setdefault(u.session_id, {
-            "main_topic": u.main_topic, "source": u.source, "turn_count": 0})
-        s["turn_count"] += 1
-    for sid, s in sess_map.items():
-        con.execute(
-            "INSERT INTO g_session VALUES (?,?,?,?)",
-            (sid, s["main_topic"], s["source"], s["turn_count"]))
-
-    # turn 节点:turn_pk 用 session 内 turn_no 全局自增(简单稳定)
-    # 这里用 (session 序号 * 10000 + turn_no) 保证全局唯一且可推算
-    turn_pk_map: dict[tuple[str, int], int] = {}
-    sess_order = {sid: i for i, sid in enumerate(sess_map.keys())}
-    for u in units:
-        turn_pk = sess_order[u.session_id] * 10000 + u.turn_no
-        turn_pk_map[(u.session_id, u.turn_no)] = turn_pk
-        con.execute(
-            "INSERT INTO g_turn VALUES (?,?,?,?,?,?)",
-            (turn_pk, u.session_id, u.turn_no, u.narrative,
-             u.source_refs[0] if u.source_refs else "", u.main_topic))
-
-    # 边:e_next_turn(同 session 相邻 turn)
-    for u in units:
-        cur_pk = turn_pk_map[(u.session_id, u.turn_no)]
-        next_key = (u.session_id, u.turn_no + 1)
-        if next_key in turn_pk_map:
-            con.execute(
-                "INSERT INTO e_next_turn VALUES (?,?)",
-                (cur_pk, turn_pk_map[next_key]))
-
-    # 边:e_used_tool + g_tool 节点
-    for u in units:
-        cur_pk = turn_pk_map[(u.session_id, u.turn_no)]
-        for tool in u.tools_used:
-            con.execute("INSERT OR IGNORE INTO g_tool VALUES (?)", (tool,))
-            con.execute("INSERT OR IGNORE INTO e_used_tool VALUES (?,?)", (cur_pk, tool))
-
-    # 边:e_session_topic + g_topic 节点
-    for sid, s in sess_map.items():
-        if s["main_topic"]:
-            con.execute("INSERT OR IGNORE INTO g_topic VALUES (?)", (s["main_topic"],))
-            con.execute("INSERT OR IGNORE INTO e_session_topic VALUES (?,?)",
-                        (sid, s["main_topic"]))
-
-    stats["turns"] = con.execute("SELECT COUNT(*) FROM g_turn").fetchone()[0]
-    stats["sessions"] = con.execute("SELECT COUNT(*) FROM g_session").fetchone()[0]
-    stats["tools"] = con.execute("SELECT COUNT(*) FROM g_tool").fetchone()[0]
-    stats["topics"] = con.execute("SELECT COUNT(*) FROM g_topic").fetchone()[0]
-    stats["edges_next"] = con.execute("SELECT COUNT(*) FROM e_next_turn").fetchone()[0]
-    stats["edges_tool"] = con.execute("SELECT COUNT(*) FROM e_used_tool").fetchone()[0]
-    stats["edges_topic"] = con.execute("SELECT COUNT(*) FROM e_session_topic").fetchone()[0]
-    con.close()
-    return stats
+    """Deprecated: 禁用旧伪关系 DuckDB 写入入口。"""
+    _ = units, dry
+    raise RuntimeError(
+        "DuckDB pseudo-graph path is deprecated; use \"python 统合模块/脚本/build_conversation_graph.py --write\" instead."
+    )
 
 
 # ============================ 主流程 ============================
@@ -428,9 +357,9 @@ def main(argv: list[str] | None = None) -> int:
         if r["status"] == "ok":
             kv = " ".join(f"{k}={v}" for k, v in r.items()
                           if k not in ("target", "dry", "status", "elapsed"))
-            print(f"  [{label}] ✓ {r['elapsed']}s | {kv}")
+            print(f"  [{label}] OK {r['elapsed']}s | {kv}")
         else:
-            print(f"  [{label}] ✗ {r['elapsed']}s | {r['error']}")
+            print(f"  [{label}] ERR {r['elapsed']}s | {r['error']}")
 
     print("=" * 60)
     total = round(time.time() - t0, 1)
