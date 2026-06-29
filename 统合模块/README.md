@@ -63,6 +63,10 @@ Google / GPT / Agent 数据模块
 - `分析数据/ai_context/deep_memory_insights.md`
 - `分析数据/ai_context/deep_memory_profile.md`
 - `分析数据/ai_context/deep_profile_evaluation.md`
+- `分析数据/ai_context/vector_collection_health.md`
+- `分析数据/ai_context/vector_retrieval_eval_report.md`
+- `分析数据/ai_context/graph_relation_eval_report.md`
+- `SQLite数据库/conversation_graph.duckdb`
 
 ## 重建
 

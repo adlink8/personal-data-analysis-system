@@ -97,18 +97,38 @@ Phase 07 先把 Agent 原始会话日志从摘录索引升级为可追溯的结�
 </gray_areas_closed_wave8>
 
 <gray_areas_remaining_wave8>
-- [ ] 质量门槛的具体阈值(正常率 ≥ 98%? 回溯准确率?)→ Wave 8-1 评估后定
-- [ ] 根因修复后能否把瑕疵清零 → Wave 8-2 重跑验证后定
-- [ ] 图库真关系抽取的具体方法(LLM 抽实体? 规则?)→ Wave 9 discuss
-- [ ] 向量库分类策略(A 按粒度/B 按 source/C 全合一)→ Wave 10 discuss
+- [x] 质量门槛已定并通过 → 正常率 ≥ 98%,source_refs 覆盖率 = 100%;当前报告 PASS(正常率 100%,覆盖率 100%)
+- [x] 根因修复后瑕疵已清零 → `conversation_quality_report.md` 显示真瑕疵数 0/583
+- [x] 图库真关系抽取的具体方法 → Wave 9 采用 `向量召回候选 + LLM 判定关系 + evidence gate`,不再靠脚本启发式直接建边
+- [x] 向量库分类策略 → Wave 10 先保留 `conversation_turns` 独立 collection,补质量/召回评估和候选生成接口,不合并进 `personal_events`
 </gray_areas_remaining_wave8>
+
+<decisions_wave9_wave10>
+## Wave 9 / Wave 10 重新设计决策 (2026-06-28)
+
+### 决策1: 三库职责重新锁定
+- SQLite 是真相层:保存结构化摘要、source_refs、候选关系、LLM 判边结果和审核状态。
+- Chroma 是候选召回层:只负责找可能相关的 turn/document pair,不得直接生成图边。
+- Graph/DuckDB 是推理层:只接收通过 LLM 判定和 evidence gate 的可信边。
+
+### 决策2: 向量库进入图库前必须经过 LLM 判边
+- 先用 `conversation_turns` collection 做 topK 召回,生成候选 pair。
+- 再把候选 pair 的 narrative、metadata、source_refs 交给 LLM。
+- LLM 只输出固定 schema:relation_type、confidence、evidence_refs、reason。
+- 关系类型不在白名单、confidence 不足、证据为空的候选不得入图。
+
+### 决策3: 不把 semantic similarity 当成 graph relation
+- 向量相似只能说明"值得检查",不能说明"有真实关系"。
+- 图边必须表达清楚关系语义,例如 `same_problem`、`subproblem_of`、`follow_up`、`tool_used_for`、`preference_signal`、`contradiction`。
+- `no_relation` 是合法输出,且应大量存在,用来抵抗向量召回噪声。
+
+### 决策4: 执行顺序按依赖重排,但保留 Wave 9/10 职责边界
+- 先执行 Wave 10.1/10.2:向量 collection 健康检查、recall/precision 评估、固定 eval set。
+- 再执行 Wave 9:候选 pair 生成、LLM relation judge、候选/判定表、graph gate、DuckDB 真关系重建。
+- 最后执行 Wave 10.3:跨 collection 检索排序和面向用户的展示优化。
+- 不在 Wave 9 同时大改 `personal_events`,避免影响旧检索主线。
+</decisions_wave9_wave10>
 
 ---
 
 *Phase: 07-agent-conversation-normalization-mem0-spike*
-
-
-
-
-
-

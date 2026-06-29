@@ -74,6 +74,7 @@ python 统合模块\脚本\run_pipeline.py --from 5      # 从步骤 5 恢复(�
 python 统合模块\脚本\run_pipeline.py --only 3,4    # 只跑步骤 3 和 4
 python 统合模块\脚本\run_pipeline.py --skip 10     # 跳过向量化(省时间)
 python 统合模块\脚本\run_pipeline.py --dry-run     # 只打印顺序,不执行
+python 统合模块\脚本\run_pipeline.py --include-conversation-turns   # 显式启用步骤 13(conversation_turns 回流)
 ```
 
 任一步失败即中止并打印恢复命令(`--from N`),防止下游跑污染数据。
@@ -244,7 +245,9 @@ streamlit run 统合模块\脚本\dashboard.py
 - `统合模块/脚本/build_conversation_eval_set.py` + `统合模块/prompts/conversation_compression/` —— **(★ Wave 6 Prompt Lab)** 7 类真实样本评测集 + 版本化 prompt(v1_main/v1_schema/eval_rubric)。prompt 不经固定样本评测 gate 不许回流。
 - `统合模块/脚本/evaluate_conversation_prompt.py` —— 两轮 LLM 评测(压缩轮 + LLM-as-judge 评分轮),7 维评分 + faithfulness 硬门槛 + 一次性任务误判为偏好专项检查。实测 7/7 样本 gate 通过(faithfulness 全 5)。
 - `统合模块/脚本/build_conversation_vector_store.py` —— **(★ Wave 7 回流)** 把 turn 叙述向量化入库到独立 collection `conversation_turns`(不碰 `personal_events`),检索单元是含因果链的 turn 叙述而非单条 message。
-- `统合模块/分析数据/ai_context/conversation_segments.json` / `conversation_summaries.json` / `prompt_eval_results.json` —— Phase 07 旁路产物。
+- `统合模块/脚本/evaluate_vector_collections.py` / `evaluate_vector_retrieval.py` —— **(★ Wave 10.1/10.2)** 检查 `personal_events` / `conversation_turns` 健康度、召回效果和 collection contract。
+- `统合模块/脚本/build_graph_relation_candidates.py` / `judge_graph_relations.py` / `evaluate_graph_relation_judgments.py` / `build_conversation_graph.py` —— **(★ Wave 9)** 从 `conversation_turns` 召回候选、经 LLM 判边和 evidence gate 后重建 DuckDB 真关系图。
+- `统合模块/分析数据/ai_context/conversation_segments.json` / `conversation_summaries.json` / `prompt_eval_results.json` / `vector_collection_health.md` / `vector_retrieval_eval_report.md` / `graph_relation_eval_report.md` —— Phase 07 旁路产物。
 - `tests/test_agent_conversation_normalization.py` —— 覆盖 jsonl 解析 / role 过滤 / 证据链回溯 / 候选不污染 memory_items。
 - Phase 06 负责深层洞察,Phase 07 负责更可靠的对话输入和叙述压缩回流;两层都不回写 `memory_items`。Wave 7 回流走独立向量 collection,不污染旧数据。
 
@@ -507,6 +510,17 @@ python 统合模块\脚本\build_conversation_summary.py --write           # 生
 python 统合模块\脚本\build_conversation_vector_store.py --dry-run    # 看会向量化多少 turn
 python 统合模块\脚本\build_conversation_vector_store.py --write      # 入库到独立 collection conversation_turns
 python 统合模块\脚本\unified_search.py semantic "MQTT 怎么调试的" --top-k 5   # 跨 collection 检索验证
+
+# Wave 10.1 / 10.2: collection 健康与召回评估
+python 统合模块\脚本\evaluate_vector_collections.py --write
+python 统合模块\脚本\evaluate_vector_retrieval.py --write --top-k 10
+
+# Wave 9: 图候选 + LLM 判边 + 真关系图重建
+python 统合模块\脚本\build_graph_relation_candidates.py --dry-run --limit 100
+python 统合模块\脚本\judge_graph_relations.py --dry-run --limit 5
+python 统合模块\脚本\evaluate_graph_relation_judgments.py --write
+python 统合模块\脚本\build_conversation_graph.py --write
+python 统合模块\脚本\query_conversation_graph.py --smoke
 
 # 回归 + mem0 可选实验(非主路径)
 python tests\test_agent_conversation_normalization.py

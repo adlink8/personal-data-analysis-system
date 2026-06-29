@@ -253,12 +253,13 @@ REVIEW_feedback_2026-06-27.md 诊断:Wave 1-4 的清洗产物全部成了"展览
 
 0. 前置条件:Wave 6 Prompt Lab `gate_passed=true`。
 
-1. 新增 `统合模块/脚本/build_conversation_event_layer.py`。
-   - 输入:`conversation_summaries.json`(已生成的 turn 叙述)
-   - 输出:把每个 turn 叙述作为新 event 写入 `unified_events` + `unified_events_rich`。
+1. 回流去向已改为 B 方案:不新增 `build_conversation_event_layer.py`,不把 turn 叙述写入 `unified_events`。
+   - 实际落地脚本:`统合模块/脚本/build_conversation_vector_store.py`。
+   - 输入:`conversation_summaries.json`(已生成的 turn 叙述)。
+   - 输出:独立 Chroma collection `conversation_turns`。
    - event_type 取 `conversation_turn`,source 取 `Agent`/`GPT`(按 summary 的 source 字段)。
-   - 每条 event 保留 `source_refs`(回溯到原始 jsonl 行)和 `session_id`/`turn_id` 元数据。
-   - 幂等:重复运行不产生重复 event(用 `session_id + turn_id` 做去重键)。
+   - 每条向量 metadata 保留 `session_id` / `turn_id` / `main_topic` / `source`。
+   - 幂等:重复运行重建 `conversation_turns`,不污染 `personal_events`。
 
 2. 扩展 `build_vector_store.py`(或新增 `build_conversation_vector_store.py`)。
    - 把 turn 叙述作为向量检索单元(单元 = turn 叙述,含 user+assistant+tool 因果),不是单条 message。
@@ -284,8 +285,8 @@ REVIEW_feedback_2026-06-27.md 诊断:Wave 1-4 的清洗产物全部成了"展览
 ```powershell
 # 1. turn 叙述回流到向量库
 python 统合模块\脚本\build_conversation_summary.py --limit 20 --write
-python 统合模块\脚本\build_conversation_event_layer.py --write
-python 统合模块\脚本\build_vector_store.py --resume  # 或新 collection 脚本
+python 统合模块\脚本\build_conversation_vector_store.py --dry-run
+python 统合模块\脚本\build_conversation_vector_store.py --write
 
 # 2. 检索验证:能按话题找到完整 turn 叙述(含因果链)
 python 统合模块\脚本\unified_search.py memory --subject MQTT --neighbors 1
@@ -312,7 +313,7 @@ git diff --check
 4. Wave 4：接 mem0 小样本候选压缩。**(⚠️ 已降级为可选实验)** ✅ 完成(降级)
 5. Wave 5：补测试和文档。✅ 已完成
 6. **Wave 6:Prompt Lab 与压缩效果评测(★ 入库前硬门槛)**。✅ 已完成 gate 通过(7/7 样本 faithfulness 全 5)
-7. **Wave 7:清洗产物回流主流水线(★ Phase 07 主线,2026-06-27 新增)**。🔄 代码完成,入库待 chroma 服务
+7. **Wave 7:清洗产物回流主流水线(★ Phase 07 主线,2026-06-27 新增)**。✅ 已完成(独立 collection `conversation_turns` 已入库并接入统一检索)
 
 ## Wave 7 实施记录(2026-06-27)
 
@@ -322,9 +323,10 @@ git diff --check
   - `search_vectors.py` 改造:新增 `search_conversation_turns` + `search_all`(跨 collection 合并检索)。
   - `unified_search.py` 改造:`search_semantic` 默认 `include_turns=True`,CLI/MCP/Agent 全接入。
   - `run_pipeline.py` 新增步骤 13(turn 叙述回流)。
-- **待执行**(需 chroma 服务在线):
-  - Wave 7-2: `build_conversation_summary.py --write` 生成全量 turn 叙述(105 个 session,约 200-400 次 LLM 调用)。
-  - 步骤 13 实际入库验证。
+- **已验证完成**:
+  - `build_conversation_summary.py --write` 已生成全量 turn 叙述。
+  - `build_conversation_vector_store.py --write` 已写入 `conversation_turns` collection。
+  - `unified_search.py semantic ...` 默认支持跨 `personal_events` + `conversation_turns` 检索。
 - **Wave 7-4 降级**:GPT 对话因果断裂修复需先建 GPT turn 切分层,且会改动 `personal_events`,违背"不破坏原数据"惯例。降级为后续增强,主线(Agent 回流)已闭环。
 
 ## Phase Verification
@@ -336,8 +338,8 @@ python 统合模块\脚本\build_conversation_segments.py --dry-run --source Age
 python 统合模块\脚本\build_conversation_segments.py --dry-run --source GPT --limit 20
 python 统合模块\脚本\build_conversation_summary.py --limit 10 --write
 python 统合模块\脚本\evaluate_conversation_prompt.py --write --limit 10
-python 统合模块\脚本\build_conversation_event_layer.py --write
-python 统合模块\脚本\build_vector_store.py --resume
+python 统合模块\脚本\build_conversation_vector_store.py --dry-run
+python 统合模块\脚本\build_conversation_vector_store.py --write
 python tests\test_memory_contracts.py
 python tests\test_agent_conversation_normalization.py
 python 统合模块\脚本\run_pipeline.py --dry-run
@@ -438,13 +440,13 @@ git diff --check
   - commit_type: docs
 
 ### Wave 8 验收标准(Acceptance Criteria)
-- [ ] `evaluate_conversation_quality.py` 生成报告,客观量化质量
-- [ ] `summarize_chunk` 段数校验 + 重试机制就位,有单元测试
-- [ ] prompt 约束强化,prompt_version 自增
-- [ ] 正则加固,4 类 LLM 输出单元测试全过
-- [ ] 全量重跑后正常率 ≥ 98%(理想瑕疵清零)
-- [ ] 伪关系图库标记废弃
-- [ ] 质量达标前不向任何库灌新数据
+- [x] `evaluate_conversation_quality.py` 生成报告,客观量化质量
+- [x] `summarize_chunk` 段数校验 + 重试机制就位,有单元测试
+- [x] prompt 约束强化,prompt_version 自增
+- [x] 正则加固,4 类 LLM 输出单元测试全过
+- [x] 全量重跑后正常率 ≥ 98%(当前 100%,瑕疵 0)
+- [x] 伪关系图库标记废弃
+- [x] 质量达标前不向任何库灌新数据
 
 ### Wave 8 验证命令
 ```powershell
@@ -466,11 +468,214 @@ python 统合模块\脚本\evaluate_conversation_quality.py --write   # 复评
 2. Wave 8.3(全量重跑验证)
 3. **质量门槛**:正常率 ≥ 98% 通过后,解锁 Wave 9(图库真关系)和 Wave 10(向量库分类)
 
+## Wave 9: 向量候选 + LLM 判边的真关系图谱重做 (★ 重新设计)
+
+> **GSD 元数据**
+> - 触发:用户明确提出“进入图数据库前引入 LLM,根据向量库判断关联关系而不是靠脚本”。
+> - 设计边界:向量库只生成候选 pair,不直接建边;LLM 只做关系判定,不做事实来源;图数据库只接收通过 gate 的边。
+> - 外部参照:GraphRAG/LlamaIndex Property Graph 的共同模式是 LLM 抽取结构化 entities/relationships,并结合 embedding/vector store 做检索或候选召回。
+
+### Wave 9 目标
+
+把已废弃的 `conversation_graph.duckdb` 伪关系图库重做为可信图谱流水线:
+
+1. 从 `conversation_turns` 向量库召回疑似相关 turn pair。
+2. 用 LLM 判断候选 pair 是否存在真实关系、关系类型和证据。
+3. 先把候选和判定结果写入 SQLite 审计表。
+4. 只有通过 evidence gate 的关系才写入 DuckDB 图库。
+5. 每条边都能回溯到 `session_id + turn_id + source_refs`。
+
+### Wave 9 非目标
+
+- 不直接从向量相似度生成图边。
+- 不把 LLM 输出当事实源;事实仍以 SQLite/summary/source_refs 为准。
+- 不重写 `personal_events` collection。
+- 不一次性抽所有全局实体 ontology;先做 conversation-turn 关系。
+- 不启用旧 `conversation_graph.duckdb` 作为下游依据。
+
+### Wave 9.1: 候选关系生成层
+
+- **任务 9.1.1**
+  - description: 新增 `统合模块/脚本/build_graph_relation_candidates.py`
+  - 输入:`conversation_summaries.json` + `conversation_turns` collection
+  - 行为:对每个 turn 用向量库召回 topK 近邻,生成候选 pair
+  - 默认参数:`top_k=8`,同 session 相邻 turn 单独标记为 `temporal_candidate`,跨 session 语义相似标记为 `semantic_candidate`
+  - 输出 SQLite 表:`graph_relation_candidates`
+  - 字段: `candidate_id`,`source_node_id`,`target_node_id`,`source_session_id`,`source_turn_id`,`target_session_id`,`target_turn_id`,`similarity`,`candidate_reason`,`candidate_type`,`source_refs_json`,`created_at`
+  - acceptance: dry-run 能显示候选数、平均相似度、同 session/跨 session 分布;不会生成自环和重复 pair
+
+- **任务 9.1.2**
+  - description: 加候选质量过滤
+  - 规则:去掉 self pair、重复 pair、source_refs 缺失 pair、相似度低于阈值 pair;同 session 相邻 turn 不依赖相似度但必须标记为时序候选
+  - acceptance: 报告输出过滤前/后数量和丢弃原因分布
+
+### Wave 9.2: LLM Relation Judge
+
+- **任务 9.2.1**
+  - description: 新增 prompt 目录 `统合模块/prompts/graph_relation_judge/`
+  - 文件:`v1_main.md`,`v1_schema.md`,`eval_rubric.md`
+  - 输出 schema:
+    ```json
+    {
+      "candidate_id": "...",
+      "relation_type": "same_problem | subproblem_of | follow_up | tool_used_for | preference_signal | contradiction | temporal_next | no_relation",
+      "confidence": 0.0,
+      "evidence_refs": [],
+      "reason": "...",
+      "risk_flags": []
+    }
+    ```
+  - acceptance: prompt 明确要求不能因为语义相似就建边;必须允许 `no_relation`
+
+- **任务 9.2.2**
+  - description: 新增 `统合模块/脚本/judge_graph_relations.py`
+  - 输入:`graph_relation_candidates`
+  - 行为:调用 mimo/OpenAI-compatible API 对候选 pair 判边
+  - 输出 SQLite 表:`graph_relation_judgments`
+  - 字段: `candidate_id`,`relation_type`,`confidence`,`evidence_refs_json`,`reason`,`risk_flags_json`,`model`,`prompt_version`,`temperature`,`created_at`,`gate_status`
+  - acceptance: 支持 `--dry-run --limit N` 预览 prompt;支持 `--write --limit N`;失败可 resume,不会重复扣已完成候选
+
+### Wave 9.3: Evidence Gate 与人工 review 队列
+
+- **任务 9.3.1**
+  - description: 新增 `统合模块/脚本/evaluate_graph_relation_judgments.py`
+  - gate 规则:
+    - `relation_type != no_relation`
+    - `relation_type` 在白名单内
+    - `confidence >= 0.75`
+    - `evidence_refs` 非空且能对应原始 source_refs
+    - 同一 pair 不允许多个强关系冲突;冲突进入 review
+  - 输出:`统合模块/分析数据/ai_context/graph_relation_eval_report.{json,md}`
+  - acceptance: 报告包含通过数、拒绝数、review 数、按关系类型分布、低置信度样例
+
+- **任务 9.3.2**
+  - description: 建立 `graph_relation_review_queue` 表
+  - 进入条件:confidence 0.55-0.75、证据不足、关系冲突、risk_flags 非空
+  - acceptance: review queue 可导出 Markdown 供人工抽查,但不入正式图
+
+### Wave 9.4: DuckDB 真关系图谱重建
+
+- **任务 9.4.1**
+  - description: 新增或重写 `统合模块/脚本/build_conversation_graph.py`
+  - 输入:只读取 `graph_relation_judgments` 中 `gate_status=accepted` 的边
+  - 输出:`conversation_graph.duckdb` 新版本
+  - 节点:`g_turn`,`g_session`,`g_topic`,`g_tool`
+  - 边:`e_relation` 通用边表,字段含 `relation_type`,`confidence`,`evidence_refs_json`,`candidate_id`
+  - acceptance: 旧伪关系边 `e_next_turn` / `e_session_topic` 不再作为主关系依据;如保留时序边,必须标记为 `system_temporal`,和 LLM 语义边分开
+
+- **任务 9.4.2**
+  - description: 新增图库 smoke query
+  - 查询例:某个 MQTT turn 的相关问题、后续任务、工具路径、矛盾关系
+  - acceptance: 至少 5 条 query 能返回边、证据和原始 turn 摘要
+
+### Wave 9 验证命令
+
+```powershell
+python 统合模块\脚本\build_conversation_vector_store.py --dry-run
+python 统合模块\脚本\build_graph_relation_candidates.py --dry-run --limit 100
+python 统合模块\脚本\build_graph_relation_candidates.py --write --limit 500
+python 统合模块\脚本\judge_graph_relations.py --dry-run --limit 5
+python 统合模块\脚本\judge_graph_relations.py --write --limit 100
+python 统合模块\脚本\evaluate_graph_relation_judgments.py --write
+python 统合模块\脚本\build_conversation_graph.py --write
+python 统合模块\脚本\query_conversation_graph.py --smoke
+```
+
+### Wave 9 验收标准
+
+- [x] 向量召回只生成候选,没有任何脚本直接把相似度写成图边
+- [x] LLM 判边输出固定 schema,有 prompt_version/model/temperature
+- [x] `no_relation` 占比被统计,并作为健康指标之一
+- [x] accepted 边 100% 有 evidence_refs
+- [x] 低置信度和冲突关系进入 review queue,不入图
+- [x] DuckDB 图只读取 accepted judgments
+- [x] `conversation_graph.duckdb` 的 DEPRECATED 状态被替换为新版本说明,旧伪关系明确归档
+
+### Wave 9 风险
+
+| Risk | Impact | Mitigation |
+| --- | --- | --- |
+| 向量相似误导 LLM | 图边误判 | prompt 强制证据判定 + `no_relation` + confidence gate |
+| LLM 批量成本高 | 执行慢/费用高 | 先 topK 限流、小样本评估、resume、缓存 judgment |
+| 关系类型过多 | 图谱不可维护 | 第一版只允许 8 个 relation_type |
+| 证据链断裂 | 图不可审计 | evidence_refs 为空直接 rejected |
+| 图边过密 | 查询噪声大 | 每节点限制 max accepted semantic edges,低置信度进 review |
+
+## Wave 10: 向量库分类、召回评估与跨库检索策略
+
+> **GSD 元数据**
+> - 触发:Wave 8 发现 `personal_events` 与 `conversation_turns` 粒度不同,且向量库分类策略未定。
+> - 范围:只优化向量检索层和候选召回质量,不重做图判边。
+
+### Wave 10 目标
+
+1. 明确 `personal_events` 与 `conversation_turns` 的职责边界。
+2. 给向量库建立健康检查和召回评估。
+3. 为 Wave 9 候选生成提供稳定 topK 策略。
+4. 给 `unified_search.py` 提供可解释的跨 collection 合并排序。
+
+### Wave 10.1: Collection Contract
+
+- **任务 10.1.1**
+  - description: 新增 `统合模块/脚本/evaluate_vector_collections.py`
+  - 检查项:collection 是否存在、count、embedding 维度、metadata 字段覆盖率、source 分布、空文档/短文档数
+  - acceptance: 报告明确显示 `personal_events` 和 `conversation_turns` 是否健康
+
+- **任务 10.1.2**
+  - description: 写入 `统合模块/分析数据/ai_context/vector_collection_contract.md`
+  - 内容:`personal_events=事件级广覆盖`,`conversation_turns=对话 turn 因果链`,`graph_relation_candidates=图候选输入`
+  - acceptance: 文档说明不得混合粒度直接比较,跨 collection 排序必须标注来源
+
+### Wave 10.2: Recall Evaluation Set
+
+- **任务 10.2.1**
+  - description: 新增固定评测集 `vector_retrieval_eval_set.json`
+  - 样本覆盖:MQTT 排障、PPT 一次性任务、代码环境选型、长期偏好、工具链问题、跨 session 相似问题
+  - acceptance: 每个 query 有 expected session_id/turn_id 或 expected source,不是 synthetic sample
+
+- **任务 10.2.2**
+  - description: `evaluate_vector_retrieval.py` 支持评估 recall@k / MRR / source_mix
+  - acceptance: 输出 `vector_retrieval_eval_report.{json,md}`;能比较 only personal_events / only conversation_turns / search_all 三种模式
+
+### Wave 10.3: Cross-Collection Ranking
+
+- **任务 10.3.1**
+  - description: 调整 `search_vectors.py::search_all`
+  - 规则:保留原始 score,增加 `collection`、`retrieval_unit`、`rank_reason`;默认优先返回 conversation_turns 但不淹没 personal_events
+  - acceptance: CLI 输出能看出结果来自哪个 collection 和为什么排在前面
+
+- **任务 10.3.2**
+  - description: 图候选生成使用专门候选接口,不复用面向用户的 `search_all`
+  - reason:用户检索要高相关解释,图候选要高 recall + 去重 + pair coverage
+  - acceptance:`build_graph_relation_candidates.py` 使用独立 topK 函数,并记录 threshold/topK 参数
+
+### Wave 10 验证命令
+
+```powershell
+python 统合模块\脚本\evaluate_vector_collections.py --write
+python 统合模块\脚本\evaluate_vector_retrieval.py --write --top-k 10
+python 统合模块\脚本\unified_search.py semantic "MQTT 预测代码报错" --top-k 5
+python 统合模块\脚本\build_graph_relation_candidates.py --dry-run --limit 100
+```
+
+### Wave 9/10 实际执行顺序(冲突消解)
+
+虽然文档编号是 Wave 9=图谱、Wave 10=向量策略,但实现时必须按依赖执行:
+
+1. **先做 Wave 10.1 / 10.2**:确认 `personal_events` / `conversation_turns` collection 健康,建立固定召回评估集。
+2. **再做 Wave 9.1**:用经过评估的向量召回策略生成 graph relation candidates。
+3. **再做 Wave 9.2 / 9.3 / 9.4**:LLM 判边、evidence gate、DuckDB 真关系图重建。
+4. **最后做 Wave 10.3**:把跨 collection 排序和展示接回 `unified_search.py`。
+
+这个顺序避免“未评估向量库就喂给 LLM 判边”的地基问题。
+### Wave 10 验收标准
+
+- [x] 每个 collection 有明确职责和 metadata contract
+- [x] 固定 eval set 能衡量 conversation_turns 是否真的提升召回
+- [x] 跨 collection 检索结果可解释,不会把不同粒度结果混为一谈
+- [x] 图候选生成使用高召回候选接口,不是面向用户展示的排序接口
+- [x] Wave 9 的候选质量可由 Wave 10 报告支撑
+
 ---
 
 ## PLANNING COMPLETE
-
-
-
-
-
