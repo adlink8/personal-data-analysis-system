@@ -1,7 +1,7 @@
 # CONVENTIONS.md — 代码规范约定
 
 > 适用范围: `C:\Users\li\Desktop\数据分析` 整个项目。
-> 依据: 对 `统合模块/脚本/` 下全部脚本的实际分析，2026-06-17。
+> 依据: 对 `integration/scripts/` 下全部scripts的实际分析，2026-06-17。
 
 ---
 
@@ -11,9 +11,9 @@
 
 | 层次 | 命名语言 | 示例 |
 |------|---------|------|
-| 顶层数据源目录 | **中文** | `Google/`、`GPT/`、`Agent/`、`统合模块/` |
-| 功能子目录 | **中文** | `脚本/`、`分析数据/`、`SQLite数据库/`、`原始数据/`、`结构化数据/` |
-| Python 脚本文件 | **英文 snake_case** | `build_merge_layer.py`、`common.py`、`rules.py` |
+| 顶层数据源目录 | **中文** | `Google/`、`GPT/`、`Agent/`、`integration/` |
+| 功能子目录 | **中文** | `scripts/`、`analysis/`、`db/`、`raw/`、`structured/` |
+| Python scripts文件 | **英文 snake_case** | `build_merge_layer.py`、`common.py`、`rules.py` |
 | 配置/规划文件 | **英文** | `.gitignore`、`requirements.txt`、`_schema.py` |
 | 数据产出文件 | **中文或英文均可** | `架构图.drawio`、`person_profile.md` |
 
@@ -24,7 +24,7 @@
 | 函数 | `snake_case` 英文 | `sha256_text`, `write_csv`, `ensure_dirs`, `extract_domain` |
 | 变量 | `snake_case` 英文 | `row_factory`, `has_rich`, `use_merged` |
 | 常量 / 模块级全局 | `UPPER_SNAKE_CASE` 英文 | `TOOL_NAMES`, `TOPIC_RULES`, `ROOT`, `UNIFIED_DB`, `OUTPUT_SUFFIX` |
-| 类 | `PascalCase` 英文 | （现有脚本以函数式为主，类名遵循此规则） |
+| 类 | `PascalCase` 英文 | （现有scripts以函数式为主，类名遵循此规则） |
 | 数据库表/列 | `snake_case` 英文 | `merge_clusters`, `merge_members`, `unified_events`, `memory_items` |
 
 ### 1.3 数据库表命名约定
@@ -43,14 +43,14 @@
 
 | 允许中文 | 禁止中文 |
 |---------|---------|
-| 目录名（`统合模块/`, `脚本/`） | Python 变量名、函数名、参数名 |
-| 非脚本文件名（`架构图.drawio`） | SQL 表名、列名 |
+| 目录名（`integration/`, `scripts/`） | Python 变量名、函数名、参数名 |
+| 非scripts文件名（`架构图.drawio`） | SQL 表名、列名 |
 | 注释与 docstring | 模块 import 路径（路径字符串可含中文） |
 | 打印输出（`print(...)`） | |
 
 路径字符串中含中文属于正常：
 ```python
-ROOT / "统合模块" / "SQLite数据库" / "personal_system.sqlite"
+ROOT / "integration" / "db" / "personal_system.sqlite"
 ```
 
 ---
@@ -66,7 +66,7 @@ DROP TABLE IF EXISTS <table>;
 CREATE TABLE <table> (...);
 ```
 
-使用此模式的脚本: `build_merge_layer.py`, `enrich_unified_events.py`。
+使用此模式的scripts: `build_merge_layer.py`, `enrich_unified_events.py`。
 适用场景: 产出表是从源数据完整派生的，每次跑结果确定性一致。
 
 ### 模式 B — 建表后清空（用于"记忆层"）
@@ -76,23 +76,23 @@ CREATE TABLE IF NOT EXISTS <table> (...);
 -- 然后 DELETE WHERE type='xxx' 清空特定类型旧数据
 ```
 
-使用此模式的脚本: `build_memory_store.py`, `build_capability_memory.py`,
+使用此模式的scripts: `build_memory_store.py`, `build_capability_memory.py`,
 `build_context_memory.py`, `build_preference_memory.py`, `build_memory_graph.py`。
-适用场景: 表结构跨脚本共享，只清除自己负责的那一类记忆。
+适用场景: 表结构跨scripts共享，只清除自己负责的那一类记忆。
 
 ### 向量库幂等
 
 `build_vector_store.py`: `delete_collection` 后重建。
 `chroma_client.py`: HTTP 404 on DELETE 视为成功（幂等 delete）。
 
-**约定**: 所有 build_* 脚本必须满足"空库上跑 = 已有数据上重跑"结果一致。
+**约定**: 所有 build_* scripts必须满足"空库上跑 = 已有数据上重跑"结果一致。
 
 ---
 
 ## 4. 注释风格
 
 ```python
-"""模块级 docstring：中文，说明脚本职责、解决问题、产出表和运行方式。
+"""模块级 docstring：中文，说明scripts职责、解决问题、产出表和运行方式。
 
 设计原则:
 - 条目式描述
@@ -117,25 +117,25 @@ def func(x: str) -> str:
 
 ### `common.py` — 纯工具函数
 
-- **职责**: 纯函数，无副作用，可跨脚本复用
+- **职责**: 纯函数，无副作用，可跨scripts复用
 - **依赖约束**: 只依赖 Python 标准库，不 import 项目内其他模块
 - **提供**: `sha256_text`, `norm`, `short`, `event_id`, `entity_id`, `extract_domain`, `extract_tools`, `write_csv`, `write_json`, `ensure_dirs`
-- **设计原则**: 向后兼容，所有脚本从此 import 而非各自重复定义
+- **设计原则**: 向后兼容，所有scripts从此 import 而非各自重复定义
 
 ### `rules.py` — 分类规则与配置表
 
-- **职责**: 纯数据常量，集中维护分类规则，消除多脚本间不一致
+- **职责**: 纯数据常量，集中维护分类规则，消除多scripts间不一致
 - **提供**:
   - `TOOL_NAMES`: 工具名表（实体抽取用）
   - `TOPIC_RULES`: 旧主题规则（v1，含元数据词，保留作对照基线）
   - `PURE_TOPIC_RULES` + `PURE_TOPIC_DEFAULT`: 新主题规则（v2，剥离元数据污染）
   - `THINKING_RULES` / `PURE_THINKING_RULES` + `PURE_THINKING_DEFAULT`: 思考模式规则
-- **约定**: 业务脚本优先使用 `PURE_*` 系列；`TOPIC_RULES` 等老版本只用于生成 `category_v1` 对照列
+- **约定**: 业务scripts优先使用 `PURE_*` 系列；`TOPIC_RULES` 等老版本只用于生成 `category_v1` 对照列
 
 ### import 方式
 
 ```python
-# 在脚本顶部插入当前目录到路径
+# 在scripts顶部插入当前目录到路径
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -145,36 +145,36 @@ from common import sha256_text, norm, write_csv
 
 ---
 
-## 6. 脚本重跑链路约定
+## 6. scripts重跑链路约定
 
 完整数据管道从原始输入到可用接口的执行顺序：
 
 ```
-1. 原始数据解析层
-   python 统合模块\脚本\build_integrated_system.py
+1. raw解析层
+   python integration\scripts\build_integrated_system.py
        └─ 产出: unified_events 及其 9 张原始统合表
 
 2. 语义增强层（必须紧跟步骤1）
-   python 统合模块\脚本\enrich_unified_events.py
+   python integration\scripts\enrich_unified_events.py
        └─ 产出: unified_events_rich, event_categories_v2, entity_links_v2
 
 3. 合并去重层
-   python 统合模块\脚本\build_merge_layer.py [--threshold-l1 N]
+   python integration\scripts\build_merge_layer.py [--threshold-l1 N]
        └─ 产出: merge_clusters, merge_members, merge_build_meta
 
 4. 画像与分析层（可并行）
-   python 统合模块\脚本\build_deep_profiles.py [--use-merged]
-   python 统合模块\脚本\build_memory_store.py
-   python 统合模块\脚本\build_capability_memory.py
-   python 统合模块\脚本\build_context_memory.py
-   python 统合模块\脚本\build_preference_memory.py
-   python 统合模块\脚本\build_memory_graph.py
+   python integration\scripts\build_deep_profiles.py [--use-merged]
+   python integration\scripts\build_memory_store.py
+   python integration\scripts\build_capability_memory.py
+   python integration\scripts\build_context_memory.py
+   python integration\scripts\build_preference_memory.py
+   python integration\scripts\build_memory_graph.py
 
 5. 向量检索层
-   python 统合模块\脚本\build_vector_store.py [--resume]
+   python integration\scripts\build_vector_store.py [--resume]
 
 6. AI 上下文层
-   python 统合模块\脚本\build_context_doc.py
+   python integration\scripts\build_context_doc.py
 ```
 
 **约定**: 每层幂等，单层重跑不影响其他层（叠加表而非修改原表）。

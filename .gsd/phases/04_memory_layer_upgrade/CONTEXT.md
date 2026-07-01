@@ -9,11 +9,11 @@
 
 本阶段聚焦三件事：
 
-1. 把统合层的大脚本拆成可扩展的源适配器与规范对象层。
+1. 把统合层的大scripts拆成可扩展的源适配器与规范对象层。
 2. 把 CLI / MCP / REST 的重复逻辑收口到统一服务契约。
 3. 在现有事件检索之上补一层“长期记忆对象”，让系统不仅能搜历史，还能沉淀稳定偏好、项目关系和工作模式。
 
-本阶段不是“重写全仓库”，而是在保留当前可运行链路的前提下，对统合模块做可演进化改造。
+本阶段不是“重写全仓库”，而是在保留当前可运行链路的前提下，对integration做可演进化改造。
 
 </domain>
 
@@ -21,9 +21,9 @@
 ## Implementation Decisions
 
 ### 目录与建模
-- 统合模块后续应从“大脚本直出 SQLite”演进为“源适配器 -> 规范对象 -> 统合入库”的结构。
+- integration后续应从“大scripts直出 SQLite”演进为“源适配器 -> 规范对象 -> 统合入库”的结构。
 - `Google` / `GPT` / `Agent` 三个来源必须先映射为统一 `CanonicalEvent` / `CanonicalEntity`，再做跨源链接。
-- 路径解析一律基于脚本文件位置，不再依赖 `Path.cwd()` 作为核心定位方式。
+- 路径解析一律基于scripts文件位置，不再依赖 `Path.cwd()` 作为核心定位方式。
 
 ### 服务边界
 - `unified_search.py` 继续作为唯一检索领域层，CLI / MCP / REST 不得各自复制查询、分类分布、参数规则和错误处理。
@@ -39,7 +39,7 @@
 ### 兼容性与迁移
 - 现有 `personal_system.sqlite`、`personal_events` collection、`mcp_server.py`、`api_server.py` 不能被破坏式替换。
 - 当前 README 中承诺的交互方式必须保持可用：CLI、MCP、REST API、dashboard。
-- 本阶段允许新增表、模块、构建脚本和测试，但不允许要求用户先重做已有数据目录结构。
+- 本阶段允许新增表、模块、构建scripts和测试，但不允许要求用户先重做已有数据目录结构。
 
 ### the agent's Discretion
 - 规范对象层用 dataclass、TypedDict 还是 pydantic，由实现时按依赖成本决定。
@@ -52,21 +52,21 @@
 ## Canonical References
 
 ### 当前统合入口
-- `统合模块/脚本/build_integrated_system.py` - 现有统合构建入口，后续要拆出适配器与 integrator。
-- `统合模块/脚本/build_vector_store.py` - 当前事件向量化构建入口，后续要支持记忆对象索引。
+- `integration/scripts/build_integrated_system.py` - 现有统合构建入口，后续要拆出适配器与 integrator。
+- `integration/scripts/build_vector_store.py` - 当前事件向量化构建入口，后续要支持记忆对象索引。
 
 ### 当前检索与服务层
-- `统合模块/脚本/unified_search.py` - 当前统一检索后端，后续继续作为领域层核心。
-- `统合模块/脚本/mcp_server.py` - 当前 MCP transport，后续应瘦身为契约适配层。
-- `统合模块/脚本/api_server.py` - 当前 HTTP transport，后续应瘦身为契约适配层。
+- `integration/scripts/unified_search.py` - 当前统一检索后端，后续继续作为领域层核心。
+- `integration/scripts/mcp_server.py` - 当前 MCP transport，后续应瘦身为契约适配层。
+- `integration/scripts/api_server.py` - 当前 HTTP transport，后续应瘦身为契约适配层。
 
 ### 当前向量与 embedding 基础设施
-- `统合模块/脚本/chroma_client.py` - 当前 Chroma REST 客户端。
-- `统合模块/脚本/local_embed.py` - 当前本地 embedding 实现。
+- `integration/scripts/chroma_client.py` - 当前 Chroma REST 客户端。
+- `integration/scripts/local_embed.py` - 当前本地 embedding 实现。
 
 ### 产品与架构说明
 - `README.md` - 当前项目能力、接入方式、向量层与 MCP/REST 承诺。
-- `统合模块/README.md` - 当前统合模块输入输出边界说明。
+- `integration/README.md` - 当前integration输入输出边界说明。
 
 </canonical_refs>
 

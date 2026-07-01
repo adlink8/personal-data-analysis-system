@@ -12,7 +12,7 @@
 ├── Google/                    # Google 数字足迹数据
 ├── GPT/                       # GPT 对话数据
 ├── Agent/                     # AI Agent 会话/记忆/技能数据
-├── 统合模块/                   # 核心：整合三源数据的脚本与产出
+├── integration/                   # 核心：整合三源数据的scripts与产出
 ├── lib/                       # [未纳入 git] 依赖库或临时库
 ├── imports/                   # 导入批次管理（含 batches/ incoming/）
 ├── new_import/                # [未纳入 git] 新导入管道（含 duplicate_audit/）
@@ -33,37 +33,37 @@
 
 ```
 Google/                     GPT/                        Agent/
-├── 原始数据/               ├── 原始数据/               ├── 原始数据/
-├── 结构化数据/             ├── 结构化数据/             ├── 结构化数据/
-│   └── SQLite数据库/       │   └── SQLite数据库/       │   └── SQLite数据库/
-└── 分析数据/               └── 分析数据/               └── 分析数据/
+├── raw/               ├── raw/               ├── raw/
+├── structured/             ├── structured/             ├── structured/
+│   └── db/       │   └── db/       │   └── db/
+└── analysis/               └── analysis/               └── analysis/
 ```
 
 三个模块完全对称，各自存放：
-- `原始数据/`：平台导出文件（Google Takeout JSON、GPT 导出、Agent jsonl/memory）
-- `结构化数据/`：清洗后的 CSV 和模块 SQLite
-- `分析数据/`：`模块画像.md` 等分析产出
+- `raw/`：平台导出文件（Google Takeout JSON、GPT 导出、Agent jsonl/memory）
+- `structured/`：清洗后的 CSV 和模块 SQLite
+- `analysis/`：`module_profile.md` 等分析产出
 
 ---
 
-## 统合模块详细结构
+## integration详细结构
 
 ```
-统合模块/
-├── 原始输入索引/
-├── 结构化数据/
-├── 分析数据/
-│   ├── 模块画像 (各模块).md
-│   ├── 统合画像.md
-│   ├── 统合画像_数据增长图.png
-│   ├── 统合画像_数据流向.csv
-│   ├── 统合画像_个人思考模式.csv
+integration/
+├── raw_index/
+├── structured/
+├── analysis/
+│   ├── module_profile (各模块).md
+│   ├── profile.md
+│   ├── profile_growth_chart.png
+│   ├── profile_data_flow.csv
+│   ├── profile_thinking_mode.csv
 │   └── ai_context/
 │       └── person_profile.md      # AI 长期上下文文档（注入 system prompt 用）
-├── SQLite数据库/
+├── db/
 │   └── personal_system.sqlite     # 核心统合数据库（12+张表）
-└── 脚本/
-    ├── 核心管道脚本
+└── scripts/
+    ├── 核心管道scripts
     ├── 共享模块
     ├── 服务层
     └── examples/                  # 接入示例
@@ -71,22 +71,22 @@ Google/                     GPT/                        Agent/
 
 ---
 
-## 脚本清单
+## scripts清单
 
 ### 数据构建管道（按执行顺序）
 
-| 脚本 | 职责 | 产出 |
+| scripts | 职责 | 产出 |
 |------|------|------|
-| `build_integrated_system.py` | 三源原始数据解析，重建统合库 | `personal_system.sqlite`（9张原始表） |
+| `build_integrated_system.py` | 三源raw解析，重建统合库 | `personal_system.sqlite`（9张原始表） |
 | `enrich_unified_events.py` | 语义增强：补真实文本/修复分类/建跨模块链接 | `unified_events_rich`, `event_categories_v2`, `entity_links_v2` |
 | `build_merge_layer.py` | 三层去重折叠，叠加在原始表之上 | `merge_clusters`, `merge_members`, `merge_build_meta` |
-| `build_deep_profiles.py` | 基于统合库生成各模块+统合画像 | `模块画像.md`, `统合画像*.md/csv/png` |
+| `build_deep_profiles.py` | 基于统合库生成各模块+profile | `module_profile.md`, `profile*.md/csv/png` |
 | `build_vector_store.py` | 批量向量化 content_rich，写入 Chroma | ChromaDB `personal_events` collection |
 | `build_context_doc.py` | 生成 AI 长期上下文文档 | `ai_context/person_profile.md` |
 
-### 记忆层脚本（Phase 04，未提交 git）
+### 记忆层scripts（Phase 04，未提交 git）
 
-| 脚本 | 职责 |
+| scripts | 职责 |
 |------|------|
 | `build_memory_store.py` | 初始化 `memory_items` 等记忆表，建表基础结构 |
 | `build_capability_memory.py` | 抽取能力类记忆（技能、工具使用模式） |
@@ -97,7 +97,7 @@ Google/                     GPT/                        Agent/
 
 ### 共享模块
 
-| 脚本 | 职责 |
+| scripts | 职责 |
 |------|------|
 | `common.py` | 纯工具函数（hash/norm/ID生成/CSV写入等），无副作用 |
 | `rules.py` | 分类规则常量（TOPIC_RULES v1 对照 + PURE_TOPIC_RULES v2 纯净版） |
@@ -106,17 +106,17 @@ Google/                     GPT/                        Agent/
 
 ### 服务层
 
-| 脚本 | 职责 | 端口 |
+| scripts | 职责 | 端口 |
 |------|------|------|
 | `unified_search.py` | 统一检索后端（CLI+模块双用途） | 无（本地函数） |
 | `api_server.py` | REST API 服务（标准库 http.server） | 8000 |
 | `mcp_server.py` | MCP Server（stdio 协议） | stdio |
 | `dashboard.py` | Streamlit 交互可视化（5页面） | 8501（Streamlit 默认） |
-| `search_vectors.py` | 简化版语义检索脚本（早期遗留） | 无 |
+| `search_vectors.py` | 简化版语义检索scripts（早期遗留） | 无 |
 
 ### 接入示例（examples/）
 
-| 脚本 | 接入方式 |
+| scripts | 接入方式 |
 |------|---------|
 | `openai_function_calling.py` | OpenAI 函数调用 |
 | `langchain_tool.py` | LangChain Tool |

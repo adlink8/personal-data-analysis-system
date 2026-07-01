@@ -14,7 +14,7 @@
 ### 启动方式
 
 ```powershell
-python "C:/Users/li/Desktop/数据分析/统合模块/脚本/mcp_server.py"
+python "C:/Users/li/Desktop/数据分析/integration/scripts/mcp_server.py"
 ```
 
 ### 客户端配置（Claude Desktop / Cursor / ZCode 等）
@@ -24,7 +24,7 @@ python "C:/Users/li/Desktop/数据分析/统合模块/脚本/mcp_server.py"
   "mcpServers": {
     "personal-data": {
       "command": "python",
-      "args": ["C:/Users/li/Desktop/数据分析/统合模块/脚本/mcp_server.py"]
+      "args": ["C:/Users/li/Desktop/数据分析/integration/scripts/mcp_server.py"]
     }
   }
 }
@@ -48,7 +48,7 @@ python "C:/Users/li/Desktop/数据分析/统合模块/脚本/mcp_server.py"
 
 ## REST API 接口列表
 
-**服务文件：** `统合模块/脚本/api_server.py`
+**服务文件：** `integration/scripts/api_server.py`
 **启动命令：** `python api_server.py [--host 127.0.0.1] [--port 8000]`
 **默认地址：** `http://127.0.0.1:8000`
 **响应格式：** 统一 `{"ok": bool, "data": ..., "error": ...}`
@@ -117,5 +117,5 @@ curl http://127.0.0.1:8000/memory/Codex?neighbors=1
 | AI 客户端（Claude Desktop / Cursor / ZCode） | MCP Tools | `mcp_server.py` | stdio（MCP 标准） |
 | RAG 平台（Dify / FastGPT / Coze） | HTTP 工具/自定义 API | `api_server.py` | HTTP REST |
 | 前端 / curl / Postman | HTTP | `api_server.py` | HTTP REST |
-| 命令行 CLI | 脚本直调 | `unified_search.py` | 无网络，纯本地 |
-| 其他 Python 脚本 | import | `unified_search.py` | 无网络，纯本地 |
+| 命令行 CLI | scripts直调 | `unified_search.py` | 无网络，纯本地 |
+| 其他 Python scripts | import | `unified_search.py` | 无网络，纯本地 |

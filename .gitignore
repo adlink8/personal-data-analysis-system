@@ -1,34 +1,34 @@
 # Personal raw exports and local datasets
-Google/原始数据/
-GPT/原始数据/
-Agent/原始数据/
+Google/raw/
+GPT/raw/
+Agent/raw/
 
 # Structured and analytical outputs are reproducible and may contain private content.
-Google/结构化数据/*
-!Google/结构化数据/README.md
-!Google/结构化数据/脚本/
-!Google/结构化数据/脚本/**
-Google/分析数据/*
-!Google/分析数据/README.md
+Google/structured/*
+!Google/structured/README.md
+!Google/structured/scripts/
+!Google/structured/scripts/**
+Google/analysis/*
+!Google/analysis/README.md
 
-GPT/结构化数据/*
-!GPT/结构化数据/README.md
-!GPT/结构化数据/脚本/
-!GPT/结构化数据/脚本/**
-GPT/分析数据/*
-!GPT/分析数据/README.md
+GPT/structured/*
+!GPT/structured/README.md
+!GPT/structured/scripts/
+!GPT/structured/scripts/**
+GPT/analysis/*
+!GPT/analysis/README.md
 
-Agent/结构化数据/*
-!Agent/结构化数据/README.md
-!Agent/结构化数据/脚本/
-!Agent/结构化数据/脚本/**
-Agent/分析数据/*
-!Agent/分析数据/README.md
+Agent/structured/*
+!Agent/structured/README.md
+!Agent/structured/scripts/
+!Agent/structured/scripts/**
+Agent/analysis/*
+!Agent/analysis/README.md
 
-统合模块/原始输入索引/
-统合模块/结构化数据/
-统合模块/分析数据/
-统合模块/SQLite数据库/
+integration/raw_index/
+integration/structured/
+integration/analysis/
+integration/db/
 
 # Import batches, duplicate manifests, and quarantine may include private file names.
 imports/*

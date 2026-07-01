@@ -238,7 +238,7 @@ WHERE mi.subject = 'GSD项目管理';
 ...(共 30 条原始事件)
 ```
 
-**这条 SQL 能跑通,返回 30 条原始事件。这就是证据链的证明——任何一条记忆都能追溯到具体原始数据,不是黑盒结论。**
+**这条 SQL 能跑通,返回 30 条原始事件。这就是证据链的证明——任何一条记忆都能追溯到具体raw,不是黑盒结论。**
 
 ### 4.4 时间趋势(本项目的隐藏优势)
 
@@ -288,13 +288,13 @@ ALTER TABLE memory_items ADD COLUMN valid_until TEXT;
 
 **② LLM 提炼增强层(来自 Mem0)**
 
-新建 `统合模块/脚本/build_llm_memory.py`:
+新建 `integration/scripts/build_llm_memory.py`:
 - 用 mimo-v2.5 对规则覆盖不到的事件做二次提炼
 - **硬约束**:产出必须带 `evidence_ids`(吸收 Mem0 提炼能力,保留本项目证据链)
 - 用本项目规则做**前置过滤**,避免 Graphiti 那种"高考通知"噪音
 - 借鉴 Mem0 的 `ADDITIVE_EXTRACTION_PROMPT`(区分"用户做了什么"vs"用户聊了什么")
 
-成本:1 个新脚本 + 1 个 LLM 调用,不改现有管道。
+成本:1 个新scripts + 1 个 LLM 调用,不改现有管道。
 
 ### 6.2 明确不吸收(3 项)
 
@@ -342,7 +342,7 @@ docker run -p 3000:3000 -p 6379:6379 falkordb/falkordb
 
 ### 7.1 本项目的护城河
 
-**不是分类体系,不是双时间,而是"每条结论都能用一条 SQL 追溯到原始数据"。**
+**不是分类体系,不是双时间,而是"每条结论都能用一条 SQL 追溯到raw"。**
 
 - 194/194 记忆有 evidence_ids(100%)
 - 1478 个 evidence_ids 抽样 JOIN 命中率 100%
@@ -374,7 +374,7 @@ cd ..
 
 # 证据链验证
 cd C:\Users\li\Desktop\数据分析
-python 统合模块\脚本\unified_search.py memory --subject "GSD项目管理" --neighbors 1
+python integration\scripts\unified_search.py memory --subject "GSD项目管理" --neighbors 1
 ```
 
 ## 九、产出物清单

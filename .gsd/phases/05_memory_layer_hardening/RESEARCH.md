@@ -23,7 +23,7 @@ Phase 05 不需要重新选择技术栈。前一轮对 HPI / mem0 / LangMem / mc
 - Python stdlib + existing dependencies first。
 - SQLite remains the source of truth。
 - Chroma remains vector search, but Phase 05 不新增向量能力。
-- pytest can be introduced only if it is added to `requirements.txt` or already available；否则先用 stdlib `unittest`/脚本级 smoke tests。
+- pytest can be introduced only if it is added to `requirements.txt` or already available；否则先用 stdlib `unittest`/scripts级 smoke tests。
 - REST tests should run against localhost only。
 
 ## Architecture Constraints

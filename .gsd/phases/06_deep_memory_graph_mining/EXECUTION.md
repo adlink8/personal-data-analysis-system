@@ -12,7 +12,7 @@ Phase 06 已完成。
 
 新增：
 
-- `统合模块/脚本/mine_deep_memory_graph.py`
+- `integration/scripts/mine_deep_memory_graph.py`
 
 能力：
 
@@ -31,14 +31,14 @@ Phase 06 已完成。
 
 输出：
 
-- `统合模块/分析数据/ai_context/deep_memory_mining.json`
-- `统合模块/分析数据/ai_context/deep_memory_mining.md`
+- `integration/analysis/ai_context/deep_memory_mining.json`
+- `integration/analysis/ai_context/deep_memory_mining.md`
 
 ### Wave 3 / 4: 深层 profile 构建 + 对比评估
 
 新增：
 
-- `统合模块/脚本/build_deep_memory_profile.py`
+- `integration/scripts/build_deep_memory_profile.py`
 
 能力：
 
@@ -48,17 +48,17 @@ Phase 06 已完成。
 
 输出：
 
-- `统合模块/分析数据/ai_context/deep_memory_insights.json`
-- `统合模块/分析数据/ai_context/deep_memory_insights.md`
-- `统合模块/分析数据/ai_context/deep_memory_profile.md`
-- `统合模块/分析数据/ai_context/deep_profile_evaluation.md`
+- `integration/analysis/ai_context/deep_memory_insights.json`
+- `integration/analysis/ai_context/deep_memory_insights.md`
+- `integration/analysis/ai_context/deep_memory_profile.md`
+- `integration/analysis/ai_context/deep_profile_evaluation.md`
 
 ### Wave 5: 文档
 
 已更新：
 
 - `README.md`
-- `统合模块/README.md`
+- `integration/README.md`
 - `.planning/codebase/ARCHITECTURE.md`
 - `.planning/codebase/TESTING.md`
 
@@ -85,10 +85,10 @@ Phase 06 已完成。
 
 ```powershell
 python tests\test_memory_contracts.py
-python 统合模块\脚本\mine_deep_memory_graph.py --dry-run
-python 统合模块\脚本\mine_deep_memory_graph.py --output-json
-python 统合模块\脚本\build_deep_memory_profile.py
-python 统合模块\脚本\build_deep_memory_profile.py --evaluate
+python integration\scripts\mine_deep_memory_graph.py --dry-run
+python integration\scripts\mine_deep_memory_graph.py --output-json
+python integration\scripts\build_deep_memory_profile.py
+python integration\scripts\build_deep_memory_profile.py --evaluate
 git diff --check
 ```
 

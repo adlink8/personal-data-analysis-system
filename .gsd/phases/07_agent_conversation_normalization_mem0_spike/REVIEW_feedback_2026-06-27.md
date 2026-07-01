@@ -13,7 +13,7 @@
 翻译成数据流目标(一条直线):
 
 ```
-杂乱原始数据 → [结构化清洗] → 干净的 event/memory → 入库(SQLite + 向量库) → 检索判断
+杂乱raw → [结构化清洗] → 干净的 event/memory → 入库(SQLite + 向量库) → 检索判断
 ```
 
 核心诉求:**清洗是为了让下游检索更好用**,不是为清洗而清洗。
@@ -25,7 +25,7 @@
 Wave 1-4 执行后,实际数据流长成了树状旁路,4 个清洗产物**互不交汇、都没回到主流水线**:
 
 ```
-原始数据
+raw
   ├─ Agent jsonl ──→ normalize_agent_conversations ──→ agent_data.sqlite (v2 旁路表)
   │     ✗ 没进 unified_events / 没进向量库
   ├─ GPT/Agent user 消息 ──→ build_conversation_segments ──→ conversation_segments.json (8.4MB)

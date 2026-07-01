@@ -7,7 +7,7 @@ created: 2026-06-17
 depends_on:
   - .gsd/phases/05_memory_layer_hardening/PLAN.md
   - .gsd/phases/05_5_ponytail_project_optimization/EXECUTION.md
-  - 统合模块/分析数据/ai_context/memory_depth_readiness.md
+  - integration/analysis/ai_context/memory_depth_readiness.md
 autonomous: false
 ---
 
@@ -44,7 +44,7 @@ Phase 06 只有在以下条件满足后才执行：
 
 ### Tasks
 
-1. 新增 `统合模块/脚本/mine_deep_memory_graph.py`。
+1. 新增 `integration/scripts/mine_deep_memory_graph.py`。
 2. 读取 `memory_depth_readiness.md` 或等价 JSON/Markdown readiness 输出。
 3. 读取 SQLite 中的 `memory_items`、`memory_links`、`memory_relations`。
 4. 过滤掉 readiness 标记为证据不足的主题。
@@ -58,7 +58,7 @@ Phase 06 只有在以下条件满足后才执行：
 
 ### Verification
 
-- `python 统合模块\脚本\mine_deep_memory_graph.py --dry-run`
+- `python integration\scripts\mine_deep_memory_graph.py --dry-run`
 
 ### Acceptance Criteria
 
@@ -92,7 +92,7 @@ Phase 06 只有在以下条件满足后才执行：
 
 ### Verification
 
-- `python 统合模块\脚本\mine_deep_memory_graph.py --output-json`
+- `python integration\scripts\mine_deep_memory_graph.py --output-json`
 - 抽查 JSON 中每条 strong/moderate 洞察都有 evidence 和 time window。
 
 ### Acceptance Criteria
@@ -109,12 +109,12 @@ Phase 06 只有在以下条件满足后才执行：
 
 ### Tasks
 
-1. 新增 `统合模块/脚本/build_deep_memory_profile.py`。
+1. 新增 `integration/scripts/build_deep_memory_profile.py`。
 2. 输入 Wave 2 的 JSON 结果。
 3. 输出：
-   - `统合模块/分析数据/ai_context/deep_memory_insights.json`
-   - `统合模块/分析数据/ai_context/deep_memory_insights.md`
-   - `统合模块/分析数据/ai_context/deep_memory_profile.md`
+   - `integration/analysis/ai_context/deep_memory_insights.json`
+   - `integration/analysis/ai_context/deep_memory_insights.md`
+   - `integration/analysis/ai_context/deep_memory_profile.md`
 4. Markdown 输出分区：
    - Long-term patterns
    - Tool and workflow evolution
@@ -126,7 +126,7 @@ Phase 06 只有在以下条件满足后才执行：
 
 ### Verification
 
-- `python 统合模块\脚本\build_deep_memory_profile.py`
+- `python integration\scripts\build_deep_memory_profile.py`
 - 检查输出文件存在且包含 confidence/evidence/contradiction 区块。
 
 ### Acceptance Criteria
@@ -150,12 +150,12 @@ Phase 06 只有在以下条件满足后才执行：
    - 是否增加关系强度。
    - 是否增加反例/限制。
    - 是否保留证据链。
-3. 输出 `统合模块/分析数据/ai_context/deep_profile_evaluation.md`。
+3. 输出 `integration/analysis/ai_context/deep_profile_evaluation.md`。
 4. 将不可靠洞察列入 review list，而不是写入最终 profile。
 
 ### Verification
 
-- `python 统合模块\脚本\build_deep_memory_profile.py --evaluate`
+- `python integration\scripts\build_deep_memory_profile.py --evaluate`
 - 人工抽查至少 5 条深层洞察。
 
 ### Acceptance Criteria
@@ -172,7 +172,7 @@ Phase 06 只有在以下条件满足后才执行：
 
 ### Tasks
 
-1. 更新 `README.md` 和 `统合模块/README.md`。
+1. 更新 `README.md` 和 `integration/README.md`。
 2. 说明浅层 profile 与深层 profile 的区别。
 3. 说明 Phase 06 不自动写回长期 memory store。
 4. 增加复现命令。
@@ -191,10 +191,10 @@ Phase 06 只有在以下条件满足后才执行：
 ## Phase Verification
 
 ```powershell
-python 统合模块\脚本\mine_deep_memory_graph.py --dry-run
-python 统合模块\脚本\mine_deep_memory_graph.py --output-json
-python 统合模块\脚本\build_deep_memory_profile.py
-python 统合模块\脚本\build_deep_memory_profile.py --evaluate
+python integration\scripts\mine_deep_memory_graph.py --dry-run
+python integration\scripts\mine_deep_memory_graph.py --output-json
+python integration\scripts\build_deep_memory_profile.py
+python integration\scripts\build_deep_memory_profile.py --evaluate
 git diff --check
 ```
 

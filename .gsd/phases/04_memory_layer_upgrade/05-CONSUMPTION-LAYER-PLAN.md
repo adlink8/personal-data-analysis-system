@@ -6,13 +6,13 @@
 **Goal:** 把记忆图谱从"孤立的数据库"变成"可被检索系统和 AI 消费的活数据"
 
 **Executed:** 2026-06-17
-**Implemented files:** `统合模块/脚本/unified_search.py`, `统合模块/脚本/api_server.py`, `统合模块/脚本/mcp_server.py`, `统合模块/脚本/build_profile_from_memory.py`, `统合模块/脚本/run_pipeline.py`, `README.md`, `统合模块/README.md`
+**Implemented files:** `integration/scripts/unified_search.py`, `integration/scripts/api_server.py`, `integration/scripts/mcp_server.py`, `integration/scripts/build_profile_from_memory.py`, `integration/scripts/run_pipeline.py`, `README.md`, `integration/README.md`
 
 ## 背景
 
 Wave 3 完成了记忆对象层(tooling/preference/fact/project/habit/capability 6类,194条),
 以及 memory_items / memory_links / memory_relations 三张表。
-但当前这些记忆**只能通过单独脚本查看**,没有接入项目的主检索链路。
+但当前这些记忆**只能通过单独scripts查看**,没有接入项目的主检索链路。
 
 本 Wave 解决"最后一公里":让记忆图谱真正被用起来。
 
@@ -69,7 +69,7 @@ Wave 3 完成了记忆对象层(tooling/preference/fact/project/habit/capability
 
 1. 新增 `build_profile_from_memory.py`(或扩展 build_context_doc.py):
    - 读 memory_items + memory_relations
-   - 生成 `统合模块/分析数据/ai_context/person_profile_v2.md`
+   - 生成 `integration/analysis/ai_context/person_profile_v2.md`
 2. 文档结构(按 AI 消费优化):
    ```
    # 用户记忆画像(自动生成)

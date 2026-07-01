@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-UNIFIED_SCRIPTS = ROOT / '统合模块' / '脚本'
+UNIFIED_SCRIPTS = ROOT / 'integration' / 'scripts'
 if str(UNIFIED_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(UNIFIED_SCRIPTS))
 

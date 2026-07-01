@@ -20,8 +20,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-AGENT_SCRIPTS = ROOT / "Agent" / "结构化数据" / "脚本"
-UNIFIED_SCRIPTS = ROOT / "统合模块" / "脚本"
+AGENT_SCRIPTS = ROOT / "Agent" / "structured" / "scripts"
+UNIFIED_SCRIPTS = ROOT / "integration" / "scripts"
 for d in (AGENT_SCRIPTS, UNIFIED_SCRIPTS):
     if str(d) not in sys.path:
         sys.path.insert(0, str(d))
@@ -31,7 +31,7 @@ import build_conversation_segments as seg_mod  # noqa: E402
 import build_conversation_summary as summary_mod  # noqa: E402
 import build_mem0_candidate_memory as mem0_mod  # noqa: E402
 
-AGENT_DB = ROOT / "Agent" / "结构化数据" / "SQLite数据库" / "agent_data.sqlite"
+AGENT_DB = ROOT / "Agent" / "structured" / "db" / "agent_data.sqlite"
 
 # Codex rollout jsonl 样本(覆盖各顶层类型),用于纯函数解析测试。
 SAMPLE_JSONL = """\
@@ -56,7 +56,7 @@ class JsonlParsingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         tmp_path = Path(self.tmp.name)
-        # 模拟 Agent/原始数据/Codex/sessions/.../x.jsonl 的目录结构
+        # 模拟 Agent/raw/Codex/sessions/.../x.jsonl 的目录结构
         src_dir = tmp_path / "Codex" / "sessions" / "2026" / "06" / "27"
         src_dir.mkdir(parents=True)
         self.jsonl = src_dir / "rollout-test.jsonl"
@@ -294,7 +294,7 @@ class Mem0CandidateTests(unittest.TestCase):
     def test_mem0_output_not_in_memory_items(self) -> None:
         """验证 mem0 candidate 文件与 memory_items 是两套独立存储。"""
         # memory_items 在统合模块的 memory store 中,候选文件在 ai_context 下
-        mem0_out = ROOT / "统合模块" / "分析数据" / "ai_context" / "mem0_candidate_memories.json"
+        mem0_out = ROOT / "integration" / "analysis" / "ai_context" / "mem0_candidate_memories.json"
         # candidate 文件即使存在,也独立于 memory store
         # 这里验证候选数据结构里没有 memory_id 字段(那是 memory_items 的字段)
         if mem0_out.exists():

@@ -7,18 +7,18 @@ Scope: Phase 04 memory layer implementation vs HPI, mem0, LangMem, mcp-memory-se
 
 当前仓库已经具备一个本地优先的个人数据和记忆层：
 
-- `统合模块/脚本/run_pipeline.py`: 12-step pipeline，包含 integrated system、vector index、memory store、memory graph、profile v2 生成。
-- `统合模块/脚本/unified_search.py`: 统一搜索、记忆画像、subject 关系、neighbor 查询。
-- `统合模块/脚本/api_server.py`: REST 查询入口，包含 `/memory` 和 `/memory/<subject>`。
-- `统合模块/脚本/mcp_server.py`: MCP 查询入口，包含 `get_memory_profile` 和 `get_memory_by_subject`。
-- `统合模块/脚本/build_profile_from_memory.py`: 从 `memory_items` 与 `memory_relations` 生成 agent 可消费画像。
-- `统合模块/分析数据/personal_system.sqlite`: 本地事实源，当前已有 `memory_items`、`memory_links`、`memory_relations` 等表。
+- `integration/scripts/run_pipeline.py`: 12-step pipeline，包含 integrated system、vector index、memory store、memory graph、profile v2 生成。
+- `integration/scripts/unified_search.py`: 统一搜索、记忆画像、subject 关系、neighbor 查询。
+- `integration/scripts/api_server.py`: REST 查询入口，包含 `/memory` 和 `/memory/<subject>`。
+- `integration/scripts/mcp_server.py`: MCP 查询入口，包含 `get_memory_profile` 和 `get_memory_by_subject`。
+- `integration/scripts/build_profile_from_memory.py`: 从 `memory_items` 与 `memory_relations` 生成 agent 可消费画像。
+- `integration/analysis/personal_system.sqlite`: 本地事实源，当前已有 `memory_items`、`memory_links`、`memory_relations` 等表。
 
 ## Alignment Matrix
 
 | Reference | External pattern | Current implementation | Gap | Recommendation |
 | --- | --- | --- | --- | --- |
-| HPI | 每类个人数据通过 Python module 暴露稳定对象；隐藏路径、解析、缓存、错误处理 | 当前按 Google/GPT/Agent/统合模块分目录，pipeline 串联多个脚本 | 缺少统一 source adapter contract；脚本间字段约定隐含在实现中 | 先定义 adapter spec，再逐步改造 1-2 个高价值数据源 |
+| HPI | 每类个人数据通过 Python module 暴露稳定对象；隐藏路径、解析、缓存、错误处理 | 当前按 Google/GPT/Agent/integration分目录，pipeline 串联多个scripts | 缺少统一 source adapter contract；scripts间字段约定隐含在实现中 | 先定义 adapter spec，再逐步改造 1-2 个高价值数据源 |
 | mem0 | 通用 agent memory layer；User/Session/Agent 多层记忆；API/SDK/CLI 搜索与写入 | 已有 preference/context/capability/tooling 等 memory 类型，CLI/REST/MCP 可查 | 缺少明确的层级语义、写入准入、冲突合并和污染控制 | 增加 memory governance 字段和合并规则，不迁移到外部服务 |
 | LangMem | hot path memory tools + background manager；长期记忆与 agent runtime 解耦 | 当前偏 batch pipeline，消费入口已补齐 | 缺少 hot path 写入/更新工具；background consolidation 规则还不显式 | 先增加只读契约测试，再设计可审计的写入/更新工具 |
 | mcp-memory-service | 单 memory backend 同时服务 REST/MCP/CLI/dashboard；支持多 agent 共享与图关系 | 当前已有同一 SQLite backend + CLI/REST/MCP；已有 relation 查询 | 入口契约缺少自动测试；无 dashboard；远程安全边界未定义 | 保持 localhost 默认；补 CLI/REST/MCP contract tests；dashboard 放后续 |
@@ -50,18 +50,18 @@ Scope: Phase 04 memory layer implementation vs HPI, mem0, LangMem, mcp-memory-se
 
 ### 1. Adapter Contract
 
-Problem: 当前导入/统合脚本可以工作，但边界靠约定维持。继续增加数据源会提高漂移风险。
+Problem: 当前导入/统合scripts可以工作，但边界靠约定维持。继续增加数据源会提高漂移风险。
 
 Change:
 
-- 新增 `统合模块/脚本/source_adapters/` 或等价轻量目录。
+- 新增 `integration/scripts/source_adapters/` 或等价轻量目录。
 - 定义最小 canonical record 字段：`source_type`、`source_id`、`title`、`content`、`created_at`、`updated_at`、`metadata`、`source_path`、`source_hash`。
 - 先迁移一个最稳定 source 作为样例，不做全量重构。
 
 Acceptance:
 
 - pipeline 仍能 dry-run。
-- 样例 adapter 有最小单元测试或脚本级 smoke test。
+- 样例 adapter 有最小单元测试或scripts级 smoke test。
 
 ### 2. Memory Governance
 
@@ -75,7 +75,7 @@ Change:
 
 Acceptance:
 
-- `python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 1` 能解释关键关系来源。
+- `python integration\scripts\unified_search.py memory --subject Codex --neighbors 1` 能解释关键关系来源。
 - `person_profile_v2.md` 中关键偏好/能力有来源字段。
 
 ### 3. Transport Contract Tests
@@ -84,7 +84,7 @@ Problem: Phase 04 新增 CLI/REST/MCP 消费入口后，最容易出现入口漂
 
 Change:
 
-- 增加一个轻量测试脚本或 pytest：同一查询分别走核心函数、CLI、REST、MCP schema 层。
+- 增加一个轻量测试scripts或 pytest：同一查询分别走核心函数、CLI、REST、MCP schema 层。
 - 至少覆盖 `memory type` 和 `subject neighbors` 两类查询。
 
 Acceptance:

@@ -74,22 +74,22 @@ Phase 05 不是继续扩展新功能，而是把 Phase 04 已打通的记忆层�
 
 ### Implementation Entry Points
 
-- `统合模块/脚本/run_pipeline.py` — 12-step pipeline 编排入口。
-- `统合模块/脚本/unified_search.py` — CLI 和核心查询函数。
-- `统合模块/脚本/api_server.py` — REST 入口。
-- `统合模块/脚本/mcp_server.py` — MCP 入口。
-- `统合模块/脚本/build_profile_from_memory.py` — 图谱记忆画像生成。
-- `统合模块/分析数据/personal_system.sqlite` — 当前本地事实源。
+- `integration/scripts/run_pipeline.py` — 12-step pipeline 编排入口。
+- `integration/scripts/unified_search.py` — CLI 和核心查询函数。
+- `integration/scripts/api_server.py` — REST 入口。
+- `integration/scripts/mcp_server.py` — MCP 入口。
+- `integration/scripts/build_profile_from_memory.py` — 图谱记忆画像生成。
+- `integration/analysis/personal_system.sqlite` — 当前本地事实源。
 
 </canonical_refs>
 
 <specifics>
 ## Specific Ideas
 
-- 新增 `统合模块/脚本/source_adapters/`，但第一阶段只放 contract 和一个样例 adapter。
-- 新增 `统合模块/脚本/memory_governance.py` 或等价模块，集中处理 evidence/confidence/source_hash/merge_key。
-- 新增 `统合模块/脚本/evaluate_memory_depth.py` 或等价脚本，抽样评估 memory graph 是否具备深挖条件。
-- 新增 `tests/` 或 `统合模块/测试/`，优先选择简单可运行结构。
+- 新增 `integration/scripts/source_adapters/`，但第一阶段只放 contract 和一个样例 adapter。
+- 新增 `integration/scripts/memory_governance.py` 或等价模块，集中处理 evidence/confidence/source_hash/merge_key。
+- 新增 `integration/scripts/evaluate_memory_depth.py` 或等价scripts，抽样评估 memory graph 是否具备深挖条件。
+- 新增 `tests/` 或 `integration/测试/`，优先选择简单可运行结构。
 - 新增一个 contract test，验证核心函数、CLI、REST、MCP 对 memory 查询的 shape 一致。
 - 更新 README 和 `.planning/codebase` 中过期的 endpoint/tool/pipeline 数量。
 

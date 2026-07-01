@@ -1,19 +1,19 @@
 # GPT 数据模块
 
-本模块按原始数据、结构化数据、分析数据三层组织。原始导出数据保留在：
+本模块按raw、structured、analysis三层组织。原始导出数据保留在：
 
-`C:\Users\li\Desktop\数据分析\GPT\原始数据`
+`C:\Users\li\Desktop\数据分析\GPT\raw`
 
 ## 目录结构
 
-- `结构化数据/原始数据索引`：GPT 原始导出文件索引。
-- `结构化数据/明细数据`：清洗后的 CSV / JSONL / XLSX 和分析用 JSON。
-- `结构化数据/SQLite数据库`：ChatGPT SQLite 数据库。
-- `结构化数据/按文件类型分类`：处理结果按扩展名复制归类。
-- `结构化数据/原始附件按类型`：原始导出附件类型汇总，不复制大体量原始附件。
-- `结构化数据/脚本`：分析和整理脚本。
-- `分析数据/报告HTML`：分析报告和数据库仪表盘。
-- `分析数据/图表PNG`：报告图表。
+- `structured/raw_index`：GPT 原始导出文件索引。
+- `structured/details`：清洗后的 CSV / JSONL / XLSX 和分析用 JSON。
+- `structured/db`：ChatGPT SQLite 数据库。
+- `structured/by_filetype`：处理结果按扩展名复制归类。
+- `structured/attachments_by_type`：原始导出附件类型汇总，不复制大体量原始附件。
+- `structured/scripts`：分析和整理scripts。
+- `analysis/reports_html`：分析报告和数据库仪表盘。
+- `analysis/charts_png`：报告图表。
 
 ## 当前统计
 

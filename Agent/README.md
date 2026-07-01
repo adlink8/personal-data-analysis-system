@@ -4,14 +4,14 @@ Agent 模块纳入 Windows 和 WSL 上的 AI Agent 工具数据，包括 Codex�
 
 本模块只保留三层：
 
-- `原始数据`：可分析原始副本和 WSL 归档。
-- `结构化数据`：原始索引、明细 CSV、SQLite、按来源/类型拆分和构建脚本。
-- `分析数据`：HTML 摘要、classification summary、旧工作文件。
+- `raw`：可分析原始副本和 WSL 归档。
+- `structured`：原始索引、明细 CSV、SQLite、按来源/类型拆分和构建scripts。
+- `analysis`：HTML 摘要、classification summary、legacy_work。
 
-统合模块读取：
+integration读取：
 
 ```text
-Agent/结构化数据/SQLite数据库/agent_data.sqlite
+Agent/structured/db/agent_data.sqlite
 ```
 
 当前构建结果：
@@ -28,5 +28,5 @@ Agent/结构化数据/SQLite数据库/agent_data.sqlite
 重建命令：
 
 ```powershell
-python Agent\结构化数据\脚本\build_agent_dataset.py
+python Agent\structured\scripts\build_agent_dataset.py
 ```

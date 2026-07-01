@@ -42,18 +42,18 @@
 - 只复制白名单数据：skills、memory、sessions、plans、tasks、SQLite 状态库、结构化配置。
 - 使用 SQLite backup API 复制 `.sqlite` / `.db`，避免直接复制在线 WAL 状态。
 - 排除认证、密钥、token、缓存、依赖、二进制、插件缓存、blobs、node_modules。
-- 大型 session 文件只抽取有限消息摘要，完整原始文件保留在 `Agent/原始数据`。
-- WSL 数据使用 `agent_data.tar.gz` 归档放入 `Agent/原始数据/WSL_UbuntuD_AgentArchive`，并生成 `agent_file_manifest.tsv`。
+- 大型 session 文件只抽取有限消息摘要，完整原始文件保留在 `Agent/raw`。
+- WSL 数据使用 `agent_data.tar.gz` 归档放入 `Agent/raw/WSL_UbuntuD_AgentArchive`，并生成 `agent_file_manifest.tsv`。
 
 ## 产物
 
 - `Agent/README.md`
-- `Agent/结构化数据/脚本/build_agent_dataset.py`
-- `Agent/结构化数据/SQLite数据库/agent_data.sqlite`
-- `Agent/结构化数据/原始数据索引/agent_source_files.csv`
-- `Agent/结构化数据/明细数据/*.csv`
-- `Agent/分析数据/报告HTML/agent_data_summary.html`
-- `Agent/分析数据/classification_summary.json`
+- `Agent/structured/scripts/build_agent_dataset.py`
+- `Agent/structured/db/agent_data.sqlite`
+- `Agent/structured/raw_index/agent_source_files.csv`
+- `Agent/structured/details/*.csv`
+- `Agent/analysis/reports_html/agent_data_summary.html`
+- `Agent/analysis/classification_summary.json`
 
 ## 验收结果
 

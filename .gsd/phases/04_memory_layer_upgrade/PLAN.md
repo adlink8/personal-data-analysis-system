@@ -2,7 +2,7 @@
 
 ## 目标
 
-在不破坏现有可运行链路的前提下，把统合模块从“能跑的脚本集合”提升为“可扩展的个人记忆平台底座”：
+在不破坏现有可运行链路的前提下，把integration从“能跑的scripts集合”提升为“可扩展的个人记忆平台底座”：
 
 - 导入层可扩展
 - 服务层行为一致
@@ -17,7 +17,7 @@
 
 ## 不做
 
-- 不重做 Google / GPT / Agent 的原始数据抓取逻辑。
+- 不重做 Google / GPT / Agent 的raw抓取逻辑。
 - 不引入云端依赖或托管记忆服务。
 - 不把 dashboard 整体重写成新产品。
 - 不把 GraphRAG 做成独立大工程。
@@ -26,11 +26,11 @@
 
 ### 目标
 
-把 `build_integrated_system.py` 从单文件统合脚本拆成可维护结构，为后续新增来源和记忆对象奠定底座。
+把 `build_integrated_system.py` 从单文件统合scripts拆成可维护结构，为后续新增来源和记忆对象奠定底座。
 
 ### 任务
 
-1. 新增 `统合模块/脚本/adapters/`，拆出 `google.py`、`gpt.py`、`agent.py`。
+1. 新增 `integration/scripts/adapters/`，拆出 `google.py`、`gpt.py`、`agent.py`。
 2. 新增规范对象定义模块，如 `schemas.py` 或 `models.py`，统一 `CanonicalEvent` / `CanonicalEntity` 字段。
 3. 新增 `integrator.py`，负责合并事件、建实体、建连接、落库。
 4. 把 `build_integrated_system.py` 改为 orchestrator，只负责编排与输出。
@@ -38,9 +38,9 @@
 
 ### 验收
 
-- `python 统合模块\脚本\build_integrated_system.py` 仍可生成 `personal_system.sqlite`。
+- `python integration\scripts\build_integrated_system.py` 仍可生成 `personal_system.sqlite`。
 - 原三源数据总量与关键核心表不发生明显回归。
-- 新增第四来源时，不再需要修改单个超大脚本的主体结构。
+- 新增第四来源时，不再需要修改单个超大scripts的主体结构。
 
 ## Wave 2: 统一服务契约
 
@@ -91,13 +91,13 @@
 
 ### 目标
 
-把架构升级结果固化到文档与验证脚本，防止后续再次漂移。
+把架构升级结果固化到文档与验证scripts，防止后续再次漂移。
 
 ### 任务
 
 1. 为导入构建、服务契约、记忆对象索引分别补 smoke tests。
 2. 更新 `README.md` 的统合构建、统一检索、MCP、REST、向量层说明。
-3. 更新 `统合模块/README.md`，补新目录结构和新表结构。
+3. 更新 `integration/README.md`，补新目录结构和新表结构。
 4. 输出一份迁移说明，说明旧接口未破坏、哪些能力是新增的。
 
 ### 验收
@@ -108,7 +108,7 @@
 
 ## 风险
 
-- 大脚本拆分时容易引入字段兼容性回归。
+- 大scripts拆分时容易引入字段兼容性回归。
 - 服务契约收口时，若不先定义边界，可能只是把重复代码换个地方堆。
 - 记忆对象抽取如果过度依赖启发式，可能得到大量低价值噪声。
 
@@ -121,7 +121,7 @@
 
 ## 成功标准
 
-- 统合模块从单脚本结构升级为可扩展模块结构。
+- integration从单scripts结构升级为可扩展模块结构。
 - 三个服务入口共享同一套契约与行为。
 - 系统具备第一版长期记忆对象与双索引能力。
 - 文档、代码、验证三者口径一致。

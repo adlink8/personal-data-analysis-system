@@ -1,19 +1,19 @@
 # Google 数据模块
 
-本模块按原始数据、结构化数据、分析数据三层组织。原始 Takeout 数据保留在：
+本模块按raw、structured、analysis三层组织。原始 Takeout 数据保留在：
 
-`C:\Users\li\Desktop\数据分析\Google\原始数据\Takeout`
+`C:\Users\li\Desktop\数据分析\Google\raw\Takeout`
 
 ## 目录结构
 
-- `结构化数据/原始数据索引`：原始 Takeout 一级模块索引。
-- `结构化数据/明细CSV`：从 Takeout 抽取出的可分析明细和汇总表。
-- `结构化数据/SQLite数据库`：SQLite 数据库、schema、查询说明。
-- `结构化数据/按主题分类`：按内容主题拆分的活动明细。
-- `结构化数据/按服务分类`：按 Google 服务拆分的活动明细。
-- `结构化数据/脚本`：分析、建库、整理脚本。
-- `分析数据/报告HTML`：已生成的分析报告。
-- `分析数据/图表PNG`：报告图表。
+- `structured/raw_index`：原始 Takeout 一级模块索引。
+- `structured/details_csv`：从 Takeout 抽取出的可分析明细和汇总表。
+- `structured/db`：SQLite 数据库、schema、查询说明。
+- `structured/by_topic`：按内容主题拆分的活动明细。
+- `structured/by_service`：按 Google 服务拆分的活动明细。
+- `structured/scripts`：分析、建库、整理scripts。
+- `analysis/reports_html`：已生成的分析报告。
+- `analysis/charts_png`：报告图表。
 
 ## 当前统计
 

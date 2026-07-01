@@ -24,7 +24,7 @@
 
 ```powershell
 # 启动服务
-python 统合模块\脚本\api_server.py
+python integration\scripts\api_server.py
 
 # 健康检查（应返回 200 + JSON）
 curl http://127.0.0.1:8000/health
@@ -37,32 +37,32 @@ curl http://127.0.0.1:8000/stats
 
 ```powershell
 # 统计概览
-python 统合模块\脚本\unified_search.py stats
+python integration\scripts\unified_search.py stats
 
 # 合并层压缩报告
-python 统合模块\脚本\unified_search.py merge-stats
+python integration\scripts\unified_search.py merge-stats
 
 # 语义检索冒烟测试
-python 统合模块\脚本\unified_search.py semantic "数据库调试" --top-k 3
+python integration\scripts\unified_search.py semantic "数据库调试" --top-k 3
 
 # 记忆查询 + 证据摘要
-python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 1
+python integration\scripts\unified_search.py memory --subject Codex --neighbors 1
 ```
 
 ### 2.3 build_deep_profiles.py 统计输出
 
 ```powershell
-python 统合模块\脚本\build_deep_profiles.py
+python integration\scripts\build_deep_profiles.py
 # 观察 stdout 中事件计数、分类分布、思考模式分布
 
-python 统合模块\脚本\build_deep_profiles.py --use-merged
+python integration\scripts\build_deep_profiles.py --use-merged
 # 对比去重前后数量差异，验证合并层生效
 ```
 
 ### 2.4 SQLite 直接查询
 
 ```powershell
-sqlite3 统合模块\SQLite数据库\personal_system.sqlite
+sqlite3 integration\db\personal_system.sqlite
 > SELECT COUNT(*) FROM unified_events;
 > SELECT COUNT(*) FROM unified_events_rich;
 > SELECT COUNT(*) FROM merge_clusters;
@@ -72,7 +72,7 @@ sqlite3 统合模块\SQLite数据库\personal_system.sqlite
 ### 2.5 Dashboard 可视化验证
 
 ```powershell
-streamlit run 统合模块\脚本\dashboard.py
+streamlit run integration\scripts\dashboard.py
 # 浏览器打开确认图表正常渲染，侧栏状态灯全绿
 ```
 
@@ -80,19 +80,19 @@ streamlit run 统合模块\脚本\dashboard.py
 
 ```powershell
 python tests\test_memory_contracts.py
-python 统合模块\脚本\source_adapters\google_activities.py --limit 2
-python 统合模块\脚本\run_pipeline.py --dry-run
-python 统合模块\脚本\run_pipeline.py --only 5,6,7,8,9,11,12
-python 统合模块\脚本\evaluate_memory_depth.py
+python integration\scripts\source_adapters\google_activities.py --limit 2
+python integration\scripts\run_pipeline.py --dry-run
+python integration\scripts\run_pipeline.py --only 5,6,7,8,9,11,12
+python integration\scripts\evaluate_memory_depth.py
 ```
 
 ### 2.7 Phase 06 深层画像验证
 
 ```powershell
-python 统合模块\脚本\mine_deep_memory_graph.py --dry-run
-python 统合模块\脚本\mine_deep_memory_graph.py --output-json
-python 统合模块\脚本\build_deep_memory_profile.py
-python 统合模块\脚本\build_deep_memory_profile.py --evaluate
+python integration\scripts\mine_deep_memory_graph.py --dry-run
+python integration\scripts\mine_deep_memory_graph.py --output-json
+python integration\scripts\build_deep_memory_profile.py
+python integration\scripts\build_deep_memory_profile.py --evaluate
 ```
 
 检查点：
@@ -106,25 +106,25 @@ python 统合模块\脚本\build_deep_memory_profile.py --evaluate
 
 ```powershell
 # Wave 1-3: 清洗层
-python Agent\结构化数据\脚本\normalize_agent_conversations.py --dry-run --limit-files 5
-python Agent\结构化数据\脚本\normalize_agent_conversations.py --write
-python 统合模块\脚本\build_conversation_segments.py --dry-run --source Agent --limit 20
-python 统合模块\脚本\build_conversation_segments.py --write
+python Agent\structured\scripts\normalize_agent_conversations.py --dry-run --limit-files 5
+python Agent\structured\scripts\normalize_agent_conversations.py --write
+python integration\scripts\build_conversation_segments.py --dry-run --source Agent --limit 20
+python integration\scripts\build_conversation_segments.py --write
 
 # Wave 6: Prompt Lab 评测门
-python 统合模块\脚本\build_conversation_eval_set.py --write
-python 统合模块\脚本\evaluate_conversation_prompt.py --dry-run
-python 统合模块\脚本\evaluate_conversation_prompt.py --write   # 需环境变量
+python integration\scripts\build_conversation_eval_set.py --write
+python integration\scripts\evaluate_conversation_prompt.py --dry-run
+python integration\scripts\evaluate_conversation_prompt.py --write   # 需环境变量
 
 # Wave 7: turn 叙述回流向量库(需 chroma 服务 + LLM 配置)
-python 统合模块\脚本\build_conversation_summary.py --write
-python 统合模块\脚本\build_conversation_vector_store.py --dry-run
-python 统合模块\脚本\build_conversation_vector_store.py --write
-python 统合模块\脚本\unified_search.py semantic "MQTT" --top-k 5
+python integration\scripts\build_conversation_summary.py --write
+python integration\scripts\build_conversation_vector_store.py --dry-run
+python integration\scripts\build_conversation_vector_store.py --write
+python integration\scripts\unified_search.py semantic "MQTT" --top-k 5
 
 # 回归 + mem0 可选实验(非主路径)
 python tests\test_agent_conversation_normalization.py
-python 统合模块\脚本\build_mem0_candidate_memory.py --sample --force-local
+python integration\scripts\build_mem0_candidate_memory.py --sample --force-local
 ```
 
 检查点：
@@ -142,22 +142,22 @@ python 统合模块\脚本\build_mem0_candidate_memory.py --sample --force-local
 
 ## 3. 幂等验证机制
 
-所有 `build_*` 脚本内置幂等保障，连续运行两次结果应完全一致：
+所有 `build_*` scripts内置幂等保障，连续运行两次结果应完全一致：
 
 | 验证方式 | 操作 |
 |---------|------|
-| 连续运行两次同一脚本 | 第二次结果与第一次完全一致，无重复行 |
+| 连续运行两次同一scripts | 第二次结果与第一次完全一致，无重复行 |
 | 比对行数 | 两次运行后 `SELECT COUNT(*)` 结果相同 |
 | `merge_build_meta` 表 | 存储构建时间戳，可核查最后一次运行时间 |
 
 验证命令示例：
 
 ```powershell
-python 统合模块\脚本\build_merge_layer.py
-sqlite3 统合模块\SQLite数据库\personal_system.sqlite "SELECT COUNT(*) FROM merge_clusters;" > count1.txt
+python integration\scripts\build_merge_layer.py
+sqlite3 integration\db\personal_system.sqlite "SELECT COUNT(*) FROM merge_clusters;" > count1.txt
 
-python 统合模块\脚本\build_merge_layer.py
-sqlite3 统合模块\SQLite数据库\personal_system.sqlite "SELECT COUNT(*) FROM merge_clusters;" > count2.txt
+python integration\scripts\build_merge_layer.py
+sqlite3 integration\db\personal_system.sqlite "SELECT COUNT(*) FROM merge_clusters;" > count2.txt
 
 fc count1.txt count2.txt  # 应相同，无差异输出
 ```
@@ -168,7 +168,7 @@ fc count1.txt count2.txt  # 应相同，无差异输出
 
 ### P0 — 纯函数单元测试（`common.py`）
 
-文件: `统合模块/脚本/tests/test_common.py`
+文件: `integration/scripts/tests/test_common.py`
 
 ```python
 test_sha256_text_deterministic()       # 同输入同输出
@@ -181,7 +181,7 @@ test_write_csv_utf8sig_header()        # 生成文件首行 BOM
 
 ### P1 — 分类规则回归测试（`rules.py`）
 
-文件: `统合模块/脚本/tests/test_rules.py`
+文件: `integration/scripts/tests/test_rules.py`
 
 ```python
 test_pure_topic_rules_no_agent_selfhit()
@@ -197,18 +197,18 @@ test_pure_topic_default_is_used_for_unmatched()
 
 ### P2 — 扩展集成冒烟测试
 
-文件: `统合模块/脚本/tests/test_smoke.py`
+文件: `integration/scripts/tests/test_smoke.py`
 
 ```python
 # 使用临时 SQLite（不污染 personal_system.sqlite）
-test_enrich_creates_rich_table()        # enrich 脚本跑完后表存在且非空
+test_enrich_creates_rich_table()        # enrich scripts跑完后表存在且非空
 test_merge_layer_idempotent()           # 连跑两次 merge，count 不变
 test_api_health_returns_200()           # api_server /health 响应正常
 ```
 
 ### P3 — 数据质量 assert
 
-在各 `build_*` 脚本 `main()` 末尾加内联断言（不依赖 pytest）：
+在各 `build_*` scripts `main()` 末尾加内联断言（不依赖 pytest）：
 
 ```python
 # 例: build_merge_layer.py
@@ -229,6 +229,6 @@ pytest-cov>=6.0
 运行命令：
 
 ```powershell
-python -m pytest 统合模块\脚本\tests\ -v
-python -m pytest 统合模块\脚本\tests\ --cov=统合模块\脚本 --cov-report=term-missing
+python -m pytest integration\scripts\tests\ -v
+python -m pytest integration\scripts\tests\ --cov=integration\scripts --cov-report=term-missing
 ```

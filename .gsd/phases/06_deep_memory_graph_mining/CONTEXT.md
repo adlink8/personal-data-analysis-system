@@ -53,10 +53,10 @@ Phase 06 重点挖以下类型：
 ### Required Inputs
 
 - `.gsd/phases/05_memory_layer_hardening/PLAN.md` — Phase 06 的前置补强和 readiness gate。
-- `统合模块/分析数据/ai_context/memory_depth_readiness.md` — Phase 06 必须读取的准入报告。
-- `统合模块/分析数据/personal_system.sqlite` — memory_items / memory_links / memory_relations 事实源。
-- `统合模块/脚本/unified_search.py` — 现有 memory 查询入口。
-- `统合模块/脚本/build_profile_from_memory.py` — 当前浅层 profile 生成器。
+- `integration/analysis/ai_context/memory_depth_readiness.md` — Phase 06 必须读取的准入报告。
+- `integration/analysis/personal_system.sqlite` — memory_items / memory_links / memory_relations 事实源。
+- `integration/scripts/unified_search.py` — 现有 memory 查询入口。
+- `integration/scripts/build_profile_from_memory.py` — 当前浅层 profile 生成器。
 
 ### Reference Research
 
@@ -68,10 +68,10 @@ Phase 06 重点挖以下类型：
 <specifics>
 ## Specific Ideas
 
-- 新增 `统合模块/脚本/mine_deep_memory_graph.py`。
-- 新增 `统合模块/脚本/build_deep_memory_profile.py`。
-- 输出 `统合模块/分析数据/ai_context/deep_memory_insights.md`。
-- 输出 `统合模块/分析数据/ai_context/deep_memory_profile.md`。
+- 新增 `integration/scripts/mine_deep_memory_graph.py`。
+- 新增 `integration/scripts/build_deep_memory_profile.py`。
+- 输出 `integration/analysis/ai_context/deep_memory_insights.md`。
+- 输出 `integration/analysis/ai_context/deep_memory_profile.md`。
 - 输出一份 JSON 机器可读结果，供后续 dashboard 或 agent prompt 使用。
 
 </specifics>

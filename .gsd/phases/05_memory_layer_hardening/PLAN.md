@@ -33,7 +33,7 @@ autonomous: true
 
 ### Tasks
 
-1. 新增 adapter contract 文档或代码模块，例如 `统合模块/脚本/source_adapters/README.md` 和 `base.py`。
+1. 新增 adapter contract 文档或代码模块，例如 `integration/scripts/source_adapters/README.md` 和 `base.py`。
 2. 定义 canonical record 最小字段：
    - `source_type`
    - `source_id`
@@ -49,8 +49,8 @@ autonomous: true
 
 ### Verification
 
-- `python 统合模块\脚本\run_pipeline.py --dry-run`
-- 新增 adapter smoke test 或脚本能输出 canonical record 样例。
+- `python integration\scripts\run_pipeline.py --dry-run`
+- 新增 adapter smoke test 或scripts能输出 canonical record 样例。
 
 ### Acceptance Criteria
 
@@ -73,15 +73,15 @@ autonomous: true
    - `last_seen`
    - `source_hash`
    - `merge_key`
-3. 优先改造生成记忆的脚本输出 metadata，不直接做破坏性 schema 迁移。
+3. 优先改造生成记忆的scripts输出 metadata，不直接做破坏性 schema 迁移。
 4. 让 `build_profile_from_memory.py` 输出关键结论来源摘要。
 5. 让 memory subject / neighbor 查询能返回 relation confidence 或 evidence 摘要。
 
 ### Verification
 
-- `python 统合模块\脚本\run_pipeline.py --only 12`
-- `python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 1`
-- 抽查 `统合模块\分析数据\ai_context\person_profile_v2.md` 是否包含来源/证据提示。
+- `python integration\scripts\run_pipeline.py --only 12`
+- `python integration\scripts\unified_search.py memory --subject Codex --neighbors 1`
+- 抽查 `integration\analysis\ai_context\person_profile_v2.md` 是否包含来源/证据提示。
 
 ### Acceptance Criteria
 
@@ -114,11 +114,11 @@ autonomous: true
    - `relations`
    - `neighbors`
    - `count`
-5. 如果 pytest 不可用，先用 stdlib 脚本实现一条可执行验证命令。
+5. 如果 pytest 不可用，先用 stdlib scripts实现一条可执行验证命令。
 
 ### Verification
 
-- `python -m py_compile 统合模块\脚本\unified_search.py 统合模块\脚本\api_server.py 统合模块\脚本\mcp_server.py`
+- `python -m py_compile integration\scripts\unified_search.py integration\scripts\api_server.py integration\scripts\mcp_server.py`
 - `python tests\test_memory_contracts.py` 或 `python -m pytest tests`
 
 ### Acceptance Criteria
@@ -131,7 +131,7 @@ autonomous: true
 
 ### Goal
 
-把补强后的真实状态同步到 README、统合模块 README、`.planning/codebase`，避免 Phase 04/05 后文档继续漂移。
+把补强后的真实状态同步到 README、integration README、`.planning/codebase`，避免 Phase 04/05 后文档继续漂移。
 
 ### Tasks
 
@@ -139,7 +139,7 @@ autonomous: true
    - pipeline 入口
    - memory governance 说明
    - 测试命令
-2. 更新 `统合模块/README.md`：
+2. 更新 `integration/README.md`：
    - adapter contract
    - memory metadata
    - CLI/REST/MCP contract
@@ -165,7 +165,7 @@ autonomous: true
 
 ### Tasks
 
-1. 新增 `统合模块/脚本/evaluate_memory_depth.py` 或等价脚本，抽样评估当前 memory graph。
+1. 新增 `integration/scripts/evaluate_memory_depth.py` 或等价scripts，抽样评估当前 memory graph。
 2. 对至少 20 条 memory item / relation 做质量检查，维度包括：
    - `evidence_count`: 是否有足够原始证据或 memory_links。
    - `time_span`: 是否跨越多个时间点，而不是单次出现。
@@ -173,7 +173,7 @@ autonomous: true
    - `relation_strength`: 关系是否有 confidence/权重/来源。
    - `contradiction_check`: 是否存在明显反例或冲突记忆。
    - `depth_candidate`: 是否适合进入 Phase 06 做深层挖掘。
-3. 输出 `统合模块/分析数据/ai_context/memory_depth_readiness.md`。
+3. 输出 `integration/analysis/ai_context/memory_depth_readiness.md`。
 4. 在报告中明确列出：
    - 可以深挖的候选主题。
    - 暂不可信的浅层主题。
@@ -182,8 +182,8 @@ autonomous: true
 
 ### Verification
 
-- `python 统合模块\脚本\evaluate_memory_depth.py`
-- 检查 `统合模块\分析数据\ai_context\memory_depth_readiness.md` 存在且包含候选主题和阻塞项。
+- `python integration\scripts\evaluate_memory_depth.py`
+- 检查 `integration\analysis\ai_context\memory_depth_readiness.md` 存在且包含候选主题和阻塞项。
 
 ### Acceptance Criteria
 
@@ -206,11 +206,11 @@ autonomous: true
 本阶段完成前必须至少运行：
 
 ```powershell
-python -m py_compile 统合模块\脚本\unified_search.py 统合模块\脚本\api_server.py 统合模块\脚本\mcp_server.py 统合模块\脚本\run_pipeline.py
-python 统合模块\脚本\run_pipeline.py --dry-run
-python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 1
-python 统合模块\脚本\run_pipeline.py --only 12
-python 统合模块\脚本\evaluate_memory_depth.py
+python -m py_compile integration\scripts\unified_search.py integration\scripts\api_server.py integration\scripts\mcp_server.py integration\scripts\run_pipeline.py
+python integration\scripts\run_pipeline.py --dry-run
+python integration\scripts\unified_search.py memory --subject Codex --neighbors 1
+python integration\scripts\run_pipeline.py --only 12
+python integration\scripts\evaluate_memory_depth.py
 python tests\test_memory_contracts.py
 git diff --check
 ```
@@ -222,7 +222,7 @@ git diff --check
 - memory profile / relation 具备基础证据解释能力。
 - CLI/REST/MCP memory 查询有 contract test 覆盖。
 - `memory_depth_readiness.md` 明确 Phase 06 能深挖什么、不能深挖什么。
-- README、统合模块 README、codebase map 与当前代码一致。
+- README、integration README、codebase map 与当前代码一致。
 
 ## Risk Register
 

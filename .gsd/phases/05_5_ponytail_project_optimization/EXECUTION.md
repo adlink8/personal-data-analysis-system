@@ -8,19 +8,19 @@
 
 ### 1. 收口重复分类查询逻辑
 
-- 在 `统合模块/脚本/unified_search.py` 新增 `list_categories()`。
-- `统合模块/脚本/api_server.py` 与 `统合模块/脚本/mcp_server.py` 改为统一调用该后端函数。
+- 在 `integration/scripts/unified_search.py` 新增 `list_categories()`。
+- `integration/scripts/api_server.py` 与 `integration/scripts/mcp_server.py` 改为统一调用该后端函数。
 - 删除两处重复 SQL 实现，避免 HTTP/MCP 两层继续漂移。
 
 ### 2. 删除退役 embedding 实现
 
-- 删除 `统合模块/脚本/ollama_embed.py`。
+- 删除 `integration/scripts/ollama_embed.py`。
 - 当前生产路径早已切到 `local_embed.py`，原文件只剩历史兼容价值，代码与文档长期并存会制造误导。
 
 ### 3. 清理未使用残留
 
-- 删除 `统合模块/脚本/api_server.py` 中未使用的 `CORS_HEADER`。
-- 删除 `统合模块/脚本/dashboard.py` 中未使用的 `defaultdict` import。
+- 删除 `integration/scripts/api_server.py` 中未使用的 `CORS_HEADER`。
+- 删除 `integration/scripts/dashboard.py` 中未使用的 `defaultdict` import。
 - 删除根目录 0 字节杂物文件 `6}★`。
 
 ### 4. 依赖与文档同步
@@ -53,9 +53,9 @@
 
 ```powershell
 python tests\test_memory_contracts.py
-python 统合模块\脚本\run_pipeline.py --dry-run
-python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 1
-python 统合模块\脚本\evaluate_memory_depth.py
+python integration\scripts\run_pipeline.py --dry-run
+python integration\scripts\unified_search.py memory --subject Codex --neighbors 1
+python integration\scripts\evaluate_memory_depth.py
 git diff --check
 ```
 
@@ -64,13 +64,13 @@ git diff --check
 - `tests\test_memory_contracts.py`：4/4 通过
 - `run_pipeline.py --dry-run`：12 步管道顺序正常
 - `unified_search.py memory --subject Codex --neighbors 1`：正常返回记忆详情、关系和邻居
-- `evaluate_memory_depth.py`：成功生成 `统合模块/分析数据/ai_context/memory_depth_readiness.md`
+- `evaluate_memory_depth.py`：成功生成 `integration/analysis/ai_context/memory_depth_readiness.md`
 - `git diff --check`：只有 CRLF warning，无内容格式错误
 
 ## Net Effect
 
 - 清理了一个真实重复源：`list_categories` 不再在 API/MCP 两层各维护一份
-- 删除了一个真实退役脚本：`ollama_embed.py`
+- 删除了一个真实退役scripts：`ollama_embed.py`
 - 删除了 1 个未使用依赖和若干未使用残留
 - Phase 05 contract tests 未破坏
 - Phase 06 依赖的 `memory_depth_readiness.md` 仍可生成

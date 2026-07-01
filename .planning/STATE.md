@@ -55,7 +55,7 @@ metrics:
 - **工程适配**:openai 库注入代理 + UA 伪装(中转站按 X-Stainless 指纹拦截官方 SDK)
 - **质量结果**:正常率 97.60% → **100.00%**,瑕疵 14 → **0**(14 个旧瑕疵 100% 修复)
 - **质量门槛**:正常率 ≥ 98% ✅、回溯链 100% ✅、链断裂 0 ✅ → **PASS,解锁 Wave 9/10**
-- **废弃资产**:`统合模块/SQLite数据库/conversation_graph.duckdb`(已标记 DEPRECATED,待 Wave 9 重做)
+- **废弃资产**:`integration/db/conversation_graph.duckdb`(已标记 DEPRECATED,待 Wave 9 重做)
 
 ## Wave 8 执行记录(2026-06-28,✅ 全部完成)
 

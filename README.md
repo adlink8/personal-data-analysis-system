@@ -6,13 +6,13 @@
 
 ```text
 数据分析/
-├── Google/         GPT/         Agent/         # 三源原始数据(对称结构:原始/结构化/分析)
-├── 统合模块/                                    # 核心:整合三源的脚本与产出
-│   ├── 脚本/                                   # 全部 Python 脚本(构建/检索/服务层)
+├── Google/         GPT/         Agent/         # 三源raw(对称结构:原始/结构化/分析)
+├── integration/                                    # 核心:整合三源的scripts与产出
+│   ├── scripts/                                   # 全部 Python scripts(构建/检索/服务层)
 │   ├── lib/                                    # 前端依赖(query_graph 可视化用)
-│   ├── SQLite数据库/                           # personal_system.sqlite(统合库)
-│   ├── 分析数据/                               # 画像、_schema.json、ai_context/
-│   └── 结构化数据/  原始输入索引/
+│   ├── db/                           # personal_system.sqlite(统合库)
+│   ├── analysis/                               # 画像、_schema.json、ai_context/
+│   └── structured/  raw_index/
 ├── imports/                                    # 增量导入暂存区
 │   ├── incoming/                               # 新导出文件先放这里
 │   ├── batches/                                # 每次导入一个批次目录
@@ -27,21 +27,21 @@
 
 ```text
 <模块>/
-  原始数据/    # 平台导出、本机工具文件、会话、memory、skills 等未加工数据
-  结构化数据/  # 清洗后的 CSV、SQLite、索引表、明细表和脚本
-  分析数据/    # 报告、画像、增长图、关注点统计、思考模式推断
+  raw/    # 平台导出、本机工具文件、会话、memory、skills 等未加工数据
+  structured/  # 清洗后的 CSV、SQLite、索引表、明细表和scripts
+  analysis/    # 报告、画像、增长图、关注点统计、思考模式推断
 ```
 
 ## 分析目标
 
-每个数据模块生成自己的模块画像：
+每个数据模块生成自己的module_profile：
 
 - 模块贡献了什么类型的数据。
 - 数据随时间如何增长。
 - 主要关注点是什么。
 - 从行为痕迹能推断出哪些思考/工作模式。
 
-统合模块生成个人系统画像：
+integration生成个人系统画像：
 
 - Google / GPT / Agent 的数据流向。
 - 跨模块统一事件、实体和关系。
@@ -51,50 +51,50 @@
 
 ## 关键产物
 
-- `Google/分析数据/模块画像.md`
-- `GPT/分析数据/模块画像.md`
-- `Agent/分析数据/模块画像.md`
-- `统合模块/分析数据/统合画像.md`
-- `统合模块/分析数据/统合画像_数据增长图.png`
-- `统合模块/分析数据/统合画像_数据流向.csv`
-- `统合模块/分析数据/统合画像_个人思考模式.csv`
-- **交互式仪表盘**:`统合模块/脚本/dashboard.py`(见下文"交互式可视化")
-- **统一检索 CLI**:`统合模块/脚本/unified_search.py` —— 语义检索 + 精确查询(见下文"统一检索层")
-- **MCP Server**:`统合模块/脚本/mcp_server.py` —— 把数据暴露给 AI 客户端(见下文"MCP 接入")
-- **REST API**:`统合模块/脚本/api_server.py` —— 零依赖 HTTP 接口(见下文"REST API 接入")
-- **接入示例**:`统合模块/脚本/examples/` —— OpenAI 函数调用 / LangChain / RAG 注入(见下文"接入 RAG 平台 / Agent 框架")
+- `Google/analysis/module_profile.md`
+- `GPT/analysis/module_profile.md`
+- `Agent/analysis/module_profile.md`
+- `integration/analysis/profile.md`
+- `integration/analysis/profile_growth_chart.png`
+- `integration/analysis/profile_data_flow.csv`
+- `integration/analysis/profile_thinking_mode.csv`
+- **交互式仪表盘**:`integration/scripts/dashboard.py`(见下文"交互式可视化")
+- **统一检索 CLI**:`integration/scripts/unified_search.py` —— 语义检索 + 精确查询(见下文"统一检索层")
+- **MCP Server**:`integration/scripts/mcp_server.py` —— 把数据暴露给 AI 客户端(见下文"MCP 接入")
+- **REST API**:`integration/scripts/api_server.py` —— 零依赖 HTTP 接口(见下文"REST API 接入")
+- **接入示例**:`integration/scripts/examples/` —— OpenAI 函数调用 / LangChain / RAG 注入(见下文"接入 RAG 平台 / Agent 框架")
 
 ## 重跑链路
 
 ### 推荐:统一管道入口
 
 ```powershell
-python 统合模块\脚本\run_pipeline.py               # 全量重跑(步骤 1-12)
-python 统合模块\脚本\run_pipeline.py --from 5      # 从步骤 5 恢复(跳过重建库)
-python 统合模块\脚本\run_pipeline.py --only 3,4    # 只跑步骤 3 和 4
-python 统合模块\脚本\run_pipeline.py --skip 10     # 跳过向量化(省时间)
-python 统合模块\脚本\run_pipeline.py --dry-run     # 只打印顺序,不执行
-python 统合模块\脚本\run_pipeline.py --include-conversation-turns   # 显式启用步骤 13(conversation_turns 回流)
+python integration\scripts\run_pipeline.py               # 全量重跑(步骤 1-12)
+python integration\scripts\run_pipeline.py --from 5      # 从步骤 5 恢复(跳过重建库)
+python integration\scripts\run_pipeline.py --only 3,4    # 只跑步骤 3 和 4
+python integration\scripts\run_pipeline.py --skip 10     # 跳过向量化(省时间)
+python integration\scripts\run_pipeline.py --dry-run     # 只打印顺序,不执行
+python integration\scripts\run_pipeline.py --include-conversation-turns   # 显式启用步骤 13(conversation_turns 回流)
 ```
 
 任一步失败即中止并打印恢复命令(`--from N`),防止下游跑污染数据。
 
 ### 完整步骤(顺序固定,每步幂等)
 
-| # | 脚本 | 作用 |
+| # | scripts | 作用 |
 |---|------|------|
 | 1 | `build_integrated_system.py` | 重建统合 SQLite(`personal_system.sqlite`),含 9 张原始表 |
 | 2 | `enrich_unified_events.py` | **语义增强层**:追加 3 张增强表(`unified_events_rich`/`event_categories_v2`/`entity_links_v2`),修复三类数据质量问题 |
-| 3 | `build_merge_layer.py` | **合并层**(去重折叠):新建 `merge_clusters`/`merge_members` 叠加表(原始数据零损失)。三层分类:L1 真重复→1 条代表,L2 同主题→簇摘要,L3 保留 |
-| 4 | `build_deep_profiles.py` | 基于统合库 + 增强表生成模块画像和统合画像。`--use-merged` 生成去重视图 |
+| 3 | `build_merge_layer.py` | **合并层**(去重折叠):新建 `merge_clusters`/`merge_members` 叠加表(raw零损失)。三层分类:L1 真重复→1 条代表,L2 同主题→簇摘要,L3 保留 |
+| 4 | `build_deep_profiles.py` | 基于统合库 + 增强表生成module_profile和profile。`--use-merged` 生成去重视图 |
 | 5 | `build_memory_store.py` | **记忆层**(Phase 04):tooling 工具偏好记忆 |
 | 6 | `build_capability_memory.py` | 记忆层:capability 能力使用记忆 |
 | 7 | `build_context_memory.py` | 记忆层:fact / project / habit 上下文记忆 |
 | 8 | `build_preference_memory.py` | 记忆层:preference 关注偏好记忆(Google 信号) |
 | 9 | `build_memory_graph.py` | 记忆图谱:节点 + 5 种跨类关系边 |
 | 10 | `build_vector_store.py` | **向量库构建**:把 `content_rich` 经本地 `bge-small-zh-v1.5` 向量化,写入 chroma `personal_events`(支持 `--resume`) |
-| 11 | `build_context_doc.py` | 生成 `统合模块/分析数据/ai_context/person_profile.md` |
-| 12 | `build_profile_from_memory.py` | 生成记忆图谱版 `统合模块/分析数据/ai_context/person_profile_v2.md` |
+| 11 | `build_context_doc.py` | 生成 `integration/analysis/ai_context/person_profile.md` |
+| 12 | `build_profile_from_memory.py` | 生成记忆图谱版 `integration/analysis/ai_context/person_profile_v2.md` |
 | P5 | `evaluate_memory_depth.py` | **Phase 05 准入评估**:抽样检查 memory item / relation 的证据链、时间跨度、复现度、关系强度,输出 `memory_depth_readiness.md` |
 
 > ⚠️ 第 2 步必须紧跟第 1 步:第 1 步会删除并重建整个库文件,增强表会随之丢失,需重跑第 2 步补回。第 3 步(合并层)依赖第 2 步的 `content_rich`;第 4 步依赖增强表,缺它则画像会回退到修复前的污染数据。第 5-9 步(记忆层)依赖前 4 步的统合库与增强表;第 10-12 步依赖前 9 步。
@@ -103,16 +103,16 @@ python 统合模块\脚本\run_pipeline.py --include-conversation-turns   # 显�
 
 ## 增量导入
 
-新导出的原始文件先放到 `imports/incoming/`,再用导入脚本解析入库(不直接动 `Google/原始数据/` 等源目录):
+新导出的原始文件先放到 `imports/incoming/`,再用导入scripts解析入库(不直接动 `Google/raw/` 等源目录):
 
 ```powershell
 # 1. 把新导出文件放进对应 incoming 目录
 #    imports/incoming/google/<新 takeout>
 #    imports/incoming/gpt/<新 chatgpt 导出>
 
-# 2. 跑导入脚本(从项目根目录)
-python 统合模块\脚本\run_import_pipeline.py --source google --input imports\incoming\google
-python 统合模块\脚本\run_import_pipeline.py --source gpt    --input imports\incoming\gpt
+# 2. 跑导入scripts(从项目根目录)
+python integration\scripts\run_import_pipeline.py --source google --input imports\incoming\google
+python integration\scripts\run_import_pipeline.py --source gpt    --input imports\incoming\gpt
 ```
 
 每次导入在 `imports/batches/<batch_id>/` 下留批次记录(`raw/` + `extracted/` + `manifest.json`)。重复文件按 sha256 比对后隔离到 `imports/duplicate_audit/quarantine/`,不删除原文件。导入完成后跑重跑链路即可把新数据纳入统合层。
@@ -173,9 +173,9 @@ L3 保留原样:2501 条
 
 ### 下游消费
 
-合并层是**可选增强**,所有脚本向后兼容:
+合并层是**可选增强**,所有scripts向后兼容:
 - `unified_search.py`:加 `--dedup` 标志按合并层折叠检索结果;`merge-stats` 子命令查看压缩报告
-- `build_deep_profiles.py`:加 `--use-merged` 生成去重视图(产物加 `_去重` 后缀,不覆盖全量版)
+- `build_deep_profiles.py`:加 `--use-merged` 生成去重视图(产物加 `_dedup` 后缀,不覆盖全量版)
 - `dashboard.py`:侧栏"原始/去重"视图切换
 
 ### 幂等性
@@ -187,7 +187,7 @@ L3 保留原样:2501 条
 启动本地仪表盘(浏览器自动打开):
 
 ```powershell
-streamlit run 统合模块\脚本\dashboard.py
+streamlit run integration\scripts\dashboard.py
 ```
 
 四个页面:
@@ -200,63 +200,63 @@ streamlit run 统合模块\脚本\dashboard.py
 
 仪表盘从 `personal_system.sqlite` 实时查询,重跑数据后刷新页面即可更新。侧栏显示增强表、向量库、合并层就绪状态,支持原始/去重视图切换。
 
-## 共享脚本模块
+## 共享scripts模块
 
 **入口与编排:**
-- `统合模块/脚本/run_pipeline.py` —— **统一管道入口**:按依赖顺序串联全部 build_* 步骤,支持 `--from`/`--only`/`--skip`/`--dry-run`(见上文"重跑链路")。
-- `统合模块/脚本/run_import_pipeline.py` —— **增量导入管道**:把 `imports/incoming/` 下的新导出文件解析入库,生成批次记录并隔离重复文件(见上文"增量导入")。
-- `统合模块/脚本/dump_schema.py` —— 打印统合库 schema,产出 `统合模块/分析数据/_schema.json`(表清单 + `unified_events` 列)。
+- `integration/scripts/run_pipeline.py` —— **统一管道入口**:按依赖顺序串联全部 build_* 步骤,支持 `--from`/`--only`/`--skip`/`--dry-run`(见上文"重跑链路")。
+- `integration/scripts/run_import_pipeline.py` —— **增量导入管道**:把 `imports/incoming/` 下的新导出文件解析入库,生成批次记录并隔离重复文件(见上文"增量导入")。
+- `integration/scripts/dump_schema.py` —— 打印统合库 schema,产出 `integration/analysis/_schema.json`(表清单 + `unified_events` 列)。
 
 **共享工具:**
-- `统合模块/脚本/common.py` —— 纯工具函数(sha256/norm/short/write_csv 等),消除原 build_integrated_system 与 build_deep_profiles 的重复定义。
-- `统合模块/脚本/rules.py` —— 统一分类规则:`TOPIC_RULES`/`THINKING_RULES`(老规则,对照基线)+ `PURE_TOPIC_RULES`/`PURE_THINKING_RULES`(纯净规则,剥离元数据污染)。
-- `统合模块/脚本/chroma_client.py` —— 轻量 chroma REST 客户端(基于 requests,绕开 chromadb 官方客户端的 httpx 兼容性问题)。
-- `统合模块/脚本/local_embed.py` —— 当前生产 embedding 实现:`bge-small-zh-v1.5`,512维。
+- `integration/scripts/common.py` —— 纯工具函数(sha256/norm/short/write_csv 等),消除原 build_integrated_system 与 build_deep_profiles 的重复定义。
+- `integration/scripts/rules.py` —— 统一分类规则:`TOPIC_RULES`/`THINKING_RULES`(老规则,对照基线)+ `PURE_TOPIC_RULES`/`PURE_THINKING_RULES`(纯净规则,剥离元数据污染)。
+- `integration/scripts/chroma_client.py` —— 轻量 chroma REST 客户端(基于 requests,绕开 chromadb 官方客户端的 httpx 兼容性问题)。
+- `integration/scripts/local_embed.py` —— 当前生产 embedding 实现:`bge-small-zh-v1.5`,512维。
 
 **记忆层(Phase 04):**
-- `统合模块/脚本/build_memory_store.py` —— tooling 工具偏好记忆基础表。
-- `统合模块/脚本/build_capability_memory.py` —— capability 能力使用记忆。
-- `统合模块/脚本/build_context_memory.py` —— fact / project / habit 上下文记忆。
-- `统合模块/脚本/build_preference_memory.py` —— preference 关注偏好记忆。
-- `统合模块/脚本/build_memory_graph.py` —— 记忆关系图谱(节点 + 5 种跨类边)。
-- `统合模块/脚本/query_graph.py` —— 记忆图谱查询与可视化(命令行遍历 + networkx 成图,依赖 `统合模块/lib/`)。
-- `统合模块/脚本/build_profile_from_memory.py` —— 从 `memory_items` + `memory_relations` 生成 `person_profile_v2.md`。
-- `统合模块/脚本/mine_deep_memory_graph.py` —— **Phase 06 深挖入口**:只消费 readiness 通过的主题,产出带证据/时间/关系/反例的 `deep_memory_mining.*`。
-- `统合模块/脚本/build_deep_memory_profile.py` —— **Phase 06 深层画像**:把深挖 JSON 转成 `deep_memory_insights.*`、`deep_memory_profile.md` 和评估报告。
+- `integration/scripts/build_memory_store.py` —— tooling 工具偏好记忆基础表。
+- `integration/scripts/build_capability_memory.py` —— capability 能力使用记忆。
+- `integration/scripts/build_context_memory.py` —— fact / project / habit 上下文记忆。
+- `integration/scripts/build_preference_memory.py` —— preference 关注偏好记忆。
+- `integration/scripts/build_memory_graph.py` —— 记忆关系图谱(节点 + 5 种跨类边)。
+- `integration/scripts/query_graph.py` —— 记忆图谱查询与可视化(命令行遍历 + networkx 成图,依赖 `integration/lib/`)。
+- `integration/scripts/build_profile_from_memory.py` —— 从 `memory_items` + `memory_relations` 生成 `person_profile_v2.md`。
+- `integration/scripts/mine_deep_memory_graph.py` —— **Phase 06 深挖入口**:只消费 readiness 通过的主题,产出带证据/时间/关系/反例的 `deep_memory_mining.*`。
+- `integration/scripts/build_deep_memory_profile.py` —— **Phase 06 深层画像**:把深挖 JSON 转成 `deep_memory_insights.*`、`deep_memory_profile.md` 和评估报告。
 
 **记忆层补强(Phase 05):**
-- `统合模块/脚本/source_adapters/` —— source adapter contract + Google activities 样例 adapter,为后续输入模块化做准备。
-- `统合模块/脚本/memory_governance.py` —— 统一 `evidence_ids` / `confidence` / `last_seen` / `source_hash` / `merge_key` metadata。
-- `统合模块/脚本/evaluate_memory_depth.py` —— 深挖准入评估,输出 `统合模块/分析数据/ai_context/memory_depth_readiness.md`。
+- `integration/scripts/source_adapters/` —— source adapter contract + Google activities 样例 adapter,为后续输入模块化做准备。
+- `integration/scripts/memory_governance.py` —— 统一 `evidence_ids` / `confidence` / `last_seen` / `source_hash` / `merge_key` metadata。
+- `integration/scripts/evaluate_memory_depth.py` —— 深挖准入评估,输出 `integration/analysis/ai_context/memory_depth_readiness.md`。
 - `tests/test_memory_contracts.py` —— core / CLI / REST / MCP 四层记忆查询契约测试。
 
 **深层记忆图谱(Phase 06):**
-- `统合模块/分析数据/ai_context/deep_memory_mining.json` —— readiness 通过主题的深挖事实层结果。
-- `统合模块/分析数据/ai_context/deep_memory_insights.md` —— strong / moderate / weak / unsupported 洞察清单。
-- `统合模块/分析数据/ai_context/deep_memory_profile.md` —— 面向 agent prompt 的深层画像。
-- `统合模块/分析数据/ai_context/deep_profile_evaluation.md` —— 浅层 `person_profile_v2.md` 与深层 profile 的对比评估。
+- `integration/analysis/ai_context/deep_memory_mining.json` —— readiness 通过主题的深挖事实层结果。
+- `integration/analysis/ai_context/deep_memory_insights.md` —— strong / moderate / weak / unsupported 洞察清单。
+- `integration/analysis/ai_context/deep_memory_profile.md` —— 面向 agent prompt 的深层画像。
+- `integration/analysis/ai_context/deep_profile_evaluation.md` —— 浅层 `person_profile_v2.md` 与深层 profile 的对比评估。
 - Phase 06 **不自动写回** `memory_items`，只产出旁路分析结果，避免把推测污染长期记忆。
 
 **Agent 对话规范化 + LLM 叙述压缩回流(Phase 07):**
-- `Agent/结构化数据/脚本/normalize_agent_conversations.py` —— 把 Codex rollout jsonl 拆成 turn/message/tool/event 旁路表(`agent_messages` 等),role 归一化,带 `raw_file + line_no` 证据链,不动旧 `sessions`/`session_messages` 表。
-- `统合模块/脚本/build_conversation_segments.py` —— 从清洗后的 Agent/GPT `role=user` 消息切出"用户想法片段",确定性规则切分(列表/换行/长度上限)。
-- `统合模块/脚本/build_mem0_candidate_memory.py` —— mem0 候选记忆压缩实验(⚠️ 已降级为可选实验,压缩度太狠不匹配需求),噪声预过滤 + 证据链强制,**只产候选不写 `memory_items`**;mem0 可选,缺依赖时降级本地启发式。
-- `统合模块/脚本/build_conversation_summary.py` —— **(★ Phase 07 主线)** 对每个 Agent session 逐 turn 生成中文叙述摘要,用 MiMo/OpenAI 兼容 API 保留对话主干+分支+细节因果,而非 mem0 风格离散 claim。
-- `统合模块/脚本/build_conversation_eval_set.py` + `统合模块/prompts/conversation_compression/` —— **(★ Wave 6 Prompt Lab)** 7 类真实样本评测集 + 版本化 prompt(v1_main/v1_schema/eval_rubric)。prompt 不经固定样本评测 gate 不许回流。
-- `统合模块/脚本/evaluate_conversation_prompt.py` —— 两轮 LLM 评测(压缩轮 + LLM-as-judge 评分轮),7 维评分 + faithfulness 硬门槛 + 一次性任务误判为偏好专项检查。实测 7/7 样本 gate 通过(faithfulness 全 5)。
-- `统合模块/脚本/build_conversation_vector_store.py` —— **(★ Wave 7 回流)** 把 turn 叙述向量化入库到独立 collection `conversation_turns`(不碰 `personal_events`),检索单元是含因果链的 turn 叙述而非单条 message。
-- `统合模块/脚本/evaluate_vector_collections.py` / `evaluate_vector_retrieval.py` —— **(★ Wave 10.1/10.2)** 检查 `personal_events` / `conversation_turns` 健康度、召回效果和 collection contract。
-- `统合模块/脚本/build_graph_relation_candidates.py` / `judge_graph_relations.py` / `evaluate_graph_relation_judgments.py` / `build_conversation_graph.py` —— **(★ Wave 9)** 从 `conversation_turns` 召回候选、经 LLM 判边和 evidence gate 后重建 DuckDB 真关系图。
-- `统合模块/分析数据/ai_context/conversation_segments.json` / `conversation_summaries.json` / `prompt_eval_results.json` / `vector_collection_health.md` / `vector_retrieval_eval_report.md` / `graph_relation_eval_report.md` —— Phase 07 旁路产物。
+- `Agent/structured/scripts/normalize_agent_conversations.py` —— 把 Codex rollout jsonl 拆成 turn/message/tool/event 旁路表(`agent_messages` 等),role 归一化,带 `raw_file + line_no` 证据链,不动旧 `sessions`/`session_messages` 表。
+- `integration/scripts/build_conversation_segments.py` —— 从清洗后的 Agent/GPT `role=user` 消息切出"用户想法片段",确定性规则切分(列表/换行/长度上限)。
+- `integration/scripts/build_mem0_candidate_memory.py` —— mem0 候选记忆压缩实验(⚠️ 已降级为可选实验,压缩度太狠不匹配需求),噪声预过滤 + 证据链强制,**只产候选不写 `memory_items`**;mem0 可选,缺依赖时降级本地启发式。
+- `integration/scripts/build_conversation_summary.py` —— **(★ Phase 07 主线)** 对每个 Agent session 逐 turn 生成中文叙述摘要,用 MiMo/OpenAI 兼容 API 保留对话主干+分支+细节因果,而非 mem0 风格离散 claim。
+- `integration/scripts/build_conversation_eval_set.py` + `integration/prompts/conversation_compression/` —— **(★ Wave 6 Prompt Lab)** 7 类真实样本评测集 + 版本化 prompt(v1_main/v1_schema/eval_rubric)。prompt 不经固定样本评测 gate 不许回流。
+- `integration/scripts/evaluate_conversation_prompt.py` —— 两轮 LLM 评测(压缩轮 + LLM-as-judge 评分轮),7 维评分 + faithfulness 硬门槛 + 一次性任务误判为偏好专项检查。实测 7/7 样本 gate 通过(faithfulness 全 5)。
+- `integration/scripts/build_conversation_vector_store.py` —— **(★ Wave 7 回流)** 把 turn 叙述向量化入库到独立 collection `conversation_turns`(不碰 `personal_events`),检索单元是含因果链的 turn 叙述而非单条 message。
+- `integration/scripts/evaluate_vector_collections.py` / `evaluate_vector_retrieval.py` —— **(★ Wave 10.1/10.2)** 检查 `personal_events` / `conversation_turns` 健康度、召回效果和 collection contract。
+- `integration/scripts/build_graph_relation_candidates.py` / `judge_graph_relations.py` / `evaluate_graph_relation_judgments.py` / `build_conversation_graph.py` —— **(★ Wave 9)** 从 `conversation_turns` 召回候选、经 LLM 判边和 evidence gate 后重建 DuckDB 真关系图。
+- `integration/analysis/ai_context/conversation_segments.json` / `conversation_summaries.json` / `prompt_eval_results.json` / `vector_collection_health.md` / `vector_retrieval_eval_report.md` / `graph_relation_eval_report.md` —— Phase 07 旁路产物。
 - `tests/test_agent_conversation_normalization.py` —— 覆盖 jsonl 解析 / role 过滤 / 证据链回溯 / 候选不污染 memory_items。
 - Phase 06 负责深层洞察,Phase 07 负责更可靠的对话输入和叙述压缩回流;两层都不回写 `memory_items`。Wave 7 回流走独立向量 collection,不污染旧数据。
 
 **服务层与接入:**
-- `统合模块/脚本/unified_search.py` —— **统一检索层**:把语义检索、精确查询、事件详情、统计、记忆查询合成一组纯函数,CLI / MCP / Agent 共用同一后端,见下文"统一检索层(CLI)"。
-- `统合模块/脚本/mcp_server.py` —— **MCP Server**:把统合库、向量库、记忆图谱暴露成 MCP tools,支持 MCP 的 AI 客户端零代码接入,见下文"MCP 接入"。
-- `统合模块/脚本/api_server.py` —— **REST API**:纯标准库 `http.server` 实现,把检索与记忆能力暴露成 HTTP 接口,零额外依赖,见下文"REST API 接入"。
-- `统合模块/脚本/dashboard.py` —— Streamlit 交互仪表盘,见下文"交互式可视化"。
-- `统合模块/脚本/examples/` —— **接入示例**:`openai_function_calling.py` / `langchain_tool.py` / `rag_inject.py`,见下文"接入 RAG 平台 / Agent 框架"。
+- `integration/scripts/unified_search.py` —— **统一检索层**:把语义检索、精确查询、事件详情、统计、记忆查询合成一组纯函数,CLI / MCP / Agent 共用同一后端,见下文"统一检索层(CLI)"。
+- `integration/scripts/mcp_server.py` —— **MCP Server**:把统合库、向量库、记忆图谱暴露成 MCP tools,支持 MCP 的 AI 客户端零代码接入,见下文"MCP 接入"。
+- `integration/scripts/api_server.py` —— **REST API**:纯标准库 `http.server` 实现,把检索与记忆能力暴露成 HTTP 接口,零额外依赖,见下文"REST API 接入"。
+- `integration/scripts/dashboard.py` —— Streamlit 交互仪表盘,见下文"交互式可视化"。
+- `integration/scripts/examples/` —— **接入示例**:`openai_function_calling.py` / `langchain_tool.py` / `rag_inject.py`,见下文"接入 RAG 平台 / Agent 框架"。
 
 ## 向量库与 AI 上下文(阶段2)
 
@@ -283,14 +283,14 @@ chroma: personal_events
 ### 关键产物
 
 - **向量库**:chroma `personal_events`(~7700 条可语义检索事件)
-- **`统合模块/分析数据/ai_context/person_profile.md`** —— AI 长期上下文文档,含数据概览/工具偏好/关注主题/思考模式/跨模块协作/检索说明,可注入 AI system prompt
-- **`统合模块/脚本/search_vectors.py`** —— 检索脚本,AI 想知道"用户之前怎么处理 X"时调用:
+- **`integration/analysis/ai_context/person_profile.md`** —— AI 长期上下文文档,含数据概览/工具偏好/关注主题/思考模式/跨模块协作/检索说明,可注入 AI system prompt
+- **`integration/scripts/search_vectors.py`** —— 检索scripts,AI 想知道"用户之前怎么处理 X"时调用:
   ```python
   from search_vectors import search
   results = search("PPT 排版怎么做", top_k=5)        # 跨三源检索
   results = search("数据库调试", source="Agent")      # 按源过滤
   ```
-  命令行:`python 统合模块\脚本\search_vectors.py "PPT 排版" --source Agent --top-k 5`
+  命令行:`python integration\scripts\search_vectors.py "PPT 排版" --source Agent --top-k 5`
 
 ### 性能说明
 
@@ -323,45 +323,45 @@ Phase 05 起,记忆对象 metadata 统一包含:
 
 ```powershell
 # 语义检索(模糊召回)
-python 统合模块\脚本\unified_search.py semantic "PPT 排版怎么做" --top-k 3
-python 统合模块\脚本\unified_search.py semantic "数据库调试" --source Agent
+python integration\scripts\unified_search.py semantic "PPT 排版怎么做" --top-k 3
+python integration\scripts\unified_search.py semantic "数据库调试" --source Agent
 
 # 语义检索 + 去重(合并层折叠重复命中)
-python 统合模块\脚本\unified_search.py semantic "PPT" --top-k 8 --dedup
+python integration\scripts\unified_search.py semantic "PPT" --top-k 8 --dedup
 
 # 精确查询(结构化过滤,所有参数可选)
-python 统合模块\脚本\unified_search.py query --source GPT --month 2025-03
-python 统合模块\脚本\unified_search.py query --category 编程 --keyword 报错 --limit 10
+python integration\scripts\unified_search.py query --source GPT --month 2025-03
+python integration\scripts\unified_search.py query --category 编程 --keyword 报错 --limit 10
 
 # 精确查询 + 去重
-python 统合模块\脚本\unified_search.py query --source Agent --dedup --limit 30
+python integration\scripts\unified_search.py query --source Agent --dedup --limit 30
 
 # 单条详情(拿到 event_id 后看完整内容)
-python 统合模块\脚本\unified_search.py detail <event_id>
+python integration\scripts\unified_search.py detail <event_id>
 
 # 数据库 + 向量库统计概览
-python 统合模块\脚本\unified_search.py stats
+python integration\scripts\unified_search.py stats
 
 # 合并层压缩报告(L1/L2 去重情况)
-python 统合模块\脚本\unified_search.py merge-stats
+python integration\scripts\unified_search.py merge-stats
 
 # 长期记忆对象
-python 统合模块\脚本\unified_search.py memory
-python 统合模块\脚本\unified_search.py memory --type tooling
-python 统合模块\脚本\unified_search.py memory --subject Codex
-python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 2
+python integration\scripts\unified_search.py memory
+python integration\scripts\unified_search.py memory --type tooling
+python integration\scripts\unified_search.py memory --subject Codex
+python integration\scripts\unified_search.py memory --subject Codex --neighbors 2
 
 # 向量库聚类/去重(对检索结果二次加工)
-python 统合模块\脚本\unified_search.py cluster --source Agent --threshold 0.92
-python 统合模块\脚本\unified_search.py cluster --threshold 0.88 --min-cluster-size 3 --json
+python integration\scripts\unified_search.py cluster --source Agent --threshold 0.92
+python integration\scripts\unified_search.py cluster --threshold 0.88 --min-cluster-size 3 --json
 
 # JSON 输出(给其他程序消费)
-python 统合模块\脚本\unified_search.py semantic "PPT" --json
-python 统合模块\脚本\unified_search.py merge-stats --json
-python 统合模块\脚本\unified_search.py cluster --json --limit 500   # 调试用小样本
+python integration\scripts\unified_search.py semantic "PPT" --json
+python integration\scripts\unified_search.py merge-stats --json
+python integration\scripts\unified_search.py cluster --json --limit 500   # 调试用小样本
 ```
 
-加 `--json` 任何子命令都输出结构化 JSON,便于脚本/管道消费;不加则是人类可读文本。CLI 依赖 Python 标准库 + numpy(`cluster` 用 numpy 算余弦相似度)。
+加 `--json` 任何子命令都输出结构化 JSON,便于scripts/管道消费;不加则是人类可读文本。CLI 依赖 Python 标准库 + numpy(`cluster` 用 numpy 算余弦相似度)。
 
 ### 管道加工:聚类/去重
 
@@ -374,15 +374,15 @@ python 统合模块\脚本\unified_search.py cluster --json --limit 500   # 调�
 
 ```powershell
 # 看去重效果(全量,7723 条 → 3786 代表,压缩约 51%)
-python 统合模块\脚本\unified_search.py cluster --threshold 0.92
+python integration\scripts\unified_search.py cluster --threshold 0.92
 
 # 管道链:聚类拿代表点 → 喂给 detail 看完整内容
-for /f %i in ('python 统合模块\脚本\unified_search.py cluster --threshold 0.92 --json ^
+for /f %i in ('python integration\scripts\unified_search.py cluster --threshold 0.92 --json ^
     ^| python -c "import sys,json;[print(c[\"representative_id\"]) for c in json.load(sys.stdin)[\"clusters\"][:5]]"') ^
-    do python 统合模块\脚本\unified_search.py detail %i
+    do python integration\scripts\unified_search.py detail %i
 
 # 用 jq 提取代表点 id 列表(下游消费)
-python 统合模块\脚本\unified_search.py cluster --json ^
+python integration\scripts\unified_search.py cluster --json ^
   | jq -r ".clusters[].representative_id"
 ```
 
@@ -391,7 +391,7 @@ python 统合模块\脚本\unified_search.py cluster --json ^
 ### 模块用法(给上层接入用)
 
 ```python
-import sys; sys.path.insert(0, "统合模块/脚本")
+import sys; sys.path.insert(0, "integration/scripts")
 import unified_search as us
 
 us.search_semantic("PPT 排版怎么做", top_k=5)          # 模糊召回
@@ -428,13 +428,13 @@ us.cluster(threshold=0.92)                              # 聚类/去重
 先保持 REST API 启动，供 `search_semantic` 复用常驻模型：
 
 ```powershell
-python 统合模块\脚本\api_server.py
+python integration\scripts\api_server.py
 ```
 
 MCP server 本身走 stdio 传输；只有语义检索访问 `127.0.0.1:8000` 本地回环地址：
 
 ```powershell
-python 统合模块\脚本\mcp_server.py
+python integration\scripts\mcp_server.py
 ```
 
 客户端配置(把下面这段加进对应 MCP 配置文件,如 Claude Desktop 的 `claude_desktop_config.json`、Cursor 的 `.cursor/mcp.json`):
@@ -444,7 +444,7 @@ python 统合模块\脚本\mcp_server.py
   "mcpServers": {
     "personal-data": {
       "command": "python",
-      "args": ["C:/Users/li/Desktop/数据分析/统合模块/脚本/mcp_server.py"]
+      "args": ["C:/Users/li/Desktop/数据分析/integration/scripts/mcp_server.py"]
     }
   }
 }
@@ -476,64 +476,64 @@ python 统合模块\脚本\mcp_server.py
 
 ```powershell
 python tests\test_memory_contracts.py
-python 统合模块\脚本\source_adapters\google_activities.py --limit 2
-python 统合模块\脚本\run_pipeline.py --dry-run
-python 统合模块\脚本\run_pipeline.py --only 5,6,7,8,9,11,12
-python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 1
-python 统合模块\脚本\evaluate_memory_depth.py
+python integration\scripts\source_adapters\google_activities.py --limit 2
+python integration\scripts\run_pipeline.py --dry-run
+python integration\scripts\run_pipeline.py --only 5,6,7,8,9,11,12
+python integration\scripts\unified_search.py memory --subject Codex --neighbors 1
+python integration\scripts\evaluate_memory_depth.py
 ```
 
 ### Phase 06 验证命令
 
 ```powershell
-python 统合模块\脚本\mine_deep_memory_graph.py --dry-run
-python 统合模块\脚本\mine_deep_memory_graph.py --output-json
-python 统合模块\脚本\build_deep_memory_profile.py
-python 统合模块\脚本\build_deep_memory_profile.py --evaluate
+python integration\scripts\mine_deep_memory_graph.py --dry-run
+python integration\scripts\mine_deep_memory_graph.py --output-json
+python integration\scripts\build_deep_memory_profile.py
+python integration\scripts\build_deep_memory_profile.py --evaluate
 ```
 
 ### Phase 07 验证命令
 
 ```powershell
 # Wave 1-3: 清洗层
-python Agent\结构化数据\脚本\normalize_agent_conversations.py --dry-run --limit-files 5
-python Agent\结构化数据\脚本\normalize_agent_conversations.py --write
-python 统合模块\脚本\build_conversation_segments.py --write
+python Agent\structured\scripts\normalize_agent_conversations.py --dry-run --limit-files 5
+python Agent\structured\scripts\normalize_agent_conversations.py --write
+python integration\scripts\build_conversation_segments.py --write
 
 # Wave 6: Prompt Lab 评测门(★ 入库前硬门槛)
-python 统合模块\脚本\build_conversation_eval_set.py --write
-python 统合模块\脚本\evaluate_conversation_prompt.py --dry-run      # 验证脚本结构 + 评分阈值逻辑
-python 统合模块\脚本\evaluate_conversation_prompt.py --write         # 真实评测,gate 通过才允许回流
+python integration\scripts\build_conversation_eval_set.py --write
+python integration\scripts\evaluate_conversation_prompt.py --dry-run      # 验证scripts结构 + 评分阈值逻辑
+python integration\scripts\evaluate_conversation_prompt.py --write         # 真实评测,gate 通过才允许回流
 
 # Wave 7: turn 叙述回流向量库(★ 主线,需 chroma 服务 + LLM 配置)
-python 统合模块\脚本\build_conversation_summary.py --write           # 生成全量 turn 叙述(需 OPENAI_API_KEY 等)
-python 统合模块\脚本\build_conversation_vector_store.py --dry-run    # 看会向量化多少 turn
-python 统合模块\脚本\build_conversation_vector_store.py --write      # 入库到独立 collection conversation_turns
-python 统合模块\脚本\unified_search.py semantic "MQTT 怎么调试的" --top-k 5   # 跨 collection 检索验证
+python integration\scripts\build_conversation_summary.py --write           # 生成全量 turn 叙述(需 OPENAI_API_KEY 等)
+python integration\scripts\build_conversation_vector_store.py --dry-run    # 看会向量化多少 turn
+python integration\scripts\build_conversation_vector_store.py --write      # 入库到独立 collection conversation_turns
+python integration\scripts\unified_search.py semantic "MQTT 怎么调试的" --top-k 5   # 跨 collection 检索验证
 
 # Wave 10.1 / 10.2: collection 健康与召回评估
-python 统合模块\脚本\evaluate_vector_collections.py --write
-python 统合模块\脚本\evaluate_vector_retrieval.py --write --top-k 10
+python integration\scripts\evaluate_vector_collections.py --write
+python integration\scripts\evaluate_vector_retrieval.py --write --top-k 10
 
 # Wave 9: 图候选 + LLM 判边 + 真关系图重建
-python 统合模块\脚本\build_graph_relation_candidates.py --dry-run --limit 100
-python 统合模块\脚本\judge_graph_relations.py --dry-run --limit 5
-python 统合模块\脚本\evaluate_graph_relation_judgments.py --write
-python 统合模块\脚本\build_conversation_graph.py --write
-python 统合模块\脚本\query_conversation_graph.py --smoke
+python integration\scripts\build_graph_relation_candidates.py --dry-run --limit 100
+python integration\scripts\judge_graph_relations.py --dry-run --limit 5
+python integration\scripts\evaluate_graph_relation_judgments.py --write
+python integration\scripts\build_conversation_graph.py --write
+python integration\scripts\query_conversation_graph.py --smoke
 
 # 回归 + mem0 可选实验(非主路径)
 python tests\test_agent_conversation_normalization.py
-python 统合模块\脚本\build_mem0_candidate_memory.py --sample --force-local
+python integration\scripts\build_mem0_candidate_memory.py --sample --force-local
 ```
 
 ### 启动与示例
 
 ```powershell
 # 默认 127.0.0.1:8000(仅本地,不对外暴露)
-python 统合模块\脚本\api_server.py
+python integration\scripts\api_server.py
 # 指定端口
-python 统合模块\脚本\api_server.py --port 9000
+python integration\scripts\api_server.py --port 9000
 
 # 统计概览
 curl http://127.0.0.1:8000/stats
@@ -557,7 +557,7 @@ curl http://127.0.0.1:8000/memory/Codex?neighbors=2
 
 ## 接入 RAG 平台 / Agent 框架(阶段3 · 示例)
 
-`统合模块/脚本/examples/` 下有 3 个可运行示例,覆盖三类典型接入。详见 `examples/README.md`。
+`integration/scripts/examples/` 下有 3 个可运行示例,覆盖三类典型接入。详见 `examples/README.md`。
 
 | 示例 | 接入方式 | 适用 | 依赖 |
 |---|---|---|---|
@@ -576,8 +576,8 @@ RAG 注入示例同时提供两种增强策略,可叠加:
 
 ```powershell
 # 先启动 API(另开终端),再跑 RAG 示例
-python 统合模块\脚本\api_server.py
-python 统合模块\脚本\examples\rag_inject.py "上次怎么调试 Docker 的"
+python integration\scripts\api_server.py
+python integration\scripts\examples\rag_inject.py "上次怎么调试 Docker 的"
 ```
 
 ## 四种接入方式总览
@@ -585,7 +585,7 @@ python 统合模块\脚本\examples\rag_inject.py "上次怎么调试 Docker 的
 | 方式 | 文件 | 交互对象 | 何时用 |
 |---|---|---|---|
 | 交互式仪表盘 | `dashboard.py` | 人(streamlit) | 自己探索、看图、下钻 |
-| CLI | `unified_search.py` | 脚本/管道 | 自动化、cron、给别的脚本调 |
+| CLI | `unified_search.py` | scripts/管道 | 自动化、cron、给别的scripts调 |
 | MCP | `mcp_server.py` | AI 客户端(Claude/Cursor 等) | 让支持 MCP 的客户端零代码接入 |
 | REST API | `api_server.py` | 任何 HTTP 客户端 | RAG 平台、前端、跨语言、远程 |
 

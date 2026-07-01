@@ -9,8 +9,8 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        原始数据层 (Layer 0)                       │
-│  Google/原始数据/    GPT/原始数据/    Agent/原始数据/               │
+│                        raw层 (Layer 0)                       │
+│  Google/raw/    GPT/raw/    Agent/raw/               │
 │  (Takeout JSON)    (导出对话文件)   (session jsonl/memory/skills) │
 └────────────────────────┬────────────────────────────────────────┘
                          │ build_integrated_system.py
@@ -85,7 +85,7 @@
   → build_integrated_system.py   (解析 → unified_events 等9张表)
   → enrich_unified_events.py     (补文本 + 修分类 + 建跨模块链接)
   → build_merge_layer.py         (去重折叠 → merge_* 叠加表)
-  → build_deep_profiles.py       (生成模块画像 + 统合画像 Markdown)
+  → build_deep_profiles.py       (生成module_profile + profile Markdown)
   → build_memory_store.py 等     (抽取记忆对象 → memory_items)
   → build_vector_store.py        (bge-small-zh → Chroma personal_events)
   → build_context_doc.py         (生成 person_profile.md AI上下文文档)
@@ -109,10 +109,10 @@
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
-| 数据摄入 | `build_integrated_system.py` | 三源原始数据解析，建立9张统合表 |
+| 数据摄入 | `build_integrated_system.py` | 三源raw解析，建立9张统合表 |
 | 语义增强 | `enrich_unified_events.py` | 补真实文本、修复分类污染、建跨模块连接 |
 | 去重合并 | `build_merge_layer.py` | 三层去重（L1真重复/L2同主题/L3保留），叠加表不破坏原数据 |
-| 画像生成 | `build_deep_profiles.py` | 基于统合库生成模块画像和统合画像 |
+| 画像生成 | `build_deep_profiles.py` | 基于统合库生成module_profile和profile |
 | 向量化 | `build_vector_store.py` | 批量向量化，写入 Chroma |
 | 检索后端 | `unified_search.py` | CLI/MCP/API 共用的纯函数检索接口 |
 | 工具函数 | `common.py` | 纯函数工具（hash/norm/CSV写入等） |
@@ -167,7 +167,7 @@ memory_items: memory_id, memory_type, memory_subtype, subject, description,
 
 ### Phase 06 深层画像（旁路分析层）
 
-Phase 06 不回写 `memory_items`，而是在 `统合模块/分析数据/ai_context/` 旁路输出：
+Phase 06 不回写 `memory_items`，而是在 `integration/analysis/ai_context/` 旁路输出：
 
 - `deep_memory_mining.json`：只包含 readiness gate 通过主题的深挖事实层结果
 - `deep_memory_insights.md`：洞察清单，区分 include / review / exclude
@@ -180,20 +180,20 @@ Phase 06 不回写 `memory_items`，而是在 `统合模块/分析数据/ai_cont
 
 Phase 07 同样**不回写 `memory_items`**，定位是"更可靠的对话输入 + 可检索的 turn 叙述回流"：
 
-**Agent 对话规范化**（`Agent/结构化数据/SQLite数据库/agent_data.sqlite` v2 旁路表，不动旧表）：
+**Agent 对话规范化**（`Agent/structured/db/agent_data.sqlite` v2 旁路表，不动旧表）：
 - `agent_sessions_meta` / `agent_turns`：会话和 turn 边界（turn_id 前向填充，96.4% user 消息可串联）
 - `agent_messages`：role 归一化为 user/assistant/developer 三值，提取可解释文本，带 `raw_file + line_no` 证据链
 - `agent_tool_calls` / `agent_tool_outputs`：按 `call_id` 关联的工具调用与输出（长输出截断，原文回源文件）
 - `agent_lifecycle_events` / `agent_usage_metrics`：生命周期事件与 token 指标
 - 当前只深度解析 Codex rollout 格式；Claude/WorkBuddy/Hermes 仅发现计数（`unsupported`）
 
-**用户想法片段**（`统合模块/分析数据/ai_context/conversation_segments.json`）：
+**用户想法片段**（`integration/analysis/ai_context/conversation_segments.json`）：
 - 输入只来自 `agent_messages` 和 GPT `messages` 的 `role=user`
 - 列表项/双换行/超长句确定性切分，丢弃过短噪声
 
 **mem0 候选压缩**（⚠️ 已降级为可选实验）：
 - 实测 mem0 压缩度太狠，把一次性操作指令误判为稳定偏好，且丢失因果链
-- 保留脚本和候选文件作为实验记录，不进入主路径
+- 保留scripts和候选文件作为实验记录，不进入主路径
 
 **LLM 叙述压缩（★ Phase 07 主线）**：
 - `build_conversation_summary.py`：对每个 Agent session 逐 turn 生成中文叙述摘要，保留主干+分支+细节因果，用 MiMo/OpenAI 兼容 API

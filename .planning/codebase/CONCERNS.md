@@ -20,7 +20,7 @@
 | `lib/` | 顶层 `lib/` 未纳入 git（`git status` 显示为 `??`），用途不明 |
 | `classification_summary.json`、`_schema.json`、`_schema.py` | 顶层散落文件，无归属模块 |
 
-### 脚本运行顺序强耦合（无 Makefile / pipeline 管理）
+### scripts运行顺序强耦合（无 Makefile / pipeline 管理）
 
 README 明确列出 6 步固定运行顺序，且有严格依赖：
 
@@ -33,11 +33,11 @@ build_vector_store.py          ← 依赖前4步
 build_context_doc.py           ← 依赖前5步
 ```
 
-无任何自动化工具（Makefile、invoke、doit、shell 脚本）保障顺序，完全靠人工记忆和 README 文字约束。
+无任何自动化工具（Makefile、invoke、doit、shell scripts）保障顺序，完全靠人工记忆和 README 文字约束。
 
 ### ChromaDB 客户端绕行方案（自写 REST 客户端）
 
-`统合模块/脚本/chroma_client.py` 是因官方 `chromadb` 包的 `httpx` 兼容性问题（本地 chroma 服务返回 502）而自行实现的轻量 REST 客户端。这是一个绕行补丁，不是长期方案：
+`integration/scripts/chroma_client.py` 是因官方 `chromadb` 包的 `httpx` 兼容性问题（本地 chroma 服务返回 502）而自行实现的轻量 REST 客户端。这是一个绕行补丁，不是长期方案：
 
 - 需要手动跟进 Chroma REST API v2 的变动
 - 无官方包的类型提示、版本兼容层、重试策略
@@ -53,13 +53,13 @@ build_context_doc.py           ← 依赖前5步
 
 ### 本地模型路径硬编码风险
 
-`README.md` 和多个脚本使用固定路径：
+`README.md` 和多个scripts使用固定路径：
 
 ```
 D:\models\bge-small-zh-v1.5
 ```
 
-该路径硬编码在脚本中，不可跨机复用，换机/换盘符/模型迁移后会直接报错。`local_embed.py` 无配置文件或环境变量覆盖机制。
+该路径硬编码在scripts中，不可跨机复用，换机/换盘符/模型迁移后会直接报错。`local_embed.py` 无配置文件或环境变量覆盖机制。
 
 **建议修复：** 在 `local_embed.py` 顶部读取 `PERSONAL_DATA_MODEL_PATH` 环境变量，回退到硬编码路径。
 
@@ -100,7 +100,7 @@ D:\models\bge-small-zh-v1.5
 - SQLite 数据库无加密
 - `content_rich` 字段含真实对话内容
 - 向量库 metadata 含时间、来源、分类等行为标签
-- `统合模块/分析数据/ai_context/person_profile.md` 汇总个人画像，可直接被读取
+- `integration/analysis/ai_context/person_profile.md` 汇总个人画像，可直接被读取
 
 无磁盘加密、数据库加密或访问日志记录。
 
@@ -112,18 +112,18 @@ D:\models\bge-small-zh-v1.5
 
 git log 显示最新 commit（`bc0f7ab`）为"纳入 Phase 04 记忆层升级规划(CONTEXT + PLAN)"，`.gsd/phases/04_memory_layer_upgrade/` 下有 `CONTEXT.md` 和 `PLAN.md`。
 
-Phase 04 相关脚本**全部未纳入 git**（`git status` 标记为 `??`）：
+Phase 04 相关scripts**全部未纳入 git**（`git status` 标记为 `??`）：
 
 ```
-统合模块/脚本/build_capability_memory.py   ← 未追踪
-统合模块/脚本/build_context_memory.py      ← 未追踪
-统合模块/脚本/build_memory_graph.py        ← 未追踪
-统合模块/脚本/build_memory_store.py        ← 未追踪
-统合模块/脚本/build_preference_memory.py   ← 未追踪
-统合模块/脚本/query_graph.py              ← 未追踪
+integration/scripts/build_capability_memory.py   ← 未追踪
+integration/scripts/build_context_memory.py      ← 未追踪
+integration/scripts/build_memory_graph.py        ← 未追踪
+integration/scripts/build_memory_store.py        ← 未追踪
+integration/scripts/build_preference_memory.py   ← 未追踪
+integration/scripts/query_graph.py              ← 未追踪
 ```
 
-这些脚本已在开发但未提交，存在丢失风险（无法回滚、无法 diff）。**建议尽快 git add + commit。**
+这些scripts已在开发但未提交，存在丢失风险（无法回滚、无法 diff）。**建议尽快 git add + commit。**
 
 ### 未纳入 git 的其他文件
 
@@ -135,7 +135,7 @@ Phase 04 相关脚本**全部未纳入 git**（`git status` 标记为 `??`）：
 ### 缺少数据备份策略
 
 - `personal_system.sqlite` 无定期备份（每次 `build_integrated_system.py` 重建即覆盖）
-- Chroma 向量库无备份脚本
+- Chroma 向量库无备份scripts
 - 无备份时间点记录
 - 构建一次约需完整运行链路（估算 > 30 分钟含向量化），一旦数据损坏恢复成本高
 
@@ -147,11 +147,11 @@ Phase 04 相关脚本**全部未纳入 git**（`git status` 标记为 `??`）：
 
 ```powershell
 # 理想使用方式
-python 统合模块\脚本\run_pipeline.py         # 全量重跑
-python 统合模块\脚本\run_pipeline.py --from 2 # 从步骤2开始
-python 统合模块\脚本\run_pipeline.py --dry-run # 只打印顺序不执行
+python integration\scripts\run_pipeline.py         # 全量重跑
+python integration\scripts\run_pipeline.py --from 2 # 从步骤2开始
+python integration\scripts\run_pipeline.py --dry-run # 只打印顺序不执行
 ```
 
 ---
 
-*文档由 ZCode 基于代码库静态分析生成，未运行任何脚本。*
+*文档由 ZCode 基于代码库静态分析生成，未运行任何scripts。*

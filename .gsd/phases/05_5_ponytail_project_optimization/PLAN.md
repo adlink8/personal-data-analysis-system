@@ -20,7 +20,7 @@ autonomous: false
 - 只优化现有代码，不新增业务能力。
 - 优先删减、合并、简化；不为了“架构感”新增层。
 - 不改 Phase 05 已完成状态。
-- 不动原始数据和已验证输出，除非发现明确错误。
+- 不动raw和已验证输出，除非发现明确错误。
 
 ## Ponytail Rules
 
@@ -33,11 +33,11 @@ autonomous: false
 ## Tasks
 
 1. 审查当前高复杂度文件：
-   - `统合模块/脚本/unified_search.py`
-   - `统合模块/脚本/api_server.py`
-   - `统合模块/脚本/mcp_server.py`
-   - `统合模块/脚本/run_pipeline.py`
-   - `统合模块/脚本/*memory*.py`
+   - `integration/scripts/unified_search.py`
+   - `integration/scripts/api_server.py`
+   - `integration/scripts/mcp_server.py`
+   - `integration/scripts/run_pipeline.py`
+   - `integration/scripts/*memory*.py`
 2. 找出并处理：
    - 未使用代码
    - 重复转换逻辑
@@ -51,9 +51,9 @@ autonomous: false
 
 ```powershell
 python tests\test_memory_contracts.py
-python 统合模块\脚本\run_pipeline.py --dry-run
-python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 1
-python 统合模块\脚本\evaluate_memory_depth.py
+python integration\scripts\run_pipeline.py --dry-run
+python integration\scripts\unified_search.py memory --subject Codex --neighbors 1
+python integration\scripts\evaluate_memory_depth.py
 git diff --check
 ```
 

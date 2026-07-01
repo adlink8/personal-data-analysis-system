@@ -19,7 +19,7 @@ Phase 04 已经完成本地记忆层的采集、图谱化和消费入口。这�
 - Storage: SQLite 作为事实源和结构化记忆库。
 - Vector: Chroma 作为语义检索层。
 - Access: CLI + REST + MCP 三入口。
-- Graph: SQLite relation table + NetworkX/可视化脚本，暂不引入图数据库。
+- Graph: SQLite relation table + NetworkX/可视化scripts，暂不引入图数据库。
 - Extraction: 先规则化、可追溯抽取，再逐步增加 LLM 辅助归纳。
 
 外部项目的可复用方向：
@@ -36,14 +36,14 @@ Phase 04 已经完成本地记忆层的采集、图谱化和消费入口。这�
 
 ### 1. HPI-style source modules
 
-目标不是增加更多导入脚本，而是把现有脚本收敛成统一 adapter contract：
+目标不是增加更多导入scripts，而是把现有scripts收敛成统一 adapter contract：
 
 - `list_items()`: 返回稳定字段的原始事件或文档对象。
 - `normalize()`: 转成 canonical event/entity。
 - `provenance`: 每个输出必须带 source path、source type、timestamp/hash。
 - `errors`: 单个 source 失败不阻断全局 pipeline。
 
-这能降低当前 `run_pipeline.py` 中脚本顺序强耦合的问题。
+这能降低当前 `run_pipeline.py` 中scripts顺序强耦合的问题。
 
 ### 2. mem0/LangMem-style memory tiers
 
@@ -87,7 +87,7 @@ Phase 04 已经完成本地记忆层的采集、图谱化和消费入口。这�
 
 ## Common Pitfalls
 
-- Adapter 膨胀：HPI 的强项是 source module 边界清晰，不是无限增加脚本。当前仓库应先统一接口，再扩数据源。
+- Adapter 膨胀：HPI 的强项是 source module 边界清晰，不是无限增加scripts。当前仓库应先统一接口，再扩数据源。
 - Memory pollution：mem0/LangMem 类系统的关键风险是错误记忆长期污染。每条 memory 需要 evidence、confidence、last_seen、source。
 - Transport drift：mcp-memory-service 的价值在于多入口共享同一 backend。当前 REST/MCP/CLI 需要契约测试防止漂移。
 - Graph cost：GraphRAG 官方也提示索引可能昂贵。当前应先小样本验证抽取质量，再考虑完整图检索 pipeline。

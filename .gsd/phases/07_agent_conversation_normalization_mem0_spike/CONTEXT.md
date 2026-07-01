@@ -12,7 +12,7 @@ Phase 07 先把 Agent 原始会话日志从摘录索引升级为可追溯的结�
 
 - GPT `messages.content` 最接近完整对话全文。
 - Agent `session_messages.text_excerpt` 是摘录，不是全文真相层。
-- Agent 原始真相在 `Agent/原始数据/**/sessions/**/*.jsonl`。
+- Agent 原始真相在 `Agent/raw/**/sessions/**/*.jsonl`。
 - Codex session 顶层常见类型：`session_meta`、`turn_context`、`response_item`、`event_msg`、`compacted`。
 - 可分析内容主要在 `response_item.payload.type=message` 和 `event_msg.payload.type=user_message/agent_message`。
 </domain>
@@ -31,11 +31,11 @@ Phase 07 先把 Agent 原始会话日志从摘录索引升级为可追溯的结�
 </decisions>
 
 <canonical_refs>
-- `Agent/结构化数据/脚本/build_agent_dataset.py`
-- `Agent/结构化数据/SQLite数据库/agent_data.sqlite`
-- `Agent/原始数据/`
-- `统合模块/脚本/enrich_unified_events.py`
-- `统合模块/脚本/build_integrated_system.py`
+- `Agent/structured/scripts/build_agent_dataset.py`
+- `Agent/structured/db/agent_data.sqlite`
+- `Agent/raw/`
+- `integration/scripts/enrich_unified_events.py`
+- `integration/scripts/build_integrated_system.py`
 - `.gsd/phases/06_deep_memory_graph_mining/SUMMARY_两个Demo反馈总结.md`
 - `.gsd/phases/06_deep_memory_graph_mining/EXECUTION.md`
 </canonical_refs>
@@ -72,14 +72,14 @@ Phase 07 先把 Agent 原始会话日志从摘录索引升级为可追溯的结�
   - 瑕疵 14 个/583 turn(2.4%),正常率 96.6%,距入库门槛 98% 差 1.4 个百分点。
   - **不是模型问题**:同一 chunk(turn 4-5)连调 6 次全正常;单 turn 调用完美。
   - **不是约束太浅**:单 turn 测试 prompt 约束够用。
-  - **是脚本防御不足(根因)**:
+  - **是scripts防御不足(根因)**:
     1. `parse_turn_summaries` 不校验返回段数 == 输入 turn 数,段数对就回填,内容错位无感知。
     2. prompt 没强制要求"段数必须等于输入,严格用 Turn {N}: 绝对编号"。
     3. 统计铁证:14 个瑕疵 turn 编号 `[4,6,2,2,1,6,2,2,6,4,8,2,3,3]`,
        14 个里 9 个是 turn 1/2/3(小编号);6/14 下一个 turn 以 `**` 开头(内容被吞)。
 - **决策**:从根上修 `summarize_chunk` 返回后校验段数+重试、强化 prompt 约束、正则再加固。
-  不写 `fix_conversation_flaws.py` 补抽脚本(治标不治本,后续重跑仍会产生)。
-- **rationale**:模型是触发器,脚本没做防御才是根因。好脚本应:校验段数、不匹配重试、
+  不写 `fix_conversation_flaws.py` 补抽scripts(治标不治本,后续重跑仍会产生)。
+- **rationale**:模型是触发器,scripts没做防御才是根因。好scripts应:校验段数、不匹配重试、
   正则覆盖所有 markdown 变体。
 
 ### 决策4: 修复后全量重跑 113 session
@@ -90,7 +90,7 @@ Phase 07 先把 Agent 原始会话日志从摘录索引升级为可追溯的结�
 </decisions_wave8>
 
 <gray_areas_closed_wave8>
-- [x] ** 瑕疵是模型/约束/脚本哪个问题 → 脚本防御不足(根因调查 2026-06-28 确认)
+- [x] ** 瑕疵是模型/约束/scripts哪个问题 → scripts防御不足(根因调查 2026-06-28 确认)
 - [x] 修复用补抽还是根因修复 → 根因修复
 - [x] 图库重做和向量库分类是否纳入 Wave 8 → 否,Wave 9/10 单独做
 - [x] 修复后重跑范围 → 全量 113 session
@@ -99,7 +99,7 @@ Phase 07 先把 Agent 原始会话日志从摘录索引升级为可追溯的结�
 <gray_areas_remaining_wave8>
 - [x] 质量门槛已定并通过 → 正常率 ≥ 98%,source_refs 覆盖率 = 100%;当前报告 PASS(正常率 100%,覆盖率 100%)
 - [x] 根因修复后瑕疵已清零 → `conversation_quality_report.md` 显示真瑕疵数 0/583
-- [x] 图库真关系抽取的具体方法 → Wave 9 采用 `向量召回候选 + LLM 判定关系 + evidence gate`,不再靠脚本启发式直接建边
+- [x] 图库真关系抽取的具体方法 → Wave 9 采用 `向量召回候选 + LLM 判定关系 + evidence gate`,不再靠scripts启发式直接建边
 - [x] 向量库分类策略 → Wave 10 先保留 `conversation_turns` 独立 collection,补质量/召回评估和候选生成接口,不合并进 `personal_events`
 </gray_areas_remaining_wave8>
 

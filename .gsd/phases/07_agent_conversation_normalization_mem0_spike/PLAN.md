@@ -6,7 +6,7 @@ status: Planned
 created: 2026-06-27
 depends_on:
   - .gsd/phases/06_deep_memory_graph_mining/EXECUTION.md
-  - Agent/结构化数据/脚本/build_agent_dataset.py
+  - Agent/structured/scripts/build_agent_dataset.py
   - .gsd/phases/06_deep_memory_graph_mining/SUMMARY_两个Demo反馈总结.md
 autonomous: false
 ---
@@ -35,8 +35,8 @@ autonomous: false
 
 ### Tasks
 
-1. 新增 `Agent/结构化数据/脚本/normalize_agent_conversations.py`。
-2. 支持读取 `Agent/原始数据/**/sessions/**/*.jsonl`。
+1. 新增 `Agent/structured/scripts/normalize_agent_conversations.py`。
+2. 支持读取 `Agent/raw/**/sessions/**/*.jsonl`。
 3. 识别顶层类型：`session_meta`、`turn_context`、`response_item`、`event_msg`、`compacted`。
 4. 识别 `response_item.payload.type` 和 `event_msg.payload.type`。
 5. 每条解析结果保留 `source`、`family`、`session_id`、`turn_id`、`event_index`、`timestamp`、`raw_type`、`payload_type`、`role`、`raw_file`、`line_no`。
@@ -44,7 +44,7 @@ autonomous: false
 ### Verification
 
 ```powershell
-python Agent\结构化数据\脚本\normalize_agent_conversations.py --dry-run --limit-files 5
+python Agent\structured\scripts\normalize_agent_conversations.py --dry-run --limit-files 5
 ```
 
 ### Acceptance Criteria
@@ -70,7 +70,7 @@ python Agent\结构化数据\脚本\normalize_agent_conversations.py --dry-run -
 ### Verification
 
 ```powershell
-python Agent\结构化数据\脚本\normalize_agent_conversations.py --write
+python Agent\structured\scripts\normalize_agent_conversations.py --write
 ```
 
 ### Acceptance Criteria
@@ -87,8 +87,8 @@ python Agent\结构化数据\脚本\normalize_agent_conversations.py --write
 
 ### Tasks
 
-1. 新增 `统合模块/脚本/build_conversation_segments.py`。
-2. GPT 输入来自 `GPT/结构化数据/SQLite数据库/chatgpt_data.db.messages` 的 `role=user`。
+1. 新增 `integration/scripts/build_conversation_segments.py`。
+2. GPT 输入来自 `GPT/structured/db/chatgpt_data.db.messages` 的 `role=user`。
 3. Agent 输入来自新 `agent_messages` 的 `role=user`。
 4. segment 字段至少包含 `segment_id`、`source`、`conversation_id/session_id`、`turn_id`、`message_id`、`segment_index`、`text`、`topic_hint`、`intent_type`、`source_ref`。
 5. 切分先用确定性规则：换行、列表、明显话题切换、长度上限。
@@ -96,8 +96,8 @@ python Agent\结构化数据\脚本\normalize_agent_conversations.py --write
 ### Verification
 
 ```powershell
-python 统合模块\脚本\build_conversation_segments.py --dry-run --source Agent --limit 20
-python 统合模块\脚本\build_conversation_segments.py --dry-run --source GPT --limit 20
+python integration\scripts\build_conversation_segments.py --dry-run --source Agent --limit 20
+python integration\scripts\build_conversation_segments.py --dry-run --source GPT --limit 20
 ```
 
 ### Acceptance Criteria
@@ -113,7 +113,7 @@ python 统合模块\脚本\build_conversation_segments.py --dry-run --source GPT
 > 实证:mem0 把一次性操作指令误判为稳定偏好(如"重构 PPT"被当成偏好),且完全丢失因果链和时序。
 > 相比之下,`build_conversation_summary.py` 的 turn 级叙述摘要(保留 问题→分析→结论→建议)
 > 才是用户认可的高密度形态。
-> **决策**:Wave 4 保留脚本和候选文件作为实验记录,但移出 Phase Verification 主路径;
+> **决策**:Wave 4 保留scripts和候选文件作为实验记录,但移出 Phase Verification 主路径;
 > 主线产出转为 Wave 6 Prompt Lab + Wave 7 conversation_context 回流。mem0 的隔离纪律(不污染 memory_items)仍有效。
 
 ### Goal
@@ -122,17 +122,17 @@ python 统合模块\脚本\build_conversation_segments.py --dry-run --source GPT
 
 ### Tasks
 
-1. 新增 `统合模块/脚本/build_mem0_candidate_memory.py`。
+1. 新增 `integration/scripts/build_mem0_candidate_memory.py`。
 2. 默认只跑小样本：Agent 20 个 segment，GPT 20 个 segment。
 3. mem0 依赖和 LLM 配置必须可选：缺依赖时给出清晰错误，不影响前三波验证。
-4. 输出 `统合模块/分析数据/ai_context/mem0_candidate_memories.json` 和 `mem0_candidate_evaluation.md`。
+4. 输出 `integration/analysis/ai_context/mem0_candidate_memories.json` 和 `mem0_candidate_evaluation.md`。
 5. 候选结构必须包含 `candidate_id`、`candidate_type`、`subject`、`claim`、`confidence`、`source_segment_ids`、`source_refs`、`acceptance_status`、`reject_reason`。
 
 ### Verification
 
 ```powershell
-python 统合模块\脚本\build_mem0_candidate_memory.py --dry-run --limit 10
-python 统合模块\脚本\build_mem0_candidate_memory.py --sample --limit 40
+python integration\scripts\build_mem0_candidate_memory.py --dry-run --limit 10
+python integration\scripts\build_mem0_candidate_memory.py --sample --limit 40
 ```
 
 ### Acceptance Criteria
@@ -151,7 +151,7 @@ python 统合模块\脚本\build_mem0_candidate_memory.py --sample --limit 40
 
 1. 新增 `tests/test_agent_conversation_normalization.py`。
 2. 测试 sample jsonl 解析、role 过滤、`raw_file + line_no` 回溯字段、mem0 candidate 不写入 `memory_items`。
-3. 更新 `README.md`、`Agent/README.md`、`统合模块/README.md`、`.planning/codebase/ARCHITECTURE.md`、`.planning/codebase/TESTING.md`。
+3. 更新 `README.md`、`Agent/README.md`、`integration/README.md`、`.planning/codebase/ARCHITECTURE.md`、`.planning/codebase/TESTING.md`。
 4. 说明 Phase 06 负责深层洞察，Phase 07 负责更可靠输入和候选压缩。
 
 ### Verification
@@ -159,8 +159,8 @@ python 统合模块\脚本\build_mem0_candidate_memory.py --sample --limit 40
 ```powershell
 python tests\test_memory_contracts.py
 python tests\test_agent_conversation_normalization.py
-python 统合模块\脚本\run_pipeline.py --dry-run
-python 统合模块\脚本\unified_search.py memory --subject Codex --neighbors 1
+python integration\scripts\run_pipeline.py --dry-run
+python integration\scripts\unified_search.py memory --subject Codex --neighbors 1
 git diff --check
 ```
 
@@ -191,15 +191,15 @@ git diff --check
 
 ### Tasks
 
-1. 新增 prompt 目录:`统合模块/prompts/conversation_compression/`。
+1. 新增 prompt 目录:`integration/prompts/conversation_compression/`。
    - `v1_main.md`:主提示词,目标是 turn 级叙述压缩。
    - `v1_schema.md`:输出 JSON schema 约束。
    - `eval_rubric.md`:人工/半自动评分标准。
 
-2. 新增 `统合模块/脚本/evaluate_conversation_prompt.py`。
+2. 新增 `integration/scripts/evaluate_conversation_prompt.py`。
    - 输入固定样本集,默认 5-10 个有代表性的 session/turn。
    - 调用 mimo/OpenAI-compatible API。
-   - 输出 `统合模块/分析数据/ai_context/prompt_eval_results.json/md`。
+   - 输出 `integration/analysis/ai_context/prompt_eval_results.json/md`。
    - 每轮记录 `prompt_version`、`model`、`temperature`、`sample_ids`、`score`、`known_failures`。
 
 3. 建立固定评测样本集 `conversation_prompt_eval_set.json`。
@@ -224,8 +224,8 @@ git diff --check
 ### Verification
 
 ```powershell
-python 统合模块\脚本\evaluate_conversation_prompt.py --dry-run --limit 3
-python 统合模块\脚本\evaluate_conversation_prompt.py --write --limit 10
+python integration\scripts\evaluate_conversation_prompt.py --dry-run --limit 3
+python integration\scripts\evaluate_conversation_prompt.py --write --limit 10
 ```
 
 ### Acceptance Criteria
@@ -233,7 +233,7 @@ python 统合模块\脚本\evaluate_conversation_prompt.py --write --limit 10
 - prompt 版本、模型参数和样本集可复现。
 - 每轮输出有分项评分和失败样例。
 - 评测报告能明确说明:当前 prompt 是否允许进入 Wave 7。
-- 未通过 gate 时,脚本退出非 0 或显式标记 `gate_passed=false`。
+- 未通过 gate 时,scripts退出非 0 或显式标记 `gate_passed=false`。
 - 压缩产物是可回溯叙述上下文,不是 mem0 风格离散 claim。
 
 ## Wave 7: 清洗产物回流主流水线 (★ Phase 07 主线,2026-06-27 新增)
@@ -254,7 +254,7 @@ REVIEW_feedback_2026-06-27.md 诊断:Wave 1-4 的清洗产物全部成了"展览
 0. 前置条件:Wave 6 Prompt Lab `gate_passed=true`。
 
 1. 回流去向已改为 B 方案:不新增 `build_conversation_event_layer.py`,不把 turn 叙述写入 `unified_events`。
-   - 实际落地脚本:`统合模块/脚本/build_conversation_vector_store.py`。
+   - 实际落地scripts:`integration/scripts/build_conversation_vector_store.py`。
    - 输入:`conversation_summaries.json`(已生成的 turn 叙述)。
    - 输出:独立 Chroma collection `conversation_turns`。
    - event_type 取 `conversation_turn`,source 取 `Agent`/`GPT`(按 summary 的 source 字段)。
@@ -284,12 +284,12 @@ REVIEW_feedback_2026-06-27.md 诊断:Wave 1-4 的清洗产物全部成了"展览
 
 ```powershell
 # 1. turn 叙述回流到向量库
-python 统合模块\脚本\build_conversation_summary.py --limit 20 --write
-python 统合模块\脚本\build_conversation_vector_store.py --dry-run
-python 统合模块\脚本\build_conversation_vector_store.py --write
+python integration\scripts\build_conversation_summary.py --limit 20 --write
+python integration\scripts\build_conversation_vector_store.py --dry-run
+python integration\scripts\build_conversation_vector_store.py --write
 
 # 2. 检索验证:能按话题找到完整 turn 叙述(含因果链)
-python 统合模块\脚本\unified_search.py memory --subject MQTT --neighbors 1
+python integration\scripts\unified_search.py memory --subject MQTT --neighbors 1
 
 # 3. 回归
 python tests\test_agent_conversation_normalization.py
@@ -332,20 +332,20 @@ git diff --check
 ## Phase Verification
 
 ```powershell
-python Agent\结构化数据\脚本\normalize_agent_conversations.py --dry-run --limit-files 5
-python Agent\结构化数据\脚本\normalize_agent_conversations.py --write
-python 统合模块\脚本\build_conversation_segments.py --dry-run --source Agent --limit 20
-python 统合模块\脚本\build_conversation_segments.py --dry-run --source GPT --limit 20
-python 统合模块\脚本\build_conversation_summary.py --limit 10 --write
-python 统合模块\脚本\evaluate_conversation_prompt.py --write --limit 10
-python 统合模块\脚本\build_conversation_vector_store.py --dry-run
-python 统合模块\脚本\build_conversation_vector_store.py --write
+python Agent\structured\scripts\normalize_agent_conversations.py --dry-run --limit-files 5
+python Agent\structured\scripts\normalize_agent_conversations.py --write
+python integration\scripts\build_conversation_segments.py --dry-run --source Agent --limit 20
+python integration\scripts\build_conversation_segments.py --dry-run --source GPT --limit 20
+python integration\scripts\build_conversation_summary.py --limit 10 --write
+python integration\scripts\evaluate_conversation_prompt.py --write --limit 10
+python integration\scripts\build_conversation_vector_store.py --dry-run
+python integration\scripts\build_conversation_vector_store.py --write
 python tests\test_memory_contracts.py
 python tests\test_agent_conversation_normalization.py
-python 统合模块\脚本\run_pipeline.py --dry-run
+python integration\scripts\run_pipeline.py --dry-run
 git diff --check
 # mem0 可选实验(非主路径):
-# python 统合模块\脚本\build_mem0_candidate_memory.py --dry-run --limit 10
+# python integration\scripts\build_mem0_candidate_memory.py --dry-run --limit 10
 ```
 
 ## Success Criteria
@@ -386,7 +386,7 @@ git diff --check
 
 ### Wave 8 目标
 1. 建立压缩质量客观评估基线,定义"可入库"硬门槛。
-2. 从根因修复 `**` 瑕疵产生机制(脚本防御不足,非模型问题)。
+2. 从根因修复 `**` 瑕疵产生机制(scripts防御不足,非模型问题)。
 3. 全量重跑 113 session,验证瑕疵清零、产物逻辑一致。
 
 ### Wave 8 任务分解(GSD 原子任务)
@@ -394,7 +394,7 @@ git diff --check
 #### Wave 8.1: 压缩质量评估基线
 
 - **任务 8.1.1** (id: `8.1.1`)
-  - description: 新增 `统合模块/脚本/evaluate_conversation_quality.py`,对 `conversation_summaries.json` 做客观质量评估
+  - description: 新增 `integration/scripts/evaluate_conversation_quality.py`,对 `conversation_summaries.json` 做客观质量评估
   - 评估维度:完整度(瑕疵 turn 占比)、信息密度(长度分布)、回溯链完整率(source_refs 覆盖率)、因果完整性(瑕疵是否造成 turn 链断裂)
   - acceptance: dry-run 输出各维度统计;能识别并列举所有 `**`/过短/空瑕疵 turn 及其 session/turn_no;生成 `conversation_quality_report.{json,md}`
   - commit_type: feat
@@ -425,7 +425,7 @@ git diff --check
 #### Wave 8.3: 全量重跑验证(决策4:全量 113 session)
 
 - **任务 8.3.1** (id: `8.3.1`)
-  - description: 备份现有 `conversation_summaries.{json,md}`,然后用修复后的脚本全量重跑 113 session(`--limit 0 --workers 3`,不用 resume 保证逻辑一致)
+  - description: 备份现有 `conversation_summaries.{json,md}`,然后用修复后的scripts全量重跑 113 session(`--limit 0 --workers 3`,不用 resume 保证逻辑一致)
   - acceptance: 重跑无报错;新产物 turn 总数与旧产物一致(583 ± 容差);`**` 瑕疵数 < 3(理想 0)
   - commit_type: chore
 
@@ -450,11 +450,11 @@ git diff --check
 
 ### Wave 8 验证命令
 ```powershell
-python 统合模块\脚本\evaluate_conversation_quality.py --write
+python integration\scripts\evaluate_conversation_quality.py --write
 python tests\test_conversation_summary_parse.py    # 8.2.1/8.2.3 单元测试
 # 全量重跑
-python 统合模块\脚本\build_conversation_summary.py --write --limit 0 --workers 3
-python 统合模块\脚本\evaluate_conversation_quality.py --write   # 复评
+python integration\scripts\build_conversation_summary.py --write --limit 0 --workers 3
+python integration\scripts\evaluate_conversation_quality.py --write   # 复评
 ```
 
 ### Wave 8 依赖与风险
@@ -471,7 +471,7 @@ python 统合模块\脚本\evaluate_conversation_quality.py --write   # 复评
 ## Wave 9: 向量候选 + LLM 判边的真关系图谱重做 (★ 重新设计)
 
 > **GSD 元数据**
-> - 触发:用户明确提出“进入图数据库前引入 LLM,根据向量库判断关联关系而不是靠脚本”。
+> - 触发:用户明确提出“进入图数据库前引入 LLM,根据向量库判断关联关系而不是靠scripts”。
 > - 设计边界:向量库只生成候选 pair,不直接建边;LLM 只做关系判定,不做事实来源;图数据库只接收通过 gate 的边。
 > - 外部参照:GraphRAG/LlamaIndex Property Graph 的共同模式是 LLM 抽取结构化 entities/relationships,并结合 embedding/vector store 做检索或候选召回。
 
@@ -496,7 +496,7 @@ python 统合模块\脚本\evaluate_conversation_quality.py --write   # 复评
 ### Wave 9.1: 候选关系生成层
 
 - **任务 9.1.1**
-  - description: 新增 `统合模块/脚本/build_graph_relation_candidates.py`
+  - description: 新增 `integration/scripts/build_graph_relation_candidates.py`
   - 输入:`conversation_summaries.json` + `conversation_turns` collection
   - 行为:对每个 turn 用向量库召回 topK 近邻,生成候选 pair
   - 默认参数:`top_k=8`,同 session 相邻 turn 单独标记为 `temporal_candidate`,跨 session 语义相似标记为 `semantic_candidate`
@@ -512,7 +512,7 @@ python 统合模块\脚本\evaluate_conversation_quality.py --write   # 复评
 ### Wave 9.2: LLM Relation Judge
 
 - **任务 9.2.1**
-  - description: 新增 prompt 目录 `统合模块/prompts/graph_relation_judge/`
+  - description: 新增 prompt 目录 `integration/prompts/graph_relation_judge/`
   - 文件:`v1_main.md`,`v1_schema.md`,`eval_rubric.md`
   - 输出 schema:
     ```json
@@ -528,7 +528,7 @@ python 统合模块\脚本\evaluate_conversation_quality.py --write   # 复评
   - acceptance: prompt 明确要求不能因为语义相似就建边;必须允许 `no_relation`
 
 - **任务 9.2.2**
-  - description: 新增 `统合模块/脚本/judge_graph_relations.py`
+  - description: 新增 `integration/scripts/judge_graph_relations.py`
   - 输入:`graph_relation_candidates`
   - 行为:调用 mimo/OpenAI-compatible API 对候选 pair 判边
   - 输出 SQLite 表:`graph_relation_judgments`
@@ -538,14 +538,14 @@ python 统合模块\脚本\evaluate_conversation_quality.py --write   # 复评
 ### Wave 9.3: Evidence Gate 与人工 review 队列
 
 - **任务 9.3.1**
-  - description: 新增 `统合模块/脚本/evaluate_graph_relation_judgments.py`
+  - description: 新增 `integration/scripts/evaluate_graph_relation_judgments.py`
   - gate 规则:
     - `relation_type != no_relation`
     - `relation_type` 在白名单内
     - `confidence >= 0.75`
     - `evidence_refs` 非空且能对应原始 source_refs
     - 同一 pair 不允许多个强关系冲突;冲突进入 review
-  - 输出:`统合模块/分析数据/ai_context/graph_relation_eval_report.{json,md}`
+  - 输出:`integration/analysis/ai_context/graph_relation_eval_report.{json,md}`
   - acceptance: 报告包含通过数、拒绝数、review 数、按关系类型分布、低置信度样例
 
 - **任务 9.3.2**
@@ -556,7 +556,7 @@ python 统合模块\脚本\evaluate_conversation_quality.py --write   # 复评
 ### Wave 9.4: DuckDB 真关系图谱重建
 
 - **任务 9.4.1**
-  - description: 新增或重写 `统合模块/脚本/build_conversation_graph.py`
+  - description: 新增或重写 `integration/scripts/build_conversation_graph.py`
   - 输入:只读取 `graph_relation_judgments` 中 `gate_status=accepted` 的边
   - 输出:`conversation_graph.duckdb` 新版本
   - 节点:`g_turn`,`g_session`,`g_topic`,`g_tool`
@@ -571,19 +571,19 @@ python 统合模块\脚本\evaluate_conversation_quality.py --write   # 复评
 ### Wave 9 验证命令
 
 ```powershell
-python 统合模块\脚本\build_conversation_vector_store.py --dry-run
-python 统合模块\脚本\build_graph_relation_candidates.py --dry-run --limit 100
-python 统合模块\脚本\build_graph_relation_candidates.py --write --limit 500
-python 统合模块\脚本\judge_graph_relations.py --dry-run --limit 5
-python 统合模块\脚本\judge_graph_relations.py --write --limit 100
-python 统合模块\脚本\evaluate_graph_relation_judgments.py --write
-python 统合模块\脚本\build_conversation_graph.py --write
-python 统合模块\脚本\query_conversation_graph.py --smoke
+python integration\scripts\build_conversation_vector_store.py --dry-run
+python integration\scripts\build_graph_relation_candidates.py --dry-run --limit 100
+python integration\scripts\build_graph_relation_candidates.py --write --limit 500
+python integration\scripts\judge_graph_relations.py --dry-run --limit 5
+python integration\scripts\judge_graph_relations.py --write --limit 100
+python integration\scripts\evaluate_graph_relation_judgments.py --write
+python integration\scripts\build_conversation_graph.py --write
+python integration\scripts\query_conversation_graph.py --smoke
 ```
 
 ### Wave 9 验收标准
 
-- [x] 向量召回只生成候选,没有任何脚本直接把相似度写成图边
+- [x] 向量召回只生成候选,没有任何scripts直接把相似度写成图边
 - [x] LLM 判边输出固定 schema,有 prompt_version/model/temperature
 - [x] `no_relation` 占比被统计,并作为健康指标之一
 - [x] accepted 边 100% 有 evidence_refs
@@ -617,12 +617,12 @@ python 统合模块\脚本\query_conversation_graph.py --smoke
 ### Wave 10.1: Collection Contract
 
 - **任务 10.1.1**
-  - description: 新增 `统合模块/脚本/evaluate_vector_collections.py`
+  - description: 新增 `integration/scripts/evaluate_vector_collections.py`
   - 检查项:collection 是否存在、count、embedding 维度、metadata 字段覆盖率、source 分布、空文档/短文档数
   - acceptance: 报告明确显示 `personal_events` 和 `conversation_turns` 是否健康
 
 - **任务 10.1.2**
-  - description: 写入 `统合模块/分析数据/ai_context/vector_collection_contract.md`
+  - description: 写入 `integration/analysis/ai_context/vector_collection_contract.md`
   - 内容:`personal_events=事件级广覆盖`,`conversation_turns=对话 turn 因果链`,`graph_relation_candidates=图候选输入`
   - acceptance: 文档说明不得混合粒度直接比较,跨 collection 排序必须标注来源
 
@@ -652,10 +652,10 @@ python 统合模块\脚本\query_conversation_graph.py --smoke
 ### Wave 10 验证命令
 
 ```powershell
-python 统合模块\脚本\evaluate_vector_collections.py --write
-python 统合模块\脚本\evaluate_vector_retrieval.py --write --top-k 10
-python 统合模块\脚本\unified_search.py semantic "MQTT 预测代码报错" --top-k 5
-python 统合模块\脚本\build_graph_relation_candidates.py --dry-run --limit 100
+python integration\scripts\evaluate_vector_collections.py --write
+python integration\scripts\evaluate_vector_retrieval.py --write --top-k 10
+python integration\scripts\unified_search.py semantic "MQTT 预测代码报错" --top-k 5
+python integration\scripts\build_graph_relation_candidates.py --dry-run --limit 100
 ```
 
 ### Wave 9/10 实际执行顺序(冲突消解)

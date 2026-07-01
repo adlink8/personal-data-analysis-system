@@ -96,6 +96,6 @@ Acceptance gates:
 ## References
 
 - `.gsd/phases/06_deep_memory_graph_mining/SUMMARY_两个Demo反馈总结.md`
-- `Agent/结构化数据/脚本/build_agent_dataset.py`
+- `Agent/structured/scripts/build_agent_dataset.py`
 - `https://github.com/mem0ai/mem0`
 - `https://docs.mem0.ai/`

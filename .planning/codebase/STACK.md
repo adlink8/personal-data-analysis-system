@@ -51,7 +51,7 @@
 
 | 项目 | 说明 |
 |------|------|
-| 文件 | `统合模块/SQLite数据库/personal_system.sqlite` |
+| 文件 | `integration/db/personal_system.sqlite` |
 | 驱动 | Python 标准库 `sqlite3` |
 | 表数量 | 12+ 张 |
 | 核心表 | `unified_events`（16 列）、`unified_events_rich`、`event_categories_v2`、`entities`、`entity_links_v2`、`cross_module_insights`、`module_summaries`、`merge_clusters`、`merge_members`、`memory_items` 等 |
@@ -72,7 +72,7 @@
 ## 模块结构概览
 
 ```
-统合模块/脚本/
+integration/scripts/
 ├── local_embed.py      # 本地模型向量化接口
 ├── chroma_client.py    # ChromaDB REST 自定义客户端
 ├── unified_search.py   # 统一检索后端（CLI / MCP / API 共用）
