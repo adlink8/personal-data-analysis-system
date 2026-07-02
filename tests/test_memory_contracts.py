@@ -21,6 +21,14 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+for _key in ("NO_PROXY", "no_proxy"):
+    existing = os.environ.get(_key)
+    if existing:
+        missing = [host for host in ("127.0.0.1", "localhost") if host not in existing]
+        if missing:
+            os.environ[_key] = existing + "," + ",".join(missing)
+    else:
+        os.environ[_key] = "127.0.0.1,localhost"
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = ROOT / "integration" / "scripts"

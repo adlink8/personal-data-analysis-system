@@ -25,6 +25,7 @@ import sqlite3
 import sys
 import webbrowser
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import ensure_dirs
@@ -55,8 +56,103 @@ RELATION_COLORS = {
     "same_subject": "#ef4444",
 }
 
+LLM_STATUS_COLORS = {
+    "accepted": "#f59e0b",
+    "review": "#f97316",
+}
 
-def load_graph(con: sqlite3.Connection) -> tuple[nx.MultiDiGraph, dict]:
+
+def table_exists(con: sqlite3.Connection, name: str) -> bool:
+    row = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (name,),
+    ).fetchone()
+    return row is not None
+
+
+def table_columns(con: sqlite3.Connection, name: str) -> set[str]:
+    return {row[1] for row in con.execute(f"PRAGMA table_info({name})")}
+
+
+def format_llm_edge_title(row: dict[str, Any]) -> str:
+    reason = " ".join(str(row.get("reason") or "").split()).strip() or "(empty reason)"
+    return (
+        f"LLM judgment relation: {row['relation_type']}\n"
+        f"status: {row['gate_status']}\n"
+        f"confidence: {float(row['confidence'] or 0.0):.2f}\n"
+        f"candidate_id: {row['candidate_id']}\n"
+        f"reason: {reason}"
+    )
+
+
+def load_llm_relation_edges(con: sqlite3.Connection, memories: dict[str, dict]) -> tuple[list[dict[str, Any]], list[str]]:
+    required_tables = ("memory_relation_candidates", "memory_relation_judgments")
+    missing_tables = [name for name in required_tables if not table_exists(con, name)]
+    if missing_tables:
+        missing = ", ".join(missing_tables)
+        return [], [f"[warn] 跳过 LLM relation 可视化: 缺少表 {missing}"]
+
+    judgment_columns = table_columns(con, "memory_relation_judgments")
+    if "candidate_reason" in judgment_columns:
+        reason_expr = "j.candidate_reason"
+    elif "reason" in judgment_columns:
+        reason_expr = "j.reason"
+    else:
+        reason_expr = "''"
+
+    sql = """
+        SELECT
+            c.candidate_id,
+            c.source_memory_id,
+            c.target_memory_id,
+            j.relation_type,
+            j.gate_status,
+            j.confidence,
+            {reason_expr} AS reason
+        FROM memory_relation_judgments j
+        JOIN memory_relation_candidates c ON c.candidate_id = j.candidate_id
+        WHERE j.gate_status IN ('accepted', 'review')
+          AND j.relation_type != 'no_relation'
+        ORDER BY j.gate_status, j.confidence DESC, c.candidate_id
+    """.format(reason_expr=reason_expr)
+    try:
+        cur = con.execute(sql)
+        columns = [item[0] for item in cur.description or []]
+        rows = [dict(zip(columns, row)) for row in cur.fetchall()]
+    except sqlite3.OperationalError as exc:
+        return [], [f"[warn] 跳过 LLM relation 可视化: {exc}"]
+
+    edges = []
+    skipped = 0
+    for row in rows:
+        source_id = row.get("source_memory_id")
+        target_id = row.get("target_memory_id")
+        if source_id not in memories or target_id not in memories:
+            skipped += 1
+            continue
+        edges.append({
+            "from_memory_id": source_id,
+            "to_memory_id": target_id,
+            "relation": row["relation_type"],
+            "strength": float(row.get("confidence") or 0.0),
+            "edge_source": "llm_judgment",
+            "gate_status": row["gate_status"],
+            "confidence": float(row.get("confidence") or 0.0),
+            "candidate_id": row["candidate_id"],
+            "reason": row.get("reason") or "",
+            "label": f"LLM:{row['relation_type']}",
+            "title": format_llm_edge_title(row),
+        })
+
+    warnings = []
+    if skipped:
+        warnings.append(f"[warn] 已跳过 {skipped} 条 LLM 边: 节点未出现在当前 memory_items 图中")
+    return edges, warnings
+
+
+def load_graph(
+    con: sqlite3.Connection, *, include_llm_relations: bool = False
+) -> tuple[nx.MultiDiGraph, dict, list[str]]:
     """从数据库加载图。返回 (G, node_info)。"""
     memories = {}
     for r in con.execute(
@@ -75,8 +171,27 @@ def load_graph(con: sqlite3.Connection) -> tuple[nx.MultiDiGraph, dict]:
         "SELECT from_memory_id, to_memory_id, relation, strength FROM memory_relations"
     ):
         if r[0] in memories and r[1] in memories:
-            G.add_edge(r[0], r[1], relation=r[2], strength=r[3])
-    return G, memories
+            G.add_edge(r[0], r[1], relation=r[2], strength=r[3], edge_source="rule")
+
+    warnings: list[str] = []
+    if include_llm_relations:
+        llm_edges, llm_warnings = load_llm_relation_edges(con, memories)
+        warnings.extend(llm_warnings)
+        for edge in llm_edges:
+            G.add_edge(
+                edge["from_memory_id"],
+                edge["to_memory_id"],
+                relation=edge["relation"],
+                strength=edge["strength"],
+                edge_source=edge["edge_source"],
+                gate_status=edge["gate_status"],
+                confidence=edge["confidence"],
+                candidate_id=edge["candidate_id"],
+                reason=edge["reason"],
+                label=edge["label"],
+                title=edge["title"],
+            )
+    return G, memories, warnings
 
 
 def find_node_by_subject(G: nx.MultiDiGraph, subject: str) -> str | None:
@@ -101,7 +216,7 @@ def cmd_neighbors(G, args):
     subject, hops = args[0], int(args[1])
     node = find_node_by_subject(G, subject)
     if not node:
-        print(f"❌ 找不到节点: {subject}")
+        print(f"[not found] 找不到节点: {subject}")
         return
 
     # 用弱连通的N跳邻居(忽略方向)
@@ -119,7 +234,7 @@ def cmd_neighbors(G, args):
             break
 
     subj = G.nodes[node]["subject"]
-    print(f"\n📡 从 [{subj}] 出发 {hops} 跳邻居({len(neighbors)} 个):\n")
+    print(f"\n从 [{subj}] 出发 {hops} 跳邻居({len(neighbors)} 个):\n")
     # 按层级展示
     current = {node}
     visited = {node}
@@ -148,10 +263,10 @@ def cmd_path(G, args):
     n1 = find_node_by_subject(G, args[0])
     n2 = find_node_by_subject(G, args[1])
     if not n1:
-        print(f"❌ 找不到节点: {args[0]}")
+        print(f"[not found] 找不到节点: {args[0]}")
         return
     if not n2:
-        print(f"❌ 找不到节点: {args[1]}")
+        print(f"[not found] 找不到节点: {args[1]}")
         return
 
     undirected = G.to_undirected()
@@ -160,10 +275,10 @@ def cmd_path(G, args):
     except nx.NetworkXNoPath:
         s1 = G.nodes[n1]["subject"]
         s2 = G.nodes[n2]["subject"]
-        print(f"\n🚫 [{s1}] 和 [{s2}] 之间没有路径(在不同连通分量)")
+        print(f"\n[{s1}] 和 [{s2}] 之间没有路径(在不同连通分量)")
         return
 
-    print(f"\n🛣️  最短路径({len(path)-1} 跳):\n")
+    print(f"\n最短路径({len(path)-1} 跳):\n")
     for i, n in enumerate(path):
         d = G.nodes[n]
         prefix = "  起点" if i == 0 else ("  终点" if i == len(path) - 1 else f"  第{i}跳")
@@ -185,7 +300,7 @@ def cmd_common(G, args):
     n1 = find_node_by_subject(G, args[0])
     n2 = find_node_by_subject(G, args[1])
     if not n1 or not n2:
-        print("❌ 找不到节点")
+        print("[not found] 找不到节点")
         return
 
     undirected = G.to_undirected()
@@ -194,7 +309,7 @@ def cmd_common(G, args):
     common = nb1 & nb2
 
     s1, s2 = G.nodes[n1]["subject"], G.nodes[n2]["subject"]
-    print(f"\n🔗 [{s1}] 和 [{s2}] 的共同邻居({len(common)} 个):\n")
+    print(f"\n[{s1}] 和 [{s2}] 的共同邻居({len(common)} 个):\n")
     for c in common:
         d = G.nodes[c]
         print(f"  [{d['memory_type']:11s}] {d['subject']}")
@@ -206,7 +321,7 @@ def cmd_hub(G, args):
     """枢纽节点(度数最高)。"""
     undirected = G.to_undirected()
     degrees = sorted(undirected.degree(), key=lambda x: -x[1])
-    print(f"\n🌟 枢纽节点(连接最多,Top 15):\n")
+    print(f"\n枢纽节点(连接最多,Top 15):\n")
     print(f"  {'记忆':30s} {'类型':12s} {'连接数'}")
     print(f"  {'-'*30} {'-'*12} {'-'*6}")
     for n, deg in degrees[:15]:
@@ -220,7 +335,7 @@ def cmd_component(G, args):
     """连通分量。"""
     undirected = G.to_undirected()
     components = sorted(nx.connected_components(undirected), key=len, reverse=True)
-    print(f"\n🏝️  连通分量({len(components)} 个):\n")
+    print(f"\n连通分量({len(components)} 个):\n")
     for i, comp in enumerate(components[:5], 1):
         print(f"  分量{i}({len(comp)}节点):")
         for n in comp:
@@ -235,7 +350,11 @@ def cmd_visualize(G, args):
     """生成 pyvis 交互式可视化。"""
     from pyvis.network import Network
 
-    out_path = ANALYSIS_DIR / "memory_graph.html"
+    has_llm_edges = any(
+        ed.get("edge_source") == "llm_judgment"
+        for _, _, _, ed in G.edges(keys=True, data=True)
+    )
+    out_path = ANALYSIS_DIR / ("memory_graph_llm.html" if has_llm_edges else "memory_graph.html")
     ensure_dirs([ANALYSIS_DIR])
 
     net = Network(
@@ -266,9 +385,25 @@ def cmd_visualize(G, args):
     # 添加边
     for u, v, k, ed in G.edges(keys=True, data=True):
         rel = ed.get("relation", "?")
-        color = RELATION_COLORS.get(rel, "#666666")
-        width = 1 + ed.get("strength", 0.5) * 2
-        net.add_edge(u, v, label=rel, color=color, width=width, title=rel)
+        edge_source = ed.get("edge_source", "rule")
+        if edge_source == "llm_judgment":
+            status = ed.get("gate_status", "review")
+            color = LLM_STATUS_COLORS.get(status, "#f59e0b")
+            width = 1 + float(ed.get("confidence", 0.0)) * 3
+            label = ed.get("label", f"LLM:{rel}")
+            title = ed.get("title", rel)
+            net.add_edge(
+                u, v,
+                label=label,
+                color=color,
+                width=width,
+                title=title,
+                dashes=True,
+            )
+        else:
+            color = RELATION_COLORS.get(rel, "#666666")
+            width = 1 + ed.get("strength", 0.5) * 2
+            net.add_edge(u, v, label=rel, color=color, width=width, title=rel)
 
     # 物理布局(力导向)
     net.set_options(json.dumps({
@@ -290,18 +425,19 @@ def cmd_visualize(G, args):
         },
     }))
 
-    net.write_html(str(out_path), notebook=False)
-    print(f"\n🎨 可视化已生成: {out_path}")
+    net.generate_html(notebook=False)
+    out_path.write_text(net.html or "", encoding="utf-8")
+    print(f"\n可视化已生成: {out_path}")
     print(f"   节点 {G.number_of_nodes()} / 边 {G.number_of_edges()}")
     print(f"\n   图例(节点颜色):")
     for t, c in TYPE_COLORS.items():
-        print(f"     ■ {t} ({c})")
+        print(f"     - {t} ({c})")
     print(f"\n   打开 HTML 文件即可交互(拖拽/缩放/点击)。")
 
     # 自动打开浏览器
     try:
         webbrowser.open(out_path.as_uri())
-        print(f"   ✓ 已在浏览器打开")
+        print(f"   opened in browser")
     except Exception:
         print(f"   (请手动打开)")
 
@@ -309,19 +445,26 @@ def cmd_visualize(G, args):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="记忆图谱查询与可视化")
+    parser.add_argument(
+        "--include-llm-relations",
+        action="store_true",
+        help="visualize 时额外加载 memory_relation_candidates + memory_relation_judgments",
+    )
     parser.add_argument("command", choices=["visualize", "neighbors", "path", "common", "hub", "component"],
                         help="命令")
     parser.add_argument("args", nargs="*", help="命令参数")
     a = parser.parse_args()
 
     if not UNIFIED_DB.exists():
-        print(f"❌ 统合库不存在: {UNIFIED_DB}")
+        print(f"[missing] 统合库不存在: {UNIFIED_DB}")
         sys.exit(1)
 
     con = sqlite3.connect(UNIFIED_DB)
     try:
-        G, memories = load_graph(con)
+        G, memories, warnings = load_graph(con, include_llm_relations=a.include_llm_relations)
         print(f"图: {G.number_of_nodes()} 节点 / {G.number_of_edges()} 边")
+        for warning in warnings:
+            print(warning)
     finally:
         con.close()
 

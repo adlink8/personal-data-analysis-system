@@ -45,6 +45,17 @@ import traceback
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+# Local MCP tools call loopback REST services. In proxy-enabled shells,
+# urllib may otherwise route 127.0.0.1 through HTTP_PROXY and return 502.
+for _key in ("NO_PROXY", "no_proxy"):
+    existing = os.environ.get(_key)
+    if existing:
+        missing = [host for host in ("127.0.0.1", "localhost") if host not in existing]
+        if missing:
+            os.environ[_key] = existing + "," + ",".join(missing)
+    else:
+        os.environ[_key] = "127.0.0.1,localhost"
+
 # 让本模块能找到同目录依赖(unified_search / search_vectors / ...)
 _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
