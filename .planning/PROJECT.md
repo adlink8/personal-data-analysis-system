@@ -22,9 +22,11 @@
 
 ### Active
 
-- [ ] Phase 14 KU-08：生产非空 source delta → journal promote → watermark（契约测试已绿）
+- [x] **Phase 15：检索 SSOT 与分层 Fallback 治理**（layered 默认；evidence 100%；frozen R@5=1.0）
+- [ ] Phase 14 KU-08：生产非空 source delta → journal promote → watermark（契约测试已绿，可选）
 - [ ] 高优先级自动化测试补齐（见 `integration/analysis/ai_context/test_coverage_gaps.md`）
-- [ ] 收口 Phase 08 遗留的记忆实验去复杂化工作
+- [ ] 收口 Phase 08 遗留的记忆实验去复杂化工作（延后，不阻塞 15）
+- [x] Phase 16：Google 轻量结构化（normalized_events + light assertions；非对话 KU）
 
 ### Out of Scope
 
@@ -65,6 +67,10 @@
 | 闲置模块软归档到 `_recycle/` 而非删除 | 可回滚、主树更清晰 | ✓ Good |
 | scripts 按领域分包 + 根 shim | 可读性与旧命令兼容 | ✓ Good |
 | 保留 `.gsd/` 作为迁移源 | 文档迁移可逆且不丢历史 | — Pending |
+| 三层 SSOT：View 采集 / KU 知识 / 事件 raw 跨源 | 避免 personal_events 冒充全量对话 | Phase 15 planned |
+| hybrid 分层 fallback，不删 raw | 对话补洞走 canonical；Google 仍 raw | Phase 15 planned |
+| Google 不进对话 KU 抽取 | 日志≠断言；另开 Phase 16 | Phase 15 locked |
 
 ---
-*Last updated: 2026-07-12 after structure cleanup + scripts package layout + test gap audit*
+*Last updated: 2026-07-12 — Phase 15 retrieval SSOT governance planned (GSD)*
+

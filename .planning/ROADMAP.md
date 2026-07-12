@@ -22,6 +22,8 @@
 - [x] **Phase 13: Codebase Refactoring** - 公共基础层重构
 - [x] **Phase 13.5: AgentView Session Integration** - canonical conversation store
 - [ ] **Phase 14: Knowledge Unit Layer** - evaluation-first training-style RAG（扩大生产 30k 索引已上线 + wrap-up 测试 PASS；仅 KU-08 非空增量 E2E 未关）
+- [x] **Phase 15: Retrieval SSOT & Hybrid Governance** - 三层 SSOT、分层 fallback（KU→canonical message→turns→Google raw）、证据 100%、layered frozen R@5=1.0（2026-07-12）
+- [x] **Phase 16: Google Light Structuring** - normalized_events 1696 + light assertions 49（`g|` 命名空间；非对话 KU）
 
 ## Phase Details
 
@@ -145,6 +147,28 @@
 - 测试：强引用 **48/88 (54.5%)**；P0 生产链路已补；剩 3 个非主路径 high gap — `test_coverage_gaps.md`  
 - 14-07 production prepare still **no_op**（KU-08 开放）
 
+### Phase 15: Retrieval SSOT & Hybrid Governance
+**Goal:** 收口采集/知识/跨源三层 SSOT；hybrid 改为 KU→对话补洞→Google/非对话 raw；证据覆盖与分场景质量门。  
+**Depends on:** Phase 14（知识索引在线）、Phase 13.5（canonical）  
+**Requirements:** [SSOT-01..06]  
+**Success Criteria:**  
+- 文档+API 一致描述 SSOT 与 fallback_policy  
+- layered hybrid 可开关回 legacy；契约测试绿  
+- evidence 覆盖 ≥0.85 或 residual 分类账  
+- 分场景评测可复跑；hybrid 总体或分场景达到 CONTEXT 门禁  
+- Google 明确「未 KU 化」边界（Phase 16 草案）  
+**Plans:** 15-01-PLAN.md（W0–W5）  
+**Artifacts:** `phases/15-retrieval-ssot-governance/`  
+**Not in scope:** 删 raw/Chroma 历史；Google 全量 KU；写 live AgentsView  
+
+### Phase 16: Google Light Structuring
+**Goal:** 填充 `normalized_events` + 隐私过滤的聚合轻断言（兴趣主题/服务/频道/域名）。  
+**Depends on:** Phase 15  
+**Status:** **Complete** 2026-07-12  
+**Plans:** 16-01  
+**Live:** normalized **1696**；assertions **49**；脚本 `build_google_normalized_events` / `build_google_light_assertions`  
+**Not:** 对话式 KU 抽取；Maps/支付进入兴趣断言  
+
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -153,6 +177,8 @@
 | 08 | 0/1 | Deferred | - |
 | 09-13.5 | Legacy tracked | Complete | 2026-07-10 or earlier |
 | 14 | 6.5/7 (07 partial) | Near complete — wrap-up PASS | - |
+| 15 | 1/1 | **Complete** (W0–W5 gates) | 2026-07-12 |
+| 16 | 1/1 | **Complete** | 2026-07-12 |
 
 ---
 *Roadmap migrated from `.gsd/phases/` on 2026-07-10. Completed checkboxes follow the former authoritative STATE.md; source artifacts remain available for audit.*
