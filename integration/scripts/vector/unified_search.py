@@ -1,18 +1,20 @@
 """统一检索层 —— 所有接入方式(CLI/MCP/Agent/RAG平台)的公共后端。
 
-把两类能力合一:
-1. 语义检索(search_semantic):自然语言 → 向量库 → top-K 真实事件
-2. 精确查询(query_events):按源/时间/分类/关键词过滤 sqlite 原始库
+能力:
+1. 语义检索(search_knowledge_units): knowledge-first + raw fallback
+   读 active knowledge index，再补 personal_events 原始事件
+2. 知识状态(get_knowledge_status): active collection / unit_count / 版本行
+3. 精确查询(query_events):按源/时间/分类/关键词过滤 sqlite 原始库
+4. 记忆 /data 契约: 分页、导出、聚合、时间线、质量报告
 
 设计原则:
 - 纯函数,无副作用,任何上层都能调(CLI/HTTP/MCP/SDK)
-- 不直接打印,返回结构化 list[dict],由调用方决定怎么展示
+- 不直接打印,返回结构化 list[dict]/dict,由调用方决定怎么展示
 - 路径自适应(从本文件位置推算项目根),不依赖 cwd
-- 复用现有 search_vectors + chroma_client + local_embed,不重复造轮子
+- 复用 search_vectors + chroma_client + local_embed
 
-两类检索互补:
-- 语义检索:适合"我大概记得做过类似的事"(模糊召回)
-- 精确查询:适合"列出 2025 年 3 月所有 Agent 事件"(结构化过滤)
+CLI 入口: python integration/scripts/unified_search.py
+  semantic | knowledge | query | detail | stats | memory | ...
 """
 
 from __future__ import annotations
@@ -177,6 +179,86 @@ def _read_knowledge_active_collection() -> str:
         name = pointer.read_text(encoding="utf-8").strip()
         return name if name else ""
     return ""
+
+
+def get_knowledge_status(*, probe_chroma: bool = True) -> dict:
+    """知识索引只读状态（CLI / REST / MCP 共用）。
+
+    返回 active collection、pointer、版本行与（可选）Chroma 实际条数。
+    不暴露 promote/rollback；运维脚本仍走 knowledge/* 入口。
+    """
+    from core.project_paths import DB_DIR  # noqa: E402
+
+    pointer = DB_DIR / "knowledge_index_active.txt"
+    active = _read_knowledge_active_collection()
+    out: dict[str, Any] = {
+        "available": bool(active),
+        "active_collection": active or None,
+        "pointer_path": str(pointer),
+        "pointer_exists": pointer.exists(),
+        "search_backend": "search_knowledge_units",
+        "route_policy": "knowledge-first + raw fallback",
+        "semantic_routes": {
+            "cli": "unified_search.py semantic",
+            "rest": "POST /search/semantic",
+            "mcp": "search_semantic",
+        },
+        "unit_count": None,
+        "db_unit_count": None,
+        "version": {},
+        "chroma_available": False,
+    }
+
+    if active and UNIFIED_DB.exists():
+        try:
+            con = sqlite3.connect(f"file:{UNIFIED_DB.as_posix()}?mode=ro", uri=True)
+            row = con.execute(
+                "SELECT version_id, build_id, collection_name, unit_count, status, "
+                "created_at, activated_at, checksum "
+                "FROM knowledge_index_versions WHERE collection_name=? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (active,),
+            ).fetchone()
+            if row:
+                out["version"] = {
+                    "version_id": row[0],
+                    "build_id": row[1],
+                    "collection_name": row[2],
+                    "unit_count": row[3],
+                    "status": row[4],
+                    "created_at": row[5],
+                    "activated_at": row[6],
+                    "checksum": (row[7] or "")[:16] + ("…" if row[7] and len(row[7]) > 16 else ""),
+                }
+                out["db_unit_count"] = row[3]
+                if out["unit_count"] is None:
+                    out["unit_count"] = row[3]
+            # canonical current count (may span multiple runs for merged index)
+            try:
+                cur = con.execute(
+                    "SELECT COUNT(*) FROM canonical_knowledge_units WHERE status='current'"
+                ).fetchone()
+                out["canonical_current_count"] = cur[0] if cur else None
+            except sqlite3.Error:
+                out["canonical_current_count"] = None
+            con.close()
+        except Exception as e:
+            out["db_error"] = str(e)[:120]
+
+    if probe_chroma and active:
+        try:
+            from chroma_client import ChromaClient  # noqa: E402
+
+            client = ChromaClient(port=_KU_PORT)
+            coll = client.get_or_create_collection(active)
+            count = coll.count()
+            out["unit_count"] = count
+            out["chroma_available"] = True
+            out["chroma_port"] = _KU_PORT
+        except Exception as e:
+            out["chroma_error"] = str(e)[:120]
+
+    return out
 
 
 def search_knowledge_units(
@@ -443,22 +525,26 @@ def get_event_detail(event_id: str) -> Optional[dict]:
 
 
 def stats() -> dict:
-    """返回数据库+向量库的统计概览(给 AI 快速建立认知用)。"""
-    con = sqlite3.connect(UNIFIED_DB)
-    con.row_factory = sqlite3.Row
+    """返回数据库+向量库+知识索引的统计概览(给 AI 快速建立认知用)。"""
     out: dict = {
-        "total_events": con.execute("SELECT COUNT(*) FROM unified_events").fetchone()[0],
-        "by_source": {
+        "total_events": 0,
+        "by_source": {},
+        "active_months": 0,
+    }
+    if UNIFIED_DB.exists():
+        con = sqlite3.connect(UNIFIED_DB)
+        con.row_factory = sqlite3.Row
+        out["total_events"] = con.execute("SELECT COUNT(*) FROM unified_events").fetchone()[0]
+        out["by_source"] = {
             r[0]: r[1]
             for r in con.execute(
                 "SELECT source, COUNT(*) FROM unified_events GROUP BY source ORDER BY 2 DESC"
             )
-        },
-        "active_months": con.execute(
+        }
+        out["active_months"] = con.execute(
             "SELECT COUNT(DISTINCT substr(month,1,7)) FROM unified_events WHERE length(month)>=7"
-        ).fetchone()[0],
-    }
-    con.close()
+        ).fetchone()[0]
+        con.close()
     # 向量库统计(失败不影响主流程)
     try:
         from chroma_client import ChromaClient
@@ -476,6 +562,8 @@ def stats() -> dict:
     except Exception as e:
         out["vector_available"] = False
         out["vector_error"] = str(e)[:120]
+    # Phase 14: knowledge index（CLI/REST/MCP 语义检索共用）
+    out["knowledge"] = get_knowledge_status(probe_chroma=True)
     return out
 
 
@@ -2116,15 +2204,19 @@ def _cli() -> None:
     import json
 
     p = argparse.ArgumentParser(
-        description="统一检索层 CLI:语义检索 + 精确查询",
+        description="统一检索层 CLI: 知识混合语义检索 + 精确查询 + 记忆/知识状态",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 语义检索(模糊召回)
+  # 语义检索(knowledge-first + raw fallback；读 active knowledge index)
   python unified_search.py semantic "PPT 排版怎么做" --top-k 3
   python unified_search.py semantic "数据库调试" --source Agent
 
-  # 语义检索 + 去重(合并层折叠重复命中)
+  # 知识索引状态(active collection / unit_count)
+  python unified_search.py knowledge
+  python unified_search.py knowledge --json
+
+  # 语义检索 + 去重(合并层折叠重复命中；仅影响 raw 侧展示)
   python unified_search.py semantic "PPT" --top-k 8 --dedup
 
   # 精确查询(结构化过滤)
@@ -2135,7 +2227,7 @@ def _cli() -> None:
   # 单条详情
   python unified_search.py detail <event_id>
 
-  # 统计概览
+  # 统计概览(含 knowledge 块)
   python unified_search.py stats
   python unified_search.py merge-stats        # 合并层压缩报告
 
@@ -2151,6 +2243,7 @@ def _cli() -> None:
 
   # JSON 输出(便于其他程序消费)—— --json 跟在子命令后
   python unified_search.py semantic "PPT" --json
+  python unified_search.py knowledge --json
   python unified_search.py stats --json
   python unified_search.py merge-stats --json
   python unified_search.py cluster --json --limit 500    # 调试用小样本
@@ -2158,13 +2251,21 @@ def _cli() -> None:
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    ps = sub.add_parser("semantic", help="语义检索(自然语言)")
+    ps = sub.add_parser("semantic", help="语义检索(knowledge-first + raw fallback)")
     ps.add_argument("query")
     ps.add_argument("--top-k", type=int, default=5)
     ps.add_argument("--source", default=None)
     ps.add_argument("--dedup", action="store_true",
                     help="按合并层折叠重复命中(L1/L2 同簇只留代表,附 merged_count)")
     ps.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
+
+    pk = sub.add_parser("knowledge", help="知识索引状态(active pointer / unit_count)")
+    pk.add_argument(
+        "--no-chroma",
+        action="store_true",
+        help="不探测 Chroma，仅读 pointer + SQLite 版本行",
+    )
+    pk.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
 
     pq = sub.add_parser("query", help="精确查询(结构化过滤)")
     pq.add_argument("--source", default=None)
@@ -2180,7 +2281,7 @@ def _cli() -> None:
     pd.add_argument("event_id")
     pd.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
 
-    pst = sub.add_parser("stats", help="数据库+向量库统计")
+    pst = sub.add_parser("stats", help="数据库+向量库+知识索引统计")
     pst.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
 
     pms = sub.add_parser("merge-stats", help="合并层压缩报告(L1/L2 去重情况)")
@@ -2225,6 +2326,8 @@ def _cli() -> None:
         if args.json:
             print(json.dumps(ku_result, ensure_ascii=False, indent=2, default=str))
             return
+    elif args.cmd == "knowledge":
+        data = get_knowledge_status(probe_chroma=not args.no_chroma)
     elif args.cmd == "query":
         data = query_events(
             source=args.source, month=args.month,
@@ -2263,6 +2366,14 @@ def _cli() -> None:
 
     # 人类可读输出
     if args.cmd == "semantic":
+        route = ku_result.get("route", "")
+        versions = ku_result.get("versions") or {}
+        print(f"检索路由: {route or '(n/a)'}")
+        if versions:
+            print(
+                f"知识索引: {versions.get('index_version') or versions.get('collection') or ''} "
+                f"build={versions.get('build_id', '')} units={versions.get('unit_count', '')}"
+            )
         if not data:
             print("无匹配结果")
             return
@@ -2283,6 +2394,24 @@ def _cli() -> None:
             c = (content or "")[:200]
             print(f"   内容: {c}{'…' if len(content or '')>200 else ''}")
         print(f"\n共 {len(data)} 条")
+    elif args.cmd == "knowledge":
+        print(f"知识索引 available: {data.get('available')}")
+        print(f"active collection: {data.get('active_collection') or '(none)'}")
+        print(f"unit_count: {data.get('unit_count')}")
+        print(f"canonical_current: {data.get('canonical_current_count')}")
+        print(f"route_policy: {data.get('route_policy')}")
+        print(f"chroma: {'ok' if data.get('chroma_available') else data.get('chroma_error', 'n/a')}")
+        ver = data.get("version") or {}
+        if ver:
+            print(
+                f"version: status={ver.get('status')} build={ver.get('build_id')} "
+                f"db_units={ver.get('unit_count')} activated={ver.get('activated_at')}"
+            )
+        routes = data.get("semantic_routes") or {}
+        if routes:
+            print("semantic routes:")
+            for k, v in routes.items():
+                print(f"  {k}: {v}")
     elif args.cmd == "query":
         if not data:
             print("无匹配结果")
@@ -2302,7 +2431,7 @@ def _cli() -> None:
         print(f"总事件: {data['total_events']:,}")
         print(f"活跃月份: {data['active_months']}")
         print("按源分布:")
-        for s, n in data["by_source"].items():
+        for s, n in data.get("by_source", {}).items():
             print(f"  {s}: {n:,}")
         if data.get("vector_available"):
             print(f"向量库: {data['vector_count']:,} 条 (personal_events)")
@@ -2310,6 +2439,14 @@ def _cli() -> None:
                 print(f"turn 叙述: {data['conversation_turns_count']:,} 条 (conversation_turns)")
         else:
             print(f"向量库: 不可用({data.get('vector_error','')})")
+        ku = data.get("knowledge") or {}
+        if ku:
+            print(
+                f"知识索引: {'available' if ku.get('available') else 'unavailable'} "
+                f"collection={ku.get('active_collection') or '(none)'} "
+                f"units={ku.get('unit_count')} "
+                f"policy={ku.get('route_policy')}"
+            )
     elif args.cmd == "merge-stats":
         if not data.get("available"):
             print(data.get("hint", "合并层未构建"))

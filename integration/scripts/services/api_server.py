@@ -8,15 +8,17 @@
 
 === 接口列表 ============================================================
 
-GET  /stats                 数据库 + 向量库统计概览
+GET  /stats                 数据库 + 向量库 + 知识索引统计概览
+GET  /knowledge             知识索引状态(active collection / unit_count)
+GET  /knowledge/status      同上(别名)
 GET  /categories            所有 category_v2 分布(?source=可选过滤)
 GET  /memory                长期记忆概览(?type=可选过滤)
 GET  /memory/<subject>      单条记忆详情 + 关系(?neighbors=N 可选)
-POST /search/semantic       语义检索(自然语言 → 向量库召回)
+POST /search/semantic       语义检索(knowledge-first + raw fallback)
 POST /search/query          精确查询(结构化条件过滤 sqlite)
 GET  /event/<event_id>      单条事件全字段
 GET  /profile               返回 AI 长期上下文文档内容(RAG 注入用)
-GET  /health                健康检查
+GET  /health                健康检查(含 knowledge.active_collection)
 
 GET  接口也可改用 POST(方便前端统一处理),参数走 query string。
 POST 接口参数走 JSON body。
@@ -32,7 +34,10 @@ POST 接口参数走 JSON body。
     # 统计概览
     curl http://127.0.0.1:8000/stats
 
-    # 语义检索(POST + JSON)
+    # 知识索引状态
+    curl http://127.0.0.1:8000/knowledge
+
+    # 语义检索(POST + JSON；knowledge-first + raw fallback)
     curl -X POST http://127.0.0.1:8000/search/semantic ^
          -H "Content-Type: application/json" ^
          -d "{\"query\": \"PPT 排版\", \"top_k\": 3}"
@@ -155,11 +160,28 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             if path == "/health":
-                self._send(_ok({"status": "ok"}))
+                ku = backend.get_knowledge_status(probe_chroma=False)
+                self._send(
+                    _ok(
+                        {
+                            "status": "ok",
+                            "knowledge": {
+                                "available": ku.get("available"),
+                                "active_collection": ku.get("active_collection"),
+                                "unit_count": ku.get("unit_count") or ku.get("db_unit_count"),
+                            },
+                        }
+                    )
+                )
                 return
 
             if path == "/stats":
                 self._send(_ok(backend.stats()))
+                return
+
+            if path in ("/knowledge", "/knowledge/status"):
+                probe = not _truthy(qs.get("no_chroma"))
+                self._send(_ok(backend.get_knowledge_status(probe_chroma=probe)))
                 return
 
             if path == "/categories":
@@ -353,10 +375,13 @@ class Handler(BaseHTTPRequestHandler):
                     b, c = _err("缺少 query 参数")
                     self._send(b, c)
                     return
+                # knowledge-first + raw fallback；可选 collection_override 仅用于 canary/评测
                 result = backend.search_knowledge_units(
                     query=query,
                     top_k=int(body.get("top_k", 5)),
                     source=body.get("source"),
+                    include_evidence=bool(body.get("include_evidence", False)),
+                    collection_override=(body.get("collection") or body.get("collection_override") or None),
                 )
                 self._send(_ok(result))
                 return
@@ -390,15 +415,17 @@ def main() -> None:
     print(f"[api] 个人数据 REST API 启动:")
     print(f"[api]   http://{args.host}:{args.port}")
     print(f"[api] 接口:")
-    print(f"[api]   GET  /health               健康检查")
-    print(f"[api]   GET  /stats                数据库+向量库统计")
+    print(f"[api]   GET  /health               健康检查(+knowledge 摘要)")
+    print(f"[api]   GET  /stats                数据库+向量库+知识索引统计")
+    print(f"[api]   GET  /knowledge            知识索引状态(?no_chroma=1)")
     print(f"[api]   GET  /categories           分类分布(?source=可选)")
     print(f"[api]   GET  /memory               长期记忆概览(?type=可选)")
     print(f"[api]   GET  /memory/<subject>     单条记忆详情(+?neighbors=N)")
-    print(f"[api]   POST /search/semantic      语义检索(向量库)")
+    print(f"[api]   POST /search/semantic      语义检索(knowledge-first)")
     print(f"[api]   POST /search/query         精确查询(sqlite)")
     print(f"[api]   GET  /event/<id>           单条事件详情")
     print(f"[api]   GET  /profile              AI 长期上下文文档(RAG 注入)")
+    print(f"[api]   GET  /data/*               分页/导出/聚合/时间线/质量")
     print(f"[api] Ctrl+C 退出")
     try:
         server.serve_forever()

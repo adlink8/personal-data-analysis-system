@@ -1,18 +1,19 @@
-"""个人数据系统 MCP Server —— 把向量库 + 数据库暴露为 MCP tools。
+"""个人数据系统 MCP Server —— 把向量库 + 数据库 + 知识索引暴露为 MCP tools。
 
 让任何支持 MCP 的 AI 客户端(Claude Desktop / Cursor / ZCode / Continue 等)
-能直接检索用户的历史数据,无需手写集成代码。
+能直接检索用户的历史数据与知识单元,无需手写集成代码。
 
-暴露 17 个 tools(共享同一统合库与检索语义):
+暴露 18 个 tools(共享同一统合库与检索语义):
 
-  1. search_semantic  自然语言 → 向量库 → top-K 真实事件(模糊召回)
+  1. search_semantic  knowledge-first + raw fallback 混合语义检索(对齐 REST/CLI)
   2. query_events     按源/时间/分类/关键词精确过滤 sqlite(结构化查询)
   3. get_event_detail 按 event_id 取单条全字段(点开看详情)
-  4. stats            数据库 + 向量库的统计概览(AI 建立认知的第一步)
-  5. list_categories  列出所有 category_v2 分布(帮 AI 知道有哪些维度可过滤)
-  6. get_memory_profile 长期记忆概览(tooling/preference/capability/fact/project/habit)
-  7. get_memory_by_subject 按主体查询单条记忆 + 图谱关系
-  8-17. data_*       对齐 REST /data/* 的分页、导出、聚合、时间线、ID 查询和质量检查
+  4. stats            数据库 + 向量库 + 知识索引统计概览
+  5. knowledge_status active 知识索引状态(collection / unit_count)
+  6. list_categories  列出所有 category_v2 分布(帮 AI 知道有哪些维度可过滤)
+  7. get_memory_profile 长期记忆概览(tooling/preference/capability/fact/project/habit)
+  8. get_memory_by_subject 按主体查询单条记忆 + 图谱关系
+  9-18. data_*       对齐 REST /data/* 的分页、导出、聚合、时间线、ID 查询和质量检查
 
 启动方式(stdio 传输,MCP 标准协议):
 
@@ -103,9 +104,10 @@ TOOLS = [
     types.Tool(
         name="search_semantic",
         description=(
-            "语义检索用户历史事件(自然语言 → 向量库召回)。"
+            "语义检索(knowledge-first + raw fallback)。"
+            "先查 active 知识单元索引(结构化 Q&A),再回落 personal_events 原始事件。"
             "适合'我大概记得做过类似的事'这类模糊查询。"
-            "返回按相似度降序的真实事件,含来源/时间/分类/内容。"
+            "返回 route、versions 与结果列表;结果可能是 knowledge_unit 或 event。"
         ),
         inputSchema={
             "type": "object",
@@ -123,7 +125,7 @@ TOOLS = [
                 },
                 "source": {
                     "type": "string",
-                    "description": "过滤数据源:Google / GPT / Agent。不传则全源检索",
+                    "description": "过滤 raw 事件数据源:Google / GPT / Agent。不传则全源(不影响知识层)",
                     "enum": ["Google", "GPT", "Agent"],
                 },
             },
@@ -188,10 +190,28 @@ TOOLS = [
     types.Tool(
         name="stats",
         description=(
-            "数据库 + 向量库的统计概览。建议 AI 在回答前先调一次,"
-            "了解数据总量、按源分布、向量库可用性,建立全局认知。"
+            "数据库 + 向量库 + 知识索引的统计概览。建议 AI 在回答前先调一次,"
+            "了解数据总量、按源分布、向量库可用性与 active 知识 collection,建立全局认知。"
         ),
         inputSchema={"type": "object", "properties": {}},
+    ),
+    types.Tool(
+        name="knowledge_status",
+        description=(
+            "知识单元索引只读状态: active collection 名、unit_count、canonical_current、"
+            "route_policy、以及 CLI/REST/MCP 语义入口对应关系。"
+            "对齐 GET /knowledge。不执行 promote/rollback。"
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "probe_chroma": {
+                    "type": "boolean",
+                    "description": "是否探测 Chroma 实际条数(默认 true)",
+                    "default": True,
+                },
+            },
+        },
     ),
     types.Tool(
         name="list_categories",
@@ -440,9 +460,21 @@ def _format_semantic(ku_result: dict) -> str:
     """
     results = ku_result.get("results", [])
     route = ku_result.get("route", "")
+    versions = ku_result.get("versions") or {}
     if not results:
-        return "无匹配结果(向量库可能未构建,或查询无相关内容)。"
-    lines = [f"检索路由: {route}  共召回 {len(results)} 条(按相似度降序):", ""]
+        return (
+            f"无匹配结果(route={route or 'n/a'})。"
+            "可能知识索引未 promote、向量库未构建,或查询无相关内容。"
+        )
+    lines = [
+        f"检索路由: {route}  共召回 {len(results)} 条(knowledge-first + raw fallback):",
+    ]
+    if versions:
+        lines.append(
+            f"知识索引版本: {versions.get('index_version') or versions.get('collection') or ''} "
+            f"build={versions.get('build_id', '')} units={versions.get('unit_count', '')}"
+        )
+    lines.append("")
     for i, r in enumerate(results, 1):
         unit = r.get("retrieval_unit", "")
         subj = r.get("subject", r.get("title", ""))
@@ -451,6 +483,8 @@ def _format_semantic(ku_result: dict) -> str:
             f"#{i} [score={r.get('score', '?')}] [{src}] "
             f"{(subj or '(无标题)')[:60]}"
         )
+        if unit:
+            lines.append(f"   retrieval_unit: {unit}")
         if r.get("event_id"):
             lines.append(f"   event_id: {r['event_id']}")
         if r.get("unit_id"):
@@ -503,6 +537,40 @@ def _format_stats(data: dict) -> str:
         lines.append(f"向量库: {data.get('vector_count', 0):,} 条(可语义检索)")
     else:
         lines.append(f"向量库: 不可用({data.get('vector_error', '')})")
+    ku = data.get("knowledge") or {}
+    if ku:
+        lines.append(
+            f"知识索引: available={ku.get('available')} "
+            f"collection={ku.get('active_collection') or '(none)'} "
+            f"units={ku.get('unit_count')} "
+            f"policy={ku.get('route_policy')}"
+        )
+    return "\n".join(lines)
+
+
+def _format_knowledge_status(data: dict) -> str:
+    lines = [
+        f"available: {data.get('available')}",
+        f"active_collection: {data.get('active_collection') or '(none)'}",
+        f"unit_count: {data.get('unit_count')}",
+        f"db_unit_count: {data.get('db_unit_count')}",
+        f"canonical_current_count: {data.get('canonical_current_count')}",
+        f"route_policy: {data.get('route_policy')}",
+        f"chroma_available: {data.get('chroma_available')}",
+    ]
+    if data.get("chroma_error"):
+        lines.append(f"chroma_error: {data.get('chroma_error')}")
+    ver = data.get("version") or {}
+    if ver:
+        lines.append(
+            f"version: status={ver.get('status')} build={ver.get('build_id')} "
+            f"activated={ver.get('activated_at')}"
+        )
+    routes = data.get("semantic_routes") or {}
+    if routes:
+        lines.append("semantic_routes:")
+        for k, v in routes.items():
+            lines.append(f"  {k}: {v}")
     return "\n".join(lines)
 
 
@@ -624,6 +692,13 @@ async def handle_call_tool(
         elif name == "stats":
             data = backend.stats()
             text = _format_stats(data)
+
+        elif name == "knowledge_status":
+            probe = arguments.get("probe_chroma", True)
+            if isinstance(probe, str):
+                probe = probe.strip().lower() not in {"0", "false", "no", "off"}
+            data = backend.get_knowledge_status(probe_chroma=bool(probe))
+            text = _format_knowledge_status(data)
 
         elif name == "list_categories":
             rows = backend.list_categories(arguments.get("source"))
