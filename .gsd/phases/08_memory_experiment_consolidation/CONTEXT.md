@@ -12,21 +12,21 @@ depends_on:
 
 ## Core Reframe
 
-旧的 `memory_items` / `memory_relations` 不是最终真理层，而是第一代记忆实验产物：
+旧的 `memory_items` / `memory_relations` 不是最终真理层，而是第一代记忆机制实验：
 
 - 输入：`unified_events`、旧实体/事件/合并层。
 - 方法：scripts规则筛选、scripts规则构图。
 - 结果：`memory_items=194`、`memory_relations=27`。
 - 问题：规则可解释但浅，容易固化早期假设，缺少对高密度对话上下文的理解。
 
-Phase 07 产物是第二代记忆实验产物：
+Phase 07 是第二代记忆机制实验：
 
 - 输入：规范化后的 Agent/GPT 对话、turn 级高密度叙述压缩。
 - 方法：向量候选召回 + LLM 提示词判边 + evidence gate。
 - 结果：`conversation_summaries=164 sessions / 2046 turns`、`graph_relation_candidates=4652`、`graph_relation_judgments=4652`、accepted graph edges `19`。
 - 问题：更懂上下文和关系，但仍然是实验判断，不应直接成为长期记忆事实。
 
-Phase 08 不把旧层视为权威层，也不把新层直接推成权威层。Phase 08 的目标是把两组实验产物放在同一个评估框架里做汇总、对比、融合和删减。
+Phase 08 不把旧层视为权威层，也不把新层直接推成权威层。Phase 08 的目标不是比较两组产物里的具体记忆谁更好，而是把两套机制拆成输入、切分、压缩、候选、判断、证据门、写入边界等方法环节，合并成一条新的主线 pipeline。
 
 ## Method Shift
 
@@ -38,13 +38,13 @@ Phase 08 的核心判断不再回到scripts规则。scripts只负责：
 - 校验 schema / evidence_refs / gate_status。
 - 写入审计表和报告。
 
-真正的“是否有长期价值、是否重复、是否冲突、是否应晋级”由提示词约束下的大模型对高密度压缩对话和旧 memory evidence 进行判断。
+真正的语义判断由提示词约束下的大模型完成，但对象应先是“机制步骤如何合并”：哪些步骤保留 scripts，哪些步骤交给 LLM，哪些步骤需要人工 gate。具体记忆是否晋级是后续 promotion gate 的结果，不是 Phase 08 对比的核心。
 
-这意味着 Phase 08 不是把旧scripts规则加一层补丁，而是把旧规则实验和新 LLM 图谱实验统一迁移到“LLM judge + evidence gate + human review”的评估框架里。
+这意味着 Phase 08 不是把旧 scripts 规则加一层补丁，也不是把旧 memory item 和新 graph edge 逐条 PK，而是把旧规则机制和新 LLM 图谱机制统一迁移到“deterministic orchestration + LLM semantic judgment + evidence gate + human review”的方法框架里。
 
 ## Current Data Separation
 
-当前存在两组主要分隔的数据：
+当前存在两组主要分隔的数据，它们用于分析机制效果，但不是 Phase 08 的直接比较对象：
 
 | Layer | Storage | Key IDs | Current Role |
 | --- | --- | --- | --- |
@@ -61,11 +61,12 @@ Phase 08 的核心判断不再回到scripts规则。scripts只负责：
 
 Phase 08 不继续在 Phase 07 里堆功能。它是新的收敛阶段：
 
-1. 把旧规则记忆实验和新 LLM 图谱实验放到同一张审计表里对比。
-2. 建立“晋级候选层”，而不是直接写 `memory_items`。
-3. 设计人工/LLM 双 gate，判断哪些结果值得成为长期记忆。
-4. 删除或废弃过度复杂、低收益、重复的旧scripts/表/流程入口。
-5. 最终产出一个更小、更清楚、更可信的 memory pipeline。
+1. 把旧规则机制和新 LLM 图谱机制拆成同一套 pipeline 步骤。
+2. 输出机制融合矩阵：每一步保留旧方法、采用新方法、合并方法或删除。
+3. 基于融合后的机制建立“候选边界”，而不是直接写 `memory_items`。
+4. 设计人工/LLM 双 gate，判断候选何时才值得成为长期记忆。
+5. 删除或废弃过度复杂、低收益、重复的旧 scripts/表/流程入口。
+6. 最终产出一个更小、更清楚、更可信的 memory pipeline。
 
 ## Constraints
 
@@ -82,7 +83,7 @@ Phase 08 不继续在 Phase 07 里堆功能。它是新的收敛阶段：
 raw data
 -> normalized events / conversations
 -> compression and candidate extraction
--> experiment comparison layer
+-> mechanism decomposition and fusion matrix
 -> promotion candidates
 -> review / gate
 -> compact long-term memory store
