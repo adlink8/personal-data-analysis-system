@@ -1,9 +1,9 @@
 """统一检索层 —— 所有接入方式(CLI/MCP/Agent/RAG平台)的公共后端。
 
 能力:
-1. 语义检索(search_knowledge_units): knowledge-first + raw fallback
-   读 active knowledge index，再补 personal_events 原始事件
-2. 知识状态(get_knowledge_status): active collection / unit_count / 版本行
+1. 语义检索(search_knowledge_units): knowledge-first + layered/legacy fallback
+   读 active knowledge index；layered=dialogue→Google events；legacy=全量 personal_events
+2. 知识状态(get_knowledge_status): active collection / unit_count / fallback_policy / 版本行
 3. 精确查询(query_events):按源/时间/分类/关键词过滤 sqlite 原始库
 4. 记忆 /data 契约: 分页、导出、聚合、时间线、质量报告
 
@@ -20,6 +20,8 @@ CLI 入口: python integration/scripts/unified_search.py
 from __future__ import annotations
 
 import json
+import os
+import re
 import sqlite3
 import csv
 import io
@@ -162,13 +164,228 @@ def search_semantic(
     return out
 
 
-# --- Knowledge unit hybrid retrieval (Phase 14 Wave 4) ---
+# --- Knowledge unit hybrid retrieval (Phase 14 Wave 4 / Phase 15 Wave 2) ---
 
-# 混合策略：知识层贡献结构化语义结果，raw personal_events 覆盖字面/代码匹配。
-# 经 frozen A/B slot sweep 验证 ku:raw = 1:4 达到 Recall@5=0.85（与 PoC 持平，远超纯 raw 0.50）。
+# 混合策略：知识层贡献结构化语义结果；raw 层可配置:
+#   legacy  — KU 后补全量 personal_events（旧行为）
+#   layered — KU → canonical message 片段/词检索(dialogue) → conversation_turns
+#             → personal_events(Google) → 可选 legacy_pad
+# Phase 15 W4: message 级 dialogue 补洞（frozen gold snippet R@8=1.0 on canonical）。
 _KU_SLOTS = 1
 _RAW_SLOTS_DEFAULT = 4
 _KU_PORT = 8001
+
+FALLBACK_POLICIES = ("legacy", "layered")
+DEFAULT_FALLBACK_POLICY = "layered"
+CONVERSATION_TURNS_COLLECTION = "conversation_turns"
+CANONICAL_MESSAGES_COLLECTION = "canonical_messages"
+_NON_DIALOGUE_PREFERRED_SOURCE = "Google"
+
+
+def _resolve_fallback_policy(fallback_policy: str | None = None) -> str:
+    """Resolve hybrid fallback policy from arg or env PERSONAL_DATA_FALLBACK_POLICY."""
+    if fallback_policy is None:
+        raw = os.environ.get("PERSONAL_DATA_FALLBACK_POLICY", DEFAULT_FALLBACK_POLICY)
+    else:
+        raw = fallback_policy
+    policy = (raw or DEFAULT_FALLBACK_POLICY).strip().lower()
+    if policy not in FALLBACK_POLICIES:
+        return DEFAULT_FALLBACK_POLICY
+    return policy
+
+
+def _resolve_allow_legacy_pad(allow_legacy_pad: bool | None = None) -> bool:
+    """Whether layered mode may pad with non-Google personal_events when still short.
+
+    Default True (transition safety). Env: PERSONAL_DATA_ALLOW_LEGACY_PAD=0|1|true|false.
+    """
+    if allow_legacy_pad is not None:
+        return bool(allow_legacy_pad)
+    env = os.environ.get("PERSONAL_DATA_ALLOW_LEGACY_PAD")
+    if env is None or not str(env).strip():
+        return True
+    return str(env).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _raw_event_item(
+    ev: dict,
+    *,
+    retrieval_unit: str,
+    collection: str,
+    rank_reason: str,
+) -> dict:
+    """Normalize a vector search hit into the hybrid result schema."""
+    title = ev.get("title") or ev.get("main_topic") or ""
+    return {
+        "unit_id": ev.get("event_id", ""),
+        "subject": str(title)[:80],
+        "answer": (ev.get("content") or "")[:300],
+        "score": ev.get("score", 0),
+        "lifecycle": "current",
+        "confidence": 0,
+        "source_message_ref": "",
+        "collection": collection,
+        "retrieval_unit": retrieval_unit,
+        "rank_reason": rank_reason,
+        "event_id": ev.get("event_id", ""),
+        "source": ev.get("source", ""),
+        "event_time": ev.get("event_time", ""),
+    }
+
+
+def _search_personal_events_filtered(
+    query: str,
+    top_k: int,
+    source: Optional[str],
+) -> list[dict]:
+    """Query personal_events; prefer server-side where, else client-side source filter."""
+    if top_k <= 0:
+        return []
+    try:
+        return _semantic_search(query, top_k=top_k, source=source)
+    except Exception:
+        pass
+    # where may be unsupported / broken — fetch wider and filter client-side
+    try:
+        events = _semantic_search(query, top_k=max(top_k * 3, top_k), source=None)
+    except Exception:
+        return []
+    if not source:
+        return events[:top_k]
+    filtered = [e for e in events if (e.get("source") or "") == source]
+    return filtered[:top_k] if filtered else []
+
+
+def _like_escape(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _query_tokens(query: str, max_toks: int = 4) -> list[str]:
+    """Extract distinctive CJK/latin tokens for AND-style LIKE search."""
+    toks = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z_][A-Za-z0-9_\-]{3,}", query or "")
+    # longer first (more distinctive for code / paths)
+    ordered = sorted(set(toks), key=len, reverse=True)
+    return ordered[:max_toks]
+
+
+def _search_dialogue_canonical_messages(
+    query: str,
+    top_k: int = 5,
+    db_path: Path | None = None,
+) -> list[dict]:
+    """Message-level dialogue fallback on canonical_messages (read-only).
+
+    Strategy (Phase 15 W4):
+    1) For long pastes: sliding snippet LIKE (handles code-literal gold)
+    2) Else: multi-token AND LIKE on distinctive terms
+
+    Returns hybrid-schema items with unit_id = canonical_message_id (cm|…).
+    """
+    if top_k <= 0 or not (query or "").strip():
+        return []
+    try:
+        from core.project_paths import AGENT_CONVERSATIONS_DB  # noqa: E402
+    except Exception:
+        AGENT_CONVERSATIONS_DB = ROOT / "Agent" / "structured" / "db" / "agent_conversations.sqlite"
+    path = Path(db_path) if db_path else AGENT_CONVERSATIONS_DB
+    if not path.exists():
+        return []
+
+    q = query.strip()
+    rows: list[tuple] = []
+    try:
+        con = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+        try:
+            con.execute("PRAGMA query_only=ON")
+        except Exception:
+            pass
+        # Prefer non-system messages when column exists
+        try:
+            cols = {r[1] for r in con.execute("PRAGMA table_info(canonical_messages)")}
+        except Exception:
+            cols = set()
+        if "canonical_message_id" not in cols or "content" not in cols:
+            con.close()
+            return []
+
+        base_where = "1=1"
+        if "is_system" in cols:
+            base_where += " AND COALESCE(is_system,0)=0"
+
+        if len(q) >= 40:
+            for start in (0, 20, 50, 100, min(200, max(0, len(q) - 40))):
+                snip = q[start : start + 40]
+                if len(snip) < 20:
+                    continue
+                esc = _like_escape(snip)
+                sql = (
+                    "SELECT canonical_message_id, role, substr(content,1,300), "
+                    "COALESCE(timestamp,''), COALESCE(source,'') "
+                    f"FROM canonical_messages WHERE {base_where} "
+                    "AND content LIKE ? ESCAPE '\\' LIMIT ?"
+                )
+                try:
+                    found = con.execute(sql, (f"%{esc}%", top_k * 2)).fetchall()
+                except Exception:
+                    found = []
+                if found:
+                    rows = found
+                    break
+
+        if not rows:
+            toks = _query_tokens(q, max_toks=4)
+            if toks:
+                sql = (
+                    "SELECT canonical_message_id, role, substr(content,1,300), "
+                    "COALESCE(timestamp,''), COALESCE(source,'') "
+                    f"FROM canonical_messages WHERE {base_where}"
+                )
+                params: list[Any] = []
+                for t in toks:
+                    sql += " AND content LIKE ? ESCAPE '\\'"
+                    params.append(f"%{_like_escape(t)}%")
+                sql += " LIMIT ?"
+                params.append(top_k * 2)
+                try:
+                    rows = con.execute(sql, params).fetchall()
+                except Exception:
+                    rows = []
+        con.close()
+    except Exception:
+        return []
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for mid, role, content, ts, src in rows:
+        mid = str(mid or "")
+        if not mid or mid in seen:
+            continue
+        seen.add(mid)
+        # Prefer higher score for earlier ranks; user messages slight boost
+        base = 0.92 - 0.02 * len(out)
+        if (role or "") == "user":
+            base = min(0.99, base + 0.03)
+        out.append(
+            {
+                "unit_id": mid,
+                "subject": f"dialogue:{(role or 'msg')}"[:80],
+                "answer": (content or "")[:300],
+                "score": round(base, 4),
+                "lifecycle": "current",
+                "confidence": 0,
+                "source_message_ref": mid,
+                "collection": CANONICAL_MESSAGES_COLLECTION,
+                "retrieval_unit": "dialogue",
+                "rank_reason": "dialogue_fallback canonical_messages",
+                "event_id": mid,
+                "source": src or "Agent",
+                "event_time": ts or "",
+                "role": role or "",
+            }
+        )
+        if len(out) >= top_k:
+            break
+    return out
 
 
 def _read_knowledge_active_collection() -> str:
@@ -181,23 +398,81 @@ def _read_knowledge_active_collection() -> str:
     return ""
 
 
+def get_google_structure_status(db_path: Path | None = None) -> dict:
+    """Phase 16: Google light structure status (normalized_events + light assertions)."""
+    path = Path(db_path) if db_path else (ROOT / "Google" / "structured" / "db" / "google_data.sqlite")
+    out: dict[str, Any] = {
+        "available": path.exists(),
+        "db_path": str(path),
+        "activities": None,
+        "normalized_events": None,
+        "light_assertions": None,
+        "assertions_by_type": {},
+        "event_id_prefix": "g|",
+        "note": "aggregate signals only; not dialogue knowledge_units",
+    }
+    if not path.exists():
+        return out
+    try:
+        con = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+        tables = {
+            r[0]
+            for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if "activities" in tables:
+            out["activities"] = con.execute("SELECT COUNT(*) FROM activities").fetchone()[0]
+        if "normalized_events" in tables:
+            out["normalized_events"] = con.execute(
+                "SELECT COUNT(*) FROM normalized_events"
+            ).fetchone()[0]
+        if "google_light_assertions" in tables:
+            out["light_assertions"] = con.execute(
+                "SELECT COUNT(*) FROM google_light_assertions WHERE status='current'"
+            ).fetchone()[0]
+            out["assertions_by_type"] = dict(
+                con.execute(
+                    "SELECT assertion_type, COUNT(*) FROM google_light_assertions "
+                    "WHERE status='current' GROUP BY 1"
+                ).fetchall()
+            )
+        con.close()
+    except Exception as e:
+        out["error"] = str(e)[:200]
+    return out
+
+
 def get_knowledge_status(*, probe_chroma: bool = True) -> dict:
     """知识索引只读状态（CLI / REST / MCP 共用）。
 
-    返回 active collection、pointer、版本行与（可选）Chroma 实际条数。
+    返回 active collection、pointer、版本行、fallback_policy/ssot 与（可选）Chroma 实际条数。
     不暴露 promote/rollback；运维脚本仍走 knowledge/* 入口。
     """
     from core.project_paths import DB_DIR  # noqa: E402
 
     pointer = DB_DIR / "knowledge_index_active.txt"
     active = _read_knowledge_active_collection()
+    policy = _resolve_fallback_policy(None)
+    if policy == "layered":
+        route_policy = "knowledge-first + layered fallback (dialogue→non_dialogue_raw)"
+    else:
+        route_policy = "knowledge-first + raw fallback"
     out: dict[str, Any] = {
         "available": bool(active),
         "active_collection": active or None,
         "pointer_path": str(pointer),
         "pointer_exists": pointer.exists(),
         "search_backend": "search_knowledge_units",
-        "route_policy": "knowledge-first + raw fallback",
+        "route_policy": route_policy,
+        # Phase 15: 三层 SSOT 与 fallback 策略（见 integration/docs/retrieval-ssot.md）
+        # fallback_policy: legacy = 全量 personal_events 补洞；layered = KU→dialogue→non_dialogue
+        "ssot": {
+            "dialogue": "agentsview_canonical",
+            "knowledge": "canonical_knowledge_units",
+            "non_dialogue_raw": "personal_events",
+            "google_structure": "google_data.normalized_events+light_assertions",
+        },
+        "fallback_policy": policy,
+        "allow_legacy_pad": _resolve_allow_legacy_pad(None),
         "semantic_routes": {
             "cli": "unified_search.py semantic",
             "rest": "POST /search/semantic",
@@ -207,6 +482,7 @@ def get_knowledge_status(*, probe_chroma: bool = True) -> dict:
         "db_unit_count": None,
         "version": {},
         "chroma_available": False,
+        "google_structure": get_google_structure_status(),
     }
 
     if active and UNIFIED_DB.exists():
@@ -267,38 +543,59 @@ def search_knowledge_units(
     source: Optional[str] = None,
     include_evidence: bool = False,
     collection_override: Optional[str] = None,
+    fallback_policy: str | None = None,
+    allow_legacy_pad: bool | None = None,
 ) -> dict:
     """知识单元混合检索 backend。
 
-    knowledge-first + raw fallback：先查 active knowledge unit collection（结构化 Q&A），
-    再查 personal_events（原始事件）补回字面/代码匹配。
+    knowledge-first + fallback：先查 active knowledge unit collection（结构化 Q&A），
+    再按 fallback_policy 补洞:
+      - legacy:  全量 personal_events（旧行为）
+      - layered: conversation_turns(dialogue) → personal_events(Google) → 可选 legacy_pad
+
     返回 route/versions/results，CLI/REST/MCP 共用此唯一 backend。
 
     query: 自然语言查询
     top_k: 返回条数（默认 5，有界 [1,20]）
-    source: 过滤 raw 事件数据源（不影响知识层）
+    source: 过滤 raw 事件数据源（不影响知识层；layered 下 non_dialogue 默认 Google）
     include_evidence: True=附带 evidence quote（默认只给 refs）
     collection_override: 指定 knowledge collection（canary 用，不改变 active pointer）
+    fallback_policy: "legacy" | "layered"；None=读 env PERSONAL_DATA_FALLBACK_POLICY，默认 layered
+    allow_legacy_pad: layered 仍不足时是否用非 Google personal_events 填充；默认 True
 
     返回: {
         "route": "knowledge" | "fallback_raw" | "abstain",
         "reason": str (fallback/abstain 时),
+        "fallback_policy": "legacy" | "layered",
         "results": [{"rank","unit_id","subject","answer","score","lifecycle",
                       "confidence","source_message_ref","collection","retrieval_unit"}, ...],
         "versions": {"index_version","build_id","canonical_build_id","unit_count","status"},
     }
     """
     top_k = max(1, min(20, top_k))
+    policy = _resolve_fallback_policy(fallback_policy)
+    pad_allowed = _resolve_allow_legacy_pad(allow_legacy_pad)
     if not query or not query.strip():
-        return {"route": "abstain", "reason": "empty query", "results": [], "versions": {}}
+        return {
+            "route": "abstain",
+            "reason": "empty query",
+            "results": [],
+            "versions": {},
+            "fallback_policy": policy,
+        }
 
     # 延迟 import 避免影响无向量库的环境
     try:
         from chroma_client import ChromaClient, ChromaError  # noqa: E402
         import local_embed  # noqa: E402
     except Exception as e:
-        return {"route": "fallback_raw", "reason": f"vector infra unavailable: {e}",
-                "results": [], "versions": {}}
+        return {
+            "route": "fallback_raw",
+            "reason": f"vector infra unavailable: {e}",
+            "results": [],
+            "versions": {},
+            "fallback_policy": policy,
+        }
 
     route = "knowledge"
     versions: dict = {}
@@ -309,7 +606,13 @@ def search_knowledge_units(
     # embedding（一次 embed，两路复用）
     embedding = local_embed.embed(query)
     if embedding is None:
-        return {"route": "fallback_raw", "reason": "embedding failed", "results": [], "versions": {}}
+        return {
+            "route": "fallback_raw",
+            "reason": "embedding failed",
+            "results": [],
+            "versions": {},
+            "fallback_policy": policy,
+        }
 
     client = ChromaClient(port=_KU_PORT)
 
@@ -377,40 +680,135 @@ def search_knowledge_units(
     else:
         route = "fallback_raw"
 
-    # --- Phase 2: raw personal_events 检索（补剩余 slot） ---
-    raw_results: list[dict] = []
-    raw_target = top_k - len(ku_results)
-    if raw_target > 0:
-        try:
-            raw_fetch = raw_target + 4  # 多召回以便去重
-            raw_events = _semantic_search(query, top_k=raw_fetch, source=source)
-            for ev in raw_events:
-                item = {
-                    "unit_id": ev.get("event_id", ""),
-                    "subject": ev.get("title", "")[:80],
-                    "answer": ev.get("content", "")[:300],
-                    "score": ev.get("score", 0),
-                    "lifecycle": "current",
-                    "confidence": 0,
-                    "source_message_ref": "",
-                    "collection": "personal_events",
-                    "retrieval_unit": "event",
-                    "rank_reason": "raw event semantic match",
-                    "event_id": ev.get("event_id", ""),
-                    "source": ev.get("source", ""),
-                    "event_time": ev.get("event_time", ""),
-                }
-                raw_results.append(item)
-                if len(raw_results) >= raw_target:
-                    break
-        except Exception:
-            pass
+    seen_ids: set[str] = {
+        str(x.get("unit_id") or "") for x in ku_results if x.get("unit_id")
+    }
+    fallback_results: list[dict] = []
+
+    def _remaining() -> int:
+        return top_k - len(ku_results) - len(fallback_results)
+
+    def _append_unique(item: dict) -> bool:
+        uid = str(item.get("unit_id") or item.get("event_id") or "")
+        if uid and uid in seen_ids:
+            return False
+        if uid:
+            seen_ids.add(uid)
+        fallback_results.append(item)
+        return True
+
+    if policy == "legacy":
+        # --- Legacy Phase 2: raw personal_events 检索（补剩余 slot，全源） ---
+        raw_target = _remaining()
+        if raw_target > 0:
+            try:
+                raw_fetch = raw_target + 4
+                raw_events = _semantic_search(query, top_k=raw_fetch, source=source)
+                for ev in raw_events:
+                    item = _raw_event_item(
+                        ev,
+                        retrieval_unit="event",
+                        collection="personal_events",
+                        rank_reason="raw event semantic match",
+                    )
+                    if _append_unique(item) and len(fallback_results) >= raw_target:
+                        break
+                if len(fallback_results) > raw_target:
+                    del fallback_results[raw_target:]
+            except Exception:
+                pass
+    else:
+        # --- Layered Phase 2a: message-level dialogue (canonical_messages) ---
+        need = _remaining()
+        if need > 0:
+            try:
+                msg_hits = _search_dialogue_canonical_messages(query, top_k=need + 4)
+                for item in msg_hits:
+                    _append_unique(item)
+                    if _remaining() <= 0:
+                        break
+            except Exception:
+                pass
+
+        # --- Layered Phase 2b: dialogue_fallback via conversation_turns ---
+        need = _remaining()
+        if need > 0:
+            try:
+                from vector.search_vectors import search_conversation_turns as _search_turns  # noqa: E402
+
+                turns = _search_turns(query, top_k=need + 4, source=source)
+                for ev in turns:
+                    item = _raw_event_item(
+                        ev,
+                        retrieval_unit="dialogue",
+                        collection=CONVERSATION_TURNS_COLLECTION,
+                        rank_reason="dialogue_fallback conversation_turns",
+                    )
+                    item["collection"] = CONVERSATION_TURNS_COLLECTION
+                    item["retrieval_unit"] = "dialogue"
+                    _append_unique(item)
+                    if _remaining() <= 0:
+                        break
+            except Exception:
+                # collection missing / chroma error — soft skip
+                pass
+
+        # --- Layered Phase 3: non_dialogue_raw (prefer Google personal_events) ---
+        need = _remaining()
+        if need > 0:
+            raw_source = source if source else _NON_DIALOGUE_PREFERRED_SOURCE
+            try:
+                raw_events = _search_personal_events_filtered(
+                    query, top_k=need + 4, source=raw_source,
+                )
+                for ev in raw_events:
+                    if not source and (ev.get("source") or "") != _NON_DIALOGUE_PREFERRED_SOURCE:
+                        continue
+                    item = _raw_event_item(
+                        ev,
+                        retrieval_unit="event",
+                        collection="personal_events",
+                        rank_reason="non_dialogue_raw personal_events",
+                    )
+                    _append_unique(item)
+                    if _remaining() <= 0:
+                        break
+            except Exception:
+                pass
+
+        # --- Layered Phase 4: optional legacy pad (non-Google personal_events) ---
+        need = _remaining()
+        if need > 0 and pad_allowed:
+            try:
+                pad_events = _search_personal_events_filtered(
+                    query, top_k=need + 8, source=source,
+                )
+                for ev in pad_events:
+                    src = ev.get("source") or ""
+                    if not source and src == _NON_DIALOGUE_PREFERRED_SOURCE:
+                        continue
+                    item = _raw_event_item(
+                        ev,
+                        retrieval_unit="event",
+                        collection="personal_events",
+                        rank_reason="legacy_pad",
+                    )
+                    _append_unique(item)
+                    if _remaining() <= 0:
+                        break
+            except Exception:
+                pass
 
     # --- 合并 + 排名 ---
-    merged = ku_results + raw_results
+    merged = ku_results + fallback_results
     if not merged:
-        return {"route": "abstain", "reason": "no results from either source",
-                "results": [], "versions": versions}
+        return {
+            "route": "abstain",
+            "reason": "no results from either source",
+            "results": [],
+            "versions": versions,
+            "fallback_policy": policy,
+        }
 
     # 去 raw fallback 的 reason（有结果就标 knowledge route）
     if route == "fallback_raw" and ku_results:
@@ -420,8 +818,14 @@ def search_knowledge_units(
     for i, item in enumerate(merged, 1):
         item["rank"] = i
 
-    return {"route": route, "results": merged[:top_k], "versions": versions,
-            "collection": ku_collection or "personal_events"}
+    return {
+        "route": route,
+        "results": merged[:top_k],
+        "versions": versions,
+        "collection": ku_collection or "personal_events",
+        "fallback_policy": policy,
+    }
+
 
 
 def query_events(
@@ -2208,7 +2612,7 @@ def _cli() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 语义检索(knowledge-first + raw fallback；读 active knowledge index)
+  # 语义检索(knowledge-first + layered/legacy fallback；读 active knowledge index)
   python unified_search.py semantic "PPT 排版怎么做" --top-k 3
   python unified_search.py semantic "数据库调试" --source Agent
 
@@ -2251,10 +2655,17 @@ def _cli() -> None:
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    ps = sub.add_parser("semantic", help="语义检索(knowledge-first + raw fallback)")
+    ps = sub.add_parser("semantic", help="语义检索(knowledge-first + layered/legacy fallback)")
     ps.add_argument("query")
     ps.add_argument("--top-k", type=int, default=5)
     ps.add_argument("--source", default=None)
+    ps.add_argument(
+        "--fallback-policy",
+        choices=["legacy", "layered"],
+        default=None,
+        help="Hybrid fallback: legacy=KU+personal_events; layered=KU→dialogue→Google. "
+             "Default: env PERSONAL_DATA_FALLBACK_POLICY or layered",
+    )
     ps.add_argument("--dedup", action="store_true",
                     help="按合并层折叠重复命中(L1/L2 同簇只留代表,附 merged_count)")
     ps.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
@@ -2320,7 +2731,12 @@ def _cli() -> None:
     args = p.parse_args()
 
     if args.cmd == "semantic":
-        ku_result = search_knowledge_units(args.query, top_k=args.top_k, source=args.source)
+        ku_result = search_knowledge_units(
+            args.query,
+            top_k=args.top_k,
+            source=args.source,
+            fallback_policy=getattr(args, "fallback_policy", None),
+        )
         data = ku_result.get("results", [])
         # 在 json 模式下输出 route/versions + results
         if args.json:
@@ -2368,7 +2784,7 @@ def _cli() -> None:
     if args.cmd == "semantic":
         route = ku_result.get("route", "")
         versions = ku_result.get("versions") or {}
-        print(f"检索路由: {route or '(n/a)'}")
+        print(f"检索路由: {route or '(n/a)'}  fallback_policy={ku_result.get('fallback_policy', '')}")
         if versions:
             print(
                 f"知识索引: {versions.get('index_version') or versions.get('collection') or ''} "
@@ -2400,6 +2816,21 @@ def _cli() -> None:
         print(f"unit_count: {data.get('unit_count')}")
         print(f"canonical_current: {data.get('canonical_current_count')}")
         print(f"route_policy: {data.get('route_policy')}")
+        print(f"fallback_policy: {data.get('fallback_policy')}")
+        ssot = data.get("ssot") or {}
+        if ssot:
+            print(
+                f"ssot: dialogue={ssot.get('dialogue')} knowledge={ssot.get('knowledge')} "
+                f"non_dialogue_raw={ssot.get('non_dialogue_raw')}"
+            )
+        gs = data.get("google_structure") or {}
+        if gs:
+            print(
+                f"google_structure: activities={gs.get('activities')} "
+                f"normalized={gs.get('normalized_events')} "
+                f"assertions={gs.get('light_assertions')} "
+                f"by_type={gs.get('assertions_by_type')}"
+            )
         print(f"chroma: {'ok' if data.get('chroma_available') else data.get('chroma_error', 'n/a')}")
         ver = data.get("version") or {}
         if ver:

@@ -23,6 +23,17 @@ import api_server  # noqa: E402
 import mcp_server as mcp  # noqa: E402
 
 
+
+def _assert_ssot_fields(status: dict) -> None:
+    """Phase 15: ssot / fallback_policy always present on get_knowledge_status."""
+    assert "ssot" in status
+    assert status["ssot"]["dialogue"] == "agentsview_canonical"
+    assert status["ssot"]["knowledge"] == "canonical_knowledge_units"
+    assert status["ssot"]["non_dialogue_raw"] == "personal_events"
+    # Wave2 default is layered (env PERSONAL_DATA_FALLBACK_POLICY may override)
+    assert status["fallback_policy"] in ("legacy", "layered")
+    assert status["fallback_policy"] == us._resolve_fallback_policy(None)
+
 def _setup_ku_db(db: Path, collection: str = "ku_active_test") -> None:
     con = sqlite3.connect(str(db))
     con.executescript(SCHEMA_SQL)
@@ -54,7 +65,9 @@ def test_get_knowledge_status_no_pointer(tmp_path: Path, monkeypatch: pytest.Mon
     status = us.get_knowledge_status(probe_chroma=False)
     assert status["available"] is False
     assert status["active_collection"] is None
-    assert status["route_policy"] == "knowledge-first + raw fallback"
+    assert "fallback" in status["route_policy"]
+    assert status["route_policy"].startswith("knowledge-first")
+    _assert_ssot_fields(status)
     assert "cli" in status["semantic_routes"]
     assert "rest" in status["semantic_routes"]
     assert "mcp" in status["semantic_routes"]
@@ -79,6 +92,7 @@ def test_get_knowledge_status_reads_pointer_and_version(
     assert status["version"]["status"] == "active"
     assert status["canonical_current_count"] == 1
     assert status["chroma_available"] is False
+    _assert_ssot_fields(status)
 
 
 def test_stats_embeds_knowledge_block(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -138,6 +152,12 @@ def test_format_knowledge_status_text() -> None:
             "db_unit_count": 10,
             "canonical_current_count": 8,
             "route_policy": "knowledge-first + raw fallback",
+            "fallback_policy": "legacy",
+            "ssot": {
+                "dialogue": "agentsview_canonical",
+                "knowledge": "canonical_knowledge_units",
+                "non_dialogue_raw": "personal_events",
+            },
             "chroma_available": False,
             "semantic_routes": {"cli": "semantic", "rest": "POST /search/semantic", "mcp": "search_semantic"},
         }
@@ -145,6 +165,8 @@ def test_format_knowledge_status_text() -> None:
     assert "ku_test" in text
     assert "knowledge-first" in text
     assert "POST /search/semantic" in text
+    assert "legacy" in text
+    assert "agentsview_canonical" in text
 
 
 def test_api_knowledge_and_health_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -175,6 +197,7 @@ def test_api_knowledge_and_health_routes(tmp_path: Path, monkeypatch: pytest.Mon
         assert body["ok"] is True
         assert body["data"]["active_collection"] == "ku_api"
         assert body["data"]["db_unit_count"] == 42
+        _assert_ssot_fields(body["data"])
 
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as resp:
             health = json.loads(resp.read().decode("utf-8"))

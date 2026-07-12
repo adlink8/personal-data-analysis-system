@@ -197,3 +197,296 @@ def test_hybrid_result_contract_fields() -> None:
     assert "versions" in result
     assert isinstance(result["results"], list)
     assert isinstance(result["versions"], dict)
+
+
+# --- Phase 15 Wave 2: layered hybrid fallback ---
+
+def test_hybrid_empty_query_reports_fallback_policy() -> None:
+    """abstain 仍返回 resolved fallback_policy。"""
+    from unified_search import search_knowledge_units
+    result = search_knowledge_units("", top_k=5, fallback_policy="layered")
+    assert result["route"] == "abstain"
+    assert result["fallback_policy"] == "layered"
+    result2 = search_knowledge_units("", top_k=5, fallback_policy="legacy")
+    assert result2["fallback_policy"] == "legacy"
+
+
+def test_resolve_fallback_policy_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    import unified_search as us
+    monkeypatch.delenv("PERSONAL_DATA_FALLBACK_POLICY", raising=False)
+    assert us._resolve_fallback_policy(None) == "layered"
+    monkeypatch.setenv("PERSONAL_DATA_FALLBACK_POLICY", "legacy")
+    assert us._resolve_fallback_policy(None) == "legacy"
+    assert us._resolve_fallback_policy("layered") == "layered"
+    assert us._resolve_fallback_policy("nope") == "layered"
+
+
+def test_search_dialogue_canonical_messages_snippet(tmp_path: Path) -> None:
+    """canonical message snippet search returns cm| ids as dialogue units."""
+    import unified_search as us
+
+    db = tmp_path / "canon.sqlite"
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "CREATE TABLE canonical_messages ("
+        "canonical_message_id TEXT PRIMARY KEY, role TEXT, content TEXT, "
+        "timestamp TEXT, source TEXT, is_system INTEGER)"
+    )
+    con.execute(
+        "INSERT INTO canonical_messages VALUES "
+        "('cm|abc','user','private void spinner() { spinner1 = findViewById(R.id.spinner1); }',"
+        "'2026-01-01','agentsview',0)"
+    )
+    con.execute(
+        "INSERT INTO canonical_messages VALUES "
+        "('cm|sys','assistant','ignore me','2026-01-01','agentsview',1)"
+    )
+    con.commit()
+    con.close()
+
+    q = "private void spinner() { spinner1 = findViewById(R.id.spinner1); extra padding here"
+    hits = us._search_dialogue_canonical_messages(q, top_k=3, db_path=db)
+    assert hits
+    assert hits[0]["unit_id"] == "cm|abc"
+    assert hits[0]["retrieval_unit"] == "dialogue"
+    assert hits[0]["source_message_ref"] == "cm|abc"
+    assert hits[0]["collection"] == "canonical_messages"
+
+
+def test_layered_tags_dialogue_vs_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    """layered path: conversation_turns -> retrieval_unit=dialogue; Google PE -> event."""
+    import types
+    import unified_search as us
+
+    monkeypatch.setattr(us, "_read_knowledge_active_collection", lambda: "")
+    # Prefer turns path in this unit test (canonical empty)
+    monkeypatch.setattr(us, "_search_dialogue_canonical_messages", lambda *a, **k: [])
+
+    class _FakeColl:
+        def query(self, **kwargs):
+            return {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]}
+
+    class _FakeClient:
+        def list_collections(self):
+            return []
+
+        def get_or_create_collection(self, name):
+            return _FakeColl()
+
+    fake_chroma = types.SimpleNamespace(
+        ChromaClient=lambda port=None: _FakeClient(),
+        ChromaError=Exception,
+    )
+    monkeypatch.setitem(__import__("sys").modules, "chroma_client", fake_chroma)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "local_embed",
+        types.SimpleNamespace(embed=lambda q: [0.1] * 8),
+    )
+
+    turns = [
+        {
+            "event_id": "turn-1",
+            "title": "dialog topic",
+            "content": "we discussed X",
+            "score": 0.9,
+            "source": "Agent",
+            "event_time": "",
+        }
+    ]
+    google_events = [
+        {
+            "event_id": "g-1",
+            "title": "google hit",
+            "content": "search about X",
+            "score": 0.8,
+            "source": "Google",
+            "event_time": "2025-01-01",
+        }
+    ]
+    agent_events = [
+        {
+            "event_id": "a-1",
+            "title": "agent file event",
+            "content": "should not be preferred as dialogue",
+            "score": 0.95,
+            "source": "Agent",
+            "event_time": "2025-01-02",
+        }
+    ]
+
+    def fake_semantic_search(query, top_k=5, source=None, client=None):
+        if source == "Google":
+            return google_events[:top_k]
+        if source == "Agent":
+            return agent_events[:top_k]
+        # unfiltered: mix
+        return (google_events + agent_events)[:top_k]
+
+    monkeypatch.setattr(us, "_semantic_search", fake_semantic_search)
+
+    # Patch conversation turns import path used inside search_knowledge_units
+    import vector.search_vectors as sv
+
+    monkeypatch.setattr(
+        sv,
+        "search_conversation_turns",
+        lambda query, top_k=5, source=None, client=None: turns[:top_k],
+    )
+
+    result = us.search_knowledge_units(
+        "test layered",
+        top_k=5,
+        fallback_policy="layered",
+        allow_legacy_pad=False,
+    )
+    assert result["fallback_policy"] == "layered"
+    assert result["results"], "expected fallback results"
+    units = [r["retrieval_unit"] for r in result["results"]]
+    collections = [r["collection"] for r in result["results"]]
+    assert "dialogue" in units
+    assert any(c == "conversation_turns" for c in collections)
+    # dialogue item tags
+    dialogue_hits = [r for r in result["results"] if r["retrieval_unit"] == "dialogue"]
+    assert dialogue_hits
+    assert dialogue_hits[0]["collection"] == "conversation_turns"
+    # non_dialogue event tags
+    event_hits = [r for r in result["results"] if r["retrieval_unit"] == "event"]
+    assert event_hits
+    assert all(r["collection"] == "personal_events" for r in event_hits)
+    assert all(r.get("source") == "Google" for r in event_hits)
+    # without legacy pad, Agent personal_events must not fill as dialogue substitute
+    assert all(r.get("source") != "Agent" or r["retrieval_unit"] == "dialogue" for r in result["results"])
+
+
+def test_legacy_policy_uses_raw_event_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    """legacy path keeps raw event semantic match rank_reason."""
+    import types
+    import unified_search as us
+
+    monkeypatch.setattr(us, "_read_knowledge_active_collection", lambda: "")
+
+    class _FakeColl:
+        def query(self, **kwargs):
+            return {"ids": [[]], "documents": [[]], "distances": [[]], "metadatas": [[]]}
+
+    class _FakeClient:
+        def list_collections(self):
+            return []
+
+        def get_or_create_collection(self, name):
+            return _FakeColl()
+
+    fake_chroma = types.SimpleNamespace(
+        ChromaClient=lambda port=None: _FakeClient(),
+        ChromaError=Exception,
+    )
+    monkeypatch.setitem(__import__("sys").modules, "chroma_client", fake_chroma)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "local_embed",
+        types.SimpleNamespace(embed=lambda q: [0.1] * 8),
+    )
+
+    events = [
+        {
+            "event_id": "e-1",
+            "title": "any",
+            "content": "body",
+            "score": 0.7,
+            "source": "Agent",
+            "event_time": "2025-01-01",
+        }
+    ]
+    monkeypatch.setattr(
+        us,
+        "_semantic_search",
+        lambda query, top_k=5, source=None, client=None: events[:top_k],
+    )
+
+    result = us.search_knowledge_units("legacy q", top_k=3, fallback_policy="legacy")
+    assert result["fallback_policy"] == "legacy"
+    assert result["results"]
+    assert result["results"][0]["retrieval_unit"] == "event"
+    assert result["results"][0]["rank_reason"] == "raw event semantic match"
+
+
+def test_layered_legacy_pad_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When dialogue+Google insufficient, pad non-Google with rank_reason=legacy_pad."""
+    import types
+    import unified_search as us
+
+    monkeypatch.setattr(us, "_read_knowledge_active_collection", lambda: "")
+
+    class _FakeClient:
+        def list_collections(self):
+            return []
+
+        def get_or_create_collection(self, name):
+            return types.SimpleNamespace(
+                query=lambda **kw: {
+                    "ids": [[]],
+                    "documents": [[]],
+                    "distances": [[]],
+                    "metadatas": [[]],
+                }
+            )
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "chroma_client",
+        types.SimpleNamespace(ChromaClient=lambda port=None: _FakeClient(), ChromaError=Exception),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "local_embed",
+        types.SimpleNamespace(embed=lambda q: [0.1] * 4),
+    )
+
+    import vector.search_vectors as sv
+
+    monkeypatch.setattr(
+        sv, "search_conversation_turns", lambda *a, **k: []
+    )
+
+    def fake_search(query, top_k=5, source=None, client=None):
+        if source == "Google":
+            return [
+                {
+                    "event_id": "g1",
+                    "title": "g",
+                    "content": "g",
+                    "score": 0.5,
+                    "source": "Google",
+                    "event_time": "",
+                }
+            ]
+        # unfiltered / other — used for pad when source is None
+        return [
+            {
+                "event_id": "g1",
+                "title": "g",
+                "content": "g",
+                "score": 0.5,
+                "source": "Google",
+                "event_time": "",
+            },
+            {
+                "event_id": "a1",
+                "title": "agent",
+                "content": "agent",
+                "score": 0.4,
+                "source": "Agent",
+                "event_time": "",
+            },
+        ][:top_k]
+
+    monkeypatch.setattr(us, "_semantic_search", fake_search)
+
+    result = us.search_knowledge_units(
+        "pad me", top_k=3, fallback_policy="layered", allow_legacy_pad=True
+    )
+    reasons = {r["rank_reason"] for r in result["results"]}
+    assert "legacy_pad" in reasons
+    pad_hits = [r for r in result["results"] if r["rank_reason"] == "legacy_pad"]
+    assert all(r.get("source") != "Google" for r in pad_hits)

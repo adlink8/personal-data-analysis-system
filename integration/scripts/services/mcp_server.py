@@ -556,6 +556,8 @@ def _format_knowledge_status(data: dict) -> str:
         f"db_unit_count: {data.get('db_unit_count')}",
         f"canonical_current_count: {data.get('canonical_current_count')}",
         f"route_policy: {data.get('route_policy')}",
+        f"fallback_policy: {data.get('fallback_policy')}",
+        f"ssot: {data.get('ssot')}",
         f"chroma_available: {data.get('chroma_available')}",
     ]
     if data.get("chroma_error"):
