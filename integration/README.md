@@ -9,9 +9,25 @@ Google / GPT / Agent 数据模块
   -> 结构化 SQLite
   -> integration
   -> 统一事件 / 实体 / 关系 / 综合分析
+  -> 知识单元索引 (Chroma active) + 分发接口
 ```
 
 integration不保存各来源的原始导出文件。raw继续留在各数据模块中。
+
+## 数据分发接口(CLI / REST / MCP)
+
+统一后端：`scripts/vector/unified_search.py`（根目录 shim 仍可用）。
+
+| 能力 | CLI | REST | MCP |
+|------|-----|------|-----|
+| 语义检索(knowledge-first) | `unified_search.py semantic` | `POST /search/semantic` | `search_semantic` |
+| 知识索引状态 | `unified_search.py knowledge` | `GET /knowledge` | `knowledge_status` |
+| 统计(含 knowledge) | `stats` | `GET /stats` | `stats` |
+| 事件/记忆分页导出 | — | `/data/*` | `data_*` |
+| 精确查询 | `query` | `POST /search/query` | `query_events` |
+
+Active 指针：`integration/db/knowledge_index_active.txt`。  
+promote/rollback **不**经分发接口，使用 `promote_knowledge_index.py` / `rollback_knowledge_checkpoint.py`。
 
 ## 目录
 

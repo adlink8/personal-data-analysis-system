@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: P0/P1 automated tests added + suite green
-last_updated: "2026-07-12T07:10:00.000Z"
-last_activity: 2026-07-12 -- 补 P0/P1 测试；全量 347 passed；强引用覆盖 48/88 (54.5%)
+stopped_at: knowledge distribution adapted (CLI/REST/MCP) + docs
+last_updated: "2026-07-12T07:20:00.000Z"
+last_activity: 2026-07-12 -- 分发接口知识层适配：knowledge_status / GET /knowledge / stats.knowledge
 progress:
   total_phases: 16
   completed_phases: 14
@@ -61,12 +61,17 @@ integration/scripts/
 - Active index: **`knowledge_units_run_76c6259e_20260712062418`**（**30,012**）
 - Reconcile PASS；pure-KU / hybrid frozen Recall@5 **0.65**（secret 0）
 
+### Distribution surfaces (Phase 14 knowledge)
+- CLI: `semantic` → `search_knowledge_units`；新增 `knowledge` 状态子命令；`stats` 含 knowledge 块
+- REST: `POST /search/semantic` 混合检索；`GET /knowledge`；`/health` 带 knowledge 摘要
+- MCP: `search_semantic` 文案更新；新增 `knowledge_status`（18 tools）
+- 契约测试: `tests/test_knowledge_distribution_contracts.py`
+
 ### Automated tests
-- Full suite: **347 passed**（2026-07-12，~25s；+40 from P0/P1 gap close）
+- Full suite: **353 passed**（知识分发契约 +6）
 - Collect-only: clean
-- 强引用模块覆盖：**54.5%**（**48/88**）；无强引用 **40**；弱引用 **0**
-- 高优先级缺漏：**3**（`backfill_loop` / `build_pilot_report` / `test_knowledge_unit_llm` — 非生产主路径）
-- 功能域：**10/10 covered** — 见 `test_coverage_gaps.md`
+- 强引用模块覆盖：**54.5%+**（见 `test_coverage_gaps.md`）
+- 功能域知识检索 / 数据访问：covered
 
 ## Pending Todos
 - 14-07 非空 delta 生产 E2E（KU-08）

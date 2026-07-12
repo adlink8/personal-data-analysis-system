@@ -11,8 +11,8 @@
 | `memory/` | 记忆层构建、评估、晋升 | ~22 |
 | `conversation/` | 会话摘要 / 图 / AgentView | ~15 |
 | `graph/` | 关系候选 / 判定 / 三元组 | ~7 |
-| `vector/` | 向量库、统一检索、评估 | ~5 |
-| `services/` | REST API / MCP / dashboard | 3 |
+| `vector/` | 向量库、统一检索（knowledge-first）、评估 | ~5 |
+| `services/` | REST API / MCP / dashboard（语义=知识混合；`/knowledge`） | 3 |
 | `pipeline/` | 全量管道、导入、画像、schema | ~8 |
 | `source_adapters/` | 源适配器 | 已有 |
 | `examples/` | 接入示例 | 已有 |
@@ -41,7 +41,7 @@ from vector.unified_search import search_knowledge_units
 ## 测试
 
 ```powershell
-python -m pytest tests -q          # 全量（当前 347 passed）
+python -m pytest tests -q          # 全量（当前 353 passed）
 python -m pytest tests -k knowledge -q
 python integration/scripts/_tools/_audit_test_gaps.py   # 刷新缺漏报告
 ```

@@ -48,8 +48,8 @@ python -m pytest tests -q
 python -m pytest tests -k knowledge -q
 ```
 
-- 当前全量：**347 passed**（2026-07-12）
-- 模块强引用覆盖：**48/88 ≈ 54.5%**；高优缺漏 3 — 详见 `integration/analysis/ai_context/test_coverage_gaps.md`
+- 当前全量：**353 passed**（2026-07-12；含知识分发契约）
+- 模块强引用覆盖：**48/88+ ≈ 54.5%**；详见 `integration/analysis/ai_context/test_coverage_gaps.md`
 - 重跑审计：`python integration/scripts/_tools/_audit_test_gaps.py`
 - 过时/缺模块测试已归档：`_recycle/.../obsolete_tests/`
 - **GitHub Actions CI**：`.github/workflows/ci.yml`（push / PR 跑 collect + pytest）
@@ -329,14 +329,16 @@ chroma: personal_events
 - `build_vector_store.py` 支持 `--resume` 断点续传,进度存 `vector_build_progress.json`
 - 查询时首次约 20 秒(本地 bge-small-zh 模型加载到内存),后续查询明显更快
 
-## 统一检索层(阶段3 · CLI)
+## 统一检索层(阶段3 · CLI；Phase 14 知识混合)
 
-`unified_search.py` 是所有程序化接入的公共后端。把"语义检索"、"精确查询"和"记忆查询"合成一组纯函数,**CLI / MCP / 以后的 Agent / RAG 平台都共用这一个文件**,保证四种接入方式行为一致。
+`unified_search.py` 是所有程序化接入的公共后端。**CLI / MCP / REST / RAG 平台共用同一后端**,语义检索行为一致。
 
-两类检索互补:
-- **语义检索**(`search_semantic`):自然语言 → 向量库召回,适合"我大概记得做过类似的事"。
+检索与状态:
+- **语义检索**(`search_knowledge_units`): **knowledge-first + raw fallback**。先查 active 知识单元索引(结构化 Q&A),再补 `personal_events` 原始事件。CLI 子命令 `semantic` / REST `POST /search/semantic` / MCP `search_semantic` 均走此路径。
+- **知识状态**(`get_knowledge_status`): active collection、unit_count、canonical_current、route_policy。CLI `knowledge` / REST `GET /knowledge` / MCP `knowledge_status`。
 - **精确查询**(`query_events`):按源/时间/分类/关键词 AND 过滤 sqlite,适合"列出 2025 年 3 月所有 Agent 事件"。
-- **记忆查询**(`get_memory_profile` / `get_memory_by_subject`):读取 `memory_items` + `memory_relations`,适合"我长期偏好什么工具/主题/工作流"。
+- **记忆查询**(`get_memory_profile` / `get_memory_by_subject`):读取 `memory_items` + `memory_relations`。
+- **stats**: 事件 + 向量库 + **knowledge** 块。
 
 Phase 05 起,记忆对象 metadata 统一包含:
 - `evidence_ids`
@@ -353,11 +355,15 @@ Phase 05 起,记忆对象 metadata 统一包含:
 ### 命令行用法
 
 ```powershell
-# 语义检索(模糊召回)
+# 语义检索(knowledge-first + raw fallback；读 active knowledge index)
 python integration\scripts\unified_search.py semantic "PPT 排版怎么做" --top-k 3
 python integration\scripts\unified_search.py semantic "数据库调试" --source Agent
 
-# 语义检索 + 去重(合并层折叠重复命中)
+# 知识索引状态(active collection / unit_count；--no-chroma 仅读 pointer+SQLite)
+python integration\scripts\unified_search.py knowledge
+python integration\scripts\unified_search.py knowledge --json
+
+# 语义检索 + 去重(合并层折叠；主要影响 raw 侧展示)
 python integration\scripts\unified_search.py semantic "PPT" --top-k 8 --dedup
 
 # 精确查询(结构化过滤,所有参数可选)
@@ -370,7 +376,7 @@ python integration\scripts\unified_search.py query --source Agent --dedup --limi
 # 单条详情(拿到 event_id 后看完整内容)
 python integration\scripts\unified_search.py detail <event_id>
 
-# 数据库 + 向量库统计概览
+# 数据库 + 向量库 + 知识索引统计
 python integration\scripts\unified_search.py stats
 
 # 合并层压缩报告(L1/L2 去重情况)
@@ -388,6 +394,7 @@ python integration\scripts\unified_search.py cluster --threshold 0.88 --min-clus
 
 # JSON 输出(给其他程序消费)
 python integration\scripts\unified_search.py semantic "PPT" --json
+python integration\scripts\unified_search.py knowledge --json
 python integration\scripts\unified_search.py merge-stats --json
 python integration\scripts\unified_search.py cluster --json --limit 500   # 调试用小样本
 ```
@@ -425,12 +432,12 @@ python integration\scripts\unified_search.py cluster --json ^
 import sys; sys.path.insert(0, "integration/scripts")
 import unified_search as us
 
-us.search_semantic("PPT 排版怎么做", top_k=5)          # 模糊召回
-us.search_semantic("PPT 排版怎么做", top_k=5, dedup=True)  # 去重召回
+us.search_knowledge_units("PPT 排版怎么做", top_k=5)   # 知识混合检索(主路径)
+us.get_knowledge_status(probe_chroma=False)            # 知识索引状态
+us.search_semantic("PPT 排版怎么做", top_k=5)            # 兼容: 事件侧语义(旧路径仍可用)
 us.query_events(source="Agent", month="2025-03")        # 结构化过滤
-us.query_events(source="Agent", month="2025-03", dedup=True)  # 去重过滤
 us.get_event_detail("gpt_xxx")                          # 单条全字段
-us.stats()                                              # 概览
+us.stats()                                              # 概览(含 knowledge)
 us.merge_stats()                                        # 合并层压缩报告
 us.get_memory_profile(memory_type="tooling")             # 记忆概览
 us.get_memory_by_subject("Codex")                        # 单条记忆 + 关系
@@ -440,20 +447,21 @@ us.cluster(threshold=0.92)                              # 聚类/去重
 
 ## MCP 接入(阶段3 · 零代码接 AI 客户端)
 
-`mcp_server.py` 把统合库 + 向量库 + 记忆图谱暴露成 [MCP](https://modelcontextprotocol.io) tools。任何支持 MCP 的 AI 客户端(Claude Desktop / Cursor / ZCode / Continue 等)**配置一行即可检索你的历史数据和长期记忆,无需写集成代码**。
+`mcp_server.py` 把统合库 + 向量库 + **知识索引** + 记忆图谱暴露成 [MCP](https://modelcontextprotocol.io) tools。任何支持 MCP 的 AI 客户端(Claude Desktop / Cursor / ZCode / Continue 等)**配置一行即可检索历史与知识单元,无需写集成代码**。
 
-精确查询、详情与统计直接复用 `unified_search` 读取 SQLite；语义检索通过本地 REST API 复用常驻的嵌入模型与 Chroma，结果口径与 CLI 一致，同时避免每个 MCP 客户端重复加载模型。
+精确查询、详情、统计与 `knowledge_status` 直接复用 `unified_search`；语义检索通过本地 REST API 调用 `search_knowledge_units`（knowledge-first），与 CLI 一致。
 
 | Tool | 作用 | 何时用 |
 |---|---|---|
-| `search_semantic` | 自然语言 → 向量库 → top-K 事件 | "我大概记得做过类似的事" |
+| `search_semantic` | knowledge-first + raw fallback 混合检索 | "我大概记得做过类似的事" |
+| `knowledge_status` | active 知识索引状态 | 确认 collection / unit_count |
 | `query_events` | 按源/时间/分类/关键词精确过滤 | "列出 2025-03 的 Agent 事件" |
 | `get_event_detail` | 按 event_id 取单条全字段 | 点开看详情 |
-| `stats` | 数据库 + 向量库统计概览 | AI 建立全局认知的第一步 |
+| `stats` | 数据库 + 向量库 + 知识索引统计 | AI 建立全局认知的第一步 |
 | `list_categories` | 列出所有 category_v2 分布 | 知道有哪些维度可过滤 |
 | `get_memory_profile` | 长期记忆概览 | 先理解你的工具/能力/偏好结构 |
 | `get_memory_by_subject` | 单条记忆 + 关系 + 可选邻居 | 点查 Codex / GSD / 项目主题等 |
-| `data_list_events` | `/data/events` 分页事件 | 浏览 8136 条事件,支持 limit/offset/filters |
+| `data_list_events` | `/data/events` 分页事件 | 浏览事件,支持 limit/offset/filters |
 | `data_export_all` / `data_export_query` | `/data/export` 有界导出 | 离线分析、备份、可视化 |
 | `data_list_memories` / `data_list_relations` | `/data/memories`、`/data/relations` | 总览长期记忆和 rule/LLM 关系 |
 | `data_aggregate` / `data_timeline` | `/data/aggregate`、`/data/timeline` | 来源、月份、主题趋势统计 |
@@ -487,18 +495,19 @@ python integration\scripts\mcp_server.py
 }
 ```
 
-依赖:`pip install mcp`(见 `requirements.txt`)。配好后客户端会自动发现 17 个 tools,其中 `data_*` 工具与 `/data/*` REST contract 保持一致。
+依赖:`pip install mcp`(见 `requirements.txt`)。配好后客户端会自动发现 **18** 个 tools(含 `knowledge_status`),其中 `data_*` 与 `/data/*` REST contract 一致。
 
-## REST API 接入(阶段3 · HTTP)
+## REST API 接入(阶段3 · HTTP；Phase 14 知识适配)
 
-`api_server.py` 用 Python 标准库实现,**零额外依赖**。把统合库 + 向量库暴露成 HTTP 接口,任何能发 HTTP 请求的环境(curl/前端/其他服务/Dify 等 RAG 平台)都能接入。所有接口同样走 `unified_search` 后端,行为与 CLI/MCP 一致。
+`api_server.py` 用 Python 标准库实现,**零额外依赖**。统合库 + 向量库 + **知识索引** 暴露为 HTTP。所有接口走 `unified_search` 后端,与 CLI/MCP 一致。
 
 ### 接口
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
-| GET | `/health` | 健康检查 |
-| GET | `/stats` | 数据库 + 向量库统计概览 |
+| GET | `/health` | 健康检查(+ knowledge 摘要) |
+| GET | `/stats` | 数据库 + 向量库 + 知识索引统计 |
+| GET | `/knowledge` / `/knowledge/status` | 知识索引状态(`?no_chroma=1` 跳过 Chroma 探测) |
 | GET | `/categories?source=` | 分类分布(可选按源过滤) |
 | GET | `/memory?type=&limit=` | 长期记忆概览(可选按类型过滤) |
 | GET | `/memory/<subject>?neighbors=N` | 单条记忆详情 + 关系 + 可选 N 跳邻居 |
@@ -513,10 +522,18 @@ python integration\scripts\mcp_server.py
 | GET | `/data/event/<id>?fields=` | 按 event_id 精确取事件 |
 | GET | `/data/memory/<id>` | 按 memory_id 精确取长期记忆 |
 | GET | `/data/quality` | 数据质量检查 |
-| POST | `/search/semantic` | 语义检索(body: query/top_k/source) |
+| POST | `/search/semantic` | **知识混合语义检索**(body: `query`/`top_k`/`source`；可选 `collection` canary、`include_evidence`) |
 | POST | `/search/query` | 精确查询(body: source/month/category/keyword/limit) |
 | GET | `/event/<id>` | 单条事件全字段 |
 | GET | `/profile` | AI 长期上下文文档内容(RAG 注入用) |
+
+```powershell
+# 知识索引状态
+curl http://127.0.0.1:8000/knowledge?no_chroma=1
+
+# 语义检索(返回 route / versions / results)
+curl -X POST http://127.0.0.1:8000/search/semantic -H "Content-Type: application/json" -d "{\"query\":\"shell\",\"top_k\":3}"
+```
 
 旧接口统一返回 `{"ok": bool, "data": ..., "error": ...}`。`/data/*` 和 Apps SDK 图谱接口返回顶层 contract JSON，例如 `ok/count/total/items/truncated`，便于 GPT 和前端直接读取。
 
@@ -649,7 +666,9 @@ python integration\scripts\examples\rag_inject.py "上次怎么调试 Docker 的
 | MCP | `mcp_server.py` | AI 客户端(Claude/Cursor 等) | 让支持 MCP 的客户端零代码接入 |
 | REST API | `api_server.py` | 任何 HTTP 客户端 | RAG 平台、前端、跨语言、远程 |
 
-四者**共用同一个 `unified_search` 后端**,语义检索 / 精确查询 / 详情 / 统计的行为完全一致,只是面向的调用方不同。`examples/` 里的 OpenAI/LangChain 示例则进一步把后端包成 Agent tool。
+四者**共用同一个 `unified_search` 后端**:语义检索均为 knowledge-first；精确查询 / 详情 / 统计 / 知识状态口径一致,只是面向的调用方不同。`examples/` 里的 OpenAI/LangChain 示例则进一步把后端包成 Agent tool。
+
+> **运维边界:** promote / reconcile / rollback / canary 严格仍走 `integration/scripts` 下 knowledge 脚本,不通过 MCP/REST 写接口暴露,避免误切换 active 索引。
 
 ## 注意
 
