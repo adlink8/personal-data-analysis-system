@@ -20,3 +20,6 @@ plotly>=6.8
 # CLI (unified_search.py) 只用标准库, 无额外依赖
 # MCP server 需要官方 SDK
 mcp>=1.0
+
+# Phase 14: 知识单元层
+pydantic>=2,<3

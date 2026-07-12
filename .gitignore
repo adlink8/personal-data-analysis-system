@@ -1,29 +1,20 @@
 # Personal raw exports and local datasets
 Google/raw/
-GPT/raw/
-Agent/raw/
+
+# Soft-archived modules (do not delete; may contain private history)
+_recycle/
 
 # Structured and analytical outputs are reproducible and may contain private content.
 Google/structured/*
 !Google/structured/README.md
 !Google/structured/scripts/
 !Google/structured/scripts/**
-Google/analysis/*
-!Google/analysis/README.md
 
-GPT/structured/*
-!GPT/structured/README.md
-!GPT/structured/scripts/
-!GPT/structured/scripts/**
-GPT/analysis/*
-!GPT/analysis/README.md
-
+# Agent: only structured/db remains in main tree
 Agent/structured/*
 !Agent/structured/README.md
-!Agent/structured/scripts/
-!Agent/structured/scripts/**
-Agent/analysis/*
-!Agent/analysis/README.md
+!Agent/structured/db/
+!Agent/structured/db/**
 
 integration/raw_index/
 integration/structured/
@@ -61,6 +52,14 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Local agent/tooling workdirs and runtime logs (not source)
+.ai-bridge/
+.workbuddy/
+logs/
 
 # OS/editor noise
 .DS_Store
@@ -68,3 +67,10 @@ Thumbs.db
 *.log
 *.$*.bkp
 .$*.bkp
+
+# Allow package manifests under apps (otherwise blocked by *.json)
+!integration/apps/**/package.json
+!integration/apps/**/package-lock.json
+!integration/apps/**/*.mjs
+!integration/apps/**/*.html
+!integration/apps/**/*.md
