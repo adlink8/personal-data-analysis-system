@@ -21,6 +21,7 @@ REQUIRED_TOOLS = {
     "query_events",
     "get_event_detail",
     "stats",
+    "knowledge_status",
     "list_categories",
     "get_memory_profile",
     "get_memory_by_subject",
@@ -36,7 +37,9 @@ def test_tools_list_has_required_names_and_schemas() -> None:
     names = {t.name for t in mcp.TOOLS}
     missing = REQUIRED_TOOLS - names
     assert not missing, f"missing tools: {missing}"
-    assert len(mcp.TOOLS) >= 12
+    assert len(mcp.TOOLS) >= 13
+    ku = next(t for t in mcp.TOOLS if t.name == "knowledge_status")
+    assert "active" in (ku.description or "").lower() or "知识" in (ku.description or "")
 
     for tool in mcp.TOOLS:
         assert tool.name
