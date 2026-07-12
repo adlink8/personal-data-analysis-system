@@ -35,7 +35,7 @@ import networkx as nx
 
 ROOT = Path(__file__).resolve().parents[3]
 UNIFIED_DB = ROOT / "integration" / "db" / "personal_system.sqlite"
-ANALYSIS_DIR = ROOT / "integration" / "analysis"
+from core.project_paths import STAGE1_PROFILE_DIR as ANALYSIS_DIR  # stage1 reports
 
 # 节点配色(按 memory_type)
 TYPE_COLORS = {

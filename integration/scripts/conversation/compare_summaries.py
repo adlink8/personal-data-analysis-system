@@ -17,7 +17,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 NEW = ROOT / "integration" / "analysis" / "ai_context" / "conversation_summaries.json"
-OLD = ROOT / "integration" / "analysis" / "ai_context" / "_backup_wave8" / "conversation_summaries.pre_wave8.json"
+OLD = (
+    ROOT
+    / "integration"
+    / "analysis"
+    / "ai_context"
+    / "_archive"
+    / "conversation"
+    / "backup_wave8"
+    / "conversation_summaries.pre_wave8.json"
+)
 
 
 def count_defects(summaries: list[dict]) -> tuple[int, int, dict]:

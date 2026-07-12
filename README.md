@@ -74,7 +74,7 @@ integration生成个人系统画像：
 ## 关键产物
 
 - 历史模块画像（已归档）：`_recycle/2026-07-12_structure_cleanup/{Google,GPT,Agent}/analysis/module_profile.md`
-- `integration/analysis/profile.md`
+- `integration/analysis/stage1_profile/profile.md`
 - `integration/analysis/profile_growth_chart.png`
 - `integration/analysis/profile_data_flow.csv`
 - `integration/analysis/profile_thinking_mode.csv`
@@ -83,6 +83,7 @@ integration生成个人系统画像：
 - **MCP Server**:`integration/scripts/mcp_server.py` —— 把数据暴露给 AI 客户端(见下文"MCP 接入")
 - **REST API**:`integration/scripts/api_server.py` —— 零依赖 HTTP 接口(见下文"REST API 接入")
 - **接入示例**:`integration/scripts/examples/` —— OpenAI 函数调用 / LangChain / RAG 注入(见下文"接入 RAG 平台 / Agent 框架")
+- **下游 Career OS**：仓库只读供 LLM；由 LLM 更新 `Myproject/career-os` 的 profile 等（见 `integration/README.md`「下游消费」）
 
 ## 重跑链路
 
@@ -336,6 +337,7 @@ chroma: personal_events
 检索与状态:
 - **语义检索**(`search_knowledge_units`): **knowledge-first + raw fallback**。先查 active 知识单元索引(结构化 Q&A),再补 `personal_events` 原始事件。CLI 子命令 `semantic` / REST `POST /search/semantic` / MCP `search_semantic` 均走此路径。
 - **知识状态**(`get_knowledge_status`): active collection、unit_count、canonical_current、route_policy。CLI `knowledge` / REST `GET /knowledge` / MCP `knowledge_status`。
+- **检索 SSOT**: 三层真相源与 hybrid fallback 策略见 `integration/docs/retrieval-ssot.md`。
 - **精确查询**(`query_events`):按源/时间/分类/关键词 AND 过滤 sqlite,适合"列出 2025 年 3 月所有 Agent 事件"。
 - **记忆查询**(`get_memory_profile` / `get_memory_by_subject`):读取 `memory_items` + `memory_relations`。
 - **stats**: 事件 + 向量库 + **knowledge** 块。

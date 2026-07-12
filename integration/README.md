@@ -29,6 +29,27 @@ integration不保存各来源的原始导出文件。raw继续留在各数据模
 Active 指针：`integration/db/knowledge_index_active.txt`。  
 promote/rollback **不**经分发接口，使用 `promote_knowledge_index.py` / `rollback_knowledge_checkpoint.py`。
 
+- 检索三层 SSOT / hybrid 路由说明：[`docs/retrieval-ssot.md`](docs/retrieval-ssot.md)
+
+## 下游消费：Career OS（LLM 中介）
+
+本仓库 = **个人数据仓库**，给 LLM 提供只读证据；**不**直接写 Career OS 文件。
+
+```text
+本仓库 MCP/REST → LLM → 更新 Career OS（profile / 简历素材等）
+```
+
+- Career OS 路径示例：`C:\Users\li\Desktop\Myproject\career-os`
+- 求职侧 skill：`career-personal-data-update`（取证 → 提案 → 确认 → 写入）
+- 求职侧说明：`career-os/docs/personal-data-warehouse.md`
+
+启动供数：
+
+```powershell
+python integration\scripts\api_server.py
+# 客户端挂: integration\scripts\mcp_server.py
+```
+
 ## 目录
 
 ```text
@@ -44,6 +65,7 @@ integration/
   evals/             # 冻结评测集
   apps/              # ChatGPT App 等
   prompts/           # LLM prompt 版本
+  docs/              # 检索 SSOT 等治理说明
   README.md
 ```
 
@@ -60,22 +82,23 @@ integration/
 - `structured/entities.csv`
 - `structured/event_entities.csv`
 - `structured/entity_links.csv`
-- `analysis/module_summary.csv`
-- `analysis/cross_module_insights.csv`
+- `analysis/stage1_profile/module_summary.csv`
+- `analysis/stage1_profile/cross_module_insights.csv`
 - `analysis/integrated_system_report.html`
-- `analysis/profile.md`
-- `analysis/profile.html`
-- `analysis/profile.json`
+- `analysis/stage1_profile/profile.md`
+- `analysis/stage1_profile/profile.html`
+- `analysis/stage1_profile/profile.json`
 - `analysis/profile_data_flow.csv`
 - `analysis/profile_growth_monthly.csv`
 - `analysis/profile_growth_chart.png`
 - `analysis/profile_focus.csv`
 - `analysis/profile_thinking_mode.csv`
-- `analysis/memory_report.md`
-- `analysis/capability_report.md`
-- `analysis/context_report.md`
-- `analysis/preference_report.md`
-- `analysis/graph_report.md`
+- `analysis/stage1_profile/memory_report.md`
+- `analysis/stage1_profile/capability_report.md`
+- `analysis/stage1_profile/context_report.md`
+- `analysis/stage1_profile/preference_report.md`
+- `analysis/stage1_profile/graph_report.md`
+- `analysis/ai_context/generation_gap_analysis.md`（向量+SQLite 合并缺口）
 - `analysis/memory_graph.html`
 - `analysis/ai_context/person_profile.md`
 - `analysis/ai_context/person_profile_v2.md`
@@ -129,7 +152,7 @@ python integration\scripts\build_deep_profiles.py
 深度画像基于 `personal_system.sqlite` 生成，不改变raw和structured库。
 
 - module_profile：输出到 `Google/GPT/Agent` 各自的 `analysis/module_profile.*`。
-- profile：输出到 `integration/analysis/profile.*`。
+- profile：输出到 `integration/analysis/stage1_profile/profile.*`。
 - 数据流向：说明 `raw -> structured -> analysis -> integration` 的证据链。
 - 数据增长：按月统计各来源进入统合层的事件增长。
 - 关注点：按主题、服务/工具、原始分类聚合。

@@ -15,6 +15,8 @@ DB_DIR = INTEGRATION_DIR / "db"
 SCRIPTS_DIR = INTEGRATION_DIR / "scripts"
 ANALYSIS_DIR = INTEGRATION_DIR / "analysis"
 AI_CONTEXT_DIR = ANALYSIS_DIR / "ai_context"
+# 阶段一画像/报表（profile、capability、memory_report 等）— 与 ai_context 分离
+STAGE1_PROFILE_DIR = ANALYSIS_DIR / "stage1_profile"
 
 # 常用数据库路径
 UNIFIED_DB = DB_DIR / "personal_system.sqlite"
