@@ -2,35 +2,57 @@
 
 本项目用于把个人数字足迹整理成可持续追加、可查询、可分析的本地数据系统。
 
-## 顶层目录
+## 顶层目录（2026-07-12 重整）
 
 ```text
 数据分析/
-├── Google/         GPT/         Agent/         # 三源raw(对称结构:原始/结构化/分析)
-├── integration/                                    # 核心:整合三源的scripts与产出
-│   ├── scripts/                                   # 全部 Python scripts(构建/检索/服务层)
-│   ├── lib/                                    # 前端依赖(query_graph 可视化用)
-│   ├── db/                           # personal_system.sqlite(统合库)
-│   ├── analysis/                               # 画像、_schema.json、ai_context/
-│   └── structured/  raw_index/
-├── imports/                                    # 增量导入暂存区
-│   ├── incoming/                               # 新导出文件先放这里
-│   ├── batches/                                # 每次导入一个批次目录
-│   └── duplicate_audit/                        # 重复文件隔离区
-├── .planning/                                  # 规划文档(codebase map + 架构图.drawio)
-├── .gsd/                                       # GSD 工作流状态
+├── integration/                 # 【主工程】脚本、统合库、知识单元、检索/API/MCP
+│   ├── scripts/                 # Python（按领域分包 + 根目录兼容 shim）
+│   │   ├── core/ knowledge/ memory/ conversation/
+│   │   ├── graph/ vector/ services/ pipeline/
+│   │   ├── source_adapters/ examples/
+│   │   └── *.py                 # 薄 shim，旧命令仍可 python scripts/xxx.py
+│   ├── db/                      # personal_system.sqlite 等
+│   ├── analysis/                # 系统级分析与 ai_context
+│   ├── evals/                   # 评估集
+│   └── apps/                    # ChatGPT App 等
+├── Agent/structured/db/         # 【保留】会话证据库（knowledge 主源）
+├── Google/                      # 【可选源】raw + structured（analysis 已归档）
+├── imports/                     # 增量导入暂存
+├── tests/                       # 契约与回归测试
+├── .planning/                   # GSD 权威文档
+├── .gsd/                        # 历史 GSD（只读）
+├── _recycle/                    # 【可回收】闲置模块软归档，勿直接删除
+│   └── 2026-07-12_structure_cleanup/
+│       ├── GPT/                 # 整模块归档
+│       ├── Agent/               # raw/analysis/中文重复目录/structured 非库产物
+│       ├── Google/analysis/
+│       ├── root_empty_stubs/    # 根目录零字节垃圾桩
+│       └── MANIFEST.md          # 原路径 → 归档路径对照
 ├── README.md
 └── requirements.txt
 ```
 
-每个数据源(Google/GPT/Agent)内部三层:
+> **原则：** 主路径只保留可运行主链路；GPT/Agent 闲置数据与历史分析报告进 `_recycle/`，需要时可按 MANIFEST 迁回。
 
-```text
-<模块>/
-  raw/    # 平台导出、本机工具文件、会话、memory、skills 等未加工数据
-  structured/  # 清洗后的 CSV、SQLite、索引表、明细表和scripts
-  analysis/    # 报告、画像、增长图、关注点统计、思考模式推断
+## 测试与 CI
+
+```powershell
+# 安装开发依赖
+pip install -r requirements-dev.txt
+
+# 全量自动化测试
+python -m pytest tests -q
+
+# 知识相关
+python -m pytest tests -k knowledge -q
 ```
+
+- 当前全量：**347 passed**（2026-07-12）
+- 模块强引用覆盖：**48/88 ≈ 54.5%**；高优缺漏 3 — 详见 `integration/analysis/ai_context/test_coverage_gaps.md`
+- 重跑审计：`python integration/scripts/_tools/_audit_test_gaps.py`
+- 过时/缺模块测试已归档：`_recycle/.../obsolete_tests/`
+- **GitHub Actions CI**：`.github/workflows/ci.yml`（push / PR 跑 collect + pytest）
 
 ## 分析目标
 
@@ -51,9 +73,7 @@ integration生成个人系统画像：
 
 ## 关键产物
 
-- `Google/analysis/module_profile.md`
-- `GPT/analysis/module_profile.md`
-- `Agent/analysis/module_profile.md`
+- 历史模块画像（已归档）：`_recycle/2026-07-12_structure_cleanup/{Google,GPT,Agent}/analysis/module_profile.md`
 - `integration/analysis/profile.md`
 - `integration/analysis/profile_growth_chart.png`
 - `integration/analysis/profile_data_flow.csv`
@@ -251,6 +271,17 @@ streamlit run integration\scripts\dashboard.py
 - `tests/test_agent_conversation_normalization.py` —— 覆盖 jsonl 解析 / role 过滤 / 证据链回溯 / 候选不污染 memory_items。
 - Phase 06 负责深层洞察,Phase 07 负责更可靠的对话输入和叙述压缩回流;两层都不回写 `memory_items`。Wave 7 回流走独立向量 collection,不污染旧数据。
 
+**LLM 语义候选管道(Phase 09):**
+- `integration/scripts/build_graph_relation_candidates_v2.py` —— **script coarse recall + LLM candidate proposal**: 脚本只打包 `vector top-k` / 相邻 turn / 同主题等 recall signal，LLM 只提出候选关系 proposal；proposal 必须先过 deterministic schema/evidence gate，才能写入 `graph_relation_candidates`。
+- `integration/scripts/judge_graph_relations.py` —— **LLM judgment**: 对已经通过候选 gate 的 pair 判定 relation，不把 coarse recall 直接当事实边。
+- `integration/scripts/evaluate_graph_relation_judgments.py` —— **deterministic evidence gate**: 校验证据链、risk flags 和 gate_status，accepted 边只作为后续 bundle 输入，不直接写长期记忆。
+- `integration/scripts/build_memory_evidence_bundles.py` —— **structured evidence bundle boundary**: `unified_events_rich` / `conversation_turns_summary` / accepted graph edges 先组装成 `memory_evidence_bundles`；结构化 evidence 不能直接进入 `memory_promotion_candidates`。
+- `integration/scripts/extract_memory_candidates_from_bundles.py` —— **LLM memory candidate extraction**: 只有 `memory_evidence_bundles` 能喂给 LLM 生成 `source_system='llm_memory_candidate'` 的候选。没有 live LLM 时返回 `blocked:no_live_llm`，不会伪造候选，也不会回退成旧规则直通。
+- `integration/scripts/evaluate_memory_promotion_candidates.py` —— **weighted promotion gate**: 输出 `score_components` / `final_score` / `auto_approval_eligible`，并对缺 refs、一次性任务、冲突、未解风险做硬门槛拦截。
+- `integration/scripts/repair_memory_promotion_candidates.py` —— **repair loop**: 只消费 gate failure reasons 做 repair / downgrade / reject。没有 live LLM 时保持 blocked，不编造证据、不伪装成功。
+- `integration/scripts/apply_memory_promotions.py` —— **human review / auto-approved apply**: 当前默认 dry-run，只展示 `approved && human_review_required=false` 的潜在动作；长期三表 `memory_items` / `memory_links` / `memory_relations` 不会在这条链路上被静默污染。
+- `integration/analysis/ai_context/graph_relation_candidate_proposals_report.*` / `memory_evidence_bundles_preview.*` / `memory_candidate_extraction_report.*` / `memory_promotion_report.*` / `memory_gate_repair_report.*` —— Phase 09 的审计产物。
+
 **服务层与接入:**
 - `integration/scripts/unified_search.py` —— **统一检索层**:把语义检索、精确查询、事件详情、统计、记忆查询合成一组纯函数,CLI / MCP / Agent 共用同一后端,见下文"统一检索层(CLI)"。
 - `integration/scripts/mcp_server.py` —— **MCP Server**:把统合库、向量库、记忆图谱暴露成 MCP tools,支持 MCP 的 AI 客户端零代码接入,见下文"MCP 接入"。
@@ -422,6 +453,12 @@ us.cluster(threshold=0.92)                              # 聚类/去重
 | `list_categories` | 列出所有 category_v2 分布 | 知道有哪些维度可过滤 |
 | `get_memory_profile` | 长期记忆概览 | 先理解你的工具/能力/偏好结构 |
 | `get_memory_by_subject` | 单条记忆 + 关系 + 可选邻居 | 点查 Codex / GSD / 项目主题等 |
+| `data_list_events` | `/data/events` 分页事件 | 浏览 8136 条事件,支持 limit/offset/filters |
+| `data_export_all` / `data_export_query` | `/data/export` 有界导出 | 离线分析、备份、可视化 |
+| `data_list_memories` / `data_list_relations` | `/data/memories`、`/data/relations` | 总览长期记忆和 rule/LLM 关系 |
+| `data_aggregate` / `data_timeline` | `/data/aggregate`、`/data/timeline` | 来源、月份、主题趋势统计 |
+| `data_get_event_by_id` / `data_get_memory_by_id` | `/data/event/<id>`、`/data/memory/<id>` | 精确读取记录 |
+| `data_quality_report` | `/data/quality` | 重复、缺失字段、断链、judgment 状态检查 |
 
 ### 启动与配置
 
@@ -450,7 +487,7 @@ python integration\scripts\mcp_server.py
 }
 ```
 
-依赖:`pip install mcp`(见 `requirements.txt`)。配好后客户端会自动发现这 7 个 tools,AI 可直接调用检索你的历史和长期记忆。
+依赖:`pip install mcp`(见 `requirements.txt`)。配好后客户端会自动发现 17 个 tools,其中 `data_*` 工具与 `/data/*` REST contract 保持一致。
 
 ## REST API 接入(阶段3 · HTTP)
 
@@ -465,12 +502,25 @@ python integration\scripts\mcp_server.py
 | GET | `/categories?source=` | 分类分布(可选按源过滤) |
 | GET | `/memory?type=&limit=` | 长期记忆概览(可选按类型过滤) |
 | GET | `/memory/<subject>?neighbors=N` | 单条记忆详情 + 关系 + 可选 N 跳邻居 |
+| GET | `/memory/graph?subject=&hops=&include_llm=&limit=` | Apps SDK 记忆图谱 JSON |
+| GET | `/memory/relation-review?status=&limit=` | LLM 记忆关系审查队列 |
+| GET | `/data/events?limit=&offset=&source=&service=&category=&start_time=&end_time=&fields=` | 分页浏览事件，默认紧凑字段 |
+| GET | `/data/export?format=jsonl|csv&limit=&offset=&...` | 有界导出事件切片 |
+| GET | `/data/memories?limit=&offset=&memory_type=&subject_like=` | 分页浏览长期记忆 |
+| GET | `/data/relations?limit=&offset=&relation_type=&subject=&status=` | 分页浏览长期记忆关系；`status=review|accepted|rejected` 时返回 LLM judgment 关系 |
+| GET | `/data/aggregate?group_by=source|service|category|month|memory_type|relation_type` | 聚合统计 |
+| GET | `/data/timeline?subject=&bucket=month` | 按月主题时间线 |
+| GET | `/data/event/<id>?fields=` | 按 event_id 精确取事件 |
+| GET | `/data/memory/<id>` | 按 memory_id 精确取长期记忆 |
+| GET | `/data/quality` | 数据质量检查 |
 | POST | `/search/semantic` | 语义检索(body: query/top_k/source) |
 | POST | `/search/query` | 精确查询(body: source/month/category/keyword/limit) |
 | GET | `/event/<id>` | 单条事件全字段 |
 | GET | `/profile` | AI 长期上下文文档内容(RAG 注入用) |
 
-统一返回 `{"ok": bool, "data": ..., "error": ...}`。
+旧接口统一返回 `{"ok": bool, "data": ..., "error": ...}`。`/data/*` 和 Apps SDK 图谱接口返回顶层 contract JSON，例如 `ok/count/total/items/truncated`，便于 GPT 和前端直接读取。
+
+`/data/events` 和 `/data/export` 默认不返回 `content` / `content_rich`，需要时用 `fields=event_id,source,event_time,title,content_rich` 显式请求。`limit` 默认 `100`、列表上限 `500`、导出上限 `5000`。
 
 ### Phase 05 验证命令
 
@@ -522,10 +572,20 @@ python integration\scripts\evaluate_graph_relation_judgments.py --write
 python integration\scripts\build_conversation_graph.py --write
 python integration\scripts\query_conversation_graph.py --smoke
 
+# Phase 09: 候选 proposal / bundle / promotion review
+python integration\scripts\build_graph_relation_candidates_v2.py --dry-run --limit 20
+python integration\scripts\build_memory_evidence_bundles.py --write --limit 100
+python integration\scripts\extract_memory_candidates_from_bundles.py --dry-run --limit 10
+python integration\scripts\evaluate_memory_promotion_candidates.py --write
+python integration\scripts\repair_memory_promotion_candidates.py --dry-run --limit 10
+python integration\scripts\apply_memory_promotions.py --dry-run --approved-only
+
 # 回归 + mem0 可选实验(非主路径)
 python tests\test_agent_conversation_normalization.py
 python integration\scripts\build_mem0_candidate_memory.py --sample --force-local
 ```
+
+> ⚠️ Phase 09 的 `graph proposal` / `memory extraction` / `repair loop` 都依赖 live LLM。没有 `OPENAI_API_KEY` / `MEM0_API_KEY` 时，脚本会明确输出 `blocked:no_live_llm` 审计结果，而不是伪造 proposal、伪造 memory candidate，或重新启用旧的结构化直通路径。
 
 ### 启动与示例
 

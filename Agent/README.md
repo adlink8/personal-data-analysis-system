@@ -1,32 +1,14 @@
-# Agent 数据模块
+# Agent（精简保留）
 
-Agent 模块纳入 Windows 和 WSL 上的 AI Agent 工具数据，包括 Codex、WorkBuddy、Hermes、Claude、Cline、Cursor、Gemini、`.agents` skills、WSL Ubuntu-D 中的 agent 数据等。
+历史 raw / analysis / 中文重复目录与 structured 非库产物已归档到：
 
-本模块只保留三层：
+`_recycle/2026-07-12_structure_cleanup/Agent/`
 
-- `raw`：可分析原始副本和 WSL 归档。
-- `structured`：原始索引、明细 CSV、SQLite、按来源/类型拆分和构建scripts。
-- `analysis`：HTML 摘要、classification summary、legacy_work。
+**仍保留：**
 
-integration读取：
+- `structured/db/` — Phase 13.5/14 使用的会话与对话库
+  - `agent_conversations.sqlite`
+  - `agentsview_normalized.sqlite`
+  - `agent_data.sqlite`
 
-```text
-Agent/structured/db/agent_data.sqlite
-```
-
-当前构建结果：
-
-- 原始文件索引：2932 个
-- 原始副本体积：约 1327.31 MB
-- WSL 归档：约 243.56 MB，清单 6145 行
-- skills：527 条
-- memory 文件：347 个
-- session 文件：518 个
-- session 消息摘要行：20324 行
-- SQLite 表清单：83 行
-
-重建命令：
-
-```powershell
-python Agent\structured\scripts\build_agent_dataset.py
-```
+主工程代码与检索入口在 `integration/`。
