@@ -1,16 +1,21 @@
-# -*- coding: utf-8 -*-
-"""打印统合库 schema，输出到 analysis/_schema.json。
+"""Compatibility shim -> pipeline.dump_schema
 
-运行: python integration\\scripts\\dump_schema.py
+Legacy CLI: python integration/scripts/dump_schema.py
+Preferred:  python -m pipeline.dump_schema
 """
-import sqlite3, json
-from pathlib import Path
-SCRIPT_DIR = Path(__file__).resolve().parent          # integration/scripts/
-UNIFIED = SCRIPT_DIR.parent / "db" / "personal_system.sqlite"
-OUT = SCRIPT_DIR.parent / "analysis" / "_schema.json"
-con = sqlite3.connect(UNIFIED)
-tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
-cols = {t: [c[1] for c in con.execute(f"PRAGMA table_info({t})")] for t in tables}
-out = {"tables": tables, "count": len(tables), "unified_events_cols": cols.get("unified_events", [])}
-OUT.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
-print(f"OK -> {OUT}", flush=True)
+from __future__ import annotations
+
+from importlib import import_module
+import sys
+
+_real = import_module("pipeline.dump_schema")
+
+if __name__ == "__main__":
+    # Do not rebind __main__; invoke real entrypoint cleanly.
+    if hasattr(_real, "main") and callable(getattr(_real, "main")):
+        raise SystemExit(_real.main())
+    import runpy
+    raise SystemExit(runpy.run_module("pipeline.dump_schema", run_name="__main__"))
+
+# When imported as legacy top-level name, rebind so private symbols work.
+sys.modules[__name__] = _real
