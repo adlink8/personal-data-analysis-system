@@ -1,0 +1,41 @@
+version: 1
+last_reviewed: "2026-07-15"
+notes: >
+  Phase 20 physical cutover — data/var/archive live roots; bak-phase20 recovery window.
+  Phase 21 domains slimming — build/eval scripts moved to application/{subdomain}/ and
+  evaluation/{subdomain,vector}/; domains/ retains rules/models/constants + re-export
+  facades until 2026-08-13; LLM primitives live in core/llm.py.
+zones:
+  src: {paths: ["src", "apps", "tools"], may_depend_on: [src, assets]}
+  tests: {paths: ["tests"], may_depend_on: [src, assets, governance]}
+  assets: {paths: ["assets"], may_depend_on: []}
+  docs: {paths: ["README.md", "docs"], may_depend_on: [src, tests, assets, governance, planning]}
+  governance: {paths: ["governance", "src/personal_knowledge/governance"], may_depend_on: [governance, planning]}
+  data: {paths: ["data", "data/raw", "data/staging", "data/canonical", "data/imports", "integration/evals"], may_depend_on: []}
+  var: {paths: ["var", "var/db", "var/runtime", "var/reports", "var/logs", "var/cache", "var/phase20-journals"], may_depend_on: []}
+  archive: {paths: ["archive", "archive/quarantine", "archive/planning", "archive/vendor-reference"], may_depend_on: []}
+  planning: {paths: [".planning"], may_depend_on: [docs, governance]}
+modules:
+  # foundation
+  core: {path: src/personal_knowledge/core, layer: foundation, may_import: [core]}
+  # infrastructure
+  source_adapters: {path: src/personal_knowledge/adapters, layer: infrastructure, may_import: [core, source_adapters]}
+  vector: {path: src/personal_knowledge/retrieval, layer: infrastructure, may_import: [core, knowledge, conversation, vector]}
+  # domain — rules/models/constants only after Phase 21 (build/eval are facades → application/evaluation)
+  conversation: {path: src/personal_knowledge/domains/conversation, layer: domain, may_import: [core, source_adapters, conversation]}
+  knowledge: {path: src/personal_knowledge/domains/knowledge, layer: domain, may_import: [core, source_adapters, conversation, knowledge]}
+  memory: {path: src/personal_knowledge/domains/memory, layer: domain, may_import: [core, knowledge, memory]}
+  graph: {path: src/personal_knowledge/domains/graph, layer: domain, may_import: [core, knowledge, memory, graph]}
+  # application — build/lifecycle orchestration (canonical after Phase 21)
+  pipeline: {path: src/personal_knowledge/application, layer: application, may_import: [core, source_adapters, conversation, knowledge, memory, graph, vector, evaluation, pipeline]}
+  # evaluation — suites, gates, reports (incl. evaluation/vector/* after Phase 21)
+  evaluation: {path: src/personal_knowledge/evaluation, layer: evaluation, may_import: [core, conversation, knowledge, vector, evaluation]}
+  # delivery / control
+  services: {path: src/personal_knowledge/services, layer: delivery, may_import: [core, conversation, knowledge, memory, graph, vector, pipeline, services]}
+  governance: {path: src/personal_knowledge/governance, layer: control, may_import: [governance]}
+forbidden:
+  - {from: core, to: [conversation, knowledge, memory, graph, vector, pipeline, services, evaluation]}
+  - {from: conversation, to: [pipeline, services, evaluation]}
+  - {from: knowledge, to: [pipeline, services, evaluation]}
+  - {from: memory, to: [pipeline, services, evaluation]}
+  - {from: graph, to: [pipeline, services, evaluation]}
