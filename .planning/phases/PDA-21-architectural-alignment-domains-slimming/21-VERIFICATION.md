@@ -1,6 +1,7 @@
 # Phase 21 Verification
 
 **Date:** 2026-07-15  
+**Re-verified:** 2026-07-15 (post-doc update)  
 **Status:** COMPLETE (with documented residuals)
 
 ## Plans
@@ -16,11 +17,12 @@
 
 | Gate | Result | Evidence |
 |------|--------|----------|
-| pytest (no new fails vs 13-fail baseline) | PASS | 8 governance + 5 memory_decomplexity only |
+| pytest (no new fails vs 13-fail baseline) | PASS | 8 governance + 5 memory_decomplexity only (re-run 2026-07-15) |
 | architecture-boundary | PASS | preflight line |
 | REST :8000 /health | PASS | HTTP 200 |
 | MCP :8789 /health | PASS | HTTP 200 |
-| domains slim | PASS | 42 facades + `migrate_add_knowledge_unit_tables.py` |
+| domains slim | PASS | 63 facades + `migrate_add_knowledge_unit_tables.py` only |
+| import smoke | PASS | core.llm, application.*, evaluation.vector, domains facades |
 
 ## Residuals (not phase blockers for architecture goal)
 
