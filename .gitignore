@@ -1,27 +1,34 @@
-# Personal raw exports and local datasets
+# === Phase 20 private / generated roots ===
+data/**
+!data/README.md
+var/**
+!var/README.md
+!var/reports/
+!var/reports/analysis/
+!var/reports/analysis/README.md
+archive/**
+!archive/README.md
+
+# Phase 20 cutover backups (recovery window)
+*.bak-phase20
+*.bak-phase20/**
+
+# Legacy private paths (pre-Phase-20; may reappear only as bak)
 Google/raw/
-
-# Soft-archived modules (do not delete; may contain private history)
 _recycle/
-
-# Structured and analytical outputs are reproducible and may contain private content.
 Google/structured/*
 !Google/structured/README.md
 !Google/structured/scripts/
 !Google/structured/scripts/**
-
-# Agent: only structured/db remains in main tree
 Agent/structured/*
 !Agent/structured/README.md
 !Agent/structured/db/
 !Agent/structured/db/**
-
 integration/raw_index/
 integration/structured/
 integration/analysis/
 integration/db/
-
-# Import batches, duplicate manifests, and quarantine may include private file names.
+integration/runtime/
 imports/*
 !imports/README.md
 
@@ -47,6 +54,17 @@ imports/*
 *.tar.gz
 *.zip
 
+# Phase 17: allow versioned public eval fixtures (no private body text)
+!integration/evals/knowledge_units/*.synthetic.jsonl
+!integration/evals/knowledge_units/*.yaml
+!integration/evals/knowledge_units/*.yml
+!integration/evals/knowledge_units/*.md
+!assets/evals/knowledge_units/suite_tags.json
+!assets/evals/knowledge_units/README.md
+
+# Phase 17: private gold / judge calibration stay local
+integration/runtime/private_evals/
+
 # Python and local tooling caches
 __pycache__/
 *.pyc
@@ -69,8 +87,22 @@ Thumbs.db
 .$*.bkp
 
 # Allow package manifests under apps (otherwise blocked by *.json)
-!integration/apps/**/package.json
-!integration/apps/**/package-lock.json
-!integration/apps/**/*.mjs
-!integration/apps/**/*.html
-!integration/apps/**/*.md
+!apps/**/package.json
+!apps/**/package-lock.json
+!apps/**/*.mjs
+!apps/**/*.html
+!apps/**/*.md
+
+# Phase 18: machine contracts and aggregate-only governance baseline
+!governance/schema/file_inventory.schema.json
+!governance/baselines/inventory_summary.json
+
+# Build artifacts
+*.egg-info/
+src/*.egg-info/
+
+
+# Local cutover backups (never commit)
+.migration-backup/
+.migration-backup-recovery/
+

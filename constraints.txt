@@ -1,0 +1,17 @@
+# Audited direct-dependency constraints for Python 3.12 and 3.14.
+# Regeneration is an explicit review action; CI detects drift but never installs globally.
+pydantic==2.12.5
+requests==2.32.5
+PyYAML==6.0.3
+mcp==1.27.0
+pytest==9.0.2
+pytest-asyncio==1.4.0
+numpy==2.4.1
+pandas==3.0.0
+matplotlib==3.10.8
+streamlit==1.58.0
+plotly==6.8.0
+openai==2.35.1
+httpx==0.28.1
+sentence-transformers==5.5.1
+

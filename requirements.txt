@@ -1,25 +1,6 @@
-# 个人数据分析系统依赖
-# Python 3.14 已验证可用 (cp314 wheel)
-# 安装: pip install -r requirements.txt
-
-# 已有数据处理栈
-pandas>=3.0
-numpy>=2.4
-matplotlib>=3.10
-
-# 阶段1: 交互式可视化
-streamlit>=1.58
-plotly>=6.8
-
-# 阶段2:向量库。当前环境使用本地 BAAI/bge-small-zh-v1.5(512维)。
-# torch / sentence-transformers 已由本机模型环境提供；新机器需单独安装。
-# torch>=2.12
-# sentence-transformers
-
-# 阶段3: 程序化接入
-# CLI (unified_search.py) 只用标准库, 无额外依赖
-# MCP server 需要官方 SDK
-mcp>=1.0
-
-# Phase 14: 知识单元层
-pydantic>=2,<3
+# Core runtime dependencies. Install reproducibly with:
+#   python -m pip install -c constraints.txt -r requirements.txt
+pydantic>=2.12,<3
+requests>=2.32,<3
+PyYAML>=6.0,<7
+mcp>=1.27,<2

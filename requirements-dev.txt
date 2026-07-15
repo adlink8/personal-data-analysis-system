@@ -1,5 +1,5 @@
-# Dev / CI dependencies (install: pip install -r requirements-dev.txt)
+# Development and deterministic offline test dependencies.
+-c constraints.txt
 -r requirements.txt
-
-pytest>=8.0
-pytest-asyncio>=0.24
+pytest>=9,<10
+pytest-asyncio>=1.4,<2

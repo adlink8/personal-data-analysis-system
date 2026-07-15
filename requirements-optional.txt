@@ -1,0 +1,15 @@
+# Optional feature stacks. Core CLI/governance tests do not require these.
+# UI / analysis
+numpy>=2.4,<3
+pandas>=3,<4
+matplotlib>=3.10,<4
+streamlit>=1.58,<2
+plotly>=6.8,<7
+
+# Hosted-model adapters
+openai>=2.35,<3
+httpx>=0.28,<1
+
+# Local embedding/vector stack (large; install only on capable hosts)
+sentence-transformers>=5.5,<6
+
