@@ -1,14 +1,19 @@
 # Memory domain
-## Responsibility
-Durable memory candidates, decisions, lifecycle and profile projections.
-## Boundaries
-Consumes knowledge/evidence contracts; must not rescrape raw sessions.
-## Entry points
-Supported builders and query modules in this package.
-## I/O and privacy
-R3 derived records with traceable evidence; no tracked personal output.
-## Tests
-Memory contract, lifecycle and profile tests under `tests/`.
-## Ownership
-Owner: memory. Status: supported.
 
+## Responsibility
+
+Rules, models, and constants for long-term memory (profile / preference /
+capability surfaces). Build and evaluation orchestration moved out in Phase 21.
+
+## Canonical locations (Phase 21)
+
+| Kind | Package |
+|------|---------|
+| Build / lifecycle / promotions | `personal_knowledge.application.memory` |
+| Eval / compare / analyze / audit | `personal_knowledge.evaluation.memory` |
+
+Facades remain until **2026-08-13**.
+
+## Ownership
+
+Owner: memory. Status: supported. Last layout review: Phase 21 (2026-07-15).

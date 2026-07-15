@@ -1,14 +1,20 @@
-# Knowledge units
-## Responsibility
-L1/L2 extraction, evidence links, canonical merge and index lifecycle.
-## Boundaries
-No UI/service dependencies; candidate evaluation precedes promotion.
-## Entry points
-Use package builders and lifecycle CLIs; root scripts are compatibility shims.
-## I/O and privacy
-Consumes canonical evidence; derived units are R3 with immutable R4 evidence links.
-## Tests
-Knowledge contracts, extraction, lifecycle and retrieval tests under `tests/`.
-## Ownership
-Owner: knowledge. Status: supported.
+# Knowledge domain
 
+## Responsibility
+
+Rules, models, and constants for knowledge units. The only non-facade logic
+module retained here is **`migrate_add_knowledge_unit_tables.py`** (`SCHEMA_SQL`).
+
+## Canonical locations (Phase 21)
+
+| Kind | Package |
+|------|---------|
+| Build / refresh / promote / pipeline | `personal_knowledge.application.knowledge` |
+| Canary / extraction / RAG eval | `personal_knowledge.evaluation.knowledge` |
+| Schema DDL constant | `personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables` |
+
+Facades on former build/eval scripts: cleanup **2026-08-13**.
+
+## Ownership
+
+Owner: knowledge. Status: supported. Last layout review: Phase 21 (2026-07-15).
