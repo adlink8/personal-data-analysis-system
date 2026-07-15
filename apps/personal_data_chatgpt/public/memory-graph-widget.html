@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Memory Graph</title>
+  <style>
+    :root {
+      color: #17202a;
+      background: #f7f8fa;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 14px; }
+    main { display: grid; gap: 12px; }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0; }
+    .summary { color: #516070; font-size: 13px; margin-top: 4px; }
+    .controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    label { font-size: 12px; color: #516070; display: grid; gap: 4px; }
+    select, input {
+      min-width: 130px;
+      min-height: 32px;
+      border: 1px solid #c9d1dc;
+      border-radius: 6px;
+      padding: 5px 8px;
+      background: #fff;
+      color: #17202a;
+      font: inherit;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) minmax(240px, 0.8fr);
+      gap: 12px;
+      align-items: start;
+    }
+    .panel {
+      background: #fff;
+      border: 1px solid #dbe1e8;
+      border-radius: 8px;
+      min-width: 0;
+    }
+    .graph {
+      min-height: 380px;
+      padding: 10px;
+      overflow: auto;
+    }
+    .stage {
+      position: relative;
+      min-width: 620px;
+      height: 360px;
+      border-radius: 6px;
+      background:
+        linear-gradient(90deg, rgba(23, 32, 42, 0.04) 1px, transparent 1px),
+        linear-gradient(rgba(23, 32, 42, 0.04) 1px, transparent 1px);
+      background-size: 32px 32px;
+    }
+    svg.edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .node {
+      position: absolute;
+      width: 140px;
+      min-height: 54px;
+      border: 1px solid #9fb0c2;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 8px;
+      box-shadow: 0 5px 14px rgba(23, 32, 42, 0.08);
+      cursor: pointer;
+    }
+    .node:hover, .node.selected { border-color: #2f6feb; box-shadow: 0 0 0 3px rgba(47, 111, 235, 0.15); }
+    .node-title { font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+    .node-type { margin-top: 4px; font-size: 11px; color: #516070; overflow-wrap: anywhere; }
+    .details { padding: 12px; display: grid; gap: 10px; }
+    .details h2 { margin: 0; font-size: 15px; }
+    .muted { color: #647386; font-size: 12px; }
+    .kv { display: grid; gap: 6px; font-size: 13px; }
+    .kv div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; }
+    .kv b { color: #516070; font-weight: 600; }
+    .edge-list { display: grid; gap: 6px; max-height: 230px; overflow: auto; }
+    .edge-row {
+      border: 1px solid #e0e6ed;
+      border-radius: 6px;
+      padding: 7px;
+      font-size: 12px;
+      background: #fbfcfe;
+    }
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-right: 4px;
+    }
+    .badge.rule { background: #e8f5ee; color: #17663b; }
+    .badge.llm_judgment { background: #fff1dc; color: #855400; }
+    .empty {
+      padding: 28px;
+      text-align: center;
+      color: #647386;
+      border: 1px dashed #c9d1dc;
+      border-radius: 8px;
+      background: #fff;
+    }
+    @media (max-width: 720px) {
+      body { padding: 10px; }
+      .layout { grid-template-columns: 1fr; }
+      .graph { min-height: 320px; }
+      .stage { min-width: 520px; height: 320px; }
+      .node { width: 126px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Memory Graph</h1>
+        <div id="summary" class="summary">Waiting for tool result.</div>
+      </div>
+      <div class="controls">
+        <label>Type
+          <select id="typeFilter"><option value="">All types</option></select>
+        </label>
+        <label>Edge source
+          <select id="edgeFilter">
+            <option value="">All edges</option>
+            <option value="rule">Rule</option>
+            <option value="llm_judgment">LLM judgment</option>
+          </select>
+        </label>
+        <label>Subject
+          <input id="subjectFilter" placeholder="Filter subject">
+        </label>
+      </div>
+    </header>
+    <section class="layout">
+      <div class="panel graph"><div id="graph"></div></div>
+      <aside class="panel details">
+        <div>
+          <h2>Selection</h2>
+          <div id="selection" class="muted">Select a node to inspect details.</div>
+        </div>
+        <div>
+          <h2>Visible Edges</h2>
+          <div id="edges" class="edge-list"></div>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const state = { data: null, selectedId: null };
+    const graphEl = document.getElementById("graph");
+    const summaryEl = document.getElementById("summary");
+    const selectionEl = document.getElementById("selection");
+    const edgesEl = document.getElementById("edges");
+    const typeFilter = document.getElementById("typeFilter");
+    const edgeFilter = document.getElementById("edgeFilter");
+    const subjectFilter = document.getElementById("subjectFilter");
+
+    function asArray(value) {
+      return Array.isArray(value) ? value : [];
+    }
+
+    function text(value, fallback = "") {
+      return value === undefined || value === null || value === "" ? fallback : String(value);
+    }
+
+    function edgeSource(edge) {
+      return text(edge.edge_source || edge.source_layer || edge.source_type || edge.layer, "rule");
+    }
+
+    function nodeType(node) {
+      return text(node.memory_type || node.type, "memory");
+    }
+
+    function nodeSubject(node) {
+      return text(node.subject || node.title || node.id, "Untitled");
+    }
+
+    function setData(data) {
+      state.data = data || {};
+      state.selectedId = null;
+      const types = [...new Set(asArray(state.data.nodes).map(nodeType))].sort();
+      typeFilter.innerHTML = '<option value="">All types</option>' + types.map((type) => `<option value="${escapeAttr(type)}">${escapeHtml(type)}</option>`).join("");
+      render();
+    }
+
+    function filtered() {
+      const rawNodes = asArray(state.data && state.data.nodes);
+      const rawEdges = asArray(state.data && state.data.edges);
+      const selectedType = typeFilter.value;
+      const selectedEdge = edgeFilter.value;
+      const subjectNeedle = subjectFilter.value.trim().toLowerCase();
+      const nodes = rawNodes.filter((node) => {
+        if (selectedType && nodeType(node) !== selectedType) return false;
+        if (subjectNeedle && !nodeSubject(node).toLowerCase().includes(subjectNeedle)) return false;
+        return true;
+      });
+      const nodeIds = new Set(nodes.map((node) => String(node.id)));
+      const edges = rawEdges.filter((edge) => {
+        if (selectedEdge && edgeSource(edge) !== selectedEdge) return false;
+        return nodeIds.has(String(edge.source)) && nodeIds.has(String(edge.target));
+      });
+      return { nodes, edges };
+    }
+
+    function render() {
+      const data = state.data;
+      if (!data) {
+        graphEl.innerHTML = '<div class="empty">No graph data loaded.</div>';
+        return;
+      }
+      if (data.ok === false) {
+        graphEl.innerHTML = `<div class="empty">Graph unavailable: ${escapeHtml(data.error || "unknown error")}</div>`;
+        summaryEl.textContent = "Tool returned an error.";
+        edgesEl.innerHTML = "";
+        return;
+      }
+      const { nodes, edges } = filtered();
+      summaryEl.textContent = `${nodes.length} visible node(s), ${edges.length} visible edge(s). Total: ${asArray(data.nodes).length} node(s), ${asArray(data.edges).length} edge(s).`;
+      if (!nodes.length) {
+        graphEl.innerHTML = '<div class="empty">No nodes match the current filters.</div>';
+        edgesEl.innerHTML = "";
+        selectionEl.textContent = "No selected node.";
+        return;
+      }
+      const positions = layout(nodes);
+      const edgeSvg = edges.map((edge) => edgeLine(edge, positions)).join("");
+      const nodeHtml = nodes.map((node) => nodeCard(node, positions[String(node.id)])).join("");
+      graphEl.innerHTML = `<div class="stage"><svg class="edges" viewBox="0 0 620 360">${edgeSvg}</svg>${nodeHtml}</div>`;
+      graphEl.querySelectorAll(".node").forEach((nodeEl) => {
+        nodeEl.addEventListener("click", () => {
+          state.selectedId = nodeEl.dataset.id;
+          renderSelection();
+        });
+      });
+      renderSelection();
+      renderEdges(edges);
+    }
+
+    function layout(nodes) {
+      const centerX = 310;
+      const centerY = 180;
+      const radiusX = nodes.length > 2 ? 210 : 120;
+      const radiusY = nodes.length > 2 ? 120 : 0;
+      const positions = {};
+      nodes.forEach((node, index) => {
+        const angle = nodes.length === 1 ? 0 : (Math.PI * 2 * index) / nodes.length - Math.PI / 2;
+        positions[String(node.id)] = {
+          x: Math.round(centerX + Math.cos(angle) * radiusX - 70),
+          y: Math.round(centerY + Math.sin(angle) * radiusY - 27)
+        };
+      });
+      return positions;
+    }
+
+    function edgeLine(edge, positions) {
+      const from = positions[String(edge.source)];
+      const to = positions[String(edge.target)];
+      if (!from || !to) return "";
+      const source = edgeSource(edge);
+      const color = source === "llm_judgment" ? "#d88400" : "#25834f";
+      const dash = source === "llm_judgment" ? 'stroke-dasharray="7 5"' : "";
+      return `<line x1="${from.x + 70}" y1="${from.y + 27}" x2="${to.x + 70}" y2="${to.y + 27}" stroke="${color}" stroke-width="2" ${dash}/>`;
+    }
+
+    function nodeCard(node, position) {
+      const selected = state.selectedId === String(node.id) ? " selected" : "";
+      return `<button class="node${selected}" data-id="${escapeAttr(node.id)}" style="left:${position.x}px;top:${position.y}px" type="button">
+        <div class="node-title">${escapeHtml(nodeSubject(node))}</div>
+        <div class="node-type">${escapeHtml(nodeType(node))}${node.memory_subtype ? " / " + escapeHtml(node.memory_subtype) : ""}</div>
+      </button>`;
+    }
+
+    function renderSelection() {
+      const nodes = asArray(state.data && state.data.nodes);
+      const node = nodes.find((candidate) => String(candidate.id) === String(state.selectedId));
+      if (!node) {
+        selectionEl.innerHTML = '<span class="muted">Select a node to inspect details.</span>';
+        return;
+      }
+      selectionEl.innerHTML = `<div class="kv">
+        <div><b>Subject</b><span>${escapeHtml(nodeSubject(node))}</span></div>
+        <div><b>Type</b><span>${escapeHtml(nodeType(node))}</span></div>
+        <div><b>Subtype</b><span>${escapeHtml(text(node.memory_subtype || node.subtype, "-"))}</span></div>
+        <div><b>Summary</b><span>${escapeHtml(text(node.summary || node.description || node.content, "-"))}</span></div>
+      </div>`;
+    }
+
+    function renderEdges(edges) {
+      if (!edges.length) {
+        edgesEl.innerHTML = '<div class="muted">No visible edges.</div>';
+        return;
+      }
+      edgesEl.innerHTML = edges.map((edge) => {
+        const source = edgeSource(edge);
+        return `<div class="edge-row">
+          <span class="badge ${escapeAttr(source)}">${escapeHtml(source)}</span>
+          <b>${escapeHtml(text(edge.relation || edge.relation_type, "relation"))}</b>
+          <div>${escapeHtml(text(edge.source))} -> ${escapeHtml(text(edge.target))}</div>
+          <div class="muted">confidence: ${escapeHtml(text(edge.confidence, "-"))}; status: ${escapeHtml(text(edge.gate_status || edge.status, "-"))}</div>
+        </div>`;
+      }).join("");
+    }
+
+    function escapeHtml(value) {
+      return text(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value);
+    }
+
+    function handleToolResult(payload) {
+      const structured = payload && (payload.structuredContent || payload.params && payload.params.structuredContent);
+      if (structured) setData(structured);
+    }
+
+    window.addEventListener("message", (event) => {
+      const message = event.data || {};
+      if (message.method === "ui/notifications/tool-result") {
+        handleToolResult(message.params || {});
+      }
+      if (message.type === "fixture") {
+        setData(message.structuredContent || message.data);
+      }
+    });
+
+    [typeFilter, edgeFilter, subjectFilter].forEach((control) => control.addEventListener("input", render));
+    if (window.__MCP_WIDGET_FIXTURE__) setData(window.__MCP_WIDGET_FIXTURE__);
+    render();
+  </script>
+</body>
+</html>

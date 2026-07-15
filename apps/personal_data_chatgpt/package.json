@@ -1,0 +1,15 @@
+{
+  "name": "personal-data-chatgpt-app",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only ChatGPT-facing HTTP MCP Apps adapter for the local personal data REST API.",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "test:widgets": "node --test test/widget-render.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
