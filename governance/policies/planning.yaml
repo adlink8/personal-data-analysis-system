@@ -1,0 +1,15 @@
+version: 1
+authoritative: .planning
+historical_read_only: .gsd
+open_phases:
+  "17":
+    state: executing
+    reason: "code complete; real cross-turn gold, judge calibration and sandbox UAT remain"
+  "18":
+    state: executing
+rules:
+  require_plan_summary_pairs_for_completed_plans: true
+  never_infer_phase_complete_from_code_only: true
+  preserve_human_checkpoints: true
+  forbid_writes_to_historical: true
+

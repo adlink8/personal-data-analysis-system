@@ -1,0 +1,17 @@
+version: 1
+last_reviewed: "2026-07-13"
+units: bytes
+budgets:
+  repository_total: 10737418240
+  archive: 6442450944
+  data: 3221225472
+  var: 6442450944
+  generated_single_file: 2147483648
+behavior:
+  over_budget: report_only
+  automatic_delete: prohibited
+  approval_required_for_move_archive_delete: true
+notes:
+  - Budgets are initial guardrails, not deletion triggers.
+  - Rebaseline only from a reviewed metadata-only report.
+

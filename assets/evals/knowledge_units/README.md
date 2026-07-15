@@ -48,6 +48,33 @@ Phase 14 Wave 0 的评估数据集。用于 dev tuning、frozen-test A/B、merge
 - `merge_positive_pairs.private.jsonl` — 应合并的 pair（本地）
 - `hard_negative_pairs.private.jsonl` — 不应合并的 pair（本地）
 - `synthetic_cases.jsonl` — synthetic test cases（入 Git，供 CI 使用）
+- `holdout_15_02.synthetic.jsonl` — Phase 15-02 独立 holdout（google / paraphrase / no_answer / privacy；**不改 frozen**）
+- `comprehensive_v1.synthetic.jsonl` — Phase 17 CI 全场景壳（150 cases；无私人正文）
+- `eval_v1.yaml` / `eval_policy_v1.yaml` — 评测 manifest 与 promote gate 策略
+- `answer_rubric_v1.md` — 回答评分 rubric
+- 私有 full suite：`integration/runtime/private_evals/comprehensive_v1.private.jsonl`（gitignore）
+
+### Phase 17 单入口
+
+```powershell
+python src/personal_knowledge/evaluation/run_knowledge_eval.py --config assets/evals/knowledge_units/eval_v1.yaml --full --render --gate --dry-run
+python src/personal_knowledge/evaluation/run_knowledge_eval.py --config assets/evals/knowledge_units/eval_v1.yaml --retrieval-only --render --gate
+python src/personal_knowledge/evaluation/reconcile_l2_lineage.py --check
+python -m pytest -q tests/test_knowledge_eval_*.py
+```
+
+报告：`integration/analysis/evaluations/<run>/report.html`（禁止写 Desktop）
+
+### Holdout 15-02
+
+与 frozen 分离：frozen 仍是 gold-evidence 回归；holdout 测泛化与隐私边界。
+
+```powershell
+python tools/forensics/phase15_02_holdout_eval.py
+python tools/forensics/phase15_02_holdout_eval.py --offline-smoke
+```
+
+报告：`integration/analysis/ai_context/phase15_02_holdout_eval.json`
 
 ## 泄漏检查
 
@@ -57,5 +84,5 @@ Phase 14 Wave 0 的评估数据集。用于 dev tuning、frozen-test A/B、merge
 
 ```powershell
 # 从 canonical store 重建真实 datasets
-python integration/scripts/build_knowledge_unit_eval_datasets.py --write
+python -m personal_knowledge.evaluation.build_private_suite --write
 ```

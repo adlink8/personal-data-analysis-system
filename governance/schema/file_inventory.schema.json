@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/governance/file_inventory.schema.json",
+  "title": "Project governance inventory",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "root", "nodes", "summary"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "root": {"type": "string", "minLength": 1},
+    "nodes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/node"}
+    },
+    "summary": {"type": "object"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "nonEmpty": {"type": "string", "minLength": 1},
+    "node": {
+      "type": "object",
+      "required": [
+        "path", "node_type", "policy_id", "zone", "kind", "owner_module",
+        "maintainer", "privacy_class", "git_policy", "source_of_truth",
+        "producer", "consumers", "schema_version", "format", "size", "mtime",
+        "content_hash_policy", "run_id", "input_hashes", "config_hash",
+        "retention", "disposal", "backup", "restore_tested_at", "validation",
+        "status", "replacement", "last_reviewed", "na_reasons"
+      ],
+      "properties": {
+        "path": {"$ref": "#/$defs/nonEmpty"},
+        "node_type": {"enum": ["file", "directory", "symlink", "reparse"]},
+        "policy_id": {"$ref": "#/$defs/nonEmpty"},
+        "zone": {"enum": ["src", "tests", "assets", "docs", "governance", "data", "var", "archive", "planning", "tooling", "vendor"]},
+        "kind": {"$ref": "#/$defs/nonEmpty"},
+        "owner_module": {"$ref": "#/$defs/nonEmpty"},
+        "maintainer": {"$ref": "#/$defs/nonEmpty"},
+        "privacy_class": {"enum": ["R1", "R2", "R3", "R4"]},
+        "git_policy": {"enum": ["track", "ignore", "generated-ignore", "private-ignore", "archive-ignore"]},
+        "source_of_truth": {"$ref": "#/$defs/nonEmpty"},
+        "producer": {"$ref": "#/$defs/nonEmpty"},
+        "consumers": {"type": "array", "items": {"type": "string"}},
+        "schema_version": {"$ref": "#/$defs/nonEmpty"},
+        "format": {"$ref": "#/$defs/nonEmpty"},
+        "size": {"type": "integer", "minimum": 0},
+        "mtime": {"type": "string", "format": "date-time"},
+        "content_hash_policy": {"enum": ["none", "filesystem-metadata", "content-sha256"]},
+        "run_id": {"$ref": "#/$defs/nonEmpty"},
+        "input_hashes": {"type": "array", "items": {"type": "string"}},
+        "config_hash": {"$ref": "#/$defs/nonEmpty"},
+        "retention": {"$ref": "#/$defs/nonEmpty"},
+        "disposal": {"$ref": "#/$defs/nonEmpty"},
+        "backup": {"$ref": "#/$defs/nonEmpty"},
+        "restore_tested_at": {"$ref": "#/$defs/nonEmpty"},
+        "validation": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "status": {"enum": ["active", "candidate", "deprecated", "quarantined", "archived", "orphaned", "excluded"]},
+        "replacement": {"$ref": "#/$defs/nonEmpty"},
+        "last_reviewed": {"type": "string", "format": "date"},
+        "na_reasons": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": false
+    }
+  }
+}

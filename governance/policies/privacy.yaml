@@ -1,0 +1,37 @@
+version: 1
+last_reviewed: "2026-07-13"
+default_class: R4
+unknown_behavior: fail_closed
+classes:
+  R1:
+    description: Public source, documentation, and synthetic fixtures.
+    allowed_git_policies: [track, ignore]
+    package_allowed: true
+    public_report_allowed: true
+    content_audit: allowed
+  R2:
+    description: Internal operational metadata without personal content.
+    allowed_git_policies: [track, ignore, generated-ignore]
+    package_allowed: false
+    public_report_allowed: aggregate_only
+    content_audit: metadata_only_by_default
+  R3:
+    description: Derived personal inference, embeddings, and private evaluation output.
+    allowed_git_policies: [generated-ignore, private-ignore, archive-ignore]
+    package_allowed: false
+    public_report_allowed: aggregate_only
+    content_audit: prohibited
+  R4:
+    description: Raw or linkable personal evidence, mutable databases, and backups.
+    allowed_git_policies: [private-ignore, archive-ignore, ignore]
+    package_allowed: false
+    public_report_allowed: false
+    content_audit: prohibited
+invariants:
+  - R3/R4 bodies must not be opened by governance scans.
+  - R3/R4 paths and node-level metadata remain in ignored local reports only.
+  - Tracked reports contain aggregate counts and policy identifiers only.
+  - Unknown or conflicting classifications resolve to R4 and fail closed.
+  - WAL, SHM, journal, backup, and restore copies inherit the parent store privacy.
+  - Deletion requests propagate through raw, normalized, canonical, vector, report, backup, and archive lineage.
+

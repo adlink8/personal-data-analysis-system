@@ -1,0 +1,33 @@
+# Phase 17 eval manifest v1 (JSON-compatible YAML)
+version: v1
+top_k: 5
+scorer_version: knowledge_eval_metrics_v1
+modes:
+  - raw
+  - l1
+  - l2_only
+  - l1_l2
+  - hybrid
+dataset:
+  id: comprehensive_v1
+  version: v1
+  path: assets/evals/knowledge_units/comprehensive_v1.synthetic.jsonl
+  private_path: integration/runtime/private_evals/comprehensive_v1.private.jsonl
+  notes: Prefer private full suite when present; CI uses synthetic path.
+targets:
+  raw_collection: personal_events
+  # L1-only rollback index (pre-L2 merge)
+  l1_collection: knowledge_units_run_76c6259e_20260712062418
+  # Active L1+L2
+  l1_l2_collection: knowledge_units_205bff9560b9_20260712142938
+  l2_only_collection: knowledge_units_205bff9560b9_20260712142938
+  l2_only_purified: false
+  l2_run_ids:
+    - 205bff9560b915508f343aebc0fe4b0b
+    - 2a63b7e98fd3454c1aae3deedcdf038d
+  candidate_collection: knowledge_units_205bff9560b9_20260712142938
+embed_model: bge-small-zh-v1.5
+answer:
+  model: deterministic_extractive_v1
+  prompt_version: answer_eval_v1
+policy_path: assets/evals/knowledge_units/eval_policy_v1.yaml

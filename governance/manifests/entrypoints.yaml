@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "reviewed_at": "2026-07-13",
+  "owner": "platform-governance",
+  "baseline_only_down": true,
+  "shim_registry": {
+    "root": "integration/scripts",
+    "discovery": "root Python files whose module docstring starts with Compatibility shim ->",
+    "expected_count": 86,
+    "required": ["target", "consumer", "owner", "deprecated", "remove_after"],
+    "defaults": {"consumer": "legacy CLI callers (unknown until telemetry)", "owner": "module target owner", "deprecated": true, "remove_after": "human-approved cohort only"}
+  },
+  "nonstandard_entrypoints": [
+    {"path": "integration/scripts/core/_verify.py", "target": "governance verification", "owner": "platform-governance", "status": "registered"},
+    {"path": "integration/scripts/knowledge/backfill_loop.py", "target": "knowledge.backfill_loop", "owner": "knowledge", "status": "registered"}
+  ],
+  "tool_registry": {"root": "tools", "expected_count": 26, "owner": "platform-governance", "lifecycle": "governed by source/tools.json"},
+  "retirement_cohorts": [
+    {"id": "shim-cohort-01-leaf-libraries", "status": "pending-human-approval", "members": ["chroma_client.py", "common.py", "memory_governance.py", "project_paths.py", "rules.py"], "preconditions": ["consumer count = 0", "static target parity pass", "rollback manifest approved"]}
+  ]
+}

@@ -1,0 +1,625 @@
+{
+  "generated_at": "2026-07-12T08:23:09Z",
+  "method": "content_heuristics + spot_check_overrides",
+  "tags": {
+    "frozen-001": "code",
+    "frozen-002": "code",
+    "frozen-003": "mixed",
+    "frozen-004": "mixed",
+    "frozen-005": "mixed",
+    "frozen-006": "profile",
+    "frozen-007": "profile",
+    "frozen-008": "mixed",
+    "frozen-009": "code",
+    "frozen-010": "mixed",
+    "frozen-011": "profile",
+    "frozen-012": "code",
+    "frozen-013": "profile",
+    "frozen-014": "profile",
+    "frozen-015": "code",
+    "frozen-016": "code",
+    "frozen-017": "mixed",
+    "frozen-018": "mixed",
+    "frozen-019": "profile",
+    "frozen-020": "profile",
+    "dev-001": "code",
+    "dev-002": "profile",
+    "dev-003": "mixed",
+    "dev-004": "mixed",
+    "dev-005": "code",
+    "dev-006": "mixed",
+    "dev-007": "profile",
+    "dev-008": "mixed",
+    "dev-009": "mixed",
+    "dev-010": "code",
+    "dev-011": "mixed",
+    "dev-012": "code",
+    "dev-013": "mixed",
+    "dev-014": "mixed",
+    "dev-015": "mixed",
+    "dev-016": "mixed",
+    "dev-017": "profile",
+    "dev-018": "profile",
+    "dev-019": "mixed",
+    "dev-020": "profile"
+  },
+  "counts": {
+    "code": 10,
+    "mixed": 18,
+    "profile": 12
+  },
+  "counts_by_split": {
+    "frozen_test": {
+      "code": 6,
+      "mixed": 7,
+      "profile": 7
+    },
+    "dev": {
+      "code": 4,
+      "profile": 5,
+      "mixed": 11
+    }
+  },
+  "rationales": {
+    "frozen-001": {
+      "tag": "code",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 3,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 2,
+        "pathy": 0
+      },
+      "query_preview": "{\r   \"code\": \"InvalidTemplateDeployment\",\r   \"details\": [\r     {\r       \"code\": \"RequestDisallowedBy"
+    },
+    "frozen-002": {
+      "tag": "code",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 4,
+        "profile": 0,
+        "google": 0,
+        "mixed": 1,
+        "bracey": 0,
+        "pathy": 2
+      },
+      "query_preview": "检查以下文件是否已经包含中文文档注释（阿里巴巴风格的 docstring）。只需要检查每个文件的前30行左右，看是否有中文模块级 docstring。  需要检查的文件： 1. c:\\Users\\li"
+    },
+    "frozen-003": {
+      "tag": "mixed",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 5,
+        "profile": 0,
+        "google": 0,
+        "mixed": 1,
+        "bracey": 0,
+        "pathy": 2
+      },
+      "query_preview": "在 C:\\Users\\li\\Desktop\\Myproject\\novel-mind 项目中，开发阅读页内搜索功能。  ## 背景  项目使用：Next.js 14 App Router、TypeSc"
+    },
+    "frozen-004": {
+      "tag": "mixed",
+      "heuristic": "mixed",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 1,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "[Assistant Rules - You MUST follow these instructions] [Available Skills] The following skills are a"
+    },
+    "frozen-005": {
+      "tag": "mixed",
+      "heuristic": "mixed",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 1,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "The following is the Codex agent history added since your last approval assessment. Continue the sam"
+    },
+    "frozen-006": {
+      "tag": "profile",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 1,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "余华有条动态火了 世界就是草台班子 不要等准备好了再出发 边学边做 从装模做样到有模有样最后像模像样 而且引发了广泛的讨论 但是还有说法你要去实习 才能接触真实的工作内容 然后又有人说工作内容基本就是"
+    },
+    "frozen-007": {
+      "tag": "profile",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 1,
+        "google": 0,
+        "mixed": 1,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "我说的是github上我的项目 https://github.com/adlink8/t5ai-codex-quota "
+    },
+    "frozen-008": {
+      "tag": "mixed",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 1,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "用户就是ai建议去掉agent功能 而管理员则是后台agent进行管理操作"
+    },
+    "frozen-009": {
+      "tag": "code",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 6,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 5,
+        "pathy": 0
+      },
+      "query_preview": " private void spinner() {         spinner1 = findViewById(R.id.spinner1);         final String[] dev"
+    },
+    "frozen-010": {
+      "tag": "mixed",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 2,
+        "profile": 0,
+        "google": 0,
+        "mixed": 2,
+        "bracey": 0,
+        "pathy": 2
+      },
+      "query_preview": "你是 Phase 2 前端实现子代理。工作目录：C:\\Users\\li\\Desktop\\Myproject\\petcare\\pet-hospital-management-system。  必须先读取"
+    },
+    "frozen-011": {
+      "tag": "profile",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 1,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "[image unavailable] 是这种卡吗 给个准数 程序最多多大 能实现的功能最多多少"
+    },
+    "frozen-012": {
+      "tag": "code",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 1,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "- com           - example             - newland我不要这么多前缀我就直接放到src文件夹中"
+    },
+    "frozen-013": {
+      "tag": "profile",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 1,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "传统思想 生儿育女就是为了养老的思想对现代儿女的查毒 能理解父母希望孩子在意他们体会他们 但是不应该当做应该的也不是说就是不应该吧 但是儿女们也很痛苦啊"
+    },
+    "frozen-014": {
+      "tag": "profile",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 1,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "我可以远程ssh 连接平板嘛 有什么办法 将电脑 手机 平板 互相调动"
+    },
+    "frozen-015": {
+      "tag": "code",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 4,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 1,
+        "pathy": 0
+      },
+      "query_preview": "org.json.JSONException: A JSONObject text must begin with '{' at 1 [character 2 line 1] \tat org.json"
+    },
+    "frozen-016": {
+      "tag": "code",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 6,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 3,
+        "pathy": 0
+      },
+      "query_preview": "using System.Windows; using System.Windows.Controls;  namespace WpfApp1 {     //<summary>     //    "
+    },
+    "frozen-017": {
+      "tag": "mixed",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 1,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "查看 信息安全 实验一 和实验10 以实验10为模板 还有实验一嗅探攻击pdf作为资料 最后产出实验一word文档"
+    },
+    "frozen-018": {
+      "tag": "mixed",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 2,
+        "profile": 0,
+        "google": 0,
+        "mixed": 2,
+        "bracey": 0,
+        "pathy": 2
+      },
+      "query_preview": "工作目录：C:\\Users\\li\\Desktop\\Myproject\\petcare\\pet-hospital-management-system  你是 GSD planner。请为 Phase 1"
+    },
+    "frozen-019": {
+      "tag": "profile",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 1,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "用下载什么数据库 和向量库的软件嘛 ， 以及现在感觉太抽象 能做一个可视化界面来显示嘛先作为执行完后的计划，"
+    },
+    "frozen-020": {
+      "tag": "profile",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 1,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "Hermes agent就是那个宣传可以自进化的agent项目啊 "
+    },
+    "dev-001": {
+      "tag": "code",
+      "heuristic": "mixed",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 1
+      },
+      "query_preview": "<teammate-message teammate_id=\"general-purpose-4\" summary=\"Ch02和Ch03程序填空题注释已全部完成\"> ## 任务完成报告  **文件**"
+    },
+    "dev-002": {
+      "tag": "profile",
+      "heuristic": "mixed",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "[image unavailable] [image unavailable] [image unavailable] 这是官方送的token 第二张则是实际用量token第三张是缓存和上下文 为什么"
+    },
+    "dev-003": {
+      "tag": "mixed",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 1,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "preferences 将现有的进行整合 去除重复思想 命名规范"
+    },
+    "dev-004": {
+      "tag": "mixed",
+      "heuristic": "mixed",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "<turn_aborted> The user interrupted the previous turn on purpose. Any running unified exec processes"
+    },
+    "dev-005": {
+      "tag": "code",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 4,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "org.json.JSONException: JSONObject[\"ResultObj\"] is not a JSONObject (class org.json.JSONObject$Null "
+    },
+    "dev-006": {
+      "tag": "mixed",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 2,
+        "profile": 0,
+        "google": 0,
+        "mixed": 2,
+        "bracey": 0,
+        "pathy": 4
+      },
+      "query_preview": "复查 Phase 5 计划质量。  工作目录：C:\\Users\\li\\Desktop\\Myproject\\petcare\\pet-hospital-management-system  必须读取： -"
+    },
+    "dev-007": {
+      "tag": "profile",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "我在想 表数据库 向量数据库 图数据库 的存储顺序是如何的呢 按照什么流程进行 有没有前提条件才能进入某个数据库 每个数据库的作用的环节和效果  "
+    },
+    "dev-008": {
+      "tag": "mixed",
+      "heuristic": "mixed",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "<cb_summary> Summary of the conversation so far: The conversation is between an AI agent and a user."
+    },
+    "dev-009": {
+      "tag": "mixed",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "总路线图 是一个issue 而不是多个issue  删掉多个issue "
+    },
+    "dev-010": {
+      "tag": "code",
+      "heuristic": "code",
+      "override": true,
+      "scores": {
+        "code": 4,
+        "profile": 0,
+        "google": 0,
+        "mixed": 1,
+        "bracey": 0,
+        "pathy": 2
+      },
+      "query_preview": "读取以下文件的完整内容，我需要为它们添加中文文档注释。请返回每个文件的完整内容：  1. c:\\Users\\li\\Documents\\Obsidian Vault\\System\\AI-Memory\\m"
+    },
+    "dev-011": {
+      "tag": "mixed",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 1
+      },
+      "query_preview": "我想将数据发送到 gpt 通过官方开发的应用功能 然后用官方的隧道连接 C:\\Users\\li\\Desktop\\tunnel-client这个是本机隧道 协议选用mcp 或者有什么更好的办法？ "
+    },
+    "dev-012": {
+      "tag": "code",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "有没有接口进行收口 有没有临时代码可以清理 有没有没有用到的函数 和变量"
+    },
+    "dev-013": {
+      "tag": "mixed",
+      "heuristic": "mixed",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": " # In app browser: - The user has the in-app browser open with 1 tab. - Current URL: http://127.0.0."
+    },
+    "dev-014": {
+      "tag": "mixed",
+      "heuristic": "mixed",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "https://blackaicoding.com/v1 把codex for me的url换成这个 "
+    },
+    "dev-015": {
+      "tag": "mixed",
+      "heuristic": "mixed",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 1,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "gsd:research-phase：调查 HPI / mem0 / langmem / mcp-memory-service / GraphRAG 这类项目。 gsd:map-codebase：把你"
+    },
+    "dev-016": {
+      "tag": "mixed",
+      "heuristic": "mixed",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 2,
+        "bracey": 0,
+        "pathy": 1
+      },
+      "query_preview": "执行 GSD Phase 5 Wave 3: 05-06-qa-verification。  工作目录：C:\\Users\\li\\Desktop\\Myproject\\petcare\\pet-hospit"
+    },
+    "dev-017": {
+      "tag": "profile",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 2,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "[image unavailable] 这个人说的太对了 一百万那可是一百万啊 日常生活中一万块都能买多少东西了反而在结婚上不够远远不够 彩礼张口十几万 婚房首付几十万再加上利息还有几十万 装修十几万"
+    },
+    "dev-018": {
+      "tag": "profile",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "原来的记忆也是实验产物 但是实验内容的规则筛选和构图 不再是通过脚本进行而是通过提示词给到大模型进行对已经高密度压缩的对话内容进行判断 下一阶段就是两种实验的汇总 对比 融合 并删除无用的过度复杂化的"
+    },
+    "dev-019": {
+      "tag": "mixed",
+      "heuristic": "mixed",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 1,
+        "bracey": 0,
+        "pathy": 1
+      },
+      "query_preview": "你负责执行 Phase 8 的 08-03，且只执行 08-03。主线程会监控范围、审稿并决定是否收尾 Phase 8。  执行目标： - 只根据 `C:\\Users\\li\\Documents\\Obs"
+    },
+    "dev-020": {
+      "tag": "profile",
+      "heuristic": "profile",
+      "override": true,
+      "scores": {
+        "code": 0,
+        "profile": 0,
+        "google": 0,
+        "mixed": 0,
+        "bracey": 0,
+        "pathy": 0
+      },
+      "query_preview": "现在ai和嵌入式的结合趋势 再介绍一下乐鑫的esp32-31开发版 我看挺火的"
+    }
+  }
+}

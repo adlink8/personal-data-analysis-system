@@ -1,0 +1,27 @@
+version: 1
+last_reviewed: "2026-07-13"
+precedence: "privacy-deny, priority, specificity; ties fail closed"
+required_by_kind:
+  all: [owner_module, maintainer, privacy_class, git_policy, retention, validation, status]
+  source: [source_of_truth, consumers]
+  generated: [producer, run_id, input_hashes, config_hash, schema_version]
+  directory: [owner_module, zone, status]
+rules:
+  - {id: git-internal, include: [".git", ".git/**"], priority: 10000, deny: true, enumerate_descendants: false, zone: tooling, kind: excluded, owner_module: repository, maintainer: platform, privacy_class: R2, git_policy: ignore, status: excluded}
+  # Phase 20 live private roots
+  - {id: private-var, include: ["var/db", "var/db/**", "var/runtime", "var/runtime/**", "var/reports", "var/reports/**", "var/logs", "var/logs/**", "var/phase20-journals", "var/phase20-journals/**"], priority: 9100, deny: true, enumerate_descendants: true, zone: var, kind: generated, owner_module: data-platform, maintainer: data-platform, privacy_class: R4, git_policy: private-ignore, status: active}
+  - {id: private-data-tree, include: ["data", "data/**"], exclude: ["data/README.md"], priority: 9100, deny: true, enumerate_descendants: true, zone: data, kind: private-data, owner_module: data-platform, maintainer: data-platform, privacy_class: R4, git_policy: private-ignore, status: active}
+  - {id: archive-quarantine, include: ["archive/quarantine", "archive/quarantine/**", "archive/planning", "archive/planning/**", "archive/vendor-reference", "archive/vendor-reference/**"], priority: 9000, deny: true, enumerate_descendants: true, zone: archive, kind: archive, owner_module: repository, maintainer: platform, privacy_class: R4, git_policy: archive-ignore, status: quarantined}
+  # Legacy locations (bak-phase20 recovery window / residual ignore)
+  - {id: private-runtime-legacy, include: ["integration/db", "integration/db/**", "integration/runtime", "integration/runtime/**", "integration/structured", "integration/structured/**", "integration/raw_index", "integration/raw_index/**", "integration/analysis", "integration/analysis/**", "*.bak-phase20", "*.bak-phase20/**"], priority: 8900, deny: true, enumerate_descendants: true, zone: var, kind: generated, owner_module: data-platform, maintainer: data-platform, privacy_class: R4, git_policy: private-ignore, status: rolled-back-legacy}
+  - {id: private-agent-legacy, include: ["Agent", "Agent/**", "Agent.bak-phase20", "Agent.bak-phase20/**"], priority: 8900, deny: true, enumerate_descendants: true, zone: data, kind: private-data, owner_module: conversation, maintainer: data-platform, privacy_class: R4, git_policy: private-ignore, status: rolled-back-legacy}
+  - {id: private-google-imports-legacy, include: ["Google", "Google/**", "Google.bak-phase20", "Google.bak-phase20/**", "imports", "imports/**", "imports.bak-phase20", "imports.bak-phase20/**"], exclude: [], priority: 8900, deny: true, enumerate_descendants: true, zone: data, kind: private-data, owner_module: ingestion, maintainer: data-platform, privacy_class: R4, git_policy: private-ignore, status: rolled-back-legacy}
+  - {id: caches, include: ["**/__pycache__", "**/__pycache__/**", ".pytest_cache", ".pytest_cache/**", "var/cache", "var/cache/**", ".ruff_cache", ".ruff_cache/**", ".mypy_cache", ".mypy_cache/**", ".venv", ".venv/**", "venv", "venv/**", "logs", "logs/**"], priority: 8000, deny: true, enumerate_descendants: true, zone: var, kind: runtime, owner_module: repository, maintainer: platform, privacy_class: R2, git_policy: ignore, status: excluded}
+  - {id: governance-control, include: ["governance", "governance/**"], priority: 7000, zone: governance, kind: source, owner_module: governance, maintainer: platform, privacy_class: R2, git_policy: track, status: active}
+  - {id: tests, include: ["tests", "tests/**"], priority: 7000, zone: tests, kind: test, owner_module: quality, maintainer: quality, privacy_class: R1, git_policy: track, status: active}
+  - {id: planning, include: [".planning", ".planning/**"], priority: 7000, zone: planning, kind: documentation, owner_module: planning, maintainer: project, privacy_class: R2, git_policy: track, status: active}
+  - {id: eval-assets, include: ["integration/evals", "integration/evals/**", "assets/prompts", "assets/prompts/**", "assets/vendor", "assets/vendor/**", "assets/evals", "assets/evals/**"], priority: 6500, zone: assets, kind: source, owner_module: evaluation, maintainer: evaluation, privacy_class: R2, git_policy: track, status: active}
+  - {id: docs, include: ["README.md", "docs", "docs/**", "data/README.md", "var/README.md", "archive/README.md"], priority: 6500, zone: docs, kind: documentation, owner_module: documentation, maintainer: project, privacy_class: R1, git_policy: track, status: active}
+  - {id: product, include: ["integration", "integration/**", "src", "src/**"], priority: 5000, zone: src, kind: source, owner_module: product, maintainer: engineering, privacy_class: R2, git_policy: track, status: active}
+  - {id: tooling, include: [".github", ".github/**", ".agents", ".agents/**", ".codex", ".codex/**", ".workbuddy", ".workbuddy/**"], priority: 4000, zone: tooling, kind: config, owner_module: repository, maintainer: platform, privacy_class: R2, git_policy: track, status: active}
+  - {id: root-default, include: ["**"], priority: 1, zone: src, kind: source, owner_module: repository, maintainer: project, privacy_class: R2, git_policy: track, status: active}

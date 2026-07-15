@@ -1,0 +1,22 @@
+version: 1
+owner: engineering-governance
+policy_id: dependency-reproducibility-v1
+python:
+  supported: ["3.12", "3.14"]
+  core: requirements.txt
+  dev: requirements-dev.txt
+  optional: requirements-optional.txt
+  constraints: constraints.txt
+  install_contract: "python -m pip install -c constraints.txt -r requirements-dev.txt"
+node:
+  supported: ["20"]
+  workspaces:
+    - path: apps/personal_data_chatgpt
+      manifest: package.json
+      lock: package-lock.json
+      install_contract: "npm ci --ignore-scripts"
+offline_default:
+  pytest_collect: "python -m pytest --collect-only -q"
+  node_test: "npm test --prefix apps/personal_data_chatgpt"
+  private_fixtures: false
+

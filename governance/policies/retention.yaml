@@ -1,0 +1,53 @@
+version: 1
+last_reviewed: "2026-07-13"
+default_policy: unknown-hold
+policies:
+  source-controlled:
+    zones: [src, tests, assets, docs, governance, planning, tooling]
+    retention: repository_history
+    disposal: reviewed_git_change
+    backup: git_history
+    restore: git_checkout_or_release_artifact
+  raw-private:
+    zones: [data]
+    retention: owner_defined_legal_and_user_need
+    disposal: explicit_owner_approval_and_lineage_tombstone
+    backup: encrypted_owner_managed
+    restore: documented_restore_test_required
+  mutable-private-store:
+    zones: [var]
+    retention: active_plus_verified_backup_window
+    disposal: checkpointed_after_downstream_deletion_propagation
+    backup: consistent_snapshot_including_sidecar_state
+    restore: sandbox_restore_test_required
+  derived-artifact:
+    kinds: [generated, report, vector]
+    retention: latest_reproducible_runs_plus_release_evidence
+    disposal: delete_candidate_only_after_rebuildability_proven
+    backup: optional_when_rebuildable
+    restore: rebuild_from_manifest_or_verified_snapshot
+  runtime-cache:
+    kinds: [runtime]
+    retention: bounded_ephemeral
+    disposal: delete_candidate_after_process_and_lock_check
+    backup: none
+    restore: rebuild
+  archive-quarantine:
+    zones: [archive]
+    retention: hold_until_cohort_review
+    disposal: explicit_cohort_approval_only
+    backup: verify_before_any_physical_change
+    restore: manifest_journal_and_original_path
+  unknown-hold:
+    zones: [vendor]
+    retention: hold
+    disposal: prohibited_until_classified
+    backup: owner_defined
+    restore: owner_defined
+sidecars:
+  suffixes: [.db-wal, .db-shm, .sqlite-wal, .sqlite-shm, .journal, .bak, .backup]
+  rule: inherit_parent_store_policy
+deletion_lineage:
+  stages: [raw, normalized, canonical, candidate, vector, report, backup, archive]
+  required_evidence: [request_id, owner, scope, preview, approval, journal, post_check, rollback_or_restore]
+

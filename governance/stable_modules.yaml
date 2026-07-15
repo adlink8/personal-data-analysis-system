@@ -1,0 +1,28 @@
+version: 1
+last_reviewed: "2026-07-13"
+required_sections: [Responsibility, Boundaries, Entry points, I/O and privacy, Tests, Ownership]
+modules:
+  - {path: apps, owner: delivery, status: supported}
+  - {path: var/db, owner: data-platform, status: private-runtime}
+  - {path: var/runtime, owner: platform, status: private-runtime}
+  - {path: var/reports, owner: evaluation, status: private-generated}
+  - {path: data, owner: data-platform, status: private-data}
+  - {path: archive, owner: platform, status: quarantined}
+  - {path: docs, owner: documentation, status: supported}
+  - {path: assets/evals, owner: evaluation, status: supported}
+  - {path: assets/vendor, owner: platform, status: vendored}
+  - {path: assets/prompts, owner: evaluation, status: supported}
+  - {path: src/personal_knowledge/core, owner: platform, status: supported}
+  - {path: src/personal_knowledge/adapters, owner: ingestion, status: supported}
+  - {path: src/personal_knowledge/domains/conversation, owner: conversation, status: supported}
+  - {path: src/personal_knowledge/domains/knowledge, owner: knowledge, status: supported}
+  - {path: src/personal_knowledge/domains/memory, owner: memory, status: supported}
+  - {path: src/personal_knowledge/domains/graph, owner: graph, status: supported}
+  - {path: src/personal_knowledge/retrieval, owner: retrieval, status: supported}
+  - {path: src/personal_knowledge/application, owner: application, status: supported}
+  - {path: src/personal_knowledge/services, owner: delivery, status: supported}
+  - {path: src/personal_knowledge/evaluation, owner: evaluation, status: supported}
+  - {path: src/personal_knowledge/governance, owner: governance, status: supported}
+  - {path: tools/compat/v1_1, owner: platform, status: compatibility, review_by: "2026-10-01"}
+  - {path: tools/supported, owner: platform, status: migration-tools, review_by: "2026-10-01"}
+  - {path: tests, owner: quality, status: supported}

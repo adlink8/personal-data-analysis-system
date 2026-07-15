@@ -1,0 +1,38 @@
+# Phase 17 promotion gate policy v1 — freeze after first baseline
+version: v1
+policy_version: v1
+require_answer_eval: true
+required_modes:
+  - raw
+  - l1
+  - l1_l2
+  - hybrid
+hard_gates:
+  secret_privacy_hit: 0
+  citation_precision_min: 0.95
+  no_answer_fp_max: 0.10
+  reconcile_missing: 0
+  reconcile_orphan: 0
+quality_gates:
+  ku_vs_raw_recall5_pp:
+    min_delta_pp: 10
+    require_ci_low_positive: true
+  mrr_at_5_non_inferior_pp:
+    max_drop_pp: 2
+  frozen_regression_pp:
+    max_drop_pp: 2
+  cross_turn_l2_vs_l1_pp:
+    min_delta_pp: 10
+    min_cases: 30
+  p95_latency_vs_active:
+    max_increase_ratio: 0.25
+  grounded_l2_human_precision:
+    min: 0.90
+    min_sample: 50
+primary_claims:
+  - L1+L2 vs Raw Recall@5 >= +10pp with bootstrap CI low > 0
+  - MRR@5 non-inferior to Raw (CI low >= -2pp)
+  - Answer correctness >= +5pp with faithfulness/citation non-inferior
+notes: >
+  Adjusting thresholds requires a new policy version. Old runs/verdicts
+  must never be rewritten.

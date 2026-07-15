@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "reviewed_at": "2026-07-13",
+  "policy": "GOV-PATH-001",
+  "scope": ["integration/scripts", "apps", "tests", "docs", "README.md"],
+  "categories": {
+    "production_source": {"allowed": 0, "owner": "platform-governance", "deadline": "now"},
+    "private_source_locator": {"policy_id": "PATH-EX-PRIVATE-LOCATOR", "allowed": true},
+    "documentation_template": {"policy_id": "PATH-EX-DOC-TEMPLATE", "allowed": true},
+    "historical_report": {"policy_id": "PATH-EX-HISTORICAL", "allowed": true},
+    "test_fixture": {"policy_id": "PATH-EX-TEST-FIXTURE", "allowed": true},
+    "migration_tool": {"policy_id": "PATH-EX-MIGRATION-TOOL", "allowed": true}
+  },
+  "forbidden_new": ["windows_user_absolute", "desktop_absolute", "fixed_drive_model", "production_sys_path_literal"]
+}

@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-07-13T02:11:23.331411+00:00",
+  "privacy": "R2-aggregate-only",
+  "secret_private_content_scan": 0,
+  "metrics": {
+    "by_kind": {
+      "archive": 13419,
+      "config": 8,
+      "documentation": 260,
+      "excluded": 1,
+      "generated": 273,
+      "private-data": 1156,
+      "runtime": 41,
+      "source": 590,
+      "test": 163,
+      "vendor": 252
+    },
+    "by_owner": {
+      "conversation": 11,
+      "data-platform": 35,
+      "documentation": 8,
+      "evaluation": 307,
+      "governance": 18,
+      "ingestion": 1145,
+      "planning": 252,
+      "product": 491,
+      "quality": 163,
+      "repository": 13733
+    },
+    "by_privacy": {
+      "R1": 171,
+      "R2": 1144,
+      "R3": 238,
+      "R4": 14610
+    },
+    "by_status": {
+      "active": 2374,
+      "archived": 328,
+      "excluded": 42,
+      "quarantined": 13419
+    },
+    "by_zone": {
+      "archive": 13495,
+      "assets": 69,
+      "data": 1156,
+      "docs": 8,
+      "governance": 18,
+      "planning": 176,
+      "src": 503,
+      "tests": 163,
+      "tooling": 9,
+      "var": 314,
+      "vendor": 252
+    },
+    "coverage_percent": 100.0,
+    "deepest_depth": 18,
+    "directories": 4637,
+    "excluded_descendants": 14889,
+    "files": 11526,
+    "generated_lineage_completeness_percent": 100.0,
+    "metadata_completeness_percent": 100.0,
+    "node_count": 16163,
+    "reparse": 0,
+    "symlinks": 0
+  },
+  "orphan_residuals": []
+}
