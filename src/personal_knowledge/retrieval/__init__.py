@@ -1,0 +1,1 @@
+"""vector package — integration scripts."""
