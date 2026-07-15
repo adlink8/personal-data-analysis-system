@@ -45,3 +45,7 @@ By suite_tag (layered): code/mixed/profile all **R@5=1.0**.
 - [x] G1 evidence 100%  
 - [x] G2 hybrid layered ≥ 0.85 (achieved 1.00 on frozen gold)  
 - [x] No AgentsView writes; no collection deletes  
+
+## Audit Addendum (2026-07-12)
+
+Functional gates above remain green. P0 formal GSD closeout items from [15-16-AUDIT.md](15-16-AUDIT.md) are **closed**: `pytest.ini` discovery, `15-01-SUMMARY.md`, status alignment. P1 quality items (independent holdout, Google suite cases, legacy-pad telemetry) remain recommended **15-02** (not started).

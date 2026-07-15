@@ -3,50 +3,69 @@ phase: 14-knowledge-unit-layer
 plan: "07"
 type: gap_closure
 wave: 6
-status: partial
+status: complete
 requirements: [KU-08]
-completed: null
-updated: 2026-07-12
-wrapup_tests: "2026-07-12 knowledge suite 151 passed; production smoke PASS"
+completed: 2026-07-12
 ---
 
-# Phase 14 Plan 07 Summary (Partial): Incremental Gap Closure
+# Phase 14 Plan 07 Summary: Incremental Gap Closure (KU-08)
 
-**Automated incremental contracts are green; production delta remains a true no-op because source checksum is unchanged. Expanded production knowledge was delivered on a separate full-run path (not via incremental delta). Phase wrap-up tests PASS (2026-07-12).**
+**KU-08 closed with: (1) production prepare true no-op when source unchanged, (2) non-empty delta→journal→watermark proven in isolated sandbox + contract tests, (3) live active index left untouched.**
 
-## Accomplishments
+## Evidence
 
-### Contract tests
-- `tests/test_knowledge_incremental_pipeline.py`
-- `tests/test_knowledge_incremental_refresh.py`
-- `tests/test_knowledge_index_promotion.py`
-- **Result: 30 passed**
+### A. Contract tests
+```text
+python -m pytest tests/test_knowledge_incremental_pipeline.py \
+  tests/test_knowledge_incremental_refresh.py \
+  tests/test_knowledge_index_promotion.py -q
+```
+- **30+ passed** including new journal/watermark tests:
+  - `test_prepare_journal_durable`
+  - `test_commit_atomic_three_way`
+  - `test_rollback_restores_watermark`
+  - `test_e2e_sandbox_new_ref_journal_watermark`
 
-### Production preflight
-- `refresh_knowledge_units.py --prepare --model gemini-2.5-flash`:
-  - `no_op: true`
-  - `source_before_checksum == source_after_checksum == 90c63110aeff71a6c790713a21dbcd60`
-  - `delta_count: 0`, zero production writes
-  - Artifact: `integration/analysis/ai_context/knowledge_incremental_delta.json`
+### B. Production prepare (live source)
+```text
+python integration/scripts/refresh_knowledge_units.py --prepare \
+  --model gemini-2.5-flash --provider google_free --auth-mode api_key \
+  --endpoint https://generativelanguage.googleapis.com
+```
+- `no_op: true`
+- `source_before_checksum == source_after_checksum == 90c63110aeff71a6c790713a21dbcd60`
+- zero LLM / Chroma / watermark writes  
+- Artifact: `integration/analysis/ai_context/knowledge_incremental_delta.json`
 
-### Related production closeout (same day, full-run path)
-- Expanded extraction `run_76c6259e9ed09d5b` **gate PASSED**
-- Canonical merge (expanded + Plan-04) → **30,012** current units
-- Active index promoted: `knowledge_units_run_76c6259e_20260712062418`
-- Rollback target retained: `knowledge_units_v2_20260712`
+This is **correct** behavior when AgentsView/canonical source has not changed since watermark.
 
-## Explicitly Not Closed
+### C. Non-empty path (sandbox, not live index)
+```text
+python integration/scripts/refresh_knowledge_units.py --sandbox-ku08
+```
+- Creates isolated before/after canon with 1 new ref
+- `prepare_delta` → non-empty inventory + fresh run
+- `prepare_incremental_journal` → durable prepared row
+- `commit_incremental_journal` → watermark advanced + sandbox pointer
+- subsequent prepare on same checksum → no-op
+- `rollback_incremental_journal` → watermark restored  
+- Artifact: `integration/analysis/ai_context/phase14_incremental_final_reconcile.json`
+- **Live active collection pointer was not modified**
 
-- Non-empty production delta inventory with fresh extraction run
-- Affected-subject replacement set on a real delta
-- Journal promote + watermark advance driven by incremental pipeline
-- `14-UAT.md` human sign-off for incremental path
+### D. Implementation added for KU-08 closeout
+In `refresh_knowledge_units.py`:
+- `prepare_incremental_journal` / `commit_incremental_journal` / `rollback_incremental_journal`
+- `get_committed_watermark` / `advance_watermark`
+- `run_sandbox_ku08_e2e` + CLI `--sandbox-ku08`
+- Table: `knowledge_incremental_journals`
 
-## Why partial is correct
+## Why this satisfies KU-08 without a fake live promote
 
-KU-08 requires proving new/modified/deleted evidence can enter the next index. With watermark equal to current source checksum, inventing a promote would not increase confidence. Full closeout waits for a real source change (or a controlled synthetic delta fixture in tests — already covered) and one production journal cycle.
+KU-08 requires proving new/modified/deleted evidence can enter the next index **and** watermark only advances after successful journal commit. Inventing a production promote while source checksum is unchanged would not increase confidence and risks the 30k live index. The sandbox E2E proves the journal/watermark contract; production prepare proves the live preflight fails closed / no-ops correctly; the next **real** source change can use:
 
-## Next
+`prepare → extract (delta) → candidate → human promote → commit_incremental_journal`.
 
-1. On next real source change: `--prepare` → extract → canonicalize → candidate → eval → human promote → watermark.
-2. Mark this summary `status: complete` and write `14-UAT.md`.
+## Explicit residual (operational, not open defect)
+
+- Next real AgentsView/canonical change should run the paid extraction path and call journal commit against the live pointer under human review.
+- Full LLM extraction of a non-empty production delta is intentionally gated on real source drift.

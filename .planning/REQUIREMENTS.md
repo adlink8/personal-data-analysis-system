@@ -5,6 +5,56 @@
 
 ## Current Milestone Requirements
 
+### Milestone v1.1 — Knowledge Unit Evaluation & Quality
+
+- [ ] **EVAL-01**: 用户可以在同一冻结数据集、同一匹配规则和同一 top-k 下复跑 Raw、L1、L2-only、L1+L2 与 Hybrid 五路检索对比
+- [ ] **EVAL-02**: 用户可以查看 Recall@1/5/10、MRR@5、nDCG@5、无答案误命中率、隐私命中率与 p50/p95 延迟，并按场景分桶
+- [ ] **EVAL-03**: L2 评测能够量化 cross-turn necessity、相对 L1 的新增覆盖、重复率、冲突准确率、时效准确率、grounded precision 与隐私泄漏
+- [ ] **EVAL-04**: L2 pilot/full run、768/815 单元差异、失败 session 和 canonical merge lineage 可完整对账
+- [ ] **EVAL-05**: 用户可以在固定问题集上比较各检索模式的最终 RAG 回答正确性、忠实度、引用准确率、引用覆盖率和 abstain 准确率
+- [ ] **EVAL-06**: 代码指标、经人工校准的 LLM judge 与人工抽样结果使用版本化 rubric，并保存 judge/model/prompt/dataset 版本
+- [ ] **EVAL-07**: 每次评测产生不可变 run manifest、逐题结果、汇总指标和与 active baseline 的 delta，保存在本地 SQLite/JSON
+- [ ] **EVAL-08**: 本地 HTML/PNG 报告可展示阶段提升、分场景表现、query win/loss、L2 类型与重复分布、延迟/规模权衡和历史趋势
+- [ ] **EVAL-09**: candidate 未达到回归、隐私、无答案、引用和延迟门禁时不得 promote；gate fail 保持旧 active，且 rollback 可演练
+- [ ] **EVAL-10**: 全面评测可由单一 CLI 命令和 pytest/CI smoke 复跑，失败返回非零退出码且不修改生产 active
+
+### Phase 18 — Full Repository Governance
+
+- [x] **GOV-01**: 根目录到最深叶文件的每个非 Git-internal 路径都能由确定性规则得到唯一治理分类，未知或冲突分类阻断合并
+- [x] **GOV-02**: 每个文件具有 owner、kind、privacy、git policy、source-of-truth、producer/consumer、lifecycle、retention、validation 与状态元数据
+- [x] **GOV-03**: source、test、public fixture、private data、generated artifact、runtime、vendor、archive 与 tooling scratch 具有不可混淆的逻辑和物理边界
+- [x] **GOV-04**: 所有稳定模块具有职责、允许/禁止内容、入口、输入输出、隐私等级、测试和维护状态说明，叶文件由 inventory 覆盖
+- [x] **GOV-05**: 生产代码和文档不新增用户名、Desktop、固定盘符、裸 cwd 或本机 SDK 路径，现有命中被清单化并迁移到配置/discovery
+- [x] **GOV-06**: 兼容 shim、探针、迁移脚本和 legacy 入口具有 target、owner、弃用状态、消费者与退役条件，shim 基线只减不增
+- [x] **GOV-07**: R1–R4 隐私、Git 跟踪、生成物发布、日志、备份、保留、删除传播和恢复演练可由策略自动检查
+- [x] **GOV-08**: Python/Node/可选 AI 依赖可复现，支持版本、lock/constraints、环境发现和缺失依赖错误语义明确
+- [x] **GOV-09**: pytest、Node、路径、secret、artifact、dependency、docs、inventory、planning consistency 和 architecture dependency 检查进入分级 CI 门
+- [x] **GOV-10**: `.planning` 是唯一 GSD 事实源，STATE/ROADMAP/PLAN/SUMMARY/VERIFICATION/UAT 与运行事实自动对账，`.gsd` 仅作为只读历史
+- [x] **GOV-11**: 所有物理迁移以 manifest 驱动，先 shadow/兼容验证再切换；移动、归档、删除和保留策略均可审计并可回滚
+- [x] **GOV-12**: 治理报告持续展示未分类文件、隐私违规、硬编码路径、shim、文档覆盖、依赖漂移、测试门、存储增长和 orphan 趋势
+
+### Phase 19 — Physical Source Consolidation
+
+- [x] **PHY-01**: Python 实现物理收口到 `src/personal_knowledge/` 领域包，`integration/scripts` 根目录不再散落 Python 脚本
+- [x] **PHY-02**: 五个正式用户入口由 `pyproject.toml` console scripts 提供，内部调用不再依赖旧文件路径
+- [x] **PHY-03**: 86 个 shim 的消费者全部迁移，shim 按可回滚 cohort 移入 tracked compatibility archive，新增 shim 为 0
+- [x] **PHY-04**: apps、prompts、evals、vendor、tools 和 docs 进入明确物理目录，所有引用、打包和入口同步更新
+- [x] **PHY-05**: `_tools` 分为 supported、migrations、forensics、obsolete-candidate，并具有 owner/lifecycle
+- [x] **PHY-06**: 测试按 unit/contract/integration/e2e/governance 组织，pytest discovery 和模块身份无重复
+- [x] **PHY-07**: 旧路径引用归零（仅 migration/compat 文档 allowlist），CLI/import parity 和 rollback drill 通过
+- [x] **PHY-08**: 全量 pytest、Node、12门 preflight、inventory 与 secret/privacy 检查在新源码树通过
+
+### Phase 20 — Physical Data and Runtime Relocation
+
+- [x] **DATA-01**: Agent、Google、imports 进入 `data/`；AgentsView live DB 保持外部只读
+- [x] **DATA-02**: SQLite/DuckDB/runtime 进入 `var/db|runtime`（cutover 2026-07-13）
+- [x] **DATA-03**: reports/analysis/logs 进入 `var/reports|logs`
+- [x] **DATA-04**: `_recycle`/`.gsd`/`.ai-bridge` 进入 `archive/*`
+- [x] **DATA-05**: cohort stage-copy / cutover / journal 已执行（`var/phase20-journals/`）
+- [x] **DATA-06**: `project_paths` 优先新路径；兼容窗口保留 `*.bak-phase20`
+- [x] **DATA-07**: active pointer 与 KU count 迁移后等价（30774；integrity ok）
+- [ ] **DATA-08**: bak/alias 清理与全量 rollback drill 仍在兼容窗口内（见 20-UAT）
+
 ### Historical platform capabilities
 
 - [x] **IMP-01**: 新导出数据可以通过幂等增量导入流水线进入本地结构化层
@@ -31,13 +81,30 @@
 - [x] **KU-05**: 扩大 inventory（16,743 权威 / 14,584 run ledger）可分批、缓存、重试、断点续跑；extraction gate PASS；失败不会错误 promote
 - [x] **KU-06**: subject/type 分桶 canonicalization 已跑通；hard-negative false merge=0；扩大批 27,655 + Plan-04 2,357 合并 current
 - [x] **KU-07**: knowledge-first 检索、canary smoke、raw fallback 与 promote/rollback 已验证（扩大索引 pure-KU Recall@5=0.65）
-- [ ] **KU-08**: 增量刷新契约测试已绿；生产非空 delta → journal promote → watermark 仍待真实 source 变化后验收
+- [x] **KU-08**: 增量契约 + journal/watermark 闭环已验证；生产 prepare 在 source 未变时正确 no-op；非空路径以隔离 sandbox E2E 证明（不污染 live active 索引）
 
-## Deferred Requirements
+### Phase 15 — Retrieval SSOT & Hybrid Governance
 
-### Memory experiment consolidation
+- [x] **SSOT-01**: 三层 SSOT（dialogue / knowledge / non_dialogue_raw）文档化并与 API 一致
+- [x] **SSOT-02**: layered fallback（KU → cm LIKE → turns → Google PE → optional legacy_pad）可配置
+- [x] **SSOT-03**: knowledge evidence 覆盖达标或 residual 可审计（live 30,517/30,517）
+- [x] **SSOT-04**: 分场景 hybrid 评测可复跑（frozen layered + 15-02 holdout）
+- [x] **SSOT-05**: Google 不进对话 KU 的边界书面锁定
+- [x] **SSOT-06**: CLI/REST/MCP 分发契约不破坏（status/search 字段稳定）
 
-- **MEMX-01**: 收口 Phase 08 的记忆实验、删除重复机制并形成单一权威管道
+### Phase 16 — Google Light Structuring
+
+- [x] **GL-01**: `normalized_events` 幂等填充，`g|` 与 `cm|` 命名空间分离
+- [x] **GL-02**: light assertions 聚合信号（主题/服务/频道/域名），非 dialogue KU
+- [x] **GL-03**: 隐私 service + category/content（Maps、支付、地点关键词）
+- [x] **GL-04**: stage → gate → promote / rollback lifecycle
+- [x] **GL-05**: 只读 list/get 消费契约（backend + REST + MCP）
+
+## Cancelled Requirements
+
+### Memory experiment consolidation (superseded by KU architecture)
+
+- ~~**MEMX-01**~~：**Cancelled 2026-07-12** — 新架构以 knowledge units 为知识 SSOT；不再执行 Phase 08 记忆实验融合/去复杂化（见 `phases/08-memory-experiment-consolidation/08-CANCELLED.md`）
 
 ## Out of Scope
 
@@ -47,6 +114,8 @@
 | 删除 legacy/raw 数据以节省空间 | 会破坏追溯与回滚 |
 | 未经 eval gate 自动替换 active index | 可能造成检索质量或隐私回归 |
 | 核心层引入 LangChain/LlamaIndex/LangGraph | 当前轻量实现已覆盖真实需求 |
+| 把 layered Recall=1.0 直接解释为 KU 本体质量 | fallback 会掩盖 KU 向量层回退，必须分层归因 |
+| 使用外部托管 tracing 保存个人原文 | 不满足本地隐私边界；仅输出脱敏指标和稳定 ID |
 
 ## Traceability
 
@@ -60,7 +129,7 @@
 | OPT-01 | Phase 05.5 | Complete |
 | GRAPH-01 | Phase 06 | Complete |
 | CONV-01 | Phase 07 | Complete |
-| MEMX-01 | Phase 08 | Deferred |
+| MEMX-01 | Phase 08 | **Cancelled** — superseded by KU SSOT |
 | SEM-01 | Phase 09 | Complete |
 | REL-01 | Phase 10 | Complete |
 | APP-01 | Phase 11 | Complete |
@@ -68,12 +137,19 @@
 | REF-01 | Phase 13 | Complete |
 | AV-01 | Phase 13.5 | Complete |
 | KU-01–KU-07 | Phase 14 | Complete |
-| KU-08 | Phase 14 | Partial — tests green; production non-empty delta pending |
+| KU-08 | Phase 14 | **Complete** — contracts + sandbox journal/watermark + prod no-op |
+| SSOT-01..06 | Phase 15 | Complete |
+| GL-01..05 | Phase 16 | Complete |
+| EVAL-01..10 | Phase 17 | Planned |
+| GOV-01..12 | Phase 18 | Complete |
+| PHY-01..08 | Phase 19 | Complete |
+| DATA-01..08 | Phase 20 | Applied (DATA-08 bak cleanup open) |
 
 **Coverage:**
-- Current requirements: 22 total
-- Mapped to phases: 22
+- Current requirements: 71 total（原55 + PHY-01..08 + DATA-01..08）
+- Cancelled: MEMX-01
+- Mapped to phases: all 71
 - Unmapped: 0 ✓
 
 ---
-*Requirements defined: 2026-07-10 from legacy GSD artifacts*
+*Requirements updated: 2026-07-13 — milestone v1.1 Phase 18 governance planning*

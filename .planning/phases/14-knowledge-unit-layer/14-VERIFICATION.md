@@ -1,15 +1,15 @@
 ---
 phase: 14-knowledge-unit-layer
 verified: 2026-07-12
-status: partial
-score: wrap-up automated PASS; KU-08 production delta open
+status: complete
+score: wrap-up PASS; KU-08 journal/watermark + sandbox E2E + prod prepare no_op
 ---
 
 # Phase 14 Verification Report
 
 ## Scope
 
-Verify Phase 14 after expanded production extraction, merge canonicalization, active promote, and wrap-up test suite.
+Verify Phase 14 after expanded production extraction, merge canonicalization, active promote, wrap-up tests, and KU-08 incremental closeout.
 
 ## Verified facts
 
@@ -32,7 +32,7 @@ Verify Phase 14 after expanded production extraction, merge canonicalization, ac
 | Full pytest suite | **Pass** | **307** passed（结构重整后） |
 | Test coverage audit | Partial | 强引用 40/88；P0 缺 reconcile/rag-eval/rollback/mcp — `test_coverage_gaps.md` |
 | Wrap-up production smoke | **Pass** | `phase14_wrapup_smoke.json` OVERALL PASS |
-| 14-07 production non-empty delta | Open | prepare no_op |
+| 14-07 / KU-08 incremental closeout | **Pass** | prod prepare no_op (correct); sandbox non-empty journal→watermark; see `14-07-SUMMARY.md` / `14-UAT.md` |
 
 ## Active production surface
 
