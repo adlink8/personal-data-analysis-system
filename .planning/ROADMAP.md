@@ -2,7 +2,9 @@
 
 ## Overview
 
-项目从多源个人数据导入和统一架构开始，逐步建设结构化记忆、关系图、AI 消费接口与 canonical AgentView 会话层；当前阶段是把历史会话蒸馏为可评估、可发布、可增量更新的知识单元 RAG。
+项目从多源个人数据导入和统一架构开始，逐步建设结构化记忆、关系图、AI 消费接口与 canonical AgentView 会话层，并把历史会话蒸馏为可评估、可发布、可增量更新的知识单元 RAG。
+
+**Milestone v1.1：Knowledge Unit Evaluation & Quality** — Phase 17 代码已完成，人工 gold/judge/UAT 检查点仍开放；Phase 18 正在执行。v1.0 已完成，详见 [MILESTONE-v1.0.md](MILESTONE-v1.0.md)。
 
 ## Phases
 
@@ -14,16 +16,31 @@
 - [x] **Phase 05.5: Ponytail Project Optimization** - 项目瘦身与去复杂化
 - [x] **Phase 06: Deep Memory Graph Mining** - 深层记忆关系与图谱
 - [x] **Phase 07: Agent Conversation Normalization** - 对话规范化与叙述证据
-- [ ] **Phase 08: Memory Experiment Consolidation** - 遗留去复杂化工作，当前延后
+- [x] **Phase 08: Memory Experiment Consolidation** - **Cancelled**（被 KU 架构取代，见 08-CANCELLED.md）
 - [x] **Phase 09: LLM Semantic Candidate Pipeline** - 严格语义候选与证据门禁
 - [x] **Phase 10: LLM Memory Relation Graph** - LLM 记忆关系候选与发布合同
 - [x] **Phase 11: OpenAI MCP Apps SDK Widget** - MCP、Apps SDK 与组件接入
 - [x] **Phase 12: Data Access Interfaces** - CLI、REST、MCP 数据访问契约
 - [x] **Phase 13: Codebase Refactoring** - 公共基础层重构
 - [x] **Phase 13.5: AgentView Session Integration** - canonical conversation store
-- [ ] **Phase 14: Knowledge Unit Layer** - evaluation-first training-style RAG（扩大生产 30k 索引已上线 + wrap-up 测试 PASS；仅 KU-08 非空增量 E2E 未关）
-- [x] **Phase 15: Retrieval SSOT & Hybrid Governance** - 三层 SSOT、分层 fallback（KU→canonical message→turns→Google raw）、证据 100%、layered frozen R@5=1.0（2026-07-12）
-- [x] **Phase 16: Google Light Structuring** - normalized_events 1696 + light assertions 49（`g|` 命名空间；非对话 KU）
+- [x] **Phase 14: Knowledge Unit Layer** - evaluation-first RAG；30k 索引 + **KU-08 增量 journal/watermark 闭环**（2026-07-12）
+- [x] **Phase 15: Retrieval SSOT & Hybrid Governance** - 15-01 SSOT/layered + 15-02 holdout/telemetry/legacy_pad 决策（2026-07-12）
+- [x] **Phase 16: Google Light Structuring** - 16-01 fill + 16-02 lifecycle（stage/gate/promote）+ RO consumer contract（2026-07-12）
+- [ ] **Phase 17: Knowledge Unit Comprehensive Evaluation** - 代码 17-01..04 已落地；待人工 gold/judge 校准与 UAT 签收
+- [x] **Phase 18: Full Repository Governance Architecture** - 全目录/全文件治理、生命周期、依赖、CI 与空迁移验证闭环（2026-07-13）
+- [x] **Phase 19: Physical Source Consolidation** - src layout、console entrypoints、shim/tools/apps/assets/tests/docs 物理收口
+- [x] **Phase 20: Physical Data & Runtime Relocation** - 全部批准后 apply 完成；bak/alias 兼容窗口保留
+
+> **Audit note (2026-07-12):** P0 + P1 (15-02 / 16-02) executed and verified. See [Phase 15–16 audit](phases/15-retrieval-ssot-governance/15-16-AUDIT.md).
+
+## Optional Next (post-v1.0 backlog — not scheduled)
+
+| ID | Idea | Trigger |
+|----|------|---------|
+| B-01 | Holdout 金标 enrichment（paraphrase / Google `g|`） | 检索质量成为痛点 |
+| B-02 | 真实源变化下的付费增量 extract → journal commit | AgentsView checksum 变化 |
+| B-03 | 双遍抽取 L2 session 窗 | **完成并入** active 30,774（见 14-08 / 14-09 SUMMARY） |
+| B-04 | 测试覆盖补齐 non-main-path high gaps | CI 覆盖率目标 |
 
 ## Phase Details
 
@@ -87,8 +104,8 @@
 **Goal:** 汇总记忆实验并收口为单一权威管道。  
 **Depends on:** Phase 07  
 **Requirements:** [MEMX-01]  
-**Success Criteria:** 重复机制被删除或明确归档；当前延后，不阻塞 Phase 14。  
-**Plans:** Deferred legacy plan
+**Status:** **Cancelled 2026-07-12** — knowledge unit SSOT 已取代 memory 实验融合目标；不执行。  
+**Plans:** none (see `08-CANCELLED.md`)
 
 ### Phase 09: LLM Semantic Candidate Pipeline
 **Goal:** 通过结构化 gate 生成 LLM 语义候选。  
@@ -137,15 +154,11 @@
 **Depends on:** Phase 13.5  
 **Requirements:** [KU-01, KU-02, KU-03, KU-04, KU-05, KU-06, KU-07, KU-08]  
 **Success Criteria:** 全量抽取可恢复；canonicalization 通过 hard-negative gate；candidate 经 A/B 和 canary 后才能 promote；生命周期可增量更新和联合回滚。  
-**Plans:** 14-01..06 complete；14-07 partial（契约测试绿，生产 no-op delta）  
-**Live (2026-07-12 wrap-up):**  
-- inventory 16,743；run `run_76c6259e9ed09d5b` gate **PASS**（succ 13,332 / yield 91.4% / fail 0.41%）  
-- active **`knowledge_units_run_76c6259e_20260712062418` (30,012)**；reconcile **PASS**  
-- pure-KU / hybrid frozen Recall@5 **0.65**（secret 0）；prior hybrid baseline 0.85  
-- wrap-up: full pytest **347 passed**；production smoke **PASS**  
-- scripts 已分包（core/knowledge/memory/… + 根 shim）；闲置模块在 `_recycle/`  
-- 测试：强引用 **48/88 (54.5%)**；P0 生产链路已补；剩 3 个非主路径 high gap — `test_coverage_gaps.md`  
-- 14-07 production prepare still **no_op**（KU-08 开放）
+**Plans:** 14-01..07 **complete**（KU-08: journal/watermark + sandbox E2E + prod no-op）  
+**Live (2026-07-12/13):**  
+- active **`knowledge_units_205bff9560b9_20260712142938` (30,774)** — L1 30,012 + L2 merge +762  
+- rollback target: `knowledge_units_run_76c6259e_20260712062418`  
+- production prepare **no_op** when source checksum unchanged（正确）
 
 ### Phase 15: Retrieval SSOT & Hybrid Governance
 **Goal:** 收口采集/知识/跨源三层 SSOT；hybrid 改为 KU→对话补洞→Google/非对话 raw；证据覆盖与分场景质量门。  
@@ -157,7 +170,7 @@
 - evidence 覆盖 ≥0.85 或 residual 分类账  
 - 分场景评测可复跑；hybrid 总体或分场景达到 CONTEXT 门禁  
 - Google 明确「未 KU 化」边界（Phase 16 草案）  
-**Plans:** 15-01-PLAN.md（W0–W5）  
+**Plans:** 15-01 + 15-02  
 **Artifacts:** `phases/15-retrieval-ssot-governance/`  
 **Not in scope:** 删 raw/Chroma 历史；Google 全量 KU；写 live AgentsView  
 
@@ -165,20 +178,86 @@
 **Goal:** 填充 `normalized_events` + 隐私过滤的聚合轻断言（兴趣主题/服务/频道/域名）。  
 **Depends on:** Phase 15  
 **Status:** **Complete** 2026-07-12  
-**Plans:** 16-01  
-**Live:** normalized **1696**；assertions **49**；脚本 `build_google_normalized_events` / `build_google_light_assertions`  
-**Not:** 对话式 KU 抽取；Maps/支付进入兴趣断言  
+**Plans:** 16-01 + 16-02  
+**Live:** normalized **1696**；assertions **48**；lifecycle stage/gate/promote；RO list/get  
+**Privacy:** service + category/content（Maps；支付/金融/卡；地图/地点/位置/导航 — 含 Search/Gemini 地点主题）  
+**Not:** 对话式 KU 抽取；Maps/支付/地点主题进入兴趣断言  
+
+### Phase 17: Knowledge Unit Comprehensive Evaluation
+**Goal:** 用统一、版本化、可复跑的评测协议证明知识单元模式相对 Raw 的真实提升，隔离 L1/L2/Hybrid 各层贡献，并让评测结果成为 promote 的强制门禁。  
+**Depends on:** Phase 14（L1/L2 collections 与 rollback target）、Phase 15（layer telemetry）、Phase 16（Google/light privacy contract）、Phase 13.5（canonical evidence）  
+**Requirements:** [EVAL-01..10]  
+**Success Criteria:**  
+- Raw/L1/L2-only/L1+L2/Hybrid 在同一 gold 集和评分器下可比较，输出绝对值与相对提升  
+- L2 有独立跨轮 gold，能够证明新增覆盖并量化重复、冲突、隐私与时效风险  
+- 最终 RAG 回答评测覆盖 correctness、faithfulness、citation 与 abstain  
+- candidate gate 在任一关键指标回退或 secret/privacy hit > 0 时阻止 promote  
+- 单命令生成 versioned SQLite/JSON 结果以及本地 HTML/PNG 图表  
+**Plans:** 17-01..04 code complete；人工 gold/judge/UAT 未关闭  
+**Not in scope:** 更换 embedding/model；扩大 L2 抽取；把个人原文发送到外部评测 SaaS  
+
+### Phase 18: Full Repository Governance Architecture
+**Goal:** 对整个仓库从根目录到最深叶文件建立可机器验证、可持续演化、隐私安全且可回滚的治理架构。  
+**Depends on:** Phase 17 code baseline；Phase 17 人工 UAT 可并行收尾，但 Phase 18 不得伪造其完成状态  
+**Requirements:** [GOV-01..12]  
+**Success Criteria:**  
+- 100% 非 Git-internal 文件具有唯一有效治理策略；未分类/多分类均为 0  
+- R3/R4 私有数据和生成物误跟踪为 0；所有生成物具有 producer/run/input/config lineage  
+- 稳定模块边界有 README/owner，所有叶文件由 metadata inventory 覆盖  
+- 新硬编码机器路径和新 shim 为 0；现有债务有 owner、baseline 与归零计划  
+- Python/Node/依赖/secret/artifact/docs/planning/architecture gates 在本地与 CI 一致  
+- 任何物理移动、归档或删除均经过 preview、兼容测试、人工批准和 rollback 演练  
+**Plans:** 18-01..06 complete；18-06 以用户批准的 empty manifest（0 operations）收尾  
+**Not in scope:** 未经批准删除 `_recycle`/raw/private 数据；一次性大搬迁；为所有叶目录机械添加 README  
+
+### Phase 19: Physical Source Consolidation
+**Goal:** 将 tracked 源码、入口、工具、应用、资源、测试和文档迁入目标物理树，消除 `integration/scripts` 根脚本散落。  
+**Depends on:** Phase 18 governance gates  
+**Requirements:** [PHY-01..08]  
+**Success Criteria:** `integration/scripts/*.py=0`；正式命令由 console scripts 提供；旧消费者与 shim 完成 cohort cutover；全量测试/preflight/rollback PASS。  
+**Plans:** 19-01..05 complete（历史 replay debt 见 19-VERIFICATION；future rollback SSOT 已闭环）  
+
+### Phase 20: Physical Data & Runtime Relocation
+**Goal:** 将项目内私有数据、数据库、运行时、报告、日志和归档迁入 data/var/archive 目标树。  
+**Depends on:** Phase 19  
+**Requirements:** [DATA-01..08]  
+**Status:** **Apply complete 2026-07-13**（用户全部批准）；DATA-08 bak/alias 清理仍开放  
+**Success Criteria:** 私有 cohort 经 snapshot/stage/atomic cutover；内容与 active pointer 等价。  
+**Plans:** 20-01 foundation；20-02..04 apply manifests；journals in `var/phase20-journals/`  
+**Live roots:** `data/` · `var/db` · `var/runtime` · `var/reports` · `archive/quarantine/_recycle`  
+
+
 
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 01-07 | Legacy tracked | Complete | Before 2026-07-10 |
-| 08 | 0/1 | Deferred | - |
+| 08 | — | **Cancelled** (superseded by KU) | 2026-07-12 |
 | 09-13.5 | Legacy tracked | Complete | 2026-07-10 or earlier |
-| 14 | 6.5/7 (07 partial) | Near complete — wrap-up PASS | - |
-| 15 | 1/1 | **Complete** (W0–W5 gates) | 2026-07-12 |
-| 16 | 1/1 | **Complete** | 2026-07-12 |
+| 14 | 7/7 | **Complete** (KU-08 closed) | 2026-07-12 |
+| 15 | 2/2 | **Complete** (01 + 02 + live holdout) | 2026-07-12 |
+| 16 | 2/2 | **Complete** (01 + 02 lifecycle) | 2026-07-12 |
+| **v1.0** | — | **Milestone complete** | 2026-07-12 |
+| 17 | 4/4 code | **Executing** (human checkpoints open) | — |
+| 18 | 6/6 | **Complete** | 2026-07-13 |
+| 19 | 5/5 | **Complete** | 2026-07-13 |
+| 20 | apply complete | **Complete** (alias/bak removal deferred) | 2026-07-13 |
+| **v1.1** | Phase 17 human checkpoints open; Phase 18–20 data layout live | **Executing** | — |
+
+### Phase 21: Architectural Alignment - Domains Slimming
+
+**Goal:** 把 domains/ 下 63 个 build/eval 脚本按架构策略归位到 application/ 和 evaluation/,删除死代码,消除跨域中心节点耦合。domains/ 最终只剩纯 domain 规则/模型/常量。
+**Depends on:** Phase 19(physical source consolidation — src layout 就位);承接近期 retrieval facade 拆分(阶段一)的同样手法
+**Success Criteria:** 全量 pytest 通过(允许已知 baseline fail);architecture-boundary PASS;REST :8000 + MCP :8789 健康端点 200;domains/ 无 build_/evaluate_ 逻辑(只剩规则/模型/常量 + re-export facade)。
+**Status:** Complete (2026-07-15) — 4/4 plans executed
+**Plans:** 4/4
+
+Plans:
+- [x] 21-01: Conversation domain migration + LLM primitive split
+- [x] 21-02: Graph domain migration + delete v2 dead code
+- [x] 21-03: Knowledge domain migration
+- [x] 21-04: Memory domain + retrieval legacy + D-08 finalization
 
 ---
-*Roadmap migrated from `.gsd/phases/` on 2026-07-10. Completed checkboxes follow the former authoritative STATE.md; source artifacts remain available for audit.*
+*Roadmap migrated from `.gsd/phases/` on 2026-07-10. Updated 2026-07-13 for Phase 20 data/var/archive cutover.*

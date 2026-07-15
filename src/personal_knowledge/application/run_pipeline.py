@@ -47,16 +47,16 @@ ROOT = Path(__file__).resolve().parents[3]
 STEP_MODULES = {
     "build_integrated_system": "personal_knowledge.application.build_integrated_system",
     "enrich_unified_events": "personal_knowledge.application.enrich_unified_events",
-    "build_merge_layer": "personal_knowledge.domains.graph.build_merge_layer",
+    "build_merge_layer": "personal_knowledge.application.graph.build_merge_layer",
     "build_deep_profiles": "personal_knowledge.application.build_deep_profiles",
-    "build_memory_store": "personal_knowledge.domains.memory.build_memory_store",
-    "build_capability_memory": "personal_knowledge.domains.memory.build_capability_memory",
-    "build_context_memory": "personal_knowledge.domains.memory.build_context_memory",
-    "build_preference_memory": "personal_knowledge.domains.memory.build_preference_memory",
-    "build_memory_graph": "personal_knowledge.domains.memory.build_memory_graph",
+    "build_memory_store": "personal_knowledge.application.memory.build_memory_store",
+    "build_capability_memory": "personal_knowledge.application.memory.build_capability_memory",
+    "build_context_memory": "personal_knowledge.application.memory.build_context_memory",
+    "build_preference_memory": "personal_knowledge.application.memory.build_preference_memory",
+    "build_memory_graph": "personal_knowledge.application.memory.build_memory_graph",
     "build_vector_store": "personal_knowledge.retrieval.build_vector_store",
     "build_context_doc": "personal_knowledge.application.build_context_doc",
-    "build_profile_from_memory": "personal_knowledge.domains.memory.build_profile_from_memory",
+    "build_profile_from_memory": "personal_knowledge.application.memory.build_profile_from_memory",
     "build_conversation_vector_store": "personal_knowledge.application.conversation.build_conversation_vector_store",
 }
 

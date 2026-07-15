@@ -9,7 +9,7 @@ progress:
   total_phases: 23
   completed_phases: 15
   total_plans: 50
-  completed_plans: 41
+  completed_plans: 45
   percent: 65
 ---
 
@@ -33,6 +33,13 @@ progress:
 | AgentsView live | `%USERPROFILE%/.agentsview/sessions.db` (**protected-external**) |
 
 ## Done (latest)
+
+- **Phase 21 complete** (2026-07-15):
+  - core/llm.py LLM primitives; conversation/graph/knowledge/memory build→application, eval→evaluation
+  - retrieval vector eval→evaluation/vector; domains facades (2026-08-13 cleanup window)
+  - deleted build_graph_relation_candidates_v2; hub coupling eliminated
+  - pytest: 13 known baseline fails only; architecture-boundary PASS; REST/MCP health 200
+  - residual: full preflight non-arch gates + source_manifest stale inventory path
 
 - **Phase 20 full apply** (2026-07-13, user 全部批准):
   - agent-google-imports (5 ops), var (11 ops), archive (3 ops) — all **applied**
@@ -79,7 +86,8 @@ python integration/scripts/evaluation/run_knowledge_eval.py --config integration
 
 ## Current Position
 
-Phase: 21 (Architectural Alignment - Domains Slimming) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 21
-Last activity: 2026-07-15 -- Phase 21 execution started
+Phase: 21 (architectural-alignment-domains-slimming) — **COMPLETE** (4/4 plans)
+Plan: 21-01..04 executed; D-08 pytest baseline + architecture-boundary + REST/MCP health PASS
+Status: Ready for verify-work / next phase
+Last activity: 2026-07-15 -- Phase 21 execution complete
+
