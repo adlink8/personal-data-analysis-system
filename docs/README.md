@@ -16,6 +16,7 @@ Architecture, operational contracts, and runbooks for the personal knowledge sys
 |-----|--------|
 | **[AGENTS.md](AGENTS.md)** | **Agent 全流程操作手册（产品路径 + 禁令 + checklist）** |
 | [runbooks/product-sync.md](runbooks/product-sync.md) | `pk-sync conversations` 对话增量 runbook |
+| [runbooks/ku-incremental.md](runbooks/ku-incremental.md) | **KU 只抽新增：inspect/prepare/禁全量 inventory** |
 | [architecture/repository-zones.md](architecture/repository-zones.md) | Physical + logical zones (Phase 20–21) |
 | [architecture/domains-slimming.md](architecture/domains-slimming.md) | Phase 21 application/evaluation layout |
 | [architecture/retrieval-ssot.md](architecture/retrieval-ssot.md) | Three-layer SSOT and hybrid retrieval |
@@ -35,4 +36,4 @@ Docs coverage and governance planning checks validate maintained entries.
 
 ## Ownership
 
-Owner: documentation. Status: supported. Last layout review: 2026-07-16 (pk-sync + agent manual).
+Owner: documentation. Status: supported. Last layout review: 2026-07-16 (pk-sync + KU incremental runbook).

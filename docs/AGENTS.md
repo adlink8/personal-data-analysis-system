@@ -2,7 +2,7 @@
 
 **Purpose:** Single source of instruction for AI coding agents and CLI agents working
 in this repository. Prefer this file over outdated chat memory when procedures conflict.  
-**Last updated:** 2026-07-16  
+**Last updated:** 2026-07-16 (KU incremental hard rules)  
 **Workspace root:** project root containing `src/personal_knowledge/`, `data/`, `var/`, `.planning/`.
 
 ---
@@ -55,12 +55,47 @@ pk-sync conversations --write   # publish normalized + canonical
 
 Details: `docs/runbooks/product-sync.md`.
 
-### 3.2 Knowledge unit update (when needed)
+### 3.2 Knowledge unit update (when needed) — **incremental only**
 
-Use modules under `application/knowledge/` (refresh / promote / rollback).  
-Do **not** run retired `rag-pipeline` for KU.
+**Full runbook:** [`docs/runbooks/ku-incremental.md`](runbooks/ku-incremental.md)  
+**Planning intent:** Phase 14 KU-08 = affected / new evidence only; KU-05 full inventory = rare backfill.
 
-Always respect: candidate → eval gate → promote; no silent overwrite of active index.
+#### Required order
+
+```text
+1) pk-sync conversations [--write]     # if dialogue grew
+2) refresh_knowledge_units --inspect # record new_refs_count
+3) refresh_knowledge_units --prepare # delta artifact only (no LLM)
+4) ONLY IF prepare has non-empty delta → build_knowledge_units_prod on THAT run
+5) canonical units → candidate vector store
+6) eval gate → promote_knowledge_index (active last)
+```
+
+```powershell
+$env:PERSONAL_DATA_GCLOUD = "<path-to-gcloud.bat>"   # if gcloud not on PATH
+python -m personal_knowledge.application.knowledge.refresh_knowledge_units --inspect
+# prepare / prod flags: see ku-incremental.md
+```
+
+#### Hard rules (KU)
+
+| Rule | Detail |
+|------|--------|
+| **Only delta** | Daily work extracts **new/modified** evidence, not the full eligible set |
+| **inspect vs prepare conflict** | If inspect shows `source_changed` + `new_refs>0` but prepare is `no_op`/`delta_count=0` → **STOP**. Report prepare defect. **Do not** invent another path |
+| **Forbidden daily fallback** | `build_knowledge_inventory --write` + `build_knowledge_units_prod --start` on that full inventory = **full re-extract**. Banned as “prepare failed” workaround |
+| **No auto paid LLM** | `refresh --write` prints commands with approval; it does not auto-call Vertex |
+| **Active last** | Never promote mid-run; prefer `--require-eval-pass` |
+| **No rag-pipeline** | Retired; wrong layer for KU |
+
+#### Full inventory is not incremental
+
+| Command pair | Meaning |
+|--------------|---------|
+| `build_knowledge_inventory --write` | Freezes **all** eligible messages (KU-05 backfill input) |
+| `build_knowledge_units_prod --start --inventory <full>` | Queues **entire** ledger for extraction |
+
+Use only for **planned production backfill/rebuild**, never after a normal `pk-sync`.
 
 ### 3.3 Serve MCP / ChatGPT
 
@@ -95,11 +130,16 @@ rag-api    # usually already started by watchdog
 |--------|--------|
 | `rag-pipeline` (steps 1–12 default) | **Retired** — CLI exits 2 with redirect to `pk-sync` |
 | Full integrated rebuild for “daily conversation sync” | **Do not** |
+| Full KU inventory + `prod --start` as daily “sync after chat” | **Forbidden** (see §3.2 / ku-incremental.md) |
+| Ignore inspect≠prepare (no_op) and keep paying LLM | **Forbidden** |
+| Resume a mistaken full-inventory run until pending=0 | **Forbidden** |
+| Promote without eval when gate is required | **Forbidden** |
 | Write AgentsView live DB | **Forbidden** |
 | Treat `memory_*` or raw `personal_events` as knowledge SSOT | **Forbidden** |
 | Commit `data/**`, `var/**` private content, secrets, `*.sqlite` | **Forbidden** (gitignore) |
 | Delete raw/canonical without recovery plan | **Forbidden** |
 | Fabricate missing intermediate evidence | **Forbidden** |
+| Rewrite Vertex extraction to another LLM “just to run” | **Forbidden** without explicit product decision |
 
 Emergency legacy only:
 
@@ -147,7 +187,9 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
              ▼
    agent_conversations.sqlite  ◄── dialogue SSOT
              │
-             │  refresh / extract / promote (knowledge modules)
+             │  inspect → prepare(delta) → extract ONLY new/modified
+             │  → canonical KU → candidate vector → eval → promote
+             │  (NOT full inventory --start)
              ▼
    canonical_knowledge_units + active Chroma collection
              │
@@ -196,6 +238,10 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 |--------|---------|
 | Sync conversations (dry) | `pk-sync conversations` |
 | Sync conversations (write) | `pk-sync conversations --write` |
+| KU inspect (delta) | `python -m personal_knowledge.application.knowledge.refresh_knowledge_units --inspect` |
+| KU prepare (no LLM) | `refresh_knowledge_units --prepare --model … --provider vertex_google --endpoint https://aiplatform.googleapis.com --auth-mode gcloud` |
+| KU extract status | `build_knowledge_units_prod --status <run_id>` |
+| KU full procedure | **[runbooks/ku-incremental.md](runbooks/ku-incremental.md)** |
 | Legacy pipeline help | `pk-sync help-legacy` |
 | Start REST+MCP+tunnel | `apps\...\scripts\start-services.ps1` |
 | Health | `curl.exe --noproxy "*" http://127.0.0.1:8000/health` (8789, 8081/healthz) |
@@ -210,13 +256,15 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 | Doc | Use |
 |------|-----|
 | **This file** | Agent operating manual (workflows + hard rules) |
-| [runbooks/product-sync.md](runbooks/product-sync.md) | Conversation sync procedure |
+| [runbooks/product-sync.md](runbooks/product-sync.md) | Conversation sync (`pk-sync`) |
+| [runbooks/ku-incremental.md](runbooks/ku-incremental.md) | **KU delta-only procedure + forbidden full inventory** |
 | [architecture/retrieval-ssot.md](architecture/retrieval-ssot.md) | Three-layer SSOT + hybrid |
 | [architecture/repository-zones.md](architecture/repository-zones.md) | data/var/archive/src zoning |
 | [architecture/domains-slimming.md](architecture/domains-slimming.md) | application vs domains layout |
 | [../AGENTS.md](../AGENTS.md) | Workspace MCP/service short instructions |
 | [../.planning/PROJECT.md](../.planning/PROJECT.md) | Product goals & decisions |
 | [../.planning/ROADMAP.md](../.planning/ROADMAP.md) | Phase status |
+| `.planning/phases/14-knowledge-unit-layer/` | KU-05 backfill vs KU-08 incremental plans |
 
 ---
 
@@ -224,6 +272,7 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 
 | Date | Change |
 |------|--------|
+| 2026-07-16 | **KU incremental runbook**; ban full inventory as daily fallback; inspect≠prepare → stop |
 | 2026-07-16 | Product entry `pk-sync`; `rag-pipeline` retired (exit 2) |
 | 2026-07-16 | Agentsview→canonical modules restored under `application/conversation/` |
 | 2026-07-15 | Phase 21 domains slimming; `core/llm` |

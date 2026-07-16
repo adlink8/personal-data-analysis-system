@@ -59,6 +59,7 @@
   - `retrieval/` 向量/检索 I/O；`services/` REST/MCP  
 - **产品同步入口（2026-07-16）：** `pk-sync conversations [--write]`（AgentsView→canonical）。  
   旧 `rag-pipeline` 统合 1–12 步已退役（仅取证：`PK_ALLOW_LEGACY_PIPELINE` + `--legacy-integrated`）。  
+  **KU：** 日常仅增量（`docs/runbooks/ku-incremental.md`）；禁止把全量 `build_knowledge_inventory`+`prod --start` 当对话同步后的默认步骤。  
   Agent 全流程见 `docs/AGENTS.md`。  
 - **数据/运行时（Phase 20）：** `data/`、`var/`、`archive/`；AgentsView live 仍为 protected-external。
 - 核心统合库：`var/db/personal_system.sqlite`（非对话 PE 过渡层）；对话 SSOT：`data/canonical/agent/structured/db/agent_conversations.sqlite`。

@@ -69,6 +69,7 @@ locations and falls back to legacy paths only if the new path is absent.
 
 - **[Agent operating manual](docs/AGENTS.md)** — full product workflow for AI/human operators
 - [Product sync runbook](docs/runbooks/product-sync.md) — `pk-sync conversations`
+- [KU incremental runbook](docs/runbooks/ku-incremental.md) — delta-only knowledge extract (no full inventory daily)
 - [Repository zones](docs/architecture/repository-zones.md)
 - [Domains slimming (Phase 21)](docs/architecture/domains-slimming.md)
 - [Retrieval SSOT](docs/architecture/retrieval-ssot.md)

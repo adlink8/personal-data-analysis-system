@@ -1,7 +1,8 @@
 # 数据分析项目 - 工作区指令
 
 > **完整 Agent 操作手册（全流程）:** [`docs/AGENTS.md`](docs/AGENTS.md)  
-> **对话同步 runbook:** [`docs/runbooks/product-sync.md`](docs/runbooks/product-sync.md)
+> **对话同步 runbook:** [`docs/runbooks/product-sync.md`](docs/runbooks/product-sync.md)  
+> **KU 增量 runbook（只抽新增）:** [`docs/runbooks/ku-incremental.md`](docs/runbooks/ku-incremental.md)
 
 默认中文；优先本地事实（代码 / 路径 / 端口），再下结论。
 
@@ -12,13 +13,17 @@
 | 目的 | 命令 |
 |------|------|
 | 同步本地对话 → 项目 SSOT | `pk-sync conversations` / `pk-sync conversations --write` |
+| KU 增量（先看 delta） | `python -m personal_knowledge.application.knowledge.refresh_knowledge_units --inspect` |
+| KU 完整步骤 | **必读** [`docs/runbooks/ku-incremental.md`](docs/runbooks/ku-incremental.md) |
 | 启动 REST + MCP + Tunnel | `apps/personal_data_chatgpt/scripts/启动服务.bat` 或 `start-services.ps1` |
 | 检索 CLI | `rag-search …` |
 
 **已退役（不要当产品路径）：** `rag-pipeline`（统合 1–12 步 / personal_events+memory 批处理）。  
 调用会 exit 2 并提示改用 `pk-sync`。取证才用 `PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated`。
 
-**知识 SSOT** = KU + active index（`application/knowledge/*` refresh/promote），不是 memory 实验层。
+**知识 SSOT** = KU + active index（`application/knowledge/*`），不是 memory 实验层。  
+**KU 硬规则：** 只抽 inspect 给出的新增/变更；**禁止**日常 `build_knowledge_inventory --write` + `prod --start` 全量重抽。  
+若 `inspect` 有 delta 而 `prepare` 为 `no_op` → **停**，不要换全量路径。
 
 ---
 
