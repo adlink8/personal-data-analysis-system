@@ -178,6 +178,10 @@ def parse_args() -> argparse.Namespace:
         "--agentsview-write", action="store_true",
         help="agentsview 阶段实际写入 normalized/canonical DB（默认 dry-run）",
     )
+    p.add_argument(
+        "--agentsview-only", action="store_true",
+        help="只运行 AgentView 会话源集成阶段，不继续执行步骤 1-12",
+    )
     return p.parse_args()
 
 
@@ -236,28 +240,38 @@ def run_step(step: dict) -> tuple[bool, float]:
 # ===== 主入口 =====
 
 def run_agentsview_stage(write: bool = False) -> bool:
-    """Phase 13.5：AgentView 会话源集成（snapshot → normalized → canonical）。
+    """Phase 13.5：AgentView 会话源集成（inventory → normalized → canonical）。
 
-    严格串行：先只读快照，再生成 normalized（staging + 原子发布），
+    严格串行：先只读 inventory，再生成 normalized（staging + 原子发布），
     再构建 canonical conversation store。任一步失败则中止。
     不修改 AgentView 源库（mode=ro + query_only）。
     """
-    agent_scripts = ROOT / "Agent" / "structured" / "scripts"
     mode = "--write" if write else "--dry-run"
-    steps = [
-        ("agentsview import inventory", agent_scripts / "import_agentsview_sessions.py", [mode]),
-        ("agentsview normalized build", "personal_knowledge.application.conversation.build_agentsview_normalized", []),
-        ("canonical conversation store", agent_scripts / "build_canonical_agent_conversations.py", [mode]),
+    # inventory 始终是报告-only（无 --write 语义）；normalized/canonical 用 mode
+    steps: list[tuple[str, str, list[str]]] = [
+        (
+            "agentsview import inventory",
+            "personal_knowledge.application.conversation.import_agentsview_sessions",
+            ["--dry-run"],
+        ),
+        (
+            "agentsview normalized build",
+            "personal_knowledge.application.conversation.build_agentsview_normalized",
+            [mode],
+        ),
+        (
+            "canonical conversation store",
+            "personal_knowledge.application.conversation.build_canonical_agent_conversations",
+            [mode],
+        ),
     ]
     print(f"\n{'='*70}")
     print("[Phase 13.5] AgentView 会话源集成")
     print(f"{'='*70}")
-    for label, script, extra in steps:
-        if isinstance(script, Path) and not script.exists():
-            print(f"[SKIP] {label}: 脚本不存在 {script}")
-            continue
-        cmd = ([sys.executable, "-m", script] if isinstance(script, str) else [sys.executable, str(script)]) + extra
+    for label, module, extra in steps:
+        cmd = [sys.executable, "-m", module] + extra
         print(f"\n[RUN] {label}")
+        print(f"      {' '.join(cmd)}")
         t0 = time.time()
         ret = subprocess.run(cmd, cwd=str(ROOT))
         elapsed = time.time() - t0
@@ -271,12 +285,13 @@ def run_agentsview_stage(write: bool = False) -> bool:
 def main() -> None:
     args = parse_args()
 
-    if args.agentsview:
+    if args.agentsview or args.agentsview_only:
         ok = run_agentsview_stage(write=args.agentsview_write)
         if not ok:
             sys.exit(1)
-        if not select_steps(args):
-            return  # 只跑 agentsview 阶段
+        if args.agentsview_only or not select_steps(args):
+            print("\n[done] agentsview 阶段结束（未继续执行统合管道步骤）。")
+            return
 
     selected = select_steps(args)
 
