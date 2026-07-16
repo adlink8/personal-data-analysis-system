@@ -8,8 +8,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PLAN_JSON = ROOT / "integration" / "analysis" / "ai_context" / "memory_decomplexity_plan.json"
-PLAN_MD = ROOT / "integration" / "analysis" / "ai_context" / "memory_decomplexity_plan.md"
+# Plan-only fixture (Phase 20 moved live analysis under archive quarantine).
+_FIXTURES = ROOT / "tests" / "fixtures" / "memory_decomplexity"
+PLAN_JSON = _FIXTURES / "memory_decomplexity_plan.json"
+PLAN_MD = _FIXTURES / "memory_decomplexity_plan.md"
 
 
 class TestMemoryDecomplexityPlan(unittest.TestCase):

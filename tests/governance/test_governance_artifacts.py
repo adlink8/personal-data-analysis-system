@@ -18,13 +18,15 @@ BUDGETS = ROOT / "governance/baselines/storage_budgets.yaml"
 
 
 def _tree(root: Path) -> None:
+    # Phase 20: live private roots are var/data; residual integration/* is legacy.
     (root / "integration/runtime").mkdir(parents=True)
     (root / "integration/runtime/private.db").write_bytes(b"DO-NOT-READ")
     (root / "integration/runtime/private.db-wal").write_bytes(b"DO-NOT-READ")
     (root / "integration/analysis").mkdir(parents=True)
     (root / "integration/analysis/report.json").write_text("SECRET", encoding="utf-8")
-    (root / "_recycle/old").mkdir(parents=True)
-    (root / "_recycle/old/private.bin").write_bytes(b"SECRET")
+    # Quarantine cohort lives under archive/quarantine (not legacy _recycle).
+    (root / "archive/quarantine/old").mkdir(parents=True)
+    (root / "archive/quarantine/old/private.bin").write_bytes(b"SECRET")
     (root / "tests").mkdir()
     (root / "tests/test_ok.py").write_text("assert True", encoding="utf-8")
 
@@ -40,7 +42,15 @@ def test_audit_is_metadata_only_and_never_opens_private_bodies(tmp_path: Path, m
 
     def guarded_open(file, *args, **kwargs):
         text = os.fspath(file).replace("\\", "/")
-        if any(part in text for part in ("/integration/runtime/", "/integration/analysis/", "/_recycle/")):
+        if any(
+            part in text
+            for part in (
+                "/integration/runtime/",
+                "/integration/analysis/",
+                "/archive/quarantine/",
+                "/_recycle/",
+            )
+        ):
             raise AssertionError(f"private body read: {text}")
         return original_open(file, *args, **kwargs)
 

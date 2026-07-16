@@ -23,6 +23,8 @@ def _args(**kwargs) -> Namespace:
         include_conversation_turns=False,
         agentsview=False,
         agentsview_write=False,
+        agentsview_only=False,
+        legacy_integrated=False,
     )
     base.update(kwargs)
     return Namespace(**base)
@@ -92,7 +94,8 @@ def test_dry_run_main_prints_without_executing(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         rp,
         "parse_args",
-        lambda: _args(dry_run=True, only_steps="1,2"),
+        # dry-run of retired steps still requires explicit --legacy-integrated
+        lambda: _args(dry_run=True, only_steps="1,2", legacy_integrated=True),
     )
     rp.main()
     out = capsys.readouterr().out

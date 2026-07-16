@@ -25,8 +25,9 @@ def _fixture_tree(root: Path) -> None:
     (root / "deep/a/b/c/leaf.txt").write_text("leaf", encoding="utf-8")
     (root / "integration/runtime/private_evals").mkdir(parents=True)
     (root / "integration/runtime/private_evals/secret.txt").write_text("DO-NOT-READ", encoding="utf-8")
-    (root / "_recycle/nested").mkdir(parents=True)
-    (root / "_recycle/nested/old.bin").write_bytes(b"private")
+    # Phase 20 quarantine zone (replaces legacy _recycle policy id "quarantine").
+    (root / "archive/quarantine/nested").mkdir(parents=True)
+    (root / "archive/quarantine/nested/old.bin").write_bytes(b"private")
     (root / ".git/objects").mkdir(parents=True)
     (root / ".git/objects/ignored").write_bytes(b"git")
 
@@ -66,8 +67,8 @@ def test_ordered_policy_is_unique_for_all_fixture_types(tmp_path: Path) -> None:
         "tests/example.py": "tests",
         "empty": "root-default",
         "deep/a/b/c/leaf.txt": "root-default",
-        "integration/runtime/private_evals/secret.txt": "private-runtime",
-        "_recycle/nested/old.bin": "quarantine",
+        "integration/runtime/private_evals/secret.txt": "private-runtime-legacy",
+        "archive/quarantine/nested/old.bin": "archive-quarantine",
         ".git": "git-internal",
     }
     for path, rule_id in expected.items():
@@ -78,7 +79,7 @@ def test_ordered_policy_is_unique_for_all_fixture_types(tmp_path: Path) -> None:
     assert ".git" in paths
     assert not any(path.startswith(".git/") for path in paths)
     assert "empty" in paths
-    assert "_recycle/nested/old.bin" in paths
+    assert "archive/quarantine/nested/old.bin" in paths
 
 
 def test_private_nodes_are_never_opened(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -88,7 +89,11 @@ def test_private_nodes_are_never_opened(tmp_path: Path, monkeypatch: pytest.Monk
 
     def guarded_open(file, *args, **kwargs):
         text = os.fspath(file).replace("\\", "/")
-        if "/integration/runtime/" in text or "/_recycle/" in text:
+        if (
+            "/integration/runtime/" in text
+            or "/archive/quarantine/" in text
+            or "/_recycle/" in text
+        ):
             raise AssertionError(f"private body read attempted: {text}")
         return original_open(file, *args, **kwargs)
 

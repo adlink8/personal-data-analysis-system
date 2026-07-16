@@ -53,7 +53,7 @@
         "backup": {"$ref": "#/$defs/nonEmpty"},
         "restore_tested_at": {"$ref": "#/$defs/nonEmpty"},
         "validation": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
-        "status": {"enum": ["active", "candidate", "deprecated", "quarantined", "archived", "orphaned", "excluded"]},
+        "status": {"enum": ["active", "candidate", "deprecated", "quarantined", "archived", "orphaned", "excluded", "rolled-back-legacy"]},
         "replacement": {"$ref": "#/$defs/nonEmpty"},
         "last_reviewed": {"type": "string", "format": "date"},
         "na_reasons": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}}

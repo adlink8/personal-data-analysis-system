@@ -28,14 +28,29 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def _cohort(node: dict[str, Any]) -> tuple[str, str, str]:
+    """Map inventory policy_id → disposition cohort (Phase 20 path renames)."""
     policy = node["policy_id"]
-    if policy == "quarantine":
+    path = str(node.get("path", "")).replace("\\", "/")
+    # Quarantine: historical `_recycle` / `quarantine` and live `archive/quarantine`.
+    if policy in {"quarantine", "archive-quarantine"}:
         return "recycle-quarantine", "archive", "Quarantined history requires owner review."
-    if policy in {"private-agent", "private-google-imports"}:
+    if policy in {
+        "private-agent",
+        "private-google-imports",
+        "private-agent-legacy",
+        "private-google-imports-legacy",
+        "private-data-tree",
+    }:
         return "raw-and-imports", "keep", "Raw/linkable evidence is held; no automated disposition."
-    if policy == "private-runtime" and node["format"] in {"db", "sqlite", "sqlite3"}:
+    runtime_like = policy in {"private-runtime", "private-runtime-legacy", "private-var"}
+    if runtime_like and node["format"] in {"db", "sqlite", "sqlite3"}:
         return "private-databases", "keep", "Mutable private stores require backup and sandbox restore evidence."
-    if policy == "private-analysis":
+    # Derived analysis reports (legacy private-analysis or runtime-like analysis paths).
+    if policy == "private-analysis" or (
+        runtime_like
+        and node["format"] not in {"db", "sqlite", "sqlite3"}
+        and ("/analysis/" in f"/{path}/" or path.endswith("/analysis") or "/analysis" in path)
+    ):
         return "derived-reports", "archive", "Derived outputs may be archived only after rebuildability review."
     if node["kind"] == "runtime" and node["privacy_class"] in {"R1", "R2"}:
         return "ephemeral-caches", "delete-candidate", "Caches are candidates only after process/lock review."
