@@ -8,6 +8,9 @@ version = "0.1.0"
 requires-python = ">=3.11"
 
 [project.scripts]
+# Product sync (canonical conversation path)
+pk-sync = "personal_knowledge.cli:sync"
+# Retired integrated batch (hidden product use — prints migration message / exit 2)
 rag-pipeline = "personal_knowledge.cli:pipeline"
 rag-search = "personal_knowledge.cli:search"
 rag-api = "personal_knowledge.cli:api"

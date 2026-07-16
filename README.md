@@ -10,9 +10,17 @@ pip install -r requirements-dev.txt
 # package layout: src/personal_knowledge (console scripts after editable install)
 pip install -e .
 python -m pytest -q
-rag-pipeline --dry-run
+
+# Product sync: AgentsView → canonical conversation SSOT
+pk-sync conversations           # dry-run
+pk-sync conversations --write   # publish
+
 rag-search stats --json
 ```
+
+> **Note:** `rag-pipeline` (integrated steps 1–12 / personal_events + memory batch) is
+> **retired** from product use. It exits with a redirect message unless
+> `PK_ALLOW_LEGACY_PIPELINE=1` and `--legacy-integrated` are set (forensics only).
 
 Production data is private. Do not commit databases, raw exports, runtime reports,
 credentials, or private evaluation cases.

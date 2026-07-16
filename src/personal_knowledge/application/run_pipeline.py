@@ -22,14 +22,18 @@
 需 LLM 配置），且需 chroma 服务在线。缺失时步骤 13 会报错但不影响前 12 步。
 建议手动单独运行：python build_conversation_summary.py --write 后再跑步骤 13。
 
-用法:
-  rag-pipeline                                      # 全量重跑（步骤 1-12）
-  rag-pipeline --from 2                             # 从步骤2开始（跳过重建库）
-  rag-pipeline --only 3,4                           # 只跑步骤3和4
-  rag-pipeline --skip 10                            # 跳过向量化（节省时间）
-  rag-pipeline --dry-run                            # 只打印顺序，不执行
-  rag-pipeline --from 5 --skip 9,10                 # 组合用法
-  rag-pipeline --include-conversation-turns         # 显式启用步骤13
+.. deprecated::
+    Product day-to-day sync is ``pk-sync conversations [--write]``.
+    This module retains steps 1–12 for forensics only and requires
+    ``--legacy-integrated`` (and CLI allow-flag when invoked as rag-pipeline).
+
+用法（仅 legacy / 取证）:
+  set PK_ALLOW_LEGACY_PIPELINE=1
+  python -m personal_knowledge.application.run_pipeline --legacy-integrated --dry-run
+  python -m personal_knowledge.application.run_pipeline --legacy-integrated --from 2
+
+产品对话增量:
+  pk-sync conversations --write
 """
 
 from __future__ import annotations
@@ -182,6 +186,14 @@ def parse_args() -> argparse.Namespace:
         "--agentsview-only", action="store_true",
         help="只运行 AgentView 会话源集成阶段，不继续执行步骤 1-12",
     )
+    p.add_argument(
+        "--legacy-integrated",
+        action="store_true",
+        help=(
+            "允许执行已退役的统合步骤 1–12（personal_events / memory 批处理）。"
+            "产品默认禁止；取证时再用。"
+        ),
+    )
     return p.parse_args()
 
 
@@ -291,16 +303,34 @@ def main() -> None:
             sys.exit(1)
         if args.agentsview_only or not select_steps(args):
             print("\n[done] agentsview 阶段结束（未继续执行统合管道步骤）。")
+            print("提示: 产品入口请用 `pk-sync conversations [--write]`。")
             return
 
     selected = select_steps(args)
 
     if not selected:
         print("没有匹配的步骤，请检查 --from / --only / --skip 参数。")
+        print("产品对话同步: pk-sync conversations [--write]")
         sys.exit(1)
 
+    # Block default integrated pipeline (steps 1–12/13) without explicit opt-in.
+    if not args.legacy_integrated:
+        print(
+            "[blocked] 统合管道步骤 1–12 已退役，不再作为产品默认流程。\n"
+            "\n"
+            "请改用:\n"
+            "  pk-sync conversations           # dry-run\n"
+            "  pk-sync conversations --write   # 发布对话 SSOT\n"
+            "\n"
+            "若确需取证重跑旧 personal_events/memory 批处理:\n"
+            "  python -m personal_knowledge.application.run_pipeline "
+            "--legacy-integrated --dry-run\n",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
     print(f"\n{'='*70}")
-    print("个人数据分析管道")
+    print("个人数据分析管道 [LEGACY-INTEGRATED / 取证模式]")
     print(f"{'='*70}")
     print(f"共 {len(selected)} 步将执行{'（dry-run 模式，不实际运行）' if args.dry_run else ''}：\n")
     for step in selected:

@@ -48,6 +48,13 @@ src/personal_knowledge/
 
 - `domains/graph/build_graph_relation_candidates_v2.py` (dead; broken internal import)
 
+## Product sync vs retired pipeline
+
+| Entry | Role |
+|-------|------|
+| **`pk-sync conversations [--write]`** | **Product** — AgentsView → normalized → canonical conversation SSOT |
+| `rag-pipeline` / `run_pipeline` steps 1–12 | **Retired** — integrated personal_events / memory batch; blocked unless `PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated` |
+
 ## Deferred
 
 - Remove facades after **2026-08-13**
