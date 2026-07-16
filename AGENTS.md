@@ -1,8 +1,10 @@
 # 数据分析项目 - 工作区指令
 
-> **完整 Agent 操作手册（全流程）:** [`docs/AGENTS.md`](docs/AGENTS.md)  
-> **对话同步 runbook:** [`docs/runbooks/product-sync.md`](docs/runbooks/product-sync.md)  
-> **KU 增量 runbook（只抽新增）:** [`docs/runbooks/ku-incremental.md`](docs/runbooks/ku-incremental.md)
+> **完整 Agent 操作手册:** [`docs/AGENTS.md`](docs/AGENTS.md)  
+> **对话同步:** [`docs/runbooks/product-sync.md`](docs/runbooks/product-sync.md)  
+> **KU 增量:** [`docs/runbooks/ku-incremental.md`](docs/runbooks/ku-incremental.md)  
+> **产品就绪分:** [`.planning/PRODUCT-READINESS.md`](.planning/PRODUCT-READINESS.md)  
+> **当前状态:** [`.planning/STATE.md`](.planning/STATE.md)
 
 默认中文；优先本地事实（代码 / 路径 / 端口），再下结论。
 
@@ -13,18 +15,24 @@
 | 目的 | 命令 |
 |------|------|
 | 同步本地对话 → 项目 SSOT | `pk-sync conversations` / `pk-sync conversations --write` |
-| KU 增量产品入口 | **`pk-ku`**（`inspect`…`vector` / `canary` / `promote` / `watermark`） |
-| KU 流程说明 | `pk-ku workflow` · **必读** [`docs/runbooks/ku-incremental.md`](docs/runbooks/ku-incremental.md) |
+| KU 全链路 | **`pk-ku`**（`inspect` → `prepare` → `extract` → … → `canary` → `promote` → `watermark`） |
+| 流程说明 / 体检 | `pk-ku workflow` · `pk-ku doctor` |
+| 成长线 / 生命周期（不删行） | `pk-ku history --subject …` · `pk-ku reconcile --dry-run` |
 | 启动 REST + MCP + Tunnel | `apps/personal_data_chatgpt/scripts/启动服务.bat` 或 `start-services.ps1` |
 | 检索 CLI | `rag-search …` |
 
-**已退役（不要当产品路径）：** `rag-pipeline`（统合 1–12 步 / personal_events+memory 批处理）。  
-调用会 exit 2 并提示改用 `pk-sync` / `pk-ku`。取证才用 `PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated`。
+**已退役：** `rag-pipeline`（exit 2 → 改用 `pk-sync` / `pk-ku`）。取证：`PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated`。
 
-**知识 SSOT** = KU + active index，不是 memory 实验层。  
-**KU 硬规则：** 日常只用 `pk-ku`；只抽 prepare 队列（默认 watermark 后新增）；**禁止**全量 inventory + `prod --start`。  
-策略调整走 CLI flag，**不要为日常运行改代码**。  
-若 `inspect` 有 delta 而 `prepare` 为 `no_op` → **停**，不要换全量路径。
+**知识 SSOT** = KU 表 + **active** 向量集合（`var/db/knowledge_index_active.txt`），不是 memory 实验层。
+
+**KU 硬规则：**
+
+1. 日常只用 **`pk-ku`**；策略用 flag，**不要为跑数改代码**  
+2. 默认只抽 watermark 后 **new**；禁止日常全量 inventory + `prod --start`  
+3. `inspect` 有 delta 而 `prepare` 为 `no_op` → **停**  
+4. promote **默认要 eval**；全量 `--start` 需 `PK_KU_ALLOW_FULL_INVENTORY_START=1`  
+5. 成长线：**标 lifecycle / supersede，不硬删** knowledge 行  
+6. 新代码 import **`application.*` / `evaluation.*`**，不要写 `domains.*`（facade 仅遗留兼容）
 
 ---
 
@@ -52,6 +60,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "apps\personal_data_chatgpt\script
 curl.exe --noproxy "*" http://127.0.0.1:8000/health
 curl.exe --noproxy "*" http://127.0.0.1:8789/health
 curl.exe --noproxy "*" http://127.0.0.1:8081/healthz
+pk-ku doctor --skip-ports
 ```
 
 ### 失败排查
@@ -67,14 +76,16 @@ curl.exe --noproxy "*" http://127.0.0.1:8081/healthz
 
 | 路径 | 说明 |
 |------|------|
-| `src/personal_knowledge/` | 产品源码（core / application / evaluation / retrieval / services） |
+| `src/personal_knowledge/application/` | **canonical** 构建/生命周期/`ku.py`/`sync.py` |
+| `src/personal_knowledge/evaluation/` | **canonical** 评测 |
+| `src/personal_knowledge/domains/` | 可选 re-export facade（application 已 0 引用） |
 | `apps/personal_data_chatgpt/` | ChatGPT MCP Apps |
 | `data/` | 私有数据（勿提交内容） |
-| `var/` | DB / runtime / reports |
+| `var/` | DB / runtime / reports / active pointer |
 | `docs/AGENTS.md` | **Agent 全流程手册** |
-| `.planning/` | GSD roadmap |
+| `.planning/` | GSD roadmap（当前 Phase 22 已落地代码） |
 
-路径 SSOT：`src/personal_knowledge/core/project_paths.py`（Phase 20 优先）。
+路径 SSOT：`src/personal_knowledge/core/project_paths.py`。
 
 对话 SSOT：`data/canonical/agent/structured/db/agent_conversations.sqlite`  
 AgentsView live：**只读**，永不搬迁。
@@ -87,5 +98,5 @@ AgentsView live：**只读**，永不搬迁。
 2. 不写 `~/.agentsview/sessions.db`  
 3. 不把 memory / personal_events 当知识 SSOT  
 4. 不提交 data/var 私有库与密钥  
-5. 改动后做健康检查或相关测试  
-6. 详见 [`docs/AGENTS.md`](docs/AGENTS.md) 第 7–8 节 checklist  
+5. 改动后：`pk-ku doctor` 或相关 pytest  
+6. 详见 [`docs/AGENTS.md`](docs/AGENTS.md)  

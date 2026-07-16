@@ -3,7 +3,8 @@
 ## Responsibility
 
 Compose ingestion, domain builds, lifecycle, and controlled publication.
-**After Phase 21 this package owns all former `domains/*/build_*` orchestration.**
+**Canonical owner** of former `domains/*/build_*` orchestration (Phase 21) and
+of **SCHEMA_SQL** for knowledge units (Phase 22 facade clear).
 
 ## Layout
 
@@ -11,16 +12,19 @@ Compose ingestion, domain builds, lifecycle, and controlled publication.
 application/
   conversation/   # summary, vector store, agentsview, graph helpers, …
   graph/          # relation candidates, merge layer, triple store, judge, query
-  knowledge/      # KU pipeline, refresh, promote, rollback, …
+  knowledge/      # KU pipeline, refresh, promote, SCHEMA migrate, …
   memory/         # memory store/graph, promotions, lifecycle, …
-  run_pipeline.py # STEP_MODULES → application.* canonical paths
+  ku.py           # product CLI: pk-ku
+  sync.py         # product CLI: pk-sync
+  run_pipeline.py # STEP_MODULES → application.* (legacy integrated path)
   …               # google / import / integrated system entrypoints
 ```
 
 ## Boundaries
 
-- Orchestration only — domain rules stay under `domains/` (or constants like `SCHEMA_SQL`).
-- Shared LLM client lives in `core/llm.py`, not in conversation domain modules.
+- Orchestration and product CLIs live here.
+- Shared LLM client: `core/llm.py`.
+- **Must not** import `personal_knowledge.domains.*` (facade debt = 0; `pk-ku doctor`).
 - Invokes evaluation gates when promoting (e.g. knowledge index).
 
 ## Entry points
@@ -28,9 +32,13 @@ application/
 ```powershell
 # Product (preferred)
 pk-sync conversations --write
+pk-ku workflow
+pk-ku doctor --skip-ports
+pk-ku inspect
 
 # Modules
 python -m personal_knowledge.application.sync conversations --write
+python -m personal_knowledge.application.ku doctor --skip-ports
 python -m personal_knowledge.application.conversation.summary --dry-run
 python -m personal_knowledge.application.knowledge.refresh_knowledge_units --help
 
@@ -44,4 +52,5 @@ Dry-run, idempotency, failure and lifecycle tests under `tests/`.
 
 ## Ownership
 
-Owner: application. Status: supported. Last layout review: Phase 21 (2026-07-15).
+Owner: application. Status: supported.
+Last layout review: 2026-07-16 (Phase 22; SCHEMA here; application→domains = 0).

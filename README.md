@@ -40,15 +40,15 @@ credentials, or private evaluation cases.
 | `tests/` | Unit / contract / governance tests |
 | `.planning/` | Authoritative GSD roadmap and phase artifacts |
 
-### Source layers (Phase 21)
+### Source layers (Phase 21 + Phase 22)
 
 | Path | Role |
 |------|------|
 | `core/` | Foundation (`project_paths`, `privacy_guard`, **`llm`**) |
-| `domains/*/` | Domain rules/models/constants (+ temporary re-export facades → 2026-08-13) |
-| `application/*/` | **Canonical** build / lifecycle orchestration |
+| `application/*/` | **Canonical** build / lifecycle (`ku.py` / `sync.py`; SCHEMA_SQL here) |
 | `evaluation/*/` | **Canonical** eval / compare / audit (incl. `evaluation/vector/`) |
-| `retrieval/` | Vector/search I/O; eval scripts are facades to `evaluation/vector/` |
+| `retrieval/` | Vector/search I/O; eval scripts re-export to `evaluation/vector/` |
+| `domains/*/` | Optional re-export shims only (`application` → domains imports = **0**) |
 | `services/` | REST + MCP delivery |
 
 **Path resolution:** `src/personal_knowledge/core/project_paths.py` prefers Phase 20
@@ -73,7 +73,7 @@ locations and falls back to legacy paths only if the new path is absent.
 - [Product sync runbook](docs/runbooks/product-sync.md) — `pk-sync conversations`
 - [KU incremental runbook](docs/runbooks/ku-incremental.md) — delta-only knowledge extract (no full inventory daily)
 - [Repository zones](docs/architecture/repository-zones.md)
-- [Domains slimming (Phase 21)](docs/architecture/domains-slimming.md)
+- [Domains slimming + facade clear](docs/architecture/domains-slimming.md)
 - [Retrieval SSOT](docs/architecture/retrieval-ssot.md)
 - [Data tree](data/README.md) · [Var tree](var/README.md)
 - [Integration notes](integration/README.md) (legacy narrative; paths updated for Phase 20)

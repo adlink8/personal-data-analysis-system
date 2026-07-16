@@ -2,7 +2,8 @@
 
 Machine-readable authority: `governance/policies/architecture.yaml` and
 `governance/policies/paths.yaml`. This page explains intent after **Phase 20**
-physical cutover (2026-07-13) and **Phase 21** domains slimming (2026-07-15).
+physical cutover (2026-07-13), **Phase 21** domains slimming (2026-07-15), and
+**Phase 22** lifecycle / facade debt clearance (2026-07-16).
 
 ## Zones
 
@@ -44,29 +45,33 @@ domain/retrieval contracts but cannot silently promote. Product source must not
 import `_tools`, raw data, runtime outputs, quarantine, or archived planning as
 import sources.
 
-## Layer map after Phase 21 (domains slimming)
+## Layer map (Phase 21–22)
 
 | Layer | Package path | What lives there |
 |-------|--------------|------------------|
 | foundation | `core/` | paths, privacy, **`core/llm.py`** (OpenAI-compatible client + retry) |
 | infrastructure | `adapters/`, `retrieval/` | source adapters; vector/search I/O |
-| domain | `domains/{conversation,graph,knowledge,memory}/` | rules, models, constants only |
-| application | `application/{conversation,graph,knowledge,memory}/` | **canonical** build / lifecycle scripts |
+| application | `application/{conversation,graph,knowledge,memory}/` | **canonical** build / lifecycle; **`SCHEMA_SQL`** in `application.knowledge.migrate_add_knowledge_unit_tables` |
 | evaluation | `evaluation/{conversation,graph,knowledge,memory,vector}/` | **canonical** eval / compare / audit suites |
+| domain (compat) | `domains/{conversation,graph,knowledge,memory}/` | **optional re-export shims only** (no product ownership) |
 | delivery | `services/` | REST / MCP |
 | control | `governance/` | preflight, manifests, inventory |
 
-**Facades (cleanup window through 2026-08-13):** every former
-`domains/*/build_*.py` / `evaluate_*.py` (and related) is a re-export alias to
-the application/evaluation canonical module (`sys.modules[__name__] = canonical`).
-Retrieval-layer eval scripts (`evaluate_vector_*`, `compare_*_generations`) are
-likewise facades into `evaluation/vector/`.
+**Facade debt (application → domains):** **cleared 2026-07-16** — count **0**
+(verified by `pk-ku doctor`). Product code and `application/**` must not import
+`personal_knowledge.domains.*`.
 
-**Sole non-facade domain logic retained:** `domains/knowledge/migrate_add_knowledge_unit_tables.py`
-(`SCHEMA_SQL` DDL constant).
+**External/legacy shims:** former `domains/*/build_*.py` / `evaluate_*.py` and
+`retrieval/evaluate_vector_*` / `compare_*_generations` re-export to
+`application.*` / `evaluation.*`. Optional later: delete the whole `domains/`
+package when external consumers are empty.
+
+**SCHEMA_SQL canonical path:**
+`personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables`
+(domains copy is a re-export facade only).
 
 **New code should import from** `application.*` / `evaluation.*` / `core.llm`,
-not from `domains.*` facades.
+not from `domains.*`.
 
 ```text
 python -m personal_knowledge.application.conversation.summary --dry-run

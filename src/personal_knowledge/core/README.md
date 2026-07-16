@@ -19,5 +19,5 @@ AgentsView live DB stays external and read-only.
 ## Tests
 Core contracts and path tests under `tests/` and `tests/governance/`.
 ## Ownership
-Owner: platform. Status: supported. Last reviewed: Phase 21 (2026-07-15).
+Owner: platform. Status: supported. Last reviewed: 2026-07-16 (Phase 22 docs pass).
 

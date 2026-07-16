@@ -1,7 +1,8 @@
-# Domains slimming (Phase 21)
+# Domains slimming (Phase 21) + facade debt clearance
 
-**Status:** complete (2026-07-15)  
-**Planning:** `.planning/phases/PDA-21-architectural-alignment-domains-slimming/`
+**Status:** Phase 21 complete (2026-07-15); **application→domains real imports cleared (2026-07-16)**  
+**Planning:** `.planning/phases/PDA-21-architectural-alignment-domains-slimming/`  
+**Inventory:** `.planning/phases/22-ku-lifecycle-growth-line/22-FACADE-INVENTORY.md`
 
 ## Goal
 
@@ -9,7 +10,7 @@ Move build/eval orchestration out of `domains/` into `application/` and
 `evaluation/`, delete confirmed dead code, and break the cross-domain LLM hub
 coupling in `build_conversation_summary`.
 
-## Layout
+## Layout (current)
 
 ```
 src/personal_knowledge/
@@ -17,8 +18,9 @@ src/personal_knowledge/
   application/
     conversation/   # build + summary orchestration
     graph/
-    knowledge/
+    knowledge/      # includes migrate_add_knowledge_unit_tables (SCHEMA_SQL canonical)
     memory/
+    ku.py / sync.py # product CLI surfaces (pk-ku / pk-sync)
   evaluation/
     conversation/
     graph/
@@ -27,8 +29,7 @@ src/personal_knowledge/
     vector/         # was retrieval/evaluate_* + compare_*
   domains/
     {conversation,graph,knowledge,memory}/
-      *.py          # re-export facades → application/evaluation (until 2026-08-13)
-      knowledge/migrate_add_knowledge_unit_tables.py  # SCHEMA_SQL stays
+      *.py          # re-export facades → application/evaluation (optional external compat)
   retrieval/
     evaluate_vector_*.py, compare_*_generations.py    # facades → evaluation/vector
 ```
@@ -41,8 +42,15 @@ src/personal_knowledge/
 | Conversation summary build | `personal_knowledge.application.conversation.summary` |
 | Any build / lifecycle script | `personal_knowledge.application.<subdomain>.…` |
 | Any eval / compare / audit | `personal_knowledge.evaluation.<subdomain|vector>.…` |
-| Domain schema constant | `personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables` |
-| Legacy path (tests/shims) | `personal_knowledge.domains.<subdomain>.…` (facade) |
+| **Schema SQL / migrate** | **`personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables`** |
+| Legacy path (tests / `tools/compat` / old scripts) | `personal_knowledge.domains.<subdomain>.…` (**facade only**) |
+
+### Application tree policy (2026-07-16)
+
+- **`application/**` must not `from personal_knowledge.domains…` import** (count **0**; verified by `pk-ku doctor`).
+- Product CLI (`pk-ku`, `pk-sync`) never imports domains.
+- `domains/*` may remain as **re-export shims** for external/compat callers until package removal.
+- Optional later: delete entire `domains/` package when external consumers are zero.
 
 ## Deleted
 
@@ -53,18 +61,25 @@ src/personal_knowledge/
 | Entry | Role |
 |-------|------|
 | **`pk-sync conversations [--write]`** | **Product** — AgentsView → normalized → canonical conversation SSOT |
-| `rag-pipeline` / `run_pipeline` steps 1–12 | **Retired** — integrated personal_events / memory batch; blocked unless `PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated` |
+| **`pk-ku …`** | **Product** — incremental KU lifecycle (see `docs/runbooks/ku-incremental.md`) |
+| `rag-pipeline` / `run_pipeline` steps 1–12 | **Retired** — blocked unless `PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated` |
 
-## Deferred
+## Deferred / residual
 
-- Remove facades after **2026-08-13**
-- Eliminate `retrieval/memory.py` lazy imports of `domains.graph.query_graph`
-- Delete `.bak-phase20` backups (separate recovery window)
+| Item | Status |
+|------|--------|
+| Remove `domains/` package entirely | Optional after consumer graph is empty (was 2026-08-13 window) |
+| `retrieval/memory.py` lazy graph imports | Residual non-application path |
+| `*.bak-phase20` | **Moved** to `archive/quarantine/bak-phase20-20260716/` (2026-07-16) |
+| `tools/compat/v1_1` shims | Separate compat budget (not application facade debt) |
 
 ## Verification
 
-See `21-VERIFICATION.md` in the phase directory. Summary:
+```powershell
+$env:PYTHONPATH = "<project-root>\src"
+python -m personal_knowledge.application.ku doctor --skip-ports
+# expect: facade imports (application → domains): 0 lines in 0 files
+python -m pytest -q tests --tb=line
+```
 
-- pytest: only known governance/memory_decomplexity baseline failures
-- architecture-boundary: PASS
-- REST `:8000/health` and MCP `:8789/health`: 200
+Historical Phase 21 notes: `21-VERIFICATION.md` in the phase directory.

@@ -3,7 +3,7 @@
 ## Responsibility
 
 Frozen suites, ablations, metrics, reports, and promotion gates.
-**After Phase 21, subdomain and vector eval scripts live here.**
+**Canonical owner** of subdomain and vector eval scripts (Phase 21).
 
 ## Layout
 
@@ -20,6 +20,7 @@ evaluation/
 ## Boundaries
 
 Reads public contracts/candidates; cannot silently mutate active generations.
+Promotion remains an **application** / `pk-ku promote` decision after eval PASS.
 
 ## Entry points
 
@@ -27,10 +28,13 @@ Reads public contracts/candidates; cannot silently mutate active generations.
 python -m personal_knowledge.evaluation.run_knowledge_eval --help
 python -m personal_knowledge.evaluation.vector.evaluate_vector_collections
 python -m personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary
+
+# Product path for canary labels / strict gate
+pk-ku canary --help
 ```
 
-Legacy imports via `domains.*` / `retrieval.evaluate_*` facades remain until
-**2026-08-13**.
+Legacy imports via `domains.*` / `retrieval.evaluate_*` re-exports still work for
+compat callers; **new code must import `evaluation.*`**.
 
 ## Tests
 
@@ -41,4 +45,5 @@ python -m pytest -q tests/unit/test_vector_collection_eval.py
 
 ## Ownership
 
-Owner: evaluation. Status: supported. Last layout review: Phase 21 (2026-07-15).
+Owner: evaluation. Status: supported.
+Last layout review: 2026-07-16 (Phase 22; facade debt clear).

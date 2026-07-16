@@ -64,8 +64,9 @@ python -m personal_knowledge.application.ku inspect
 ## Compatibility shims
 
 Temporary re-exports: `tools/compat/v1_1/` (budget-gated).  
-Domain facades: `src/personal_knowledge/domains/*` (cleanup window through **2026-08-13**).  
-New code must import `personal_knowledge.application.*` / `evaluation.*`.
+Domain facades: `src/personal_knowledge/domains/*` remain as **optional re-export only**.  
+**2026-07-16:** `application/**` → `domains` **real imports = 0** (SCHEMA_SQL lives in `application.knowledge.migrate_add_knowledge_unit_tables`).  
+New code **must** import `personal_knowledge.application.*` / `evaluation.*` — never new `domains.*` from product code.
 
 ## Governance
 
