@@ -67,14 +67,17 @@ locations and falls back to legacy paths only if the new path is absent.
 
 ## Repository navigation
 
+- **[Agent operating manual](docs/AGENTS.md)** — full product workflow for AI/human operators
+- [Product sync runbook](docs/runbooks/product-sync.md) — `pk-sync conversations`
 - [Repository zones](docs/architecture/repository-zones.md)
 - [Domains slimming (Phase 21)](docs/architecture/domains-slimming.md)
 - [Retrieval SSOT](docs/architecture/retrieval-ssot.md)
 - [Data tree](data/README.md) · [Var tree](var/README.md)
-- [Integration notes](integration/README.md) (legacy module narrative; paths updated for Phase 20)
+- [Integration notes](integration/README.md) (legacy narrative; paths updated for Phase 20)
 - [Current roadmap](.planning/ROADMAP.md) — `.planning/` is authoritative
 - [Governance policies](governance/policies/architecture.yaml)
 - [Test guide](tests/README.md)
+- Workspace short instructions: [AGENTS.md](AGENTS.md)
 
 Major source modules live under `src/personal_knowledge/`. Historical planning (`.gsd`)
 and soft-deleted trees live under `archive/`. Compatibility backups from Phase 20 cutover

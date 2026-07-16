@@ -26,9 +26,16 @@ application/
 ## Entry points
 
 ```powershell
-python -m personal_knowledge.application.run_pipeline --help
+# Product (preferred)
+pk-sync conversations --write
+
+# Modules
+python -m personal_knowledge.application.sync conversations --write
 python -m personal_knowledge.application.conversation.summary --dry-run
 python -m personal_knowledge.application.knowledge.refresh_knowledge_units --help
+
+# Retired integrated batch (forensics only)
+# PK_ALLOW_LEGACY_PIPELINE=1 python -m personal_knowledge.application.run_pipeline --legacy-integrated --dry-run
 ```
 
 ## Tests

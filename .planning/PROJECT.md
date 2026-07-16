@@ -57,8 +57,11 @@
   - `application/*/` **canonical build/lifecycle**  
   - `evaluation/*/` **canonical eval**（含 `evaluation/vector/`）  
   - `retrieval/` 向量/检索 I/O；`services/` REST/MCP  
+- **产品同步入口（2026-07-16）：** `pk-sync conversations [--write]`（AgentsView→canonical）。  
+  旧 `rag-pipeline` 统合 1–12 步已退役（仅取证：`PK_ALLOW_LEGACY_PIPELINE` + `--legacy-integrated`）。  
+  Agent 全流程见 `docs/AGENTS.md`。  
 - **数据/运行时（Phase 20）：** `data/`、`var/`、`archive/`；AgentsView live 仍为 protected-external。
-- 核心统合库：`var/db/personal_system.sqlite`；对话 SSOT：`data/canonical/agent/structured/db/agent_conversations.sqlite`。
+- 核心统合库：`var/db/personal_system.sqlite`（非对话 PE 过渡层）；对话 SSOT：`data/canonical/agent/structured/db/agent_conversations.sqlite`。
 - 当前 active 知识索引：`knowledge_units_205bff9560b9_20260712142938`（**30,774**，含 L2 session 窗并入）。
 - 向量模型：`bge-small-zh-v1.5`（512d）— 当前数据量无需更换。
 - KU 抽取：L1 **1 message / 1 call** + L2 **session 窗二次抽取**（已并入 canonical/active）。

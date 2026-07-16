@@ -19,3 +19,12 @@
 Legacy roots `Agent/`, `Google/`, `imports/` were cut over on **2026-07-13**.  
 Resolve paths only through `personal_knowledge.core.project_paths`.  
 Cutover backups: repo-root `*.bak-phase20` (recovery window only).
+
+## Conversation refresh (product)
+
+```powershell
+pk-sync conversations --write
+```
+
+Rebuilds `agentsview_normalized.sqlite` + `agent_conversations.sqlite` from
+AgentsView live (read-only). See `docs/runbooks/product-sync.md` and `docs/AGENTS.md`.
