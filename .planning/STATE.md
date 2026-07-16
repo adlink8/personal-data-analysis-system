@@ -17,7 +17,7 @@ progress:
 
 ## Milestone
 
-**v1.1 executing → product hardening:** Phase 17 human checkpoints still open; Phases 18–21 complete; **Phase 22 plans 01–04 implemented** (lifecycle growth line + doctor). Remaining: ops promote after canary strict PASS; facade retire by 2026-08-13.
+**v1.1 product hardening:** Phase 17 human checkpoints still open; Phases 18–21 complete; **Phase 22 plans 01–04 implemented**; **2026-07-16 ops close-out: canary strict PASS → promote active=ir_4cd8af → watermark advanced**.
 
 ## Authoritative surfaces
 
@@ -25,8 +25,8 @@ progress:
 |-------|----------------|
 | Dialogue SSOT | `data/canonical/agent/structured/db/agent_conversations.sqlite` |
 | Knowledge SSOT | `canonical_knowledge_units` + **active** Chroma collection |
-| Active KU (live) | pointer @ `var/db/knowledge_index_active.txt` (doctor checks) |
-| Candidate (pending) | promote only after canary strict PASS + eval |
+| Active KU (live) | **`knowledge_units_ir_4cd8af4ad_20260716020508`** (promoted 2026-07-16; previous 205bff for rollback) |
+| Watermark | matches current source checksum |
 | Product CLI | `pk-sync`, `pk-ku` (inspect…promote, watermark, **reconcile**, **history**, **doctor**) |
 
 ## Phase 22 plan status
@@ -35,7 +35,7 @@ progress:
 |------|-------|--------|
 | **22-01** | Lifecycle reconcile dry-run + CLI (zero DELETE) | **done** — `pk-ku reconcile` |
 | **22-02** | Growth-line history read | **done** — `pk-ku history` |
-| **22-03** | Canary critical triage / label path | **done** (CLI); ops strict PASS still open |
+| **22-03** | Canary critical triage / label path | **done** (CLI + ops: strict PASS + promote) |
 | **22-04** | Facade inventory + doctor + readiness gates | **done** — `pk-ku doctor`, `22-FACADE-INVENTORY.md` |
 
 ## Done (latest, 2026-07-16 product ops)

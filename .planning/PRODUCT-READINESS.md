@@ -15,9 +15,9 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 | **2. Knowledge content** | 85 | yes | 30k+ KU; incremental extract path works |
 | **3. Daily product CLI** | 92 | yes | `pk-sync` + full `pk-ku` chain + **`doctor`** preflight; policy via flags |
 | **4. Retrieval layered** | 82 | yes | KU→dialogue→Google; fallback_policy=layered |
-| **5. Publish / active safety** | 75 | **no** | Fail-closed promote OK; **active lag** (canary strict FAIL); full `--start` soft-ban OK |
-| **6. Lifecycle / growth line** | **78** | **no** | **22-01** `pk-ku reconcile` (dry-run default, never DELETE); **22-02** `pk-ku history`; schema + growth line product surfaces |
-| **7. Eval / canary** | 72 | **no** | LLM labels + critical triage CLI (22-03); strict not fully green / human gold open |
+| **5. Publish / active safety** | **90** | yes | Fail-closed promote; **active=`knowledge_units_ir_4cd8af4ad_20260716020508`** (2026-07-16); watermark matches source |
+| **6. Lifecycle / growth line** | **78** | **no** | **22-01** `pk-ku reconcile` (dry-run default, never DELETE); **22-02** `pk-ku history`; write still operator-gated |
+| **7. Eval / canary** | **88** | yes | LLM labels + human triage; **strict PASS**; Phase 17 gold still open |
 | **8. Ops / docs** | 90 | yes | Runbooks + AGENTS; **`pk-ku doctor`** (DBs, active pointer, watermark info, ports warn-only) |
 | **9. Governance / tests** | 90 | yes | Doctor unit tests + reconcile/history CLI tests; pytest path green |
 | **10. Facade / debt** | **68** | **no** | Inventory: **16** domain import lines / **10** files under `application/` (see 22-FACADE-INVENTORY.md); retire window 2026-08-13; no mass rewrite in 22-04 |
@@ -26,10 +26,10 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 
 | Metric | Value |
 |--------|------:|
-| Simple average | **~82** |
-| Weighted (product daily = 2×, lifecycle 1.5×, publish 1.5×) | **~81** |
-| P0 open | **1** (active not on latest candidate until canary strict PASS + promote) |
-| **Product-grade?** | **Not yet** (publish safety + lifecycle bar 80 + facade debt) |
+| Simple average | **~86** |
+| Weighted (product daily = 2×, lifecycle 1.5×, publish 1.5×) | **~87** |
+| P0 open | **0** on daily publish path |
+| **Product-grade daily?** | **Yes (~87)** for local daily ops; eval-grade still needs Phase 17 human + lifecycle write discipline |
 
 ### Score deltas vs pre-22 (~72 weighted)
 
@@ -40,7 +40,8 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 | Ops / docs | 85 | **90** | doctor + inventory note |
 | Eval / canary | 70 | **72** | critical triage surface (22-03) |
 | Facade / debt | 60 | **68** | owned inventory; not retired |
-| Publish / active | 75 | 75 | still blocked on strict/promote ops |
+| Publish / active | 75 | **90** | promote+watermark closed 2026-07-16 |
+| Eval / canary | 72 | **88** | strict PASS after triage |
 
 ---
 
