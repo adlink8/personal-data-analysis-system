@@ -225,10 +225,273 @@ def run_canary(
     return report
 
 
+VALID_CANARY_LABELS = frozenset({"helpful", "wrong", "stale", "missing"})
+
+
+def _build_query_hash_map(db_path: Path = UNIFIED_DB) -> dict[str, str]:
+    """Map query_hash → question text (privacy: only used for offline labeling)."""
+    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    rows = con.execute(
+        "SELECT DISTINCT question FROM canonical_knowledge_units "
+        "WHERE status='current' AND question IS NOT NULL AND length(question) > 0"
+    ).fetchall()
+    con.close()
+    out: dict[str, str] = {}
+    for (q,) in rows:
+        h = hashlib.sha256((q or "").encode("utf-8")).hexdigest()[:32]
+        out[h] = q
+    return out
+
+
+def _load_unit_snippets(unit_ids: list[str], db_path: Path = UNIFIED_DB, limit: int = 5) -> list[dict]:
+    if not unit_ids:
+        return []
+    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    snippets = []
+    for uid in unit_ids[:limit]:
+        row = con.execute(
+            "SELECT canonical_unit_id, subject, question, answer "
+            "FROM canonical_knowledge_units WHERE canonical_unit_id=?",
+            (uid,),
+        ).fetchone()
+        if not row:
+            snippets.append({"unit_id": uid, "missing": True})
+            continue
+        snippets.append({
+            "unit_id": row["canonical_unit_id"],
+            "subject": (row["subject"] or "")[:120],
+            "question": (row["question"] or "")[:200],
+            "answer": (row["answer"] or "")[:300],
+        })
+    con.close()
+    return snippets
+
+
+def _parse_label_json(text: str) -> str:
+    """Extract a valid canary label from model text; empty if unparseable."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    # strip markdown fences
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw.lower().startswith("json"):
+            raw = raw[4:].strip()
+    try:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start >= 0 and end > start:
+            obj = json.loads(raw[start : end + 1])
+            lab = str(obj.get("label", "")).strip().lower()
+            if lab in VALID_CANARY_LABELS:
+                return lab
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        pass
+    # bare token fallback
+    for lab in VALID_CANARY_LABELS:
+        if lab in raw.lower().split():
+            return lab
+    return ""
+
+
+def _llm_label_one(
+    query_text: str,
+    snippets: list[dict],
+    *,
+    model: str,
+    backend: str,
+) -> tuple[str, str]:
+    """Return (label, raw_response_or_error)."""
+    system = (
+        "You label personal-knowledge retrieval quality. "
+        "Given a QUERY and TOP retrieved units, reply with ONLY JSON: "
+        '{"label":"helpful"|"wrong"|"stale"|"missing","reason":"short"}. '
+        "helpful=relevant useful hits; wrong=clearly incorrect/misleading; "
+        "stale=outdated for the query; missing=no useful hit / off-topic. "
+        "Prefer missing over wrong when unsure content is false. No markdown."
+    )
+    user = json.dumps(
+        {"query": query_text, "top_units": snippets},
+        ensure_ascii=False,
+    )
+    if backend == "openai":
+        from personal_knowledge.core.llm import _chat_with_retry, make_llm_client
+
+        client = make_llm_client()
+        text = _chat_with_retry(
+            client,
+            model,
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=0,
+            max_tokens=200,
+        )
+        return _parse_label_json(text), text
+
+    # vertex_google (default when OPENAI key absent)
+    import urllib.error
+    import urllib.request
+
+    from personal_knowledge.application.knowledge.build_knowledge_units_prod import (
+        GCP_PROJECT,
+        TokenProvider,
+    )
+
+    token = TokenProvider().get()
+    url = (
+        f"https://aiplatform.googleapis.com/v1/projects/{GCP_PROJECT}"
+        f"/locations/us-central1/publishers/google/models/{model}:generateContent"
+    )
+    body = json.dumps({
+        "contents": [{
+            "role": "user",
+            "parts": [{"text": system + "\n\n" + user}],
+        }],
+        "generationConfig": {
+            "maxOutputTokens": 256,
+            "temperature": 0,
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
+    }).encode()
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            payload = json.loads(resp.read().decode())
+        parts = (
+            payload.get("candidates", [{}])[0]
+            .get("content", {})
+            .get("parts", [])
+        )
+        text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+        return _parse_label_json(text), text
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        return "", f"error:{type(exc).__name__}:{exc}"
+
+
+def label_canary_report_with_llm(
+    report_path: Path,
+    *,
+    model: str = "gemini-3.5-flash",
+    backend: str = "auto",
+    db_path: Path = UNIFIED_DB,
+    only_unlabeled: bool = True,
+    max_items: int | None = None,
+    write: bool = True,
+    min_interval: float = 1.5,
+) -> dict:
+    """Fill result[].label via LLM. Does not touch active pointer.
+
+    backend: auto | openai | vertex_google
+    """
+    import os
+    import time
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    results = report.get("results") or []
+    if not results:
+        return {"error": "empty results", "labeled": 0}
+
+    if backend == "auto":
+        if os.environ.get("OPENAI_API_KEY") or os.environ.get("MEM0_API_KEY"):
+            backend = "openai"
+            if not model or model.startswith("gemini"):
+                model = os.environ.get("OPENAI_MODEL") or os.environ.get("MEM0_LLM_MODEL") or "gpt-4o-mini"
+        else:
+            backend = "vertex_google"
+
+    qmap = _build_query_hash_map(db_path)
+    labeled = 0
+    skipped = 0
+    failed = 0
+    unresolved_query = 0
+    details = []
+
+    work = []
+    for i, r in enumerate(results):
+        if only_unlabeled and (r.get("label") or "") in VALID_CANARY_LABELS:
+            skipped += 1
+            continue
+        work.append(i)
+    if max_items is not None:
+        work = work[: max(0, max_items)]
+
+    for i in work:
+        r = results[i]
+        qh = r.get("query_hash") or ""
+        query_text = qmap.get(qh, "")
+        if not query_text:
+            unresolved_query += 1
+            # Fall back: use top unit question as weak proxy (documented)
+            snips = _load_unit_snippets(r.get("returned_ids") or [], db_path)
+            query_text = (snips[0].get("question") if snips else "") or f"(hash:{qh})"
+        else:
+            snips = _load_unit_snippets(r.get("returned_ids") or [], db_path)
+
+        try:
+            lab, raw = _llm_label_one(query_text, snips, model=model, backend=backend)
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            details.append({"i": i, "error": f"{type(exc).__name__}:{exc}"})
+            time.sleep(min_interval)
+            continue
+
+        if lab in VALID_CANARY_LABELS:
+            r["label"] = lab
+            r["label_source"] = "llm"
+            r["label_model"] = model
+            r["label_backend"] = backend
+            labeled += 1
+            details.append({"i": i, "label": lab})
+        else:
+            failed += 1
+            details.append({"i": i, "error": "parse_failed", "raw": (raw or "")[:200]})
+        time.sleep(min_interval)
+
+    report["labeling"] = {
+        "method": "llm",
+        "backend": backend,
+        "model": model,
+        "labeled": labeled,
+        "skipped_already": skipped,
+        "failed": failed,
+        "unresolved_query_hash": unresolved_query,
+        "updated_at": _utc_now(),
+    }
+    # keep gate pending until strict recompute
+    if labeled:
+        report["gate"] = {"status": "labels_present_run_strict", "labeling": report["labeling"]}
+
+    if write:
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {
+        "report_path": str(report_path),
+        "labeled": labeled,
+        "skipped_already": skipped,
+        "failed": failed,
+        "unresolved_query_hash": unresolved_query,
+        "backend": backend,
+        "model": model,
+        "write": write,
+        "sample": details[:10],
+    }
+
+
 def check_label_completeness(report_path: Path) -> dict:
     """检查 canary report 的 label 完整性。"""
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    valid_labels = {"helpful", "wrong", "stale", "missing"}
+    valid_labels = VALID_CANARY_LABELS
     total = len(report.get("results", []))
     labeled = 0
     invalid = 0
@@ -318,6 +581,26 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--report", default="", help="report JSON path")
     p.add_argument("--check-label-completeness", action="store_true")
     p.add_argument("--strict", action="store_true", help="compute gate (requires all labels)")
+    p.add_argument(
+        "--label-with-llm",
+        action="store_true",
+        help="Fill empty labels via LLM (OpenAI if key set, else Vertex/gcloud)",
+    )
+    p.add_argument("--model", default="", help="LLM model for --label-with-llm")
+    p.add_argument(
+        "--backend",
+        default="auto",
+        choices=["auto", "openai", "vertex_google"],
+        help="LLM backend for labeling (default auto)",
+    )
+    p.add_argument("--max-items", type=int, default=None, help="Max items to label this call")
+    p.add_argument(
+        "--write",
+        action="store_true",
+        default=True,
+        help="Write labels back to report (default true for --label-with-llm)",
+    )
+    p.add_argument("--dry-run", action="store_true", help="Do not write report when labeling")
     args = p.parse_args(argv)
 
     report_path = Path(args.report) if args.report else None
@@ -337,6 +620,29 @@ def main(argv: list[str] | None = None) -> int:
         result = compute_gate(report_path)
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0 if result.get("status") == "PASS" else 1
+
+    if args.label_with_llm:
+        if not report_path or not report_path.exists():
+            print("[error] --label-with-llm requires existing --report", file=sys.stderr)
+            return 2
+        model = args.model or (
+            "gemini-3.5-flash" if args.backend in ("auto", "vertex_google") else "gpt-4o-mini"
+        )
+        result = label_canary_report_with_llm(
+            report_path,
+            model=model,
+            backend=args.backend,
+            max_items=args.max_items,
+            write=not args.dry_run,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if result.get("error"):
+            return 1
+        # fail if nothing labeled and still incomplete
+        comp = check_label_completeness(report_path)
+        if not comp.get("complete") and result.get("labeled", 0) == 0:
+            return 1
+        return 0
 
     # 默认：运行 canary
     collection = args.candidate_override or read_active_collection() or ""
@@ -359,7 +665,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  collection: {report['collection']}")
     print(f"  active_unchanged: {report['active_unchanged']}")
     print(f"  p50: {report['p50_latency_ms']}ms, p95: {report['p95_latency_ms']}ms")
-    print(f"  labels: pending (use --check-label-completeness after labeling)")
+    print(f"  labels: pending (use --label-with-llm or manual labels, then --strict)")
     return 0
 
 

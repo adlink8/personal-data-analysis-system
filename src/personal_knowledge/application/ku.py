@@ -200,6 +200,24 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Compute PASS/FAIL gate (requires fully labeled report)",
     )
+    canary.add_argument(
+        "--label-with-llm",
+        action="store_true",
+        help="Fill empty labels via LLM (OpenAI key or Vertex/gcloud)",
+    )
+    canary.add_argument("--model", default="", help="Model for --label-with-llm")
+    canary.add_argument(
+        "--backend",
+        default="auto",
+        choices=["auto", "openai", "vertex_google"],
+        help="LLM backend for labeling",
+    )
+    canary.add_argument("--max-items", type=int, default=None, help="Max items to label this call")
+    canary.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --label-with-llm: do not write report",
+    )
 
     # --- promote ---
     prom = sub.add_parser("promote", help="List or promote candidate index (active last)")
@@ -481,6 +499,16 @@ def _cmd_canary(args: argparse.Namespace) -> int:
         argv.append("--check-label-completeness")
     if args.strict:
         argv.append("--strict")
+    if args.label_with_llm:
+        argv.append("--label-with-llm")
+    if args.model:
+        argv.extend(["--model", args.model])
+    if args.backend:
+        argv.extend(["--backend", args.backend])
+    if args.max_items is not None:
+        argv.extend(["--max-items", str(args.max_items)])
+    if args.dry_run:
+        argv.append("--dry-run")
     return int(canary_main(argv) or 0)
 
 

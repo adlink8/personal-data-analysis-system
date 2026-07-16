@@ -188,7 +188,9 @@ Do **not** use full-backfill `StagingPublisher.promote` (it demotes other runs).
 pk-ku canary --candidate-override <collection> --queries 30 `
   --report var\reports\analysis\ai_context\ku_canary_<id>.json
 
-# After human labels on the report:
+# Labels: human OR LLM (Vertex if no OPENAI_API_KEY)
+pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json `
+  --label-with-llm --backend vertex_google --model gemini-3.5-flash
 pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --check-label-completeness
 pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --strict
 
@@ -218,7 +220,7 @@ pk-ku watermark --advance --from-canonical --write # persist
 | canonical | 1456 draft units → 1425 staging canonical written |
 | publish | additive → +1425 current canonical (total current **32184**); active untouched |
 | vector | candidate `knowledge_units_ir_4cd8af4ad_20260716020508` (32184, gate PASS) |
-| canary | 30 queries, p95≈152ms, **pending_labels** → **no promote** |
+| canary | 30 queries; LLM labels (Vertex) → complete; **strict FAIL** (1 critical wrong/stale, helpful≈93%) → **no promote** |
 | active | still `knowledge_units_205bff9560b9_20260712142938` |
 
 ---
