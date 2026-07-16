@@ -48,6 +48,50 @@ def test_promote_without_args_exits_2(capsys):
     assert code == 2
 
 
+def test_promote_without_eval_refuses_by_default(capsys):
+    """P0 fail-closed: promote with collection but no eval artifacts → non-zero.
+
+    Does not touch active pointer — refuse happens before promote().
+    """
+    code = main(["promote", "--collection", "knowledge_units_test_no_eval_gate"])
+    captured = capsys.readouterr()
+    assert code != 0
+    combined = (captured.err + captured.out).lower()
+    assert "refused" in combined or "eval" in combined
+    assert "promoted:" not in combined
+
+
+def test_promote_parser_defaults_require_eval():
+    p = build_parser()
+    args = p.parse_args(["promote", "--collection", "c1"])
+    assert args.require_eval_pass is True
+    assert args.allow_without_eval is False
+
+
+def test_promote_parser_allow_without_eval():
+    p = build_parser()
+    args = p.parse_args(["promote", "--collection", "c1", "--allow-without-eval"])
+    assert args.allow_without_eval is True
+    args2 = p.parse_args(["promote", "--collection", "c1", "--no-require-eval-pass"])
+    assert args2.require_eval_pass is False
+
+
+def test_prod_cli_start_soft_banned_without_env(capsys, monkeypatch):
+    """CLI --start refuses unless PK_KU_ALLOW_FULL_INVENTORY_START=1 (API start_run OK)."""
+    monkeypatch.delenv("PK_KU_ALLOW_FULL_INVENTORY_START", raising=False)
+    from personal_knowledge.application.knowledge.build_knowledge_units_prod import (
+        main as prod_main,
+    )
+
+    code = prod_main(
+        ["--start", "--inventory", "inv_test_soft_ban", "--limit", "1"]
+    )
+    captured = capsys.readouterr()
+    assert code == 2
+    err = captured.err.lower()
+    assert "soft-banned" in err or "pk-ku prepare" in err or "incremental" in err
+
+
 def test_watermark_show_json(capsys):
     code = main(["watermark"])
     assert code == 0

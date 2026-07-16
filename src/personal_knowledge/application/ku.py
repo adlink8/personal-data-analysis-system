@@ -17,7 +17,8 @@ Usage::
     pk-ku canary --candidate-override <collection> --report path.json
     pk-ku canary --report path.json --strict
     pk-ku promote --list
-    pk-ku promote --collection <name> --require-eval-pass --eval-summary … --eval-gate …
+    pk-ku promote --collection <name> --eval-summary … --eval-gate …
+        # eval required by default; forensics: --allow-without-eval
     pk-ku watermark                 # show committed vs current source checksum
     pk-ku watermark --advance --from-canonical --write   # after successful promote
 
@@ -53,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  4) pk-ku extract --run ir_* --max-items N\n"
             "  5) pk-ku extract-gate / canonical / publish / vector\n"
             "  6) pk-ku canary --candidate-override … --report …\n"
-            "  7) pk-ku promote --collection … --require-eval-pass …\n"
+            "  7) pk-ku promote --collection … --eval-summary … --eval-gate …\n"
             "  8) pk-ku watermark --advance --from-canonical --write\n"
             "\n"
             "Full inventory backfill is intentionally NOT a pk-ku subcommand.\n"
@@ -204,7 +205,17 @@ def build_parser() -> argparse.ArgumentParser:
     prom = sub.add_parser("promote", help="List or promote candidate index (active last)")
     prom.add_argument("--list", action="store_true", help="List index versions")
     prom.add_argument("--collection", default="", help="Candidate collection to promote")
-    prom.add_argument("--require-eval-pass", action="store_true")
+    prom.add_argument(
+        "--require-eval-pass",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Require Phase 17 gate PASS (default true; --no-require-eval-pass forensics only)",
+    )
+    prom.add_argument(
+        "--allow-without-eval",
+        action="store_true",
+        help="Forensics only: skip eval gate (loud warning; alias of --no-require-eval-pass)",
+    )
     prom.add_argument("--eval-summary", type=Path, default=None)
     prom.add_argument("--eval-gate", type=Path, default=None)
 
@@ -268,13 +279,14 @@ def _cmd_workflow() -> int:
    # after human labels:
    pk-ku canary --report path.json --check-label-completeness
    pk-ku canary --report path.json --strict
-10. pk-ku promote --collection <cand> --require-eval-pass --eval-summary … --eval-gate …
+10. pk-ku promote --collection <cand> --eval-summary … --eval-gate …
+    # eval required by default; --allow-without-eval forensics only
 11. pk-ku watermark --advance --from-canonical --write   # only after promote OK
 
 Forbidden as daily ops:
   - build_knowledge_inventory --write + prod --start on full inventory
   - resume mistaken full-inventory run until pending=0
-  - promote mid-run / without eval when gate required
+  - promote without eval (default refuse; no product waiver)
   - advance watermark before promote
   - rag-pipeline for knowledge
 
@@ -482,15 +494,20 @@ def _cmd_promote(args: argparse.Namespace) -> int:
         argv.append("--list")
     if args.collection:
         argv.extend(["--promote", args.collection])
-    if args.require_eval_pass:
-        argv.append("--require-eval-pass")
+    # Default is require-eval-pass=True; only forward explicit waiver.
+    if getattr(args, "allow_without_eval", False) or not getattr(
+        args, "require_eval_pass", True
+    ):
+        argv.append("--allow-without-eval")
     if args.eval_summary is not None:
         argv.extend(["--eval-summary", str(args.eval_summary)])
     if args.eval_gate is not None:
         argv.extend(["--eval-gate", str(args.eval_gate)])
     if not argv:
         print(
-            "usage: pk-ku promote --list | --collection NAME [--require-eval-pass …]",
+            "usage: pk-ku promote --list | --collection NAME "
+            "[--eval-summary PATH] [--eval-gate PATH] "
+            "[--allow-without-eval forensics only]",
             file=sys.stderr,
         )
         return 2

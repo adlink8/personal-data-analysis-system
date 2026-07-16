@@ -202,9 +202,13 @@ def _check_eval_gate(
         return {"ok": True, "skipped": True}
 
     if eval_gate is None and eval_summary is None:
+        # Default path is fail-closed: no promote without an eval artifact.
         return {
             "ok": False,
-            "error": "promotion requires --eval-gate or --eval-summary when --require-eval-pass",
+            "error": (
+                "promotion requires --eval-gate or --eval-summary "
+                "(default fail-closed; use --allow-without-eval only for forensics)"
+            ),
         }
 
     gate_doc: dict = {}
@@ -260,8 +264,17 @@ def promote_main(argv: list[str] | None = None) -> int:
     p.add_argument("--list", action="store_true", help="列出所有 index version")
     p.add_argument(
         "--require-eval-pass",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "fail-closed: require Phase 17 gate PASS before promote (default: true). "
+            "Use --no-require-eval-pass / --allow-without-eval only for forensics."
+        ),
+    )
+    p.add_argument(
+        "--allow-without-eval",
         action="store_true",
-        help="fail-closed: require Phase 17 gate PASS before promote",
+        help="forensics only: skip eval gate (alias of --no-require-eval-pass; loud warning)",
     )
     p.add_argument("--eval-summary", type=Path, default=None, help="path to eval summary.json")
     p.add_argument("--eval-gate", type=Path, default=None, help="path to gate.json")
@@ -278,14 +291,21 @@ def promote_main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.promote:
+        require = bool(args.require_eval_pass) and not bool(args.allow_without_eval)
+        if not require:
+            print(
+                "[WARNING] promote without eval gate — forensics/waiver only; "
+                "do NOT use for product active pointer",
+                file=sys.stderr,
+            )
         gate_check = _check_eval_gate(
             args.promote,
             eval_summary=args.eval_summary,
             eval_gate=args.eval_gate,
-            require=args.require_eval_pass or bool(args.eval_summary or args.eval_gate),
+            require=require,
         )
         if not gate_check.get("ok"):
-            print(f"[error] promote refused: {gate_check.get('error')}")
+            print(f"[error] promote refused: {gate_check.get('error')}", file=sys.stderr)
             _log(
                 "promote_refused",
                 args.promote,
@@ -294,12 +314,16 @@ def promote_main(argv: list[str] | None = None) -> int:
             return 1
         result = promote(args.promote)
         if "error" in result:
-            print(f"[error] {result['error']}")
+            print(f"[error] {result['error']}", file=sys.stderr)
             return 1
         print(f"[ok] promoted: {result['promoted']} (previous: {result['previous'] or 'none'})")
         return 0
 
-    print("用法: --promote <collection> | --list  [--require-eval-pass --eval-summary PATH]")
+    print(
+        "用法: --promote <collection> [--eval-summary PATH] [--eval-gate PATH] | --list\n"
+        "  eval gate required by default; forensics: --allow-without-eval / --no-require-eval-pass",
+        file=sys.stderr,
+    )
     return 0
 
 

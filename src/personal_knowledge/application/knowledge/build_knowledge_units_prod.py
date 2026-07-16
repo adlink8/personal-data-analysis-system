@@ -847,6 +847,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.start:
+        # Product soft-ban: full-inventory CLI --start is not the daily path.
+        # Tests and intentional backfill call start_run() API directly, or set
+        # PK_KU_ALLOW_FULL_INVENTORY_START=1 after explicit human intent.
+        if os.environ.get("PK_KU_ALLOW_FULL_INVENTORY_START", "").strip() != "1":
+            print(
+                "[error] full-inventory prod --start is soft-banned on the product path.\n"
+                "  Daily KU: use incremental `pk-ku prepare` then `pk-ku extract`.\n"
+                "  See: docs/runbooks/ku-incremental.md and `pk-ku workflow`.\n"
+                "  Forensics/planned backfill only: set PK_KU_ALLOW_FULL_INVENTORY_START=1",
+                file=sys.stderr,
+            )
+            return 2
         if not args.inventory:
             print("[error] --start 需要 --inventory", file=sys.stderr)
             return 2
