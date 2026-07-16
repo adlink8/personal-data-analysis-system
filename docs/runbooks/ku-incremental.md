@@ -24,7 +24,10 @@ Never start a full frozen inventory production run as a substitute.**
 | Canonical units | Yes after extract | **`pk-ku canonical --run … --write`** |
 | Publish staging → current | Yes (additive only) | **`pk-ku publish --run … --write`** |
 | Candidate vector index | Yes | **`pk-ku vector --write`** (never touches active) |
+| Canary (candidate) | Yes | **`pk-ku canary --candidate-override … --report …`** |
+| Canary strict gate | Yes after labels | **`pk-ku canary --report … --strict`** |
 | Promote to active | Yes after eval labels | **`pk-ku promote --collection … --require-eval-pass …`** |
+| Source watermark | Yes after promote | **`pk-ku watermark`** / **`--advance --from-canonical --write`** |
 | Freeze **full** inventory + prod `--start` whole ledger | **No for daily** | Not exposed on `pk-ku`; KU-05 backfill only via explicit underlying modules |
 | `rag-pipeline` for KU | **No** | Retired |
 
@@ -182,12 +185,12 @@ Do **not** use full-backfill `StagingPublisher.promote` (it demotes other runs).
 
 ```powershell
 # Canary against candidate (active unchanged)
-python -m personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary `
-  --candidate-override <collection> --queries 30 `
+pk-ku canary --candidate-override <collection> --queries 30 `
   --report var\reports\analysis\ai_context\ku_canary_<id>.json
 
-# Strict gate needs labels on the report first:
-#   … --strict   (fails while gate.status=pending_labels)
+# After human labels on the report:
+pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --check-label-completeness
+pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --strict
 
 pk-ku promote --list
 # Only after labeled canary / eval gate PASS:
@@ -195,9 +198,15 @@ pk-ku promote --collection <candidate_collection> `
   --require-eval-pass `
   --eval-summary <path> `
   --eval-gate <path>
+
+# Only after promote OK — advance source watermark (fail-closed; needs --write)
+pk-ku watermark                                    # show committed vs current
+pk-ku watermark --advance --from-canonical         # dry-run
+pk-ku watermark --advance --from-canonical --write # persist
 ```
 
-**Gate E:** No promote while canary `gate.status=pending_labels` or extract-gate critical fail without human waiver. Active pointer is the **last** write.
+**Gate E:** No promote while canary `gate.status=pending_labels` or extract-gate critical fail without human waiver. Active pointer is the **last** write.  
+**Gate F:** Do **not** advance watermark before promote.
 
 ### 2026-07-16 incremental cycle (reference)
 

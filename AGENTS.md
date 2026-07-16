@@ -13,7 +13,7 @@
 | 目的 | 命令 |
 |------|------|
 | 同步本地对话 → 项目 SSOT | `pk-sync conversations` / `pk-sync conversations --write` |
-| KU 增量产品入口 | **`pk-ku`**（`inspect` / `prepare` / `extract` / `extract-gate` / `canonical` / `publish` / `vector` / `promote`） |
+| KU 增量产品入口 | **`pk-ku`**（`inspect`…`vector` / `canary` / `promote` / `watermark`） |
 | KU 流程说明 | `pk-ku workflow` · **必读** [`docs/runbooks/ku-incremental.md`](docs/runbooks/ku-incremental.md) |
 | 启动 REST + MCP + Tunnel | `apps/personal_data_chatgpt/scripts/启动服务.bat` 或 `start-services.ps1` |
 | 检索 CLI | `rag-search …` |

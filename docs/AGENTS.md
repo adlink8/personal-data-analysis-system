@@ -71,7 +71,10 @@ Details: `docs/runbooks/product-sync.md`.
 6) pk-ku canonical --run … --write
 7) pk-ku publish --run … --write   # additive staging→current
 8) pk-ku vector --write            # candidate only
-9) canary labels + eval → pk-ku promote --require-eval-pass …
+9) pk-ku canary --candidate-override … --report …
+10) labels + pk-ku canary --report … --strict
+11) pk-ku promote --require-eval-pass …
+12) pk-ku watermark --advance --from-canonical --write
 ```
 
 ```powershell
@@ -244,7 +247,7 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 |--------|---------|
 | Sync conversations (dry) | `pk-sync conversations` |
 | Sync conversations (write) | `pk-sync conversations --write` |
-| KU product CLI | **`pk-ku`** (`inspect` / `prepare` / `extract` / `status` / `extract-gate` / `canonical` / `publish` / `vector` / `promote` / `workflow`) |
+| KU product CLI | **`pk-ku`** (`inspect` / `prepare` / `extract` / `status` / `extract-gate` / `canonical` / `publish` / `vector` / `canary` / `promote` / `watermark` / `workflow`) |
 | KU inspect (delta) | `pk-ku inspect` |
 | KU prepare (no LLM) | `pk-ku prepare --model … --provider vertex_google --endpoint https://aiplatform.googleapis.com --auth-mode gcloud` |
 | KU extract status | `build_knowledge_units_prod --status <run_id>` |

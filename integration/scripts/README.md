@@ -33,7 +33,10 @@ pk-ku extract-gate --run ir_*
 pk-ku canonical --run ir_* --write
 pk-ku publish --run ir_* --write
 pk-ku vector --write
+pk-ku canary --candidate-override <coll> --report path.json
 pk-ku promote --list
+pk-ku watermark
+pk-ku watermark --advance --from-canonical --write
 
 # Search / services
 rag-search …
