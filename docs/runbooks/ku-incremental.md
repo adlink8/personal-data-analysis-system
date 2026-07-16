@@ -20,8 +20,11 @@ Never start a full frozen inventory production run as a substitute.**
 | Freeze **delta** preflight (no LLM) | Yes when it works | **`pk-ku prepare …`** (policy flags) |
 | Extract **only delta queue** | Yes (design goal) | **`pk-ku extract --run <ir_…>`** |
 | Run status | Yes | **`pk-ku status --run …`** |
+| Extraction gate | Yes | **`pk-ku extract-gate --run … [--min-yield 0.7]`** |
 | Canonical units | Yes after extract | **`pk-ku canonical --run … --write`** |
-| Promote to active | Yes after eval | **`pk-ku promote --collection … --require-eval-pass …`** |
+| Publish staging → current | Yes (additive only) | **`pk-ku publish --run … --write`** |
+| Candidate vector index | Yes | **`pk-ku vector --write`** (never touches active) |
+| Promote to active | Yes after eval labels | **`pk-ku promote --collection … --require-eval-pass …`** |
 | Freeze **full** inventory + prod `--start` whole ledger | **No for daily** | Not exposed on `pk-ku`; KU-05 backfill only via explicit underlying modules |
 | `rag-pipeline` for KU | **No** | Retired |
 
@@ -166,25 +169,48 @@ pk-ku status --run <run_id>
 ### Step D — Canonical / candidate index (after extraction succeeds)
 
 ```powershell
+pk-ku extract-gate --run <run_id> --min-yield 0.7
 pk-ku canonical --run <run_id> --write
-# vector candidate still via module until packaged:
-# python -m personal_knowledge.application.knowledge.build_knowledge_unit_vector_store --write
+pk-ku publish --run <run_id> --write   # additive; does NOT demote other runs
+pk-ku vector --write                  # candidate collection only
 ```
 
-(Do not promote yet.)
+`pk-ku publish` is the incremental-safe path: only this `ir_*` run’s `staging` → `current`.  
+Do **not** use full-backfill `StagingPublisher.promote` (it demotes other runs).
 
 ### Step E — Eval then promote
 
 ```powershell
-# Eval via existing knowledge eval entry (config under assets/evals or project eval paths)
+# Canary against candidate (active unchanged)
+python -m personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary `
+  --candidate-override <collection> --queries 30 `
+  --report var\reports\analysis\ai_context\ku_canary_<id>.json
+
+# Strict gate needs labels on the report first:
+#   … --strict   (fails while gate.status=pending_labels)
+
 pk-ku promote --list
+# Only after labeled canary / eval gate PASS:
 pk-ku promote --collection <candidate_collection> `
   --require-eval-pass `
   --eval-summary <path> `
   --eval-gate <path>
 ```
 
-**Gate E:** No promote without eval pass when gate files exist. Active pointer is the last write.
+**Gate E:** No promote while canary `gate.status=pending_labels` or extract-gate critical fail without human waiver. Active pointer is the **last** write.
+
+### 2026-07-16 incremental cycle (reference)
+
+| Step | Result |
+|------|--------|
+| run | `ir_4cd8af4ad31ccdc2` (delta `di_9e002cdac7af1460`) |
+| extract | 756 queued → 586 succeeded / 110 abstained / 60 terminal_failed |
+| extract-gate | privacy fixed for `di_*`; yield 0.775; **failed** only on `api_completion` (52 non-schema terminal) |
+| canonical | 1456 draft units → 1425 staging canonical written |
+| publish | additive → +1425 current canonical (total current **32184**); active untouched |
+| vector | candidate `knowledge_units_ir_4cd8af4ad_20260716020508` (32184, gate PASS) |
+| canary | 30 queries, p95≈152ms, **pending_labels** → **no promote** |
+| active | still `knowledge_units_205bff9560b9_20260712142938` |
 
 ---
 

@@ -63,12 +63,15 @@ Details: `docs/runbooks/product-sync.md`.
 #### Required order
 
 ```text
-1) pk-sync conversations [--write]   # if dialogue grew
-2) pk-ku inspect                     # record new_refs_count
-3) pk-ku prepare --model …           # delta queue only (no LLM); policy via flags
-4) ONLY IF prepare has non-empty extract_item_count → pk-ku extract --run ir_*
-5) pk-ku canonical --run … --write → candidate vector store
-6) eval gate → pk-ku promote --collection … --require-eval-pass …
+1) pk-sync conversations [--write]
+2) pk-ku inspect
+3) pk-ku prepare --model …   # policy flags only; no code edits
+4) pk-ku extract --run ir_*  # only if extract_item_count > 0
+5) pk-ku extract-gate --run … [--min-yield 0.7]
+6) pk-ku canonical --run … --write
+7) pk-ku publish --run … --write   # additive staging→current
+8) pk-ku vector --write            # candidate only
+9) canary labels + eval → pk-ku promote --require-eval-pass …
 ```
 
 ```powershell
@@ -241,7 +244,7 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 |--------|---------|
 | Sync conversations (dry) | `pk-sync conversations` |
 | Sync conversations (write) | `pk-sync conversations --write` |
-| KU product CLI | **`pk-ku`** (`inspect` / `prepare` / `extract` / `status` / `canonical` / `promote` / `workflow`) |
+| KU product CLI | **`pk-ku`** (`inspect` / `prepare` / `extract` / `status` / `extract-gate` / `canonical` / `publish` / `vector` / `promote` / `workflow`) |
 | KU inspect (delta) | `pk-ku inspect` |
 | KU prepare (no LLM) | `pk-ku prepare --model … --provider vertex_google --endpoint https://aiplatform.googleapis.com --auth-mode gcloud` |
 | KU extract status | `build_knowledge_units_prod --status <run_id>` |
