@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-07-16T00:00:00Z",
+  "collection": "knowledge_units_fixture_test",
+  "candidate_override": true,
+  "query_count": 4,
+  "active_unchanged": true,
+  "results": [
+    {
+      "query_hash": "aaa111helpful0000000000000000000",
+      "route": "knowledge_canary_override",
+      "top_k": 5,
+      "returned_ids": ["u_help_1", "u_help_2", "u_help_3", "u_help_4"],
+      "scores": [0.91, 0.88, 0.82, 0.70],
+      "latency_ms": 12.0,
+      "label": "helpful"
+    },
+    {
+      "query_hash": "bbb222wrong000000000000000000000",
+      "route": "knowledge_canary_override",
+      "top_k": 5,
+      "returned_ids": ["u_wrong_1", "u_wrong_2", "u_wrong_3", "u_wrong_4"],
+      "scores": [0.77, 0.65, 0.50, 0.40],
+      "latency_ms": 15.0,
+      "label": "wrong"
+    },
+    {
+      "query_hash": "ccc333missing0000000000000000000",
+      "route": "knowledge_canary_override",
+      "top_k": 5,
+      "returned_ids": ["u_miss_1"],
+      "scores": [0.33],
+      "latency_ms": 10.0,
+      "label": "missing"
+    },
+    {
+      "query_hash": "ddd444stale000000000000000000000",
+      "route": "knowledge_canary_override",
+      "top_k": 5,
+      "returned_ids": ["u_stale_1", "u_stale_2"],
+      "scores": [0.85, 0.60],
+      "latency_ms": 14.0,
+      "label": "stale"
+    }
+  ],
+  "gate": {"status": "pending_labels"},
+  "p50_latency_ms": 12.0,
+  "p95_latency_ms": 15.0
+}

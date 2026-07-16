@@ -13,6 +13,7 @@ def test_parser_subcommands_exist():
     for cmd in (
         "inspect", "prepare", "extract", "status", "extract-gate",
         "canonical", "publish", "vector", "canary", "promote", "watermark",
+        "reconcile", "history", "doctor",
         "workflow",
     ):
         # --help exits SystemExit 0
@@ -112,3 +113,50 @@ def test_watermark_advance_dry_run_from_canonical(capsys):
     assert code == 0
     out = capsys.readouterr().out
     assert "dry-run" in out or '"write": false' in out.lower() or '"write": false' in out
+
+
+def test_reconcile_write_requires_i_know(capsys):
+    code = main(["reconcile", "--write"])
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "i-know" in err.lower()
+
+
+def test_reconcile_parser_defaults():
+    p = build_parser()
+    args = p.parse_args(["reconcile", "--max-subjects", "5"])
+    assert args.command == "reconcile"
+    assert args.write is False
+    assert args.max_subjects == 5
+
+
+def test_history_requires_subject():
+    p = build_parser()
+    with pytest.raises(SystemExit):
+        p.parse_args(["history"])  # missing --subject
+
+
+def test_history_parser_defaults():
+    p = build_parser()
+    args = p.parse_args(["history", "--subject", "Shell", "--limit", "5"])
+    assert args.command == "history"
+    assert args.subject == "Shell"
+    assert args.limit == 5
+    assert args.include_all_lifecycle is False
+    assert args.json is False
+
+
+def test_doctor_parser_defaults():
+    p = build_parser()
+    args = p.parse_args(["doctor"])
+    assert args.command == "doctor"
+    assert args.json is False
+    assert args.skip_ports is False
+    assert args.no_facade is False
+
+
+def test_workflow_mentions_doctor(capsys):
+    code = main(["workflow"])
+    assert code == 0
+    out = capsys.readouterr().out.lower()
+    assert "doctor" in out

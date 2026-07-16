@@ -25,9 +25,12 @@ Never start a full frozen inventory production run as a substitute.**
 | Publish staging → current | Yes (additive only) | **`pk-ku publish --run … --write`** |
 | Candidate vector index | Yes | **`pk-ku vector --write`** (never touches active) |
 | Canary (candidate) | Yes | **`pk-ku canary --candidate-override … --report …`** |
+| Canary critical triage | Yes after labels | **`pk-ku canary --report … --list-critical`** |
+| Canary re-label critical | Optional | **`pk-ku canary --report … --label-with-llm --only-critical`** |
 | Canary strict gate | Yes after labels | **`pk-ku canary --report … --strict`** |
-| Promote to active | Yes after eval labels | **`pk-ku promote --collection … --require-eval-pass …`** |
+| Promote to active | Yes after **strict PASS** + eval | **`pk-ku promote --collection … --require-eval-pass …`** |
 | Source watermark | Yes after promote | **`pk-ku watermark`** / **`--advance --from-canonical --write`** |
+| Lifecycle reconcile (growth line) | Yes (default dry-run) | **`pk-ku reconcile`** — see §3F |
 | Freeze **full** inventory + prod `--start` whole ledger | **No for daily** | Not exposed on `pk-ku`; KU-05 backfill only via explicit underlying modules |
 | `rag-pipeline` for KU | **No** | Retired |
 
@@ -193,9 +196,36 @@ pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json `
   --label-with-llm --backend vertex_google --model gemini-3.5-flash
 pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --check-label-completeness
 pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --strict
+```
+
+#### Promote checklist (strict path — fail-closed)
+
+Run in order. **Do not promote while `--strict` is FAIL.**
+
+| # | Action | Command |
+|---|--------|---------|
+| 1 | List critical (`wrong`/`stale`) | `pk-ku canary --report <path> --list-critical` |
+| 2 | Optional re-label critical only | `pk-ku canary --report <path> --label-with-llm --only-critical` |
+| 3 | Label completeness | `pk-ku canary --report <path> --check-label-completeness` |
+| 4 | Strict gate | `pk-ku canary --report <path> --strict` |
+| 5 | Promote **only if step 4 = PASS** + eval artifacts | `pk-ku promote --collection … --require-eval-pass --eval-summary … --eval-gate …` |
+| 6 | Watermark **only after promote OK** | `pk-ku watermark --advance --from-canonical --write` |
+
+```powershell
+# 1) Triage critical rows (prints index, query_hash, label, top3 ids/scores)
+pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --list-critical
+
+# 2) Optional: re-call LLM only for wrong/stale (and empty)
+pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json `
+  --label-with-llm --only-critical --backend vertex_google --model gemini-3.5-flash
+
+# 3–4) Completeness then strict
+pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --check-label-completeness
+pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --strict
+# If FAIL → hold promote; fix index/labels/content; re-run 1–4. Do NOT promote on FAIL.
 
 pk-ku promote --list
-# Only after labeled canary / eval gate PASS:
+# Only after labeled canary --strict PASS + eval gate PASS:
 pk-ku promote --collection <candidate_collection> `
   --require-eval-pass `
   --eval-summary <path> `
@@ -207,8 +237,35 @@ pk-ku watermark --advance --from-canonical         # dry-run
 pk-ku watermark --advance --from-canonical --write # persist
 ```
 
-**Gate E:** No promote while canary `gate.status=pending_labels` or extract-gate critical fail without human waiver. Active pointer is the **last** write.  
+**Gate E:** No promote while canary `gate.status=pending_labels`, **`--strict` FAIL**, or extract-gate critical fail without human waiver. Active pointer is the **last** write.  
 **Gate F:** Do **not** advance watermark before promote.
+
+### Step F — Lifecycle reconcile (optional; never DELETE)
+
+Subject-level **growth line** on `canonical_knowledge_units`: detect near-duplicate answers (supersede older) and contradictory answers (mark conflict). Default is **dry-run** (report only). Writes only update `lifecycle` / `supersedes_id` — **never hard-delete** rows.
+
+```powershell
+# Report only (safe)
+pk-ku reconcile --dry-run --max-subjects 50
+
+# Scope filters
+pk-ku reconcile --subject "Shell" --dry-run
+pk-ku reconcile --since 2026-07-01 --max-subjects 20 --dry-run
+
+# Persist (fail-closed: requires --i-know)
+pk-ku reconcile --write --i-know --max-subjects 20
+# optional full artifact:
+# pk-ku reconcile --write --i-know --artifact var\reports\analysis\ai_context\ku_lifecycle_reconcile.json
+```
+
+| Rule (v1 heuristic, no paid LLM) | Action |
+|----------------------------------|--------|
+| Same `(subject, unit_type)`, answer Jaccard ≥ 0.85 | Newest → `keep_current`; older → `mark_superseded` (`supersedes_id` → newer) |
+| Same group, Jaccard < 0.4, both `lifecycle=current` | Both → `mark_conflict` (retained) |
+| Singleton / mid similarity | `noop` |
+| Physical DELETE | **Forbidden** |
+
+Does **not** promote active index, advance watermark, or call paid extract.
 
 ### 2026-07-16 incremental cycle (reference)
 
@@ -251,6 +308,8 @@ pk-ku watermark --advance --from-canonical --write # persist
 | `prod --resume` on **delta** run | **Yes** | No | No | Yes after approval |
 | `build_knowledge_unit_vector_store --write` | Embed cost | No (candidate) | Rebuild candidate | After extract |
 | `promote_knowledge_index --promote` | No | **Yes** | N/A | After eval |
+| `pk-ku reconcile` (dry-run) | No | No | No (lifecycle report) | Yes |
+| `pk-ku reconcile --write --i-know` | No | No | No (lifecycle cols only) | Careful; never DELETE |
 
 ---
 

@@ -226,6 +226,33 @@ def run_canary(
 
 
 VALID_CANARY_LABELS = frozenset({"helpful", "wrong", "stale", "missing"})
+CRITICAL_CANARY_LABELS = frozenset({"wrong", "stale"})
+
+
+def list_critical_canary_rows(report: dict | Path | str) -> list[dict]:
+    """Rows with label in {wrong, stale} for operator triage.
+
+    Each row: index, query_hash, label, returned_ids[:3], scores[:3].
+    Does not modify the report or active pointer.
+    """
+    if isinstance(report, (str, Path)):
+        path = Path(report)
+        data = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        data = report
+    rows: list[dict] = []
+    for i, r in enumerate(data.get("results") or []):
+        lab = str(r.get("label") or "").strip().lower()
+        if lab not in CRITICAL_CANARY_LABELS:
+            continue
+        rows.append({
+            "index": i,
+            "query_hash": r.get("query_hash") or "",
+            "label": lab,
+            "returned_ids": list(r.get("returned_ids") or [])[:3],
+            "scores": list(r.get("scores") or [])[:3],
+        })
+    return rows
 
 
 def _build_query_hash_map(db_path: Path = UNIFIED_DB) -> dict[str, str]:
@@ -386,6 +413,7 @@ def label_canary_report_with_llm(
     backend: str = "auto",
     db_path: Path = UNIFIED_DB,
     only_unlabeled: bool = True,
+    only_critical: bool = False,
     max_items: int | None = None,
     write: bool = True,
     min_interval: float = 1.5,
@@ -393,6 +421,9 @@ def label_canary_report_with_llm(
     """Fill result[].label via LLM. Does not touch active pointer.
 
     backend: auto | openai | vertex_google
+
+    only_critical: re-label only wrong/stale (and empty/invalid). Skips helpful/missing.
+    When only_critical is True, existing wrong/stale labels are re-sent to the LLM.
     """
     import os
     import time
@@ -419,7 +450,15 @@ def label_canary_report_with_llm(
 
     work = []
     for i, r in enumerate(results):
-        if only_unlabeled and (r.get("label") or "") in VALID_CANARY_LABELS:
+        lab = str(r.get("label") or "").strip().lower()
+        if only_critical:
+            # Re-call LLM for wrong/stale or empty/invalid; skip helpful/missing.
+            if lab in CRITICAL_CANARY_LABELS or lab not in VALID_CANARY_LABELS:
+                work.append(i)
+            else:
+                skipped += 1
+            continue
+        if only_unlabeled and lab in VALID_CANARY_LABELS:
             skipped += 1
             continue
         work.append(i)
@@ -462,6 +501,7 @@ def label_canary_report_with_llm(
         "method": "llm",
         "backend": backend,
         "model": model,
+        "only_critical": only_critical,
         "labeled": labeled,
         "skipped_already": skipped,
         "failed": failed,
@@ -483,6 +523,7 @@ def label_canary_report_with_llm(
         "unresolved_query_hash": unresolved_query,
         "backend": backend,
         "model": model,
+        "only_critical": only_critical,
         "write": write,
         "sample": details[:10],
     }
@@ -568,6 +609,12 @@ def main(argv: list[str] | None = None) -> int:
         # 生成 30-query canary worksheet（candidate override）
         python evaluate_knowledge_canary.py --candidate-override COLLECTION --queries 30 --report report.json
 
+        # 列出 critical (wrong/stale) 行
+        python evaluate_knowledge_canary.py --report report.json --list-critical
+
+        # 仅对 wrong/stale/empty 重新 LLM 标注
+        python evaluate_knowledge_canary.py --report report.json --label-with-llm --only-critical
+
         # 检查 label 完整性
         python evaluate_knowledge_canary.py --report report.json --check-label-completeness
 
@@ -580,11 +627,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--queries", type=int, default=30, help="number of canary queries")
     p.add_argument("--report", default="", help="report JSON path")
     p.add_argument("--check-label-completeness", action="store_true")
+    p.add_argument(
+        "--list-critical",
+        action="store_true",
+        help="List rows labeled wrong/stale (index, query_hash, top ids/scores)",
+    )
     p.add_argument("--strict", action="store_true", help="compute gate (requires all labels)")
     p.add_argument(
         "--label-with-llm",
         action="store_true",
         help="Fill empty labels via LLM (OpenAI if key set, else Vertex/gcloud)",
+    )
+    p.add_argument(
+        "--only-critical",
+        action="store_true",
+        help="With --label-with-llm: only re-label wrong/stale (and empty/invalid)",
     )
     p.add_argument("--model", default="", help="LLM model for --label-with-llm")
     p.add_argument(
@@ -604,6 +661,20 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     report_path = Path(args.report) if args.report else None
+
+    if args.list_critical:
+        if not report_path or not report_path.exists():
+            print("[error] --report required for --list-critical", file=sys.stderr)
+            return 2
+        rows = list_critical_canary_rows(report_path)
+        out = {
+            "report": str(report_path),
+            "critical_count": len(rows),
+            "critical_labels": sorted(CRITICAL_CANARY_LABELS),
+            "rows": rows,
+        }
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0 if not rows else 1  # exit 1 when critical rows exist (ops signal)
 
     if args.check_label_completeness:
         if not report_path or not report_path.exists():
@@ -633,6 +704,7 @@ def main(argv: list[str] | None = None) -> int:
             model=model,
             backend=args.backend,
             max_items=args.max_items,
+            only_critical=bool(args.only_critical),
             write=not args.dry_run,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))

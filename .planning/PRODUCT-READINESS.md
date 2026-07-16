@@ -1,6 +1,6 @@
 # Product readiness scorecard
 
-**Updated:** 2026-07-16  
+**Updated:** 2026-07-16 (post Phase 22 plans 01–04)  
 **Product definition (local personal knowledge):** privacy-safe, evidence-backed, CLI/MCP operable daily without code edits; promote/rollback safe; growth history retained without hard delete.
 
 Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80 and no open P0.
@@ -13,23 +13,34 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 |-----------|------:|:-------:|-------|
 | **1. Evidence SSOT** | 90 | yes | Dialogue canonical + AgentsView RO; Google light present |
 | **2. Knowledge content** | 85 | yes | 30k+ KU; incremental extract path works |
-| **3. Daily product CLI** | 88 | yes | `pk-sync` + full `pk-ku` chain; policy via flags |
+| **3. Daily product CLI** | 92 | yes | `pk-sync` + full `pk-ku` chain + **`doctor`** preflight; policy via flags |
 | **4. Retrieval layered** | 82 | yes | KU→dialogue→Google; fallback_policy=layered |
 | **5. Publish / active safety** | 75 | **no** | Fail-closed promote OK; **active lag** (canary strict FAIL); full `--start` soft-ban OK |
-| **6. Lifecycle / growth line** | 30 | **no** | Schema exists; **no product reconcile**; append-mostly |
-| **7. Eval / canary** | 70 | **no** | LLM labels work; strict not green; Phase 17 human gold open |
-| **8. Ops / docs** | 85 | yes | Runbooks + AGENTS; gap audit done |
-| **9. Governance / tests** | 88 | yes | Full pytest green post-fix; preflight residual known |
-| **10. Facade / debt** | 60 | **no** | domains facade window to 2026-08-13; shim cohort remains |
+| **6. Lifecycle / growth line** | **78** | **no** | **22-01** `pk-ku reconcile` (dry-run default, never DELETE); **22-02** `pk-ku history`; schema + growth line product surfaces |
+| **7. Eval / canary** | 72 | **no** | LLM labels + critical triage CLI (22-03); strict not fully green / human gold open |
+| **8. Ops / docs** | 90 | yes | Runbooks + AGENTS; **`pk-ku doctor`** (DBs, active pointer, watermark info, ports warn-only) |
+| **9. Governance / tests** | 90 | yes | Doctor unit tests + reconcile/history CLI tests; pytest path green |
+| **10. Facade / debt** | **68** | **no** | Inventory: **16** domain import lines / **10** files under `application/` (see 22-FACADE-INVENTORY.md); retire window 2026-08-13; no mass rewrite in 22-04 |
 
 ### Overall
 
 | Metric | Value |
 |--------|------:|
-| Simple average | **~75** |
-| Weighted (product daily = 2×, lifecycle 1.5×, publish 1.5×) | **~72** |
-| P0 open | **1+** (active not on latest candidate; growth/conflict unsolved) |
-| **Product-grade?** | **Not yet** |
+| Simple average | **~82** |
+| Weighted (product daily = 2×, lifecycle 1.5×, publish 1.5×) | **~81** |
+| P0 open | **1** (active not on latest candidate until canary strict PASS + promote) |
+| **Product-grade?** | **Not yet** (publish safety + lifecycle bar 80 + facade debt) |
+
+### Score deltas vs pre-22 (~72 weighted)
+
+| Dimension | Before | After | Driver |
+|-----------|-------:|------:|--------|
+| Lifecycle / growth line | 30 | **78** | reconcile + history (22-01/02) |
+| Daily product CLI | 88 | **92** | doctor + growth commands |
+| Ops / docs | 85 | **90** | doctor + inventory note |
+| Eval / canary | 70 | **72** | critical triage surface (22-03) |
+| Facade / debt | 60 | **68** | owned inventory; not retired |
+| Publish / active | 75 | 75 | still blocked on strict/promote ops |
 
 ---
 
@@ -37,21 +48,21 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 
 ### Must close (blocks “daily product”)
 
-| # | Gap | Phase 22 plan | Effort (order of) |
-|---|-----|---------------|-------------------|
-| G1 | Lifecycle reconcile without delete (supersede / conflict) | 22-01 | M |
-| G2 | Growth-line read + retrieval current-only hardened | 22-02 | S–M |
-| G3 | Canary critical triage → strict PASS or explicit hold | 22-03 | S |
-| G4 | Promote latest candidate after PASS + watermark | 22-03 ops | S |
-| G5 | Facade import cleanup for product path | 22-04 | M |
+| # | Gap | Status after 22 | Effort left |
+|---|-----|-----------------|-------------|
+| G1 | Lifecycle reconcile without delete | **Shipped** (`pk-ku reconcile`) | Ops: dry-run review → selective `--write --i-know` |
+| G2 | Growth-line read + retrieval current-only | **Shipped** (`pk-ku history`) | Harden retrieval filters if any leak |
+| G3 | Canary critical triage → strict PASS | Partial (CLI triage) | Human / label residual |
+| G4 | Promote latest candidate after PASS + watermark | Ops blocked on G3 | S once strict green |
+| G5 | Facade import cleanup for product path | **Inventory only** (16 lines) | M before 2026-08-13 |
 
 ### Should close (product polish)
 
 | # | Gap | Notes |
 |---|-----|-------|
-| G6 | Phase 17 gold/judge UAT residuals | Parallel track, not only 22 |
-| G7 | `pk-ku doctor` / one-shot health | 22-04 |
-| G8 | Subject coarse-to-fine retrieval (optional) | After 22-01/02 |
+| G6 | Phase 17 gold/judge UAT residuals | Parallel track |
+| G7 | `pk-ku doctor` / one-shot health | **Done** (22-04) |
+| G8 | Subject coarse-to-fine retrieval (optional) | After lifecycle ops settle |
 
 ### Explicitly later / not product blockers
 
@@ -65,19 +76,10 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 
 | If we complete… | Expected overall |
 |-----------------|-----------------:|
-| Now | ~72–75 |
-| Phase 22 plans 01–03 only | **~82–85** (product-daily usable with growth line) |
-| Phase 22 + Phase 17 human checkpoints | **~88–90** (eval-grade product) |
-| + facade retire + doctor | **~90–92** |
-
-**Rough calendar (1 focused engineer / strong agent loop):**
-
-- 22-01: 2–4 days  
-- 22-02: 1–2 days  
-- 22-03: 1–2 days (ops can be same day once labels OK)  
-- 22-04: 2–3 days  
-
-**~1.5–2 weeks** to clear “product-daily bar” if Phase 17 gold is deferred.
+| Now (post 22-01…04 code) | **~81** weighted |
+| + canary strict PASS + promote + watermark | **~86–88** |
+| + Phase 17 human checkpoints | **~90** |
+| + facade retire (import 0) | **~91–93** |
 
 ---
 
@@ -88,10 +90,14 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 3. Conflicts/outdated claims marked, **not deleted**; growth line query works.  
 4. Retrieval: current KU first, leaf fallback guaranteed by test.  
 5. Active promote only after canary/eval PASS (or documented forensics escape).  
-6. pytest + health smoke green; docs match CLI.
+6. pytest + health smoke green; docs match CLI.  
+7. `pk-ku doctor` exit 0 on healthy machine (critical paths).
 
 ---
 
 ## Next action
 
-Execute **Phase 22** starting with **22-01** (`gsd-plan-phase` detail already outlined; implement via `gsd-execute-phase 22` when ready).
+1. Ops: canary critical residual → strict PASS → promote → watermark.  
+2. Optional: `pk-ku reconcile` dry-run on hot subjects; write only with `--i-know`.  
+3. Before **2026-08-13**: rewrite remaining 16 `domains` imports (see `.planning/phases/22-ku-lifecycle-growth-line/22-FACADE-INVENTORY.md`).  
+4. Phase 17 human gold/judge when scheduled.

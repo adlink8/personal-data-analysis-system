@@ -15,12 +15,18 @@ Usage::
     pk-ku vector [--write]                        # candidate Chroma index
     pk-ku extract-gate --run <run_id>
     pk-ku canary --candidate-override <collection> --report path.json
+    pk-ku canary --report path.json --list-critical
+    pk-ku canary --report path.json --label-with-llm --only-critical
     pk-ku canary --report path.json --strict
     pk-ku promote --list
     pk-ku promote --collection <name> --eval-summary … --eval-gate …
         # eval required by default; forensics: --allow-without-eval
     pk-ku watermark                 # show committed vs current source checksum
     pk-ku watermark --advance --from-canonical --write   # after successful promote
+    pk-ku reconcile [--subject S] [--since YYYY-MM-DD] [--max-subjects N]
+                    [--dry-run] [--write --i-know]       # lifecycle growth line (never DELETE)
+    pk-ku history --subject S [--limit N] [--include-all-lifecycle]  # growth line read
+    pk-ku doctor [--json] [--skip-ports]   # read-only product health (no promote)
 
 Hard rule: daily path is inspect → prepare → extract(resume delta run).
 Full inventory + prod --start is NOT exposed here (planned backfill only via
@@ -196,6 +202,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only check labels on an existing report",
     )
     canary.add_argument(
+        "--list-critical",
+        action="store_true",
+        help="List wrong/stale rows (index, query_hash, top returned_ids/scores)",
+    )
+    canary.add_argument(
         "--strict",
         action="store_true",
         help="Compute PASS/FAIL gate (requires fully labeled report)",
@@ -204,6 +215,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--label-with-llm",
         action="store_true",
         help="Fill empty labels via LLM (OpenAI key or Vertex/gcloud)",
+    )
+    canary.add_argument(
+        "--only-critical",
+        action="store_true",
+        help="With --label-with-llm: only re-label wrong/stale (and empty)",
     )
     canary.add_argument("--model", default="", help="Model for --label-with-llm")
     canary.add_argument(
@@ -265,6 +281,91 @@ def build_parser() -> argparse.ArgumentParser:
     wm.add_argument("--db", type=Path, default=None)
     wm.add_argument("--canonical-db", type=Path, default=None)
 
+    # --- reconcile (lifecycle growth line; never DELETE) ---
+    rec = sub.add_parser(
+        "reconcile",
+        help="Subject-level lifecycle reconcile (default dry-run; never DELETE)",
+    )
+    rec.add_argument("--subject", default="", help="Limit to exact subject")
+    rec.add_argument(
+        "--since",
+        default="",
+        metavar="YYYY-MM-DD",
+        help="Only subjects that have current units created on/after this date",
+    )
+    rec.add_argument("--max-subjects", type=int, default=None, metavar="N")
+    rec.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report only (default when --write not set)",
+    )
+    rec.add_argument(
+        "--write",
+        action="store_true",
+        help="Persist lifecycle/supersedes_id (requires --i-know)",
+    )
+    rec.add_argument(
+        "--i-know",
+        action="store_true",
+        help="Confirmation required with --write",
+    )
+    rec.add_argument("--db", type=Path, default=None)
+    rec.add_argument(
+        "--artifact",
+        type=Path,
+        default=None,
+        help="Optional full JSON report path under var/reports/…",
+    )
+
+    # --- history (growth line read; never mutates) ---
+    hist = sub.add_parser(
+        "history",
+        help="Growth-line versions for a subject (current+superseded+…; read-only)",
+    )
+    hist.add_argument("--subject", required=True, help="Exact subject string")
+    hist.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        metavar="N",
+        help="Max rows (default 50; 0 = unlimited)",
+    )
+    hist.add_argument(
+        "--include-all-lifecycle",
+        action="store_true",
+        help="Include any lifecycle value (default: current/superseded/deprecated/conflict)",
+    )
+    hist.add_argument("--db", type=Path, default=None)
+    hist.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON only (no human table)",
+    )
+
+    # --- doctor (read-only product health; never promote / write) ---
+    doc = sub.add_parser(
+        "doctor",
+        help="Read-only product health checks (DBs, active pointer, watermark, ports)",
+    )
+    doc.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit full JSON report only",
+    )
+    doc.add_argument(
+        "--skip-ports",
+        action="store_true",
+        help="Skip TCP/HTTP checks for :8000/:8789 (warn-only when present)",
+    )
+    doc.add_argument(
+        "--no-facade",
+        action="store_true",
+        help="Skip application→domains facade import inventory",
+    )
+    doc.add_argument("--db", type=Path, default=None)
+    doc.add_argument("--canonical-db", type=Path, default=None)
+    doc.add_argument("--active-pointer", type=Path, default=None)
+
     # --- workflow help ---
     sub.add_parser("workflow", help="Print canonical daily KU workflow + forbidden paths")
 
@@ -294,12 +395,18 @@ def _cmd_workflow() -> int:
 7. pk-ku publish --run <run_id> --write   # additive staging→current (not full demote)
 8. pk-ku vector --write                   # candidate index only
 9. pk-ku canary --candidate-override <coll> --report path.json
-   # after human labels:
+   # labels + triage (do NOT promote while --strict FAIL):
+   pk-ku canary --report path.json --list-critical
+   pk-ku canary --report path.json --label-with-llm --only-critical   # optional
    pk-ku canary --report path.json --check-label-completeness
    pk-ku canary --report path.json --strict
 10. pk-ku promote --collection <cand> --eval-summary … --eval-gate …
-    # eval required by default; --allow-without-eval forensics only
+    # only after --strict PASS + eval; --allow-without-eval forensics only
 11. pk-ku watermark --advance --from-canonical --write   # only after promote OK
+12. pk-ku reconcile [--subject S] [--since …] [--max-subjects N]  # default dry-run
+    # write path: pk-ku reconcile --write --i-know  (lifecycle/supersedes only; never DELETE)
+13. pk-ku history --subject S [--limit N]   # growth line read (all lifecycles; not retrieval)
+0.  pk-ku doctor [--json] [--skip-ports]    # preflight: DBs + active pointer + ports (read-only)
 
 Forbidden as daily ops:
   - build_knowledge_inventory --write + prod --start on full inventory
@@ -497,10 +604,14 @@ def _cmd_canary(args: argparse.Namespace) -> int:
         argv.extend(["--report", str(args.report)])
     if args.check_label_completeness:
         argv.append("--check-label-completeness")
+    if getattr(args, "list_critical", False):
+        argv.append("--list-critical")
     if args.strict:
         argv.append("--strict")
     if args.label_with_llm:
         argv.append("--label-with-llm")
+    if getattr(args, "only_critical", False):
+        argv.append("--only-critical")
     if args.model:
         argv.extend(["--model", args.model])
     if args.backend:
@@ -540,6 +651,76 @@ def _cmd_promote(args: argparse.Namespace) -> int:
         )
         return 2
     return int(promote_main(argv) or 0)
+
+
+def _cmd_reconcile(args: argparse.Namespace) -> int:
+    """Lifecycle reconcile: default dry-run; --write requires --i-know."""
+    if args.write and not args.i_know:
+        print(
+            "[error] --write requires --i-know (lifecycle updates are deliberate; never DELETE)",
+            file=sys.stderr,
+        )
+        return 2
+
+    from personal_knowledge.application.knowledge.reconcile_knowledge_lifecycle import (
+        main as reconcile_main,
+    )
+
+    argv: list[str] = []
+    if args.subject:
+        argv.extend(["--subject", args.subject])
+    if args.since:
+        argv.extend(["--since", args.since])
+    if args.max_subjects is not None:
+        argv.extend(["--max-subjects", str(args.max_subjects)])
+    if args.write:
+        argv.append("--write")
+        argv.append("--i-know")
+    else:
+        argv.append("--dry-run")
+    if args.db is not None:
+        argv.extend(["--db", str(args.db)])
+    if args.artifact is not None:
+        argv.extend(["--artifact", str(args.artifact)])
+    return int(reconcile_main(argv) or 0)
+
+
+def _cmd_history(args: argparse.Namespace) -> int:
+    """Growth-line history for a subject (read-only; never mutates)."""
+    from personal_knowledge.application.knowledge.history_knowledge_units import (
+        main as history_main,
+    )
+
+    argv: list[str] = ["--subject", args.subject]
+    if args.limit is not None:
+        argv.extend(["--limit", str(args.limit)])
+    if args.include_all_lifecycle:
+        argv.append("--include-all-lifecycle")
+    if args.db is not None:
+        argv.extend(["--db", str(args.db)])
+    if args.json:
+        argv.append("--json")
+    return int(history_main(argv) or 0)
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Read-only product health; never promote / watermark write / DELETE."""
+    from personal_knowledge.application.knowledge.doctor_ku import main as doctor_main
+
+    argv: list[str] = []
+    if args.json:
+        argv.append("--json")
+    if args.skip_ports:
+        argv.append("--skip-ports")
+    if args.no_facade:
+        argv.append("--no-facade")
+    if args.db is not None:
+        argv.extend(["--db", str(args.db)])
+    if args.canonical_db is not None:
+        argv.extend(["--canonical-db", str(args.canonical_db)])
+    if args.active_pointer is not None:
+        argv.extend(["--active-pointer", str(args.active_pointer)])
+    return int(doctor_main(argv) or 0)
 
 
 def _cmd_watermark(args: argparse.Namespace) -> int:
@@ -645,6 +826,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_promote(args)
     if args.command == "watermark":
         return _cmd_watermark(args)
+    if args.command == "reconcile":
+        return _cmd_reconcile(args)
+    if args.command == "history":
+        return _cmd_history(args)
+    if args.command == "doctor":
+        return _cmd_doctor(args)
 
     print(f"unknown command: {args.command}", file=sys.stderr)
     return 2

@@ -54,3 +54,14 @@ DEFAULT_FALLBACK_POLICY = "layered"
 CONVERSATION_TURNS_COLLECTION = "conversation_turns"
 CANONICAL_MESSAGES_COLLECTION = "canonical_messages"
 _NON_DIALOGUE_PREFERRED_SOURCE = "Google"
+
+# Layered hybrid order (Phase 15 / 22 contract).
+# KU retrieval surface is lifecycle=current only; growth line is pk-ku history.
+# Order: knowledge → dialogue (message then turns) → Google non-dialogue → optional pad.
+LAYERED_FALLBACK_ORDER = (
+    "knowledge_unit",
+    "canonical_messages",
+    "conversation_turns",
+    "non_dialogue_raw",
+    "legacy_pad",
+)

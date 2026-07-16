@@ -101,6 +101,25 @@ Wave 4 frozen 评测（gold evidence）：**layered R@5 = 1.00**（legacy 约 0.
 Holdout 套件（独立于 frozen 20）：`assets/evals/knowledge_units/holdout_15_02.synthetic.jsonl`  
 评测：`python tools/forensics/phase15_02_holdout_eval.py`
 
+## 2.3 Dual-view: current vs growth line (Phase 22)
+
+| View | Surface | Lifecycle | Mutates data? |
+|------|---------|-----------|---------------|
+| **Current (retrieval)** | `search_knowledge_units` / MCP semantic / default canary | **`lifecycle=current` only** | No |
+| **Growth line (history)** | `pk-ku history --subject S` | current + superseded + deprecated + conflict | No (read-only) |
+
+Principles (D-22-01…03):
+
+1. **Never physical DELETE** of KU/canonical rows for “cleanup”.
+2. Growth line keeps multi-version units by subject + time; `lifecycle` / `supersedes_id` mark succession.
+3. Default retrieval and MCP stay **current-only**; archive/growth is an **explicit** CLI/API (`pk-ku history`).
+4. Layered fallback order remains **KU → dialogue → Google PE → optional legacy pad** (`LAYERED_FALLBACK_ORDER` in `retrieval/_constants.py`); scores sort hits, they are not truth.
+
+```powershell
+pk-ku history --subject "Shell" --limit 20
+pk-ku history --subject "Shell" --include-all-lifecycle --json
+```
+
 ## 3. 明确边界
 
 ### 3.1 `personal_events` ≠ 全量 View 消息流

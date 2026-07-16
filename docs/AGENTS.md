@@ -38,6 +38,7 @@ AgentsView / Google / … (upstream)
 | Path resolution | `project_paths` | `src/personal_knowledge/core/project_paths.py` |
 
 Retrieval order (default layered hybrid): **KU → dialogue → Google PE → optional legacy pad**.  
+**Dual-view:** retrieval = `lifecycle=current` only; growth line = `pk-ku history --subject S` (multi-version, no DELETE).  
 See `docs/architecture/retrieval-ssot.md`.
 
 ---
@@ -247,7 +248,8 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 |--------|---------|
 | Sync conversations (dry) | `pk-sync conversations` |
 | Sync conversations (write) | `pk-sync conversations --write` |
-| KU product CLI | **`pk-ku`** (`inspect` / `prepare` / `extract` / `status` / `extract-gate` / `canonical` / `publish` / `vector` / `canary` / `promote` / `watermark` / `workflow`) |
+| KU product CLI | **`pk-ku`** (`inspect` / `prepare` / `extract` / `status` / `extract-gate` / `canonical` / `publish` / `vector` / `canary` / `promote` / `watermark` / `reconcile` / `history` / `workflow`) |
+| KU growth line (read) | `pk-ku history --subject S [--limit N]` |
 | KU inspect (delta) | `pk-ku inspect` |
 | KU prepare (no LLM) | `pk-ku prepare --model … --provider vertex_google --endpoint https://aiplatform.googleapis.com --auth-mode gcloud` |
 | KU extract status | `pk-ku status --run <run_id>` |
