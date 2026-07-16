@@ -54,10 +54,10 @@ Next ops: canary strict PASS → promote → watermark; optional reconcile write
 
 ## Remaining human / product checkpoints
 
-1. **Phase 17 code complete; human checkpoints** still open (gold/judge/UAT sign-off — parallel to Phase 22)
-2. Canary critical residual → strict PASS → promote → watermark  
-3. 2026-08-13: domains facade removal (inventory owned; mass rewrite deferred)  
-4. Selective `reconcile --write --i-know` after dry-run review
+1. **Phase 17 code complete; human checkpoints** still open (gold/judge/UAT sign-off — parallel)
+2. ~~Canary → promote → watermark~~ **DONE 2026-07-16** (active=ir_4cd8af; wm advanced)
+3. 2026-08-13: domains facade removal (inventory owned; mass rewrite deferred)
+4. Selective `reconcile --write --i-know` after dry-run review (optional)
 
 ## Verification snapshot
 

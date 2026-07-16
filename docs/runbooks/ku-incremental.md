@@ -277,8 +277,10 @@ Does **not** promote active index, advance watermark, or call paid extract.
 | canonical | 1456 draft units → 1425 staging canonical written |
 | publish | additive → +1425 current canonical (total current **32184**); active untouched |
 | vector | candidate `knowledge_units_ir_4cd8af4ad_20260716020508` (32184, gate PASS) |
-| canary | 30 queries; LLM labels (Vertex) → complete; **strict FAIL** (1 critical wrong/stale, helpful≈93%) → **no promote** |
-| active | still `knowledge_units_205bff9560b9_20260712142938` |
+| canary | 30 queries; LLM labels + **human triage** of 1×wrong→helpful (top-1 exact Q match) |
+| strict | **PASS** (helpful 96.7%, critical 0) |
+| promote | **`knowledge_units_ir_4cd8af4ad_20260716020508`** active (previous 205bff9560b9) |
+| watermark | advanced to current source checksum `87e24e2…` |
 
 ---
 
