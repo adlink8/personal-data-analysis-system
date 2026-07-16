@@ -12,7 +12,8 @@ def test_parser_subcommands_exist():
     # required=True subparsers: parse known commands without crashing
     for cmd in (
         "inspect", "prepare", "extract", "status", "extract-gate",
-        "canonical", "publish", "vector", "promote", "workflow",
+        "canonical", "publish", "vector", "canary", "promote", "watermark",
+        "workflow",
     ):
         # --help exits SystemExit 0
         with pytest.raises(SystemExit) as ei:
@@ -45,3 +46,25 @@ def test_extract_rejects_non_incremental_run_id(capsys):
 def test_promote_without_args_exits_2(capsys):
     code = main(["promote"])
     assert code == 2
+
+
+def test_watermark_show_json(capsys):
+    code = main(["watermark"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "committed" in out
+    assert "current_source_checksum" in out
+
+
+def test_watermark_advance_requires_source(capsys):
+    code = main(["watermark", "--advance"])
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "--from-canonical" in err or "--checksum" in err
+
+
+def test_watermark_advance_dry_run_from_canonical(capsys):
+    code = main(["watermark", "--advance", "--from-canonical"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "dry-run" in out or '"write": false' in out.lower() or '"write": false' in out

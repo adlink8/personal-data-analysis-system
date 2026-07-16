@@ -14,8 +14,12 @@ Usage::
     pk-ku publish --run <run_id> --write          # staging → current (additive)
     pk-ku vector [--write]                        # candidate Chroma index
     pk-ku extract-gate --run <run_id>
+    pk-ku canary --candidate-override <collection> --report path.json
+    pk-ku canary --report path.json --strict
     pk-ku promote --list
     pk-ku promote --collection <name> --require-eval-pass --eval-summary … --eval-gate …
+    pk-ku watermark                 # show committed vs current source checksum
+    pk-ku watermark --advance --from-canonical --write   # after successful promote
 
 Hard rule: daily path is inspect → prepare → extract(resume delta run).
 Full inventory + prod --start is NOT exposed here (planned backfill only via
@@ -43,12 +47,14 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Daily order:\n"
-            "  1) pk-sync conversations [--write]   # if dialogue grew\n"
+            "  1) pk-sync conversations [--write]\n"
             "  2) pk-ku inspect\n"
             "  3) pk-ku prepare --model … --provider … --endpoint … --auth-mode …\n"
-            "  4) pk-ku extract --run <fresh_run_id> --max-items N\n"
-            "  5) pk-ku canonical --run <run_id> --write\n"
-            "  6) eval, then pk-ku promote --collection … --require-eval-pass …\n"
+            "  4) pk-ku extract --run ir_* --max-items N\n"
+            "  5) pk-ku extract-gate / canonical / publish / vector\n"
+            "  6) pk-ku canary --candidate-override … --report …\n"
+            "  7) pk-ku promote --collection … --require-eval-pass …\n"
+            "  8) pk-ku watermark --advance --from-canonical --write\n"
             "\n"
             "Full inventory backfill is intentionally NOT a pk-ku subcommand.\n"
             "See docs/runbooks/ku-incremental.md"
@@ -166,6 +172,34 @@ def build_parser() -> argparse.ArgumentParser:
     eg.add_argument("--min-yield", type=float, default=None)
     eg.add_argument("--db", type=Path, default=None)
 
+    # --- canary ---
+    canary = sub.add_parser(
+        "canary",
+        help="Run / check / strict-gate knowledge canary (does not touch active by default)",
+    )
+    canary.add_argument(
+        "--candidate-override",
+        default="",
+        help="Candidate collection name (preferred; leaves active unchanged)",
+    )
+    canary.add_argument("--queries", type=int, default=30, help="Query count (default 30)")
+    canary.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Report JSON path (required for --strict / --check-label-completeness)",
+    )
+    canary.add_argument(
+        "--check-label-completeness",
+        action="store_true",
+        help="Only check labels on an existing report",
+    )
+    canary.add_argument(
+        "--strict",
+        action="store_true",
+        help="Compute PASS/FAIL gate (requires fully labeled report)",
+    )
+
     # --- promote ---
     prom = sub.add_parser("promote", help="List or promote candidate index (active last)")
     prom.add_argument("--list", action="store_true", help="List index versions")
@@ -173,6 +207,34 @@ def build_parser() -> argparse.ArgumentParser:
     prom.add_argument("--require-eval-pass", action="store_true")
     prom.add_argument("--eval-summary", type=Path, default=None)
     prom.add_argument("--eval-gate", type=Path, default=None)
+
+    # --- watermark ---
+    wm = sub.add_parser(
+        "watermark",
+        help="Show or advance knowledge_source_watermark (after successful promote)",
+    )
+    wm.add_argument(
+        "--advance",
+        action="store_true",
+        help="Advance committed watermark (requires --write + checksum source)",
+    )
+    wm.add_argument(
+        "--from-canonical",
+        action="store_true",
+        help="Use compute_source_checksum(canonical_db) as new watermark",
+    )
+    wm.add_argument(
+        "--checksum",
+        default="",
+        help="Explicit checksum to commit (alternative to --from-canonical)",
+    )
+    wm.add_argument(
+        "--write",
+        action="store_true",
+        help="Persist advance (default dry-run / show only)",
+    )
+    wm.add_argument("--db", type=Path, default=None)
+    wm.add_argument("--canonical-db", type=Path, default=None)
 
     # --- workflow help ---
     sub.add_parser("workflow", help="Print canonical daily KU workflow + forbidden paths")
@@ -202,13 +264,18 @@ def _cmd_workflow() -> int:
 6. pk-ku canonical --run <run_id> --write
 7. pk-ku publish --run <run_id> --write   # additive staging→current (not full demote)
 8. pk-ku vector --write                   # candidate index only
-9. eval / canary, then:
-   pk-ku promote --collection <cand> --require-eval-pass --eval-summary … --eval-gate …
+9. pk-ku canary --candidate-override <coll> --report path.json
+   # after human labels:
+   pk-ku canary --report path.json --check-label-completeness
+   pk-ku canary --report path.json --strict
+10. pk-ku promote --collection <cand> --require-eval-pass --eval-summary … --eval-gate …
+11. pk-ku watermark --advance --from-canonical --write   # only after promote OK
 
 Forbidden as daily ops:
   - build_knowledge_inventory --write + prod --start on full inventory
   - resume mistaken full-inventory run until pending=0
   - promote mid-run / without eval when gate required
+  - advance watermark before promote
   - rag-pipeline for knowledge
 
 Docs: docs/runbooks/ku-incremental.md
@@ -386,6 +453,25 @@ def _cmd_extract_gate(args: argparse.Namespace) -> int:
     return int(gate_main(argv) or 0)
 
 
+def _cmd_canary(args: argparse.Namespace) -> int:
+    from personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary import (
+        main as canary_main,
+    )
+
+    argv: list[str] = []
+    if args.candidate_override:
+        argv.extend(["--candidate-override", args.candidate_override])
+    if args.queries is not None:
+        argv.extend(["--queries", str(args.queries)])
+    if args.report is not None:
+        argv.extend(["--report", str(args.report)])
+    if args.check_label_completeness:
+        argv.append("--check-label-completeness")
+    if args.strict:
+        argv.append("--strict")
+    return int(canary_main(argv) or 0)
+
+
 def _cmd_promote(args: argparse.Namespace) -> int:
     from personal_knowledge.application.knowledge.promote_knowledge_index import (
         promote_main,
@@ -411,6 +497,82 @@ def _cmd_promote(args: argparse.Namespace) -> int:
     return int(promote_main(argv) or 0)
 
 
+def _cmd_watermark(args: argparse.Namespace) -> int:
+    """Show or advance source watermark. Advance is opt-in and fail-closed."""
+    import json
+    import sqlite3
+
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import (
+        advance_watermark,
+        compute_source_checksum,
+        get_committed_watermark,
+    )
+    from personal_knowledge.core.project_paths import (
+        AGENT_CONVERSATIONS_DB,
+        UNIFIED_DB,
+    )
+
+    db_path = args.db or UNIFIED_DB
+    canonical_db = args.canonical_db or AGENT_CONVERSATIONS_DB
+    committed = get_committed_watermark(db_path)
+    current = compute_source_checksum(canonical_db) if canonical_db.exists() else ""
+    wm_updated = ""
+    try:
+        con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+        row = con.execute(
+            "SELECT updated_at FROM knowledge_source_watermark WHERE key='committed'"
+        ).fetchone()
+        wm_updated = row[0] if row else ""
+        con.close()
+    except sqlite3.Error:
+        pass
+
+    if not args.advance:
+        doc = {
+            "committed": committed,
+            "committed_updated_at": wm_updated,
+            "current_source_checksum": current,
+            "source_matches_watermark": bool(committed and current and committed == current),
+            "write": False,
+        }
+        print(json.dumps(doc, ensure_ascii=False, indent=2))
+        return 0
+
+    # advance path
+    if args.from_canonical and args.checksum:
+        print("[error] use only one of --from-canonical or --checksum", file=sys.stderr)
+        return 2
+    if args.from_canonical:
+        new_cs = current
+        if not new_cs:
+            print("[error] cannot compute source checksum (canonical missing?)", file=sys.stderr)
+            return 2
+    elif args.checksum:
+        new_cs = args.checksum.strip()
+    else:
+        print(
+            "[error] --advance requires --from-canonical or --checksum",
+            file=sys.stderr,
+        )
+        return 2
+
+    preview = {
+        "action": "advance",
+        "before": committed,
+        "after": new_cs,
+        "changed": committed != new_cs,
+        "write": bool(args.write),
+    }
+    if not args.write:
+        preview["note"] = "dry-run only; pass --write to persist"
+        print(json.dumps(preview, ensure_ascii=False, indent=2))
+        return 0
+
+    result = advance_watermark(db_path, new_cs)
+    print(json.dumps({**preview, **result, "write": True}, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -432,8 +594,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_vector(args)
     if args.command == "extract-gate":
         return _cmd_extract_gate(args)
+    if args.command == "canary":
+        return _cmd_canary(args)
     if args.command == "promote":
         return _cmd_promote(args)
+    if args.command == "watermark":
+        return _cmd_watermark(args)
 
     print(f"unknown command: {args.command}", file=sys.stderr)
     return 2
