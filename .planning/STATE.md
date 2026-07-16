@@ -1,93 +1,59 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.1
-milestone_name: Knowledge Unit Evaluation & Quality
-status: executing
-last_updated: "2026-07-15T00:02:26.704Z"
-last_activity: 2026-07-15 -- Phase 21 execution started
+milestone_name: Knowledge Unit Evaluation & Quality → product hardening
+status: planning
+last_updated: "2026-07-16T11:48:00+08:00"
+last_activity: 2026-07-16 -- Phase 22 planned (lifecycle/growth line)
 progress:
-  total_phases: 23
-  completed_phases: 15
-  total_plans: 50
-  completed_plans: 45
-  percent: 65
+  total_phases: 24
+  completed_phases: 21
+  total_plans: 54
+  completed_plans: 49
+  percent: 72
 ---
 
 # Project State
 
 ## Milestone
 
-**v1.1 executing:** Knowledge Unit Evaluation & Quality (Phase 17 code complete; human gold/judge/UAT residuals). Phase 18–20 complete; live data on `data/`/`var/`/`archive/`.
+**v1.1 executing → product hardening:** Phase 17 human checkpoints still open; Phases 18–21 complete; **Phase 22 planned** (KU lifecycle / growth line / product readiness).
 
-## Authoritative surfaces (Phase 20 cutover)
+## Authoritative surfaces
 
 | Layer | Path / surface |
 |-------|----------------|
 | Dialogue SSOT | `data/canonical/agent/structured/db/agent_conversations.sqlite` |
-| Knowledge SSOT | `canonical_knowledge_units` + active KU collection |
-| Google light | `data/canonical/google/structured/db/google_data.sqlite` |
-| Unified | `var/db/personal_system.sqlite` |
-| Active KU | `knowledge_units_205bff9560b9_20260712142938` (30,774；L1+L2) @ `var/db/knowledge_index_active.txt` |
-| Eval registry | `var/db/evaluation_registry.sqlite` |
-| Eval reports | `var/reports/analysis/evaluations/` |
-| AgentsView live | `%USERPROFILE%/.agentsview/sessions.db` (**protected-external**) |
+| Knowledge SSOT | `canonical_knowledge_units` + **active** Chroma collection |
+| Active KU (live) | `knowledge_units_205bff9560b9_20260712142938` @ `var/db/knowledge_index_active.txt` |
+| Candidate (pending) | `knowledge_units_ir_4cd8af4ad_20260716020508` (canary 30/30 labeled, strict FAIL 1×wrong) |
+| Product CLI | `pk-sync`, `pk-ku` (incl. canary `--label-with-llm`, watermark, promote fail-closed) |
 
-## Done (latest)
+## Done (latest, 2026-07-16 product ops)
 
-- **Phase 21 complete** (2026-07-15):
-  - core/llm.py LLM primitives; conversation/graph/knowledge/memory build→application, eval→evaluation
-  - retrieval vector eval→evaluation/vector; domains facades (2026-08-13 cleanup window)
-  - deleted build_graph_relation_candidates_v2; hub coupling eliminated
-  - pytest: 13 known baseline fails only; architecture-boundary PASS; REST/MCP health 200
-  - residual: full preflight non-arch gates + source_manifest stale inventory path
-
-- **Phase 20 full apply** (2026-07-13, user 全部批准):
-  - agent-google-imports (5 ops), var (11 ops), archive (3 ops) — all **applied**
-  - live: `data/`, `var/db`, `var/runtime`, `var/reports`, `archive/quarantine/_recycle`
-  - post_apply_verify **PASS**; integrity ok; KU 30774; active pointer unchanged
-  - journals: `var/phase20-journals/`; source backups `*.bak-phase20` retained
-  - AgentsView still external-only
-
-- **Phase 19 plans 01–05 complete and verified** (2026-07-13):
-  - 376 physical source moves; `integration/scripts/*.py=0`
-  - 467 passed, 1 skipped；Node 10/10；preflight 12/12
-  - fixed-point final inventory 16,968 nodes；16,967/16,967 non-Git disposition coverage 100%
-  - consolidated recovery SSOT 144 moves + 197 rewrites；rollback/reapply PASS
-  - HIGH historical replay debt retained; no missing intermediate bytes fabricated
-
-- **Phase 18 plans 01–06 complete and verified** (2026-07-13):
-  - 16,163 governed nodes；coverage/metadata/lineage 100%
-  - 12/12 governance preflight gates PASS；privacy violations 0
-  - user-approved empty migration: 0 operations, 0 actions, active/private untouched
-  - full pytest PASS（448 collected，1 skipped）；Node 10/10 PASS
-
-- **Phase 17 plans 01–04 implemented** (2026-07-13):
-  - contracts, L2 lineage 768+47=815, extraction quality
-  - five-mode retrieval + bootstrap metrics + immutable registry
-  - answer eval + HTML/PNG report (project-local)
-  - fail-closed gate + promote `--require-eval-pass`
-  - tests: `tests/test_knowledge_eval_*.py` green
-- Offline full + live retrieval-only runs executed; gate **FAIL** as expected on mixed suite; **active unchanged**
-
-## Remaining human checkpoints
-
-1. Label real cross-turn gold (≥30) in private suite
-2. Judge calibration κ/ρ ≥ 0.7 before judge-in-gate
-3. Fill `17-UAT.md` sandbox promote/rollback sign-off
-
-## Verification commands
-
-```powershell
-python -m pytest -q tests/test_knowledge_eval_*.py
-python integration/scripts/evaluation/reconcile_l2_lineage.py --check
-python integration/scripts/evaluation/run_knowledge_eval.py --config integration/evals/knowledge_units/eval_v1.yaml --full --render --gate --dry-run --offline
-python integration/scripts/evaluation/run_knowledge_eval.py --config integration/evals/knowledge_units/eval_v1.yaml --retrieval-only --render --gate
-```
+- pk-sync / pk-ku product packaging; incremental extract; publish additive; vector candidate
+- LLM canary labeling; promote default require-eval; full inventory `--start` soft-ban
+- Safe cleanup: bak-phase20 quarantined; full pytest green after governance test fix
+- GSD codebase map refresh; gap audit + auto-test reports
 
 ## Current Position
 
-Phase: 21 (architectural-alignment-domains-slimming) — **COMPLETE** (4/4 plans)
-Plan: 21-01..04 executed; D-08 pytest baseline + architecture-boundary + REST/MCP health PASS
-Status: Ready for verify-work / next phase
-Last activity: 2026-07-15 -- Phase 21 execution complete
+**Phase: 22 (ku-lifecycle-growth-line) — PLANNED**  
+Plans: 22-01..04 outlined under `.planning/phases/22-ku-lifecycle-growth-line/`  
+Readiness: `.planning/PRODUCT-READINESS.md` (~72 weighted; product-grade **not yet**)  
+Next: implement 22-01 reconcile dry-run CLI, or discuss-phase refinements if scope changes
 
+## Remaining human / product checkpoints
+
+1. Phase 22: lifecycle reconcile + growth line (no delete)
+2. Canary critical (1× wrong) triage → strict PASS → promote → watermark
+3. Phase 17: gold/judge/UAT residuals (parallel)
+4. 2026-08-13: domains facade removal window
+
+## Verification snapshot
+
+```powershell
+python -m pytest -q tests --tb=line   # green as of 2026-07-16 post-fix
+pk-ku workflow
+pk-ku watermark   # read-only
+```

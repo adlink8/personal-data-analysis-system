@@ -30,6 +30,8 @@
 - [x] **Phase 18: Full Repository Governance Architecture** - 全目录/全文件治理、生命周期、依赖、CI 与空迁移验证闭环（2026-07-13）
 - [x] **Phase 19: Physical Source Consolidation** - src layout、console entrypoints、shim/tools/apps/assets/tests/docs 物理收口
 - [x] **Phase 20: Physical Data & Runtime Relocation** - 全部批准后 apply 完成；bak/alias 兼容窗口保留
+- [x] **Phase 21: Architectural Alignment - Domains Slimming** - build/eval → application/evaluation；facade 窗口至 2026-08-13（2026-07-15）
+- [ ] **Phase 22: KU Lifecycle & Growth Line** - 不删数的 supersede/conflict；成长线；canary 收口；产品就绪（2026-07-16 planned）
 
 > **Audit note (2026-07-12):** P0 + P1 (15-02 / 16-02) executed and verified. See [Phase 15–16 audit](phases/15-retrieval-ssot-governance/15-16-AUDIT.md).
 
@@ -243,7 +245,9 @@
 | 18 | 6/6 | **Complete** | 2026-07-13 |
 | 19 | 5/5 | **Complete** | 2026-07-13 |
 | 20 | apply complete | **Complete** (alias/bak removal deferred) | 2026-07-13 |
-| **v1.1** | Phase 17 human checkpoints open; Phase 18–20 data layout live | **Executing** | — |
+| 21 | 4/4 | **Complete** | 2026-07-15 |
+| 22 | 0/4 outlined | **Planned** (lifecycle/growth line) | — |
+| **v1.1** | Phase 17 human + Phase 22 product hardening | **Executing** | — |
 
 ### Phase 21: Architectural Alignment - Domains Slimming
 
@@ -259,5 +263,26 @@ Plans:
 - [x] 21-03: Knowledge domain migration
 - [x] 21-04: Memory domain + retrieval legacy + D-08 finalization
 
+### Phase 22: KU Lifecycle & Growth Line (product hardening)
+
+**Goal:** 在**不物理删除**知识单元的前提下，补齐过期/冲突/替代（supersede）与成长线查询；收口 canary→promote；加固 layered 回落契约；清理 product-path facade 依赖，逼近产品级日常可用。  
+**Depends on:** Phase 14–16（KU/retrieval）、Phase 21（layout）、2026-07 产品 CLI（pk-sync/pk-ku）。  
+**Requirements:** [LIFE-01..08] — see `phases/22-ku-lifecycle-growth-line/22-CONTEXT.md`  
+**Success Criteria:**
+- `pk-ku reconcile` dry-run/write 只改 lifecycle/supersedes，行数不减
+- 成长线可读（subject 多版本）；检索默认 current-only + 叶子 fallback 有测试
+- canary 关键 triage；strict PASS 路径或明确 hold 文档化
+- 产品就绪分 ≥80（见 `PRODUCT-READINESS.md`）在加权维度无 P0
+**Status:** Planned (2026-07-16)  
+**Plans:** 4/4 outlined
+
+Plans:
+- [ ] 22-01: Lifecycle reconcile dry-run + CLI (zero delete)
+- [ ] 22-02: Growth-line query surface + retrieval current-only contract
+- [ ] 22-03: Product loop close — canary triage, promote, watermark
+- [ ] 22-04: Facade retire prep + product readiness gates
+
+**Progress table note:** Phase 21 complete; Phase 22 next executable.
+
 ---
-*Roadmap migrated from `.gsd/phases/` on 2026-07-10. Updated 2026-07-13 for Phase 20 data/var/archive cutover.*
+*Roadmap migrated from `.gsd/phases/` on 2026-07-10. Updated 2026-07-16 for Phase 22 lifecycle/growth-line planning.*
