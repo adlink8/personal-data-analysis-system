@@ -1,0 +1,314 @@
+{
+  "generated_at": "2026-07-01T15:40:00+08:00",
+  "phase": "08",
+  "wave": "5",
+  "scope": "decomplexity_and_deletion_plan_only",
+  "no_action_guardrail": {
+    "deletes_executed": false,
+    "renames_executed": false,
+    "entrypoints_disabled": false,
+    "databases_modified": false,
+    "principle": "This wave only classifies and plans decomplexity. Actual deletion, rename, disable, merge, or overwrite requires a later explicit task with fresh verification.",
+    "latest_user_direction": "Decomplexity is for mechanism consolidation, not because one memory result beat another memory result."
+  },
+  "protected_surfaces": [
+    {
+      "surface": "integration/scripts/run_pipeline.py",
+      "reason": "Still references first-gen memory writers, memory graph, personal_events vector build, profile generation, and optional conversation_turns backfill."
+    },
+    {
+      "surface": "integration/scripts/unified_search.py",
+      "reason": "Currently consumes memory_items, memory_links, memory_relations, personal_events, and conversation_turns for CLI/core/API/MCP memory contracts."
+    },
+    {
+      "surface": "Phase 08 promotion flow",
+      "reason": "audit_memory_experiments.py, analyze_memory_mechanisms.py, build_memory_promotion_candidates.py, evaluate_memory_promotion_candidates.py, and apply_memory_promotions.py are the new consolidation mechanism and must stay."
+    },
+    {
+      "surface": "memory_items/memory_links/memory_relations",
+      "reason": "Current long-term memory compatibility surface; tests and README expose it through unified_search, REST, and MCP."
+    },
+    {
+      "surface": "conversation_turns and graph_relation_*",
+      "reason": "Current Phase 07/08 evidence, candidate, judgment, gate, and graph audit chain."
+    }
+  ],
+  "counts": {
+    "scripts": {
+      "keep": 24,
+      "keep_but_rename": 7,
+      "deprecated": 1,
+      "archive_only": 3,
+      "remove_candidate": 0,
+      "total": 35
+    },
+    "artifacts": {
+      "keep": 30,
+      "keep_but_rename": 2,
+      "deprecated": 0,
+      "archive_only": 5,
+      "remove_candidate": 1,
+      "total": 38
+    }
+  },
+  "script_classification": [
+    {"name": "run_pipeline.py", "category": "keep", "reason": "Unified pipeline entrypoint; active protection surface."},
+    {"name": "build_memory_store.py", "category": "keep_but_rename", "reason": "Active compatibility writer for tooling memory; later rename to legacy_rule_tooling_memory_writer after promotion flow takes ownership."},
+    {"name": "build_capability_memory.py", "category": "keep_but_rename", "reason": "Active compatibility writer for capability memory; later rename as legacy rule extractor, not delete while run_pipeline uses it."},
+    {"name": "build_context_memory.py", "category": "keep_but_rename", "reason": "Active compatibility writer for fact/project/habit memory; later rename as legacy rule extractor."},
+    {"name": "build_preference_memory.py", "category": "keep_but_rename", "reason": "Active compatibility writer for preference memory; later rename as legacy rule extractor."},
+    {"name": "build_memory_graph.py", "category": "deprecated", "reason": "Rule-only memory relation judgment is replaced by promotion/evidence gates, but run_pipeline and profile/search compatibility still depend on memory_relations."},
+    {"name": "build_vector_store.py", "category": "keep", "reason": "Active personal_events vector build path."},
+    {"name": "build_context_doc.py", "category": "keep", "reason": "Active person_profile.md generation from personal_events."},
+    {"name": "build_profile_from_memory.py", "category": "keep", "reason": "Active person_profile_v2.md generation from memory_items/memory_links/memory_relations."},
+    {"name": "search_vectors.py", "category": "keep", "reason": "Shared vector retrieval for personal_events and conversation_turns."},
+    {"name": "unified_search.py", "category": "keep", "reason": "Shared core/CLI/API/MCP backend and current memory contract surface."},
+    {"name": "evaluate_memory_depth.py", "category": "keep", "reason": "README-documented Phase 05 gate over memory_items and memory_relations."},
+    {"name": "mine_deep_memory_graph.py", "category": "keep", "reason": "README-documented Phase 06 deep memory analysis over readiness-passed topics."},
+    {"name": "build_deep_memory_profile.py", "category": "keep", "reason": "README-documented Phase 06 profile/report generator."},
+    {"name": "memory_governance.py", "category": "keep", "reason": "Shared metadata convention for evidence/confidence/source hashing."},
+    {"name": "audit_memory_experiments.py", "category": "keep", "reason": "Phase 08 inventory source and ongoing audit utility."},
+    {"name": "analyze_memory_mechanisms.py", "category": "keep", "reason": "Phase 08 mechanism matrix source."},
+    {"name": "build_memory_promotion_candidates.py", "category": "keep", "reason": "Phase 08 candidate boundary source; does not write long-term memory."},
+    {"name": "evaluate_memory_promotion_candidates.py", "category": "keep", "reason": "Phase 08 review gate source."},
+    {"name": "apply_memory_promotions.py", "category": "keep", "reason": "Controlled apply path; defaults to dry-run and approved-only gating."},
+    {"name": "build_conversation_summary.py", "category": "keep", "reason": "Source of compressed turn narratives used by vector and graph mechanisms."},
+    {"name": "build_conversation_vector_store.py", "category": "keep", "reason": "Active conversation_turns vector collection writer; protected Phase 07 mechanism."},
+    {"name": "evaluate_vector_collections.py", "category": "keep", "reason": "Active personal_events/conversation_turns collection contract audit."},
+    {"name": "evaluate_vector_retrieval.py", "category": "keep", "reason": "Active vector retrieval quality report generator."},
+    {"name": "build_graph_relation_candidates.py", "category": "keep", "reason": "Active graph relation candidate generation from conversation_turns."},
+    {"name": "judge_graph_relations.py", "category": "keep", "reason": "Active prompt/schema semantic judgment writer for graph_relation_judgments."},
+    {"name": "evaluate_graph_relation_judgments.py", "category": "keep", "reason": "Active evidence gate and report writer; review queue table may be removed later only after report path replaces it."},
+    {"name": "build_conversation_graph.py", "category": "keep", "reason": "Active DuckDB accepted-judgment graph rebuild path."},
+    {"name": "query_conversation_graph.py", "category": "keep", "reason": "Active smoke query for conversation_graph.duckdb."},
+    {"name": "visualize_conversation_graph.py", "category": "keep_but_rename", "reason": "Active conversation graph visualization; later rename output to make accepted-edge scope explicit."},
+    {"name": "build_triple_store.py", "category": "keep_but_rename", "reason": "SQLite conversation summary writer remains useful; embedded old pseudo DuckDB graph code is a remove candidate component."},
+    {"name": "build_conversation_segments.py", "category": "archive_only", "reason": "Only supports old mem0 candidate experiment and tests; not in target promotion pipeline."},
+    {"name": "build_mem0_candidate_memory.py", "category": "archive_only", "reason": "Optional mem0 compression experiment; Phase 07/08 downgraded it outside the main path."},
+    {"name": "compare_memory_experiments.py", "category": "archive_only", "reason": "Legacy item-vs-edge comparison script; Wave 2 superseded this scope with mechanism fusion."},
+    {"name": "query_graph.py", "category": "keep_but_rename", "reason": "Current old memory graph CLI/visualization path; later rename to query_legacy_memory_graph.py after docs and tests migrate."}
+  ],
+  "artifact_classification": [
+    {"name": "memory_items", "kind": "sqlite_table", "category": "keep", "reason": "Long-term memory compatibility table consumed by unified_search and profile generation."},
+    {"name": "memory_links", "kind": "sqlite_table", "category": "keep", "reason": "Evidence bridge consumed by unified_search and build_profile_from_memory."},
+    {"name": "memory_relations", "kind": "sqlite_table", "category": "keep", "reason": "Relation compatibility table consumed by unified_search, query_graph, and profile generation."},
+    {"name": "personal_events", "kind": "chroma_collection", "category": "keep", "reason": "Primary event vector collection used by search_vectors/unified_search."},
+    {"name": "conversation_turns", "kind": "chroma_collection", "category": "keep", "reason": "Turn narrative vector collection used by search_vectors/unified_search and graph candidate generation."},
+    {"name": "conversation_sessions", "kind": "sqlite_table", "category": "keep", "reason": "Conversation summary structured table."},
+    {"name": "conversation_turns_summary", "kind": "sqlite_table", "category": "keep", "reason": "Turn narrative structured table and traceability source."},
+    {"name": "graph_relation_candidates", "kind": "sqlite_table", "category": "keep", "reason": "Candidate audit table for graph relation judgment."},
+    {"name": "graph_relation_judgments", "kind": "sqlite_table", "category": "keep", "reason": "Prompt/schema judgment audit table."},
+    {"name": "g_turn/g_session/g_topic/g_tool/e_relation", "kind": "duckdb_tables", "category": "keep", "reason": "Accepted conversation graph view built by build_conversation_graph.py."},
+    {"name": "integration/db/conversation_graph.duckdb", "kind": "duckdb_database", "category": "keep", "reason": "Current accepted conversation graph artifact."},
+    {"name": "conversation_summaries.json/md", "kind": "report", "category": "keep", "reason": "Compressed turn narrative baseline."},
+    {"name": "conversation_quality_report.json/md", "kind": "report", "category": "keep", "reason": "Conversation summary quality gate."},
+    {"name": "vector_collection_health.json/md", "kind": "report", "category": "keep", "reason": "Vector collection contract report."},
+    {"name": "vector_retrieval_eval_report.json/md", "kind": "report", "category": "keep", "reason": "Vector retrieval evaluation report."},
+    {"name": "graph_relation_candidates_report.json", "kind": "report", "category": "keep", "reason": "Graph candidate generation stats."},
+    {"name": "graph_relation_judgments_report.json", "kind": "report", "category": "keep", "reason": "LLM judgment run stats."},
+    {"name": "graph_relation_eval_report.json/md", "kind": "report", "category": "keep", "reason": "Evidence gate report and intended replacement for review queue table reads."},
+    {"name": "memory_promotion_candidates", "kind": "sqlite_table", "category": "keep", "reason": "Phase 08 candidate boundary table; no long-term writes."},
+    {"name": "memory_promotion_candidates_preview.json/md", "kind": "report", "category": "keep", "reason": "Phase 08 promotion candidate preview."},
+    {"name": "memory_promotion_report.json/md", "kind": "report", "category": "keep", "reason": "Phase 08 review gate report; approved_count is currently 0."},
+    {"name": "memory_mechanism_matrix.json/md", "kind": "report", "category": "keep", "reason": "Mechanism fusion decision source."},
+    {"name": "memory_pipeline_target_design.md", "kind": "report", "category": "keep", "reason": "Single target pipeline design."},
+    {"name": "memory_experiment_inventory.json/md", "kind": "report", "category": "keep", "reason": "Inventory and active reader/source-of-truth for this plan."},
+    {"name": "person_profile.md", "kind": "profile", "category": "keep", "reason": "Current AI context profile generated from personal_events."},
+    {"name": "person_profile_v2.md", "kind": "profile", "category": "keep", "reason": "Current memory graph profile generated from memory_items/memory_relations."},
+    {"name": "memory_depth_readiness.md", "kind": "report", "category": "keep", "reason": "Phase 05 readiness gate."},
+    {"name": "deep_memory_mining.json/md", "kind": "report", "category": "keep", "reason": "Phase 06 deep memory mining report."},
+    {"name": "deep_memory_insights.json/md", "kind": "report", "category": "keep", "reason": "Phase 06 deep memory insight report."},
+    {"name": "deep_memory_profile.md", "kind": "profile", "category": "keep", "reason": "Phase 06 prompt-facing deep profile."},
+    {"name": "memory_graph.html", "kind": "html_report", "category": "keep_but_rename", "reason": "Old memory graph visualization name collides conceptually with conversation graph; use legacy_memory_graph.html later if regenerated."},
+    {"name": "conversation_graph.html", "kind": "html_report", "category": "keep_but_rename", "reason": "Accepted conversation graph visualization; later rename to conversation_graph_accepted_edges.html for clarity."},
+    {"name": "graph_relation_review_queue", "kind": "sqlite_table", "category": "remove_candidate", "reason": "Writer exists but no automated reader; graph_relation_eval_report carries the same gate information for reports."},
+    {"name": "mem0_candidate_memories.json", "kind": "report", "category": "archive_only", "reason": "Old mem0 optional experiment output, no longer mainline."},
+    {"name": "mem0_candidate_evaluation.md", "kind": "report", "category": "archive_only", "reason": "Old mem0 optional experiment evaluation, retain as audit record only."},
+    {"name": "conversation_segments.json", "kind": "report", "category": "archive_only", "reason": "Old segment input for mem0 experiment, not target pipeline input."},
+    {"name": "prompt_eval_results.json", "kind": "report", "category": "archive_only", "reason": "Old prompt evaluation artifact from Phase 07 side path."},
+    {"name": "memory_experiment_comparison.json/md", "kind": "report", "category": "archive_only", "reason": "Legacy item-vs-edge comparison artifact; Wave 2 marks it old-scope counterexample, not governing output."}
+  ],
+  "candidate_details": [
+    {
+      "name": "build_memory_graph.py",
+      "kind": "script",
+      "category": "deprecated",
+      "current_owner": ["build_memory_graph.py", "run_pipeline.py step 9"],
+      "current_readers": ["run_pipeline.py", "build_profile_from_memory.py", "evaluate_memory_depth.py", "mine_deep_memory_graph.py", "query_graph.py", "unified_search.py", "README.md"],
+      "replacement_path": "Replace rule-only relation judgment with memory_promotion_candidates + memory_promotion_report + approved apply flow; keep memory_relations as compatibility output until unified_search/profile migrate.",
+      "why_safe_or_not_safe": "Not safe to remove now because run_pipeline still executes it and several readers consume memory_relations. Safe only to mark deprecated because its semantic judgment role is superseded by Phase 08 promotion gates.",
+      "risk": "high",
+      "required_pre_delete_checks": [
+        "Remove or replace run_pipeline.py step 9 in a later explicit task.",
+        "Migrate unified_search memory neighbors away from memory_relations or provide a compatibility view.",
+        "Update README.md and integration/README.md references.",
+        "Run python tests/test_memory_contracts.py and graph/profile tests after migration."
+      ],
+      "reversible_path": "Keep script and memory_relations backup; if migration fails, restore run_pipeline step 9 and regenerate memory_relations."
+    },
+    {
+      "name": "build_triple_store.py::duckdb_pseudo_graph_path",
+      "kind": "script_component",
+      "category": "remove_candidate",
+      "current_owner": ["build_triple_store.py"],
+      "current_readers": [],
+      "replacement_path": "build_conversation_graph.py --write, query_conversation_graph.py --smoke, and visualize_conversation_graph.py for accepted graph edges.",
+      "why_safe_or_not_safe": "The component already raises RuntimeError for DuckDB pseudo-graph writes and points to build_conversation_graph.py. Removing only the dead pseudo graph component is safe after confirming no docs/tests call --only duckdb.",
+      "risk": "low",
+      "required_pre_delete_checks": [
+        "rg \"build_triple_store.py.*duckdb|--only duckdb\" README.md integration tests .gsd",
+        "Run python integration/scripts/build_triple_store.py --dry-run --only sqlite",
+        "Run python integration/scripts/build_conversation_graph.py --write in the later deletion phase if graph rebuild is part of that phase"
+      ],
+      "reversible_path": "Recover old component from git history; no live data should depend on the pseudo graph path."
+    },
+    {
+      "name": "graph_relation_review_queue",
+      "kind": "sqlite_table",
+      "category": "remove_candidate",
+      "current_owner": ["evaluate_graph_relation_judgments.py"],
+      "current_readers": [],
+      "replacement_path": "graph_relation_eval_report.json/md plus graph_relation_judgments.gate_status for durable review state.",
+      "why_safe_or_not_safe": "Inventory reports a writer but no automated reader. It is not safe to drop in this wave because evaluate_graph_relation_judgments.py still writes it; first migrate the writer to report-only or judgment-status-only output.",
+      "risk": "medium",
+      "required_pre_delete_checks": [
+        "rg \"graph_relation_review_queue\" integration tests README.md .gsd",
+        "Confirm graph_relation_eval_report.json includes every review queue field needed for human review.",
+        "Update evaluate_graph_relation_judgments.py in a later task to stop writing the table.",
+        "Run python tests/test_graph_relation_judgments.py and python integration/scripts/evaluate_graph_relation_judgments.py --write."
+      ],
+      "reversible_path": "Recreate table from graph_relation_judgments joined with graph_relation_candidates using gate_status='review'."
+    },
+    {
+      "name": "build_conversation_segments.py",
+      "kind": "script",
+      "category": "archive_only",
+      "current_owner": ["build_conversation_segments.py"],
+      "current_readers": ["build_mem0_candidate_memory.py", "tests/test_agent_conversation_normalization.py", "README.md"],
+      "replacement_path": "build_conversation_summary.py -> build_conversation_vector_store.py -> build_memory_promotion_candidates.py.",
+      "why_safe_or_not_safe": "Not safe to remove now because tests and README still reference it. It is safe to archive conceptually because the target pipeline uses turn narratives, not segmented raw user snippets.",
+      "risk": "medium",
+      "required_pre_delete_checks": [
+        "Move or retire tests that import build_conversation_segments.py.",
+        "Remove README commands for build_conversation_segments.py.",
+        "Confirm memory_promotion_candidates still has source_refs for all candidates."
+      ],
+      "reversible_path": "Keep script and conversation_segments.json under an archive tag or recover from git history."
+    },
+    {
+      "name": "build_mem0_candidate_memory.py",
+      "kind": "script",
+      "category": "archive_only",
+      "current_owner": ["build_mem0_candidate_memory.py"],
+      "current_readers": ["tests/test_agent_conversation_normalization.py", "README.md"],
+      "replacement_path": "build_memory_promotion_candidates.py and evaluate_memory_promotion_candidates.py.",
+      "why_safe_or_not_safe": "Not safe to remove now because tests and README still reference it. It should not remain a mainline mechanism because mem0 candidates are optional, compressed too aggressively, and never write memory_items.",
+      "risk": "medium",
+      "required_pre_delete_checks": [
+        "Replace mem0-specific assertions with promotion candidate boundary assertions.",
+        "Remove README optional mem0 command or move it to archive docs.",
+        "Confirm no package install or runtime path requires mem0ai."
+      ],
+      "reversible_path": "Retain the script in git history or archive directory; outputs remain audit-only."
+    },
+    {
+      "name": "mem0_candidate_memories.json",
+      "kind": "report",
+      "category": "archive_only",
+      "current_owner": ["build_mem0_candidate_memory.py"],
+      "current_readers": ["README.md"],
+      "replacement_path": "memory_promotion_candidates_preview.json and memory_promotion_report.json.",
+      "why_safe_or_not_safe": "Safe to stop treating as active because it is not a target pipeline input. Not safe to delete in this wave because it is an audit artifact and README still mentions the mem0 path.",
+      "risk": "low",
+      "required_pre_delete_checks": [
+        "Confirm no scripts read mem0_candidate_memories.json.",
+        "Move README references to archive-only wording.",
+        "Keep one git-tracked audit copy until Phase 08 verification completes."
+      ],
+      "reversible_path": "Regenerate with python integration/scripts/build_mem0_candidate_memory.py --sample --force-local if the script is still present."
+    },
+    {
+      "name": "mem0_candidate_evaluation.md",
+      "kind": "report",
+      "category": "archive_only",
+      "current_owner": ["build_mem0_candidate_memory.py"],
+      "current_readers": ["README.md"],
+      "replacement_path": "memory_promotion_report.md.",
+      "why_safe_or_not_safe": "Safe to mark archive-only because the promotion report is now the review gate. Not safe to delete in this wave because it documents why mem0 was downgraded.",
+      "risk": "low",
+      "required_pre_delete_checks": [
+        "Confirm memory_promotion_report.md captures approved_count=0 and human_review_required_count.",
+        "Move mem0 evaluation link to archive docs if retained."
+      ],
+      "reversible_path": "Regenerate with build_mem0_candidate_memory.py while the script remains available."
+    },
+    {
+      "name": "conversation_segments.json",
+      "kind": "report",
+      "category": "archive_only",
+      "current_owner": ["build_conversation_segments.py"],
+      "current_readers": ["build_mem0_candidate_memory.py", "README.md"],
+      "replacement_path": "conversation_summaries.json and conversation_turns_summary.",
+      "why_safe_or_not_safe": "Not safe to delete while mem0 archive path is still documented. Safe to mark archive-only because target candidate generation uses compressed turn narratives with source_refs.",
+      "risk": "low",
+      "required_pre_delete_checks": [
+        "Confirm build_memory_promotion_candidates.py does not read conversation_segments.json.",
+        "Remove mem0 path references from README or move to archive section."
+      ],
+      "reversible_path": "Regenerate with python integration/scripts/build_conversation_segments.py --write."
+    },
+    {
+      "name": "prompt_eval_results.json",
+      "kind": "report",
+      "category": "archive_only",
+      "current_owner": ["evaluate_conversation_prompt.py"],
+      "current_readers": ["README.md"],
+      "replacement_path": "conversation_quality_report.json/md and memory_mechanism_matrix.json/md.",
+      "why_safe_or_not_safe": "Safe to archive because it is an old prompt evaluation artifact, not an active pipeline input. Not safe to delete until README references are migrated.",
+      "risk": "low",
+      "required_pre_delete_checks": [
+        "rg \"prompt_eval_results\" README.md integration tests .gsd",
+        "Confirm conversation_quality_report covers current summary quality checks."
+      ],
+      "reversible_path": "Regenerate from evaluate_conversation_prompt.py if retained, or recover from git history."
+    },
+    {
+      "name": "compare_memory_experiments.py",
+      "kind": "script",
+      "category": "archive_only",
+      "current_owner": ["compare_memory_experiments.py"],
+      "current_readers": ["tests/test_memory_experiment_comparison.py", "memory_experiment_comparison.json/md"],
+      "replacement_path": "analyze_memory_mechanisms.py and memory_mechanism_matrix.json/md.",
+      "why_safe_or_not_safe": "The script's result-comparison framing is explicitly superseded by mechanism fusion. Not safe to remove until tests and old artifacts are retired or archived.",
+      "risk": "medium",
+      "required_pre_delete_checks": [
+        "Retire or rewrite tests/test_memory_experiment_comparison.py.",
+        "Ensure memory_mechanism_matrix.md states old comparison artifacts are old-scope counterexamples.",
+        "Run python tests/test_memory_mechanism_analysis.py."
+      ],
+      "reversible_path": "Keep artifacts as archive-only and recover script from git history if needed."
+    },
+    {
+      "name": "memory_experiment_comparison.json/md",
+      "kind": "report",
+      "category": "archive_only",
+      "current_owner": ["compare_memory_experiments.py"],
+      "current_readers": ["memory_mechanism_matrix.json/md as old-scope counterexample"],
+      "replacement_path": "memory_mechanism_matrix.json/md and memory_pipeline_target_design.md.",
+      "why_safe_or_not_safe": "Safe to archive because it compares results, not mechanisms. Not safe to delete until any matrix references to these files are converted to prose or archive links.",
+      "risk": "low",
+      "required_pre_delete_checks": [
+        "Confirm no current plan uses memory_experiment_comparison as governing input.",
+        "Update tests and docs to reference mechanism matrix only."
+      ],
+      "reversible_path": "Recover from git history or rerun compare_memory_experiments.py while archived."
+    }
+  ],
+  "priority_decomplexity_sequence": [
+    "1. Keep all run_pipeline.py and unified_search.py active surfaces unchanged in this phase.",
+    "2. In a later task, remove dead pseudo DuckDB graph code from build_triple_store.py after checking no --only duckdb callers remain.",
+    "3. Replace graph_relation_review_queue table usage with graph_relation_eval_report + graph_relation_judgments.gate_status, then drop the table in a separate migration task.",
+    "4. Move mem0 segment/candidate path and old comparison artifacts to archive-only docs after tests are rewritten.",
+    "5. Only after promotion flow owns long-term writes, rename legacy rule memory scripts and decide whether memory_relations remains a compatibility view or is rebuilt from reviewed promotions."
+  ]
+}

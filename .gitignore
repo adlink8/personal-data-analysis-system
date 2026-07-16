@@ -44,6 +44,10 @@ imports/*
 *.tsv
 *.json
 *.jsonl
+# versioned test fixtures (plan-only / synthetic; not private SSOT)
+!tests/fixtures/**
+!tests/fixtures/**/*.json
+!tests/fixtures/**/*.jsonl
 *.xlsx
 *.xls
 *.parquet
