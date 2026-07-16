@@ -97,6 +97,36 @@ python -m personal_knowledge.application.knowledge.refresh_knowledge_units `
   --artifact var\reports\analysis\ai_context\knowledge_incremental_delta.json
 ```
 
+**Extract-queue policy is CLI-controlled** (do not hardcode in agent ad-hoc scripts). Defaults are safe daily incremental:
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--extract-new-only` / `--no-extract-new-only` | new only | Include `modified` only with `--no-extract-new-only` |
+| `--extract-since-watermark` / `--no-extract-since-watermark` | on | Floor session date at watermark day |
+| `--since YYYY-MM-DD` | (none) | Explicit floor; **overrides** watermark floor |
+| `--skip-succeeded` / `--no-skip-succeeded` | skip | Drop refs already `succeeded` in any run |
+| `--roles user` or `user,assistant` | all eligible | Role allow-list |
+| `--baseline-inventory <id>` | watermark-era auto | Force before inventory |
+| `--max-extract-items N` | unlimited | Cap queue after filters (newest first) |
+
+Examples:
+
+```powershell
+# Only user messages since 2026-07-13, cap 100
+python -m personal_knowledge.application.knowledge.refresh_knowledge_units `
+  --prepare --model gemini-3.5-flash --provider vertex_google `
+  --endpoint "https://aiplatform.googleapis.com" --auth-mode gcloud `
+  --roles user --since 2026-07-13 --max-extract-items 100
+
+# Include modified + full post-baseline new (no watermark date floor)
+python -m personal_knowledge.application.knowledge.refresh_knowledge_units `
+  --prepare --model gemini-3.5-flash --provider vertex_google `
+  --endpoint "https://aiplatform.googleapis.com" --auth-mode gcloud `
+  --no-extract-new-only --no-extract-since-watermark
+```
+
+Read `extract_item_count` / `fresh_run_id` from the JSON artifact before any paid `--resume`.
+
 Expect non-paid: `production_llm_calls=0`, `active_changed=false`.
 
 **Gate B — conflict rule (hard):**

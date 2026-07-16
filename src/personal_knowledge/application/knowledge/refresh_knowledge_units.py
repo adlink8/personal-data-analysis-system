@@ -500,6 +500,10 @@ def _materialize_delta_run(
     extract_change_types: frozenset[str] | None = None,
     extract_order_keys: dict[str, str] | None = None,
     extract_min_started_at: str = "",
+    skip_succeeded: bool = True,
+    allowed_roles: frozenset[str] | None = None,
+    ref_roles: dict[str, str] | None = None,
+    max_extract_items: int | None = None,
 ) -> dict:
     """Write delta inventory + fresh incremental run (idempotent). Optionally seed run items."""
     if not delta_items:
@@ -516,9 +520,13 @@ def _materialize_delta_run(
     # run identity so a watermark-gated queue does not reuse a full-backlog ledger.
     run_id_material = f"{delta_inventory_id}|{model}|{prompt_version}|{schema_version}"
     if init_run_items:
+        roles_key = ",".join(sorted(allowed_roles)) if allowed_roles else "all"
+        cap_key = str(max_extract_items) if max_extract_items else "none"
         extract_policy = (
             f"types={','.join(sorted(extract_types))}|"
-            f"since={extract_min_started_at or 'none'}|skip_succeeded=1"
+            f"since={extract_min_started_at or 'none'}|"
+            f"skip_succeeded={1 if skip_succeeded else 0}|"
+            f"roles={roles_key}|cap={cap_key}"
         )
         run_id_material = f"{run_id_material}|{extract_policy}"
     fresh_run_id = "ir_" + hashlib.sha256(run_id_material.encode()).hexdigest()[:16]
@@ -580,15 +588,26 @@ def _materialize_delta_run(
                 (ref, ct) for ref, ct, _hb, _ha in delta_items if ct in extract_types
             ]
             # Skip evidence already successfully extracted in any prior run
-            already = {
-                r[0]
-                for r in con.execute(
-                    "SELECT DISTINCT evidence_ref FROM knowledge_run_items "
-                    "WHERE status='succeeded'"
-                ).fetchall()
-            }
-            if already:
-                extractable = [(ref, ct) for ref, ct in extractable if ref not in already]
+            if skip_succeeded:
+                already = {
+                    r[0]
+                    for r in con.execute(
+                        "SELECT DISTINCT evidence_ref FROM knowledge_run_items "
+                        "WHERE status='succeeded'"
+                    ).fetchall()
+                }
+                if already:
+                    extractable = [
+                        (ref, ct) for ref, ct in extractable if ref not in already
+                    ]
+
+            # Optional role filter (user/assistant/…)
+            if allowed_roles and ref_roles is not None:
+                extractable = [
+                    (ref, ct)
+                    for ref, ct in extractable
+                    if (ref_roles.get(ref) or "") in allowed_roles
+                ]
 
             # Optional time gate: only sessions on/after watermark (or given floor)
             if extract_min_started_at and extract_order_keys is not None:
@@ -607,6 +626,9 @@ def _materialize_delta_run(
                 )
             else:
                 extractable.sort(key=lambda pair: pair[0])
+
+            if max_extract_items is not None and max_extract_items >= 0:
+                extractable = extractable[:max_extract_items]
 
             now = _utc_now()
             for pos, (ref, _ct) in enumerate(extractable):
@@ -1417,6 +1439,11 @@ def prepare_production_delta(
     *,
     extract_new_only: bool = True,
     extract_since_watermark: bool = True,
+    extract_min_started_at: str = "",
+    skip_succeeded: bool = True,
+    roles: list[str] | None = None,
+    baseline_inventory_id_override: str = "",
+    max_extract_items: int | None = None,
 ) -> dict:
     """Generate immutable production delta preflight artifact (non-paid).
 
@@ -1430,9 +1457,14 @@ def prepare_production_delta(
     Without a historical canonical snapshot, the durable before-set is the frozen
     inventory at/before the committed watermark (not a same-path self-diff).
 
-    extract_new_only: queue only change_type=new (not modified) for paid extract.
-    extract_since_watermark: only queue evidence from sessions on/after watermark
-    updated_at date — avoids replaying large identity-churn backlog as "new".
+    Extract queue policy (CLI-controllable):
+    - extract_new_only: queue only change_type=new (not modified)
+    - extract_since_watermark: floor session date at watermark.updated_at
+    - extract_min_started_at: explicit YYYY-MM-DD floor (wins over watermark floor)
+    - skip_succeeded: drop refs already succeeded in any run
+    - roles: optional role allow-list (user/assistant)
+    - baseline_inventory_id_override: force before inventory
+    - max_extract_items: cap seeded queue after filters (newest first)
     """
     if not model:
         raise ValueError("model is required — fail closed")
@@ -1459,6 +1491,11 @@ def prepare_production_delta(
 
     baseline_inventory_id = ""
     after_inventory_id = ""
+    allowed_roles = frozenset(r.strip() for r in (roles or []) if r.strip()) or None
+    # Resolve extract floor: explicit --since wins; else watermark day if enabled
+    extract_floor = (extract_min_started_at or "").strip()
+    if not extract_floor and extract_since_watermark and wm_updated_at:
+        extract_floor = wm_updated_at[:10]  # YYYY-MM-DD
 
     if src_before and src_before == src_after:
         delta = _empty_delta_result()
@@ -1467,12 +1504,27 @@ def prepare_production_delta(
         after_hashes, after_meta = _current_eligible_ref_hashes(canonical_db)
         after_inventory_id = str(after_meta.get("inventory_id") or "")
 
-        # Before = durable inventory baseline at/before watermark (not live self-diff)
-        before_hashes, baseline_inventory_id = _load_baseline_inventory_hashes(
-            db_path,
-            watermark_updated_at=wm_updated_at or "",
-            exclude_inventory_id=after_inventory_id,
-        )
+        # Before = durable inventory baseline (CLI override or watermark-era inventory)
+        if baseline_inventory_id_override:
+            con_b = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+            rows_b = con_b.execute(
+                "SELECT evidence_ref, content_hash FROM knowledge_inventory_items "
+                "WHERE inventory_id=?",
+                (baseline_inventory_id_override,),
+            ).fetchall()
+            con_b.close()
+            if not rows_b:
+                raise ValueError(
+                    f"baseline inventory not found or empty: {baseline_inventory_id_override}"
+                )
+            before_hashes = {r[0]: r[1] for r in rows_b if r[0] and r[1]}
+            baseline_inventory_id = baseline_inventory_id_override
+        else:
+            before_hashes, baseline_inventory_id = _load_baseline_inventory_hashes(
+                db_path,
+                watermark_updated_at=wm_updated_at or "",
+                exclude_inventory_id=after_inventory_id,
+            )
         if not src_before:
             # No watermark: empty before means full current set is "new"
             before_hashes = {}
@@ -1488,8 +1540,9 @@ def prepare_production_delta(
         if not delta_items:
             delta = _empty_delta_result()
         else:
-            # Order extract queue by session recency (newest first)
+            # Metadata for filters: session started_at + role
             order_keys: dict[str, str] = {}
+            ref_roles: dict[str, str] = {}
             try:
                 ccon = sqlite3.connect(
                     f"file:{canonical_db.as_posix()}?mode=ro", uri=True
@@ -1498,22 +1551,21 @@ def prepare_production_delta(
                     if ct not in extract_types:
                         continue
                     row = ccon.execute(
-                        "SELECT s.started_at FROM canonical_messages m "
+                        "SELECT m.role, s.started_at FROM canonical_messages m "
                         "JOIN canonical_sessions s "
                         "ON m.canonical_session_id=s.canonical_session_id "
                         "WHERE m.canonical_message_id=?",
                         (ref,),
                     ).fetchone()
-                    if row and row[0]:
-                        order_keys[ref] = row[0]
+                    if row:
+                        if row[0]:
+                            ref_roles[ref] = row[0]
+                        if row[1]:
+                            order_keys[ref] = row[1]
                 ccon.close()
             except sqlite3.Error:
                 order_keys = {}
-
-            # Default: only queue post-watermark sessions as paid extract targets
-            extract_floor = ""
-            if extract_since_watermark and wm_updated_at:
-                extract_floor = wm_updated_at[:10]  # YYYY-MM-DD
+                ref_roles = {}
 
             delta = _materialize_delta_run(
                 db_path,
@@ -1530,6 +1582,10 @@ def prepare_production_delta(
                 extract_change_types=extract_types,
                 extract_order_keys=order_keys,
                 extract_min_started_at=extract_floor,
+                skip_succeeded=skip_succeeded,
+                allowed_roles=allowed_roles,
+                ref_roles=ref_roles,
+                max_extract_items=max_extract_items,
             )
 
     extract_calls = int(delta.get("extract_item_count") or 0)
@@ -1558,9 +1614,10 @@ def prepare_production_delta(
         "extract_item_count": extract_calls,
         "extract_new_only": extract_new_only,
         "extract_since_watermark": extract_since_watermark,
-        "extract_min_started_at": (
-            (wm_updated_at[:10] if (extract_since_watermark and wm_updated_at) else "")
-        ),
+        "extract_min_started_at": extract_floor,
+        "skip_succeeded": skip_succeeded,
+        "roles": sorted(allowed_roles) if allowed_roles else [],
+        "max_extract_items": max_extract_items,
         "no_op": delta.get("no_op", True),
         "provider": provider,
         "endpoint": endpoint,
@@ -1616,6 +1673,49 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--auth-mode", default="", help="auth mode (gcloud/api_key)")
     p.add_argument("--model", default="", help="model ID (required for --prepare)")
     p.add_argument("--artifact", type=Path, default=None, help="artifact output path")
+    # Prepare extract-queue policy (defaults match safe daily incremental)
+    p.add_argument(
+        "--extract-new-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Queue only change_type=new (default true). Use --no-extract-new-only to include modified.",
+    )
+    p.add_argument(
+        "--extract-since-watermark",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Floor session date at watermark updated_at (default true). Use --no-extract-since-watermark to disable.",
+    )
+    p.add_argument(
+        "--since",
+        default="",
+        metavar="YYYY-MM-DD",
+        help="Explicit session started_at floor; overrides watermark floor when set",
+    )
+    p.add_argument(
+        "--skip-succeeded",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Drop refs already succeeded in any prior run (default true)",
+    )
+    p.add_argument(
+        "--roles",
+        default="",
+        help="Comma-separated roles to queue, e.g. user or user,assistant (default: all eligible)",
+    )
+    p.add_argument(
+        "--baseline-inventory",
+        default="",
+        metavar="INVENTORY_ID",
+        help="Force before-set inventory_id instead of watermark-era baseline",
+    )
+    p.add_argument(
+        "--max-extract-items",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Cap seeded extract queue after filters (newest sessions first)",
+    )
     args = p.parse_args(argv)
 
     if args.sandbox_ku08:
@@ -1640,16 +1740,34 @@ def main(argv: list[str] | None = None) -> int:
         if not args.model:
             print("[error] --prepare requires --model", file=sys.stderr)
             return 2
+        if args.since and len(args.since) < 10:
+            print("[error] --since must be YYYY-MM-DD", file=sys.stderr)
+            return 2
+        if args.max_extract_items is not None and args.max_extract_items < 0:
+            print("[error] --max-extract-items must be >= 0", file=sys.stderr)
+            return 2
+        roles = [r.strip() for r in args.roles.split(",") if r.strip()] if args.roles else None
         artifact_path = args.artifact or Path("integration/analysis/ai_context/knowledge_incremental_delta.json")
-        result = prepare_production_delta(
-            db_path=args.db,
-            canonical_db=args.canonical_db,
-            provider=args.provider,
-            endpoint=args.endpoint,
-            auth_mode=args.auth_mode,
-            model=args.model,
-            artifact_path=artifact_path,
-        )
+        try:
+            result = prepare_production_delta(
+                db_path=args.db,
+                canonical_db=args.canonical_db,
+                provider=args.provider,
+                endpoint=args.endpoint,
+                auth_mode=args.auth_mode,
+                model=args.model,
+                artifact_path=artifact_path,
+                extract_new_only=args.extract_new_only,
+                extract_since_watermark=args.extract_since_watermark,
+                extract_min_started_at=args.since,
+                skip_succeeded=args.skip_succeeded,
+                roles=roles,
+                baseline_inventory_id_override=args.baseline_inventory,
+                max_extract_items=args.max_extract_items,
+            )
+        except ValueError as e:
+            print(f"[error] {e}", file=sys.stderr)
+            return 2
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
