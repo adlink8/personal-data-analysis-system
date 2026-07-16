@@ -227,15 +227,26 @@ def evaluate_run(run_id: str, db_path: Path = UNIFIED_DB,
     ))
 
     # === Gate 9: privacy（secret/deleted/excluded hit） ===
-    # 检查是否有 unit 的 evidence 来自 ineligible session
-    # 简化：检查 evidence_ref 是否在 inventory 中（inventory 只含 eligible）
-    privacy_violation = con.execute(
-        "SELECT COUNT(*) FROM knowledge_units ku "
-        "JOIN knowledge_unit_evidence ev ON ku.unit_id=ev.unit_id "
-        "WHERE ku.run_id=? AND ev.evidence_ref NOT IN "
-        "(SELECT evidence_ref FROM knowledge_inventory_items WHERE inventory_id=?)",
-        (run_id, inventory_id),
-    ).fetchone()[0] if inventory_id else 0
+    # Full inventory: evidence must appear in knowledge_inventory_items.
+    # Incremental delta (di_*): evidence must appear in knowledge_delta_items for that delta.
+    privacy_violation = 0
+    if inventory_id:
+        if str(inventory_id).startswith("di_"):
+            privacy_violation = con.execute(
+                "SELECT COUNT(*) FROM knowledge_units ku "
+                "JOIN knowledge_unit_evidence ev ON ku.unit_id=ev.unit_id "
+                "WHERE ku.run_id=? AND ev.evidence_ref NOT IN "
+                "(SELECT ref FROM knowledge_delta_items WHERE delta_inventory_id=?)",
+                (run_id, inventory_id),
+            ).fetchone()[0]
+        else:
+            privacy_violation = con.execute(
+                "SELECT COUNT(*) FROM knowledge_units ku "
+                "JOIN knowledge_unit_evidence ev ON ku.unit_id=ev.unit_id "
+                "WHERE ku.run_id=? AND ev.evidence_ref NOT IN "
+                "(SELECT evidence_ref FROM knowledge_inventory_items WHERE inventory_id=?)",
+                (run_id, inventory_id),
+            ).fetchone()[0]
     checks.append(GateCheck(
         name="privacy_scan",
         passed=privacy_violation == 0,

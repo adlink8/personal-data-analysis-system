@@ -10,7 +10,10 @@ from personal_knowledge.application.ku import build_parser, main
 def test_parser_subcommands_exist():
     p = build_parser()
     # required=True subparsers: parse known commands without crashing
-    for cmd in ("inspect", "prepare", "extract", "status", "canonical", "promote", "workflow"):
+    for cmd in (
+        "inspect", "prepare", "extract", "status", "extract-gate",
+        "canonical", "publish", "vector", "promote", "workflow",
+    ):
         # --help exits SystemExit 0
         with pytest.raises(SystemExit) as ei:
             p.parse_args([cmd, "--help"])
