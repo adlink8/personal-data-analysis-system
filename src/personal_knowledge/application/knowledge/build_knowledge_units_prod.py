@@ -583,10 +583,17 @@ def process_run(
         json.dumps({"batch_size": batch_size}, sort_keys=True).encode()
     ).hexdigest()[:16]
 
-    inventory_id = con.execute(
+    inv_row = con.execute(
         "SELECT inventory_id FROM knowledge_run_items WHERE run_id=? LIMIT 1",
         (run_id,),
-    ).fetchone()[0]
+    ).fetchone()
+    if not inv_row:
+        # Incremental prepare should have seeded items; fail closed instead of NPE
+        con.close()
+        raise ValueError(
+            f"run {run_id} has no knowledge_run_items — refuse to process empty ledger"
+        )
+    inventory_id = inv_row[0]
     _ = inventory_id  # reserved for future inventory-side joins
 
     canon_con = sqlite3.connect(f"file:{canonical_db.as_posix()}?mode=ro", uri=True)

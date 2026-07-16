@@ -437,6 +437,209 @@ def _load_canonical_refs(canonical_db: Path) -> dict[str, str]:
     return {row[0]: _compute_content_hash(row[1] or "") for row in rows}
 
 
+def _empty_delta_result() -> dict:
+    return {
+        "no_op": True,
+        "delta_count": 0,
+        "change_types": [],
+        "fresh_run_id": "",
+        "delta_inventory_id": "",
+        "new_count": 0,
+        "modified_count": 0,
+        "deleted_count": 0,
+        "extract_item_count": 0,
+    }
+
+
+def _diff_ref_hashes(
+    refs_before: dict[str, str],
+    refs_after: dict[str, str],
+) -> tuple[list[tuple[str, str, str | None, str | None]], list[str], int, int, int]:
+    """Compare two ref→content_hash maps. Returns (delta_items, change_types, new, mod, del)."""
+    before_keys = set(refs_before.keys())
+    after_keys = set(refs_after.keys())
+    new_refs = after_keys - before_keys
+    deleted_refs = before_keys - after_keys
+    modified_refs = {
+        ref for ref in before_keys & after_keys
+        if refs_before[ref] != refs_after[ref]
+    }
+
+    delta_items: list[tuple[str, str, str | None, str | None]] = []
+    change_types: list[str] = []
+    for ref in sorted(new_refs):
+        delta_items.append((ref, "new", None, refs_after[ref]))
+        if "new" not in change_types:
+            change_types.append("new")
+    for ref in sorted(modified_refs):
+        delta_items.append((ref, "modified", refs_before[ref], refs_after[ref]))
+        if "modified" not in change_types:
+            change_types.append("modified")
+    for ref in sorted(deleted_refs):
+        delta_items.append((ref, "deleted", refs_before[ref], None))
+        if "deleted" not in change_types:
+            change_types.append("deleted")
+    return delta_items, change_types, len(new_refs), len(modified_refs), len(deleted_refs)
+
+
+def _materialize_delta_run(
+    db_path: Path,
+    *,
+    source_before_checksum: str,
+    source_after_checksum: str,
+    model: str,
+    delta_items: list[tuple[str, str, str | None, str | None]],
+    new_count: int,
+    modified_count: int,
+    deleted_count: int,
+    change_types: list[str],
+    prompt_version: str = "v1",
+    schema_version: str = "v1",
+    config_hash: str = "",
+    init_run_items: bool = False,
+    extract_change_types: frozenset[str] | None = None,
+    extract_order_keys: dict[str, str] | None = None,
+    extract_min_started_at: str = "",
+) -> dict:
+    """Write delta inventory + fresh incremental run (idempotent). Optionally seed run items."""
+    if not delta_items:
+        return _empty_delta_result()
+
+    extract_types = extract_change_types or frozenset({"new", "modified"})
+    ordered_blob = json.dumps(delta_items, sort_keys=True)
+    ordered_dataset_hash = hashlib.sha256(ordered_blob.encode()).hexdigest()[:32]
+    delta_id_material = (
+        f"{source_before_checksum}|{source_after_checksum}|{ordered_dataset_hash}|{model}"
+    )
+    delta_inventory_id = "di_" + hashlib.sha256(delta_id_material.encode()).hexdigest()[:16]
+    # Production prepare seeds run items with extract filters; include policy in
+    # run identity so a watermark-gated queue does not reuse a full-backlog ledger.
+    run_id_material = f"{delta_inventory_id}|{model}|{prompt_version}|{schema_version}"
+    if init_run_items:
+        extract_policy = (
+            f"types={','.join(sorted(extract_types))}|"
+            f"since={extract_min_started_at or 'none'}|skip_succeeded=1"
+        )
+        run_id_material = f"{run_id_material}|{extract_policy}"
+    fresh_run_id = "ir_" + hashlib.sha256(run_id_material.encode()).hexdigest()[:16]
+
+    con = sqlite3.connect(str(db_path))
+    existing = con.execute(
+        "SELECT delta_inventory_id FROM knowledge_delta_inventories WHERE delta_inventory_id=?",
+        (delta_inventory_id,),
+    ).fetchone()
+
+    if not existing:
+        con.execute(
+            "INSERT INTO knowledge_delta_inventories "
+            "(delta_inventory_id, source_before_checksum, source_after_checksum, "
+            "ordered_dataset_hash, new_count, modified_count, deleted_count, "
+            "model, prompt_version, schema_version, config_hash, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                delta_inventory_id, source_before_checksum, source_after_checksum,
+                ordered_dataset_hash, new_count, modified_count, deleted_count,
+                model, prompt_version, schema_version, config_hash or "", _utc_now(),
+            ),
+        )
+        for ref, ct, hash_before, hash_after in delta_items:
+            con.execute(
+                "INSERT INTO knowledge_delta_items "
+                "(delta_inventory_id, ref, change_type, content_hash_before, "
+                "content_hash_after, created_at) VALUES (?,?,?,?,?,?)",
+                (delta_inventory_id, ref, ct, hash_before, hash_after, _utc_now()),
+            )
+        con.commit()
+
+    existing_run = con.execute(
+        "SELECT run_id FROM knowledge_build_runs WHERE run_id=?", (fresh_run_id,)
+    ).fetchone()
+    if not existing_run:
+        input_hash = hashlib.sha256(ordered_blob.encode()).hexdigest()[:32]
+        con.execute(
+            "INSERT INTO knowledge_build_runs "
+            "(run_id, run_type, generated_at, source_build_id, input_hash, "
+            "prompt_version, schema_version, model, embedding_model, config_hash, "
+            "git_sha, dataset_hash, status, stats_json, supersedes_id) "
+            "VALUES (?,?,?,?,?,  ?,?,?,?, ?,?,?, ?,?,?)",
+            (
+                fresh_run_id, "incremental", _utc_now(), delta_inventory_id, input_hash,
+                prompt_version, schema_version, model, "", config_hash or "",
+                "", ordered_dataset_hash, "pending", "", "",
+            ),
+        )
+        con.commit()
+
+    extract_item_count = 0
+    if init_run_items:
+        existing_items = con.execute(
+            "SELECT COUNT(*) FROM knowledge_run_items WHERE run_id=?", (fresh_run_id,)
+        ).fetchone()[0]
+        if existing_items == 0:
+            extractable = [
+                (ref, ct) for ref, ct, _hb, _ha in delta_items if ct in extract_types
+            ]
+            # Skip evidence already successfully extracted in any prior run
+            already = {
+                r[0]
+                for r in con.execute(
+                    "SELECT DISTINCT evidence_ref FROM knowledge_run_items "
+                    "WHERE status='succeeded'"
+                ).fetchall()
+            }
+            if already:
+                extractable = [(ref, ct) for ref, ct in extractable if ref not in already]
+
+            # Optional time gate: only sessions on/after watermark (or given floor)
+            if extract_min_started_at and extract_order_keys is not None:
+                floor = extract_min_started_at
+                extractable = [
+                    (ref, ct)
+                    for ref, ct in extractable
+                    if (extract_order_keys.get(ref) or "") >= floor
+                ]
+
+            # Prefer recent sessions first when canonical timestamps available
+            if extractable and extract_order_keys:
+                extractable.sort(
+                    key=lambda pair: extract_order_keys.get(pair[0], ""),
+                    reverse=True,
+                )
+            else:
+                extractable.sort(key=lambda pair: pair[0])
+
+            now = _utc_now()
+            for pos, (ref, _ct) in enumerate(extractable):
+                con.execute(
+                    "INSERT OR IGNORE INTO knowledge_run_items "
+                    "(run_id, inventory_id, position, evidence_ref, status, attempt_count, "
+                    "lease_started_at, last_error_class, cache_key, response_hash, "
+                    "unit_count, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        fresh_run_id, delta_inventory_id, pos, ref, "pending", 0,
+                        None, None, None, None, 0, now,
+                    ),
+                )
+            con.commit()
+            extract_item_count = len(extractable)
+        else:
+            extract_item_count = existing_items
+
+    con.close()
+    return {
+        "no_op": False,
+        "delta_count": len(delta_items),
+        "change_types": change_types,
+        "fresh_run_id": fresh_run_id,
+        "delta_inventory_id": delta_inventory_id,
+        "new_count": new_count,
+        "modified_count": modified_count,
+        "deleted_count": deleted_count,
+        "extract_item_count": extract_item_count,
+    }
+
+
 def prepare_delta(
     db_path: Path,
     canonical_db_before: Path,
@@ -469,131 +672,102 @@ def prepare_delta(
 
     # Same source → no-op
     if source_before_checksum == source_after_checksum:
-        return {
-            "no_op": True,
-            "delta_count": 0,
-            "change_types": [],
-            "fresh_run_id": "",
-            "delta_inventory_id": "",
-            "new_count": 0,
-            "modified_count": 0,
-            "deleted_count": 0,
-        }
+        return _empty_delta_result()
 
     # Compute content-hash delta
     refs_before = _load_canonical_refs(canonical_db_before)
     refs_after = _load_canonical_refs(canonical_db_after)
+    delta_items, change_types, new_count, modified_count, deleted_count = _diff_ref_hashes(
+        refs_before, refs_after
+    )
+    if not delta_items:
+        return _empty_delta_result()
 
-    before_keys = set(refs_before.keys())
-    after_keys = set(refs_after.keys())
+    return _materialize_delta_run(
+        db_path,
+        source_before_checksum=source_before_checksum,
+        source_after_checksum=source_after_checksum,
+        model=model,
+        delta_items=delta_items,
+        new_count=new_count,
+        modified_count=modified_count,
+        deleted_count=deleted_count,
+        change_types=change_types,
+        prompt_version=prompt_version,
+        schema_version=schema_version,
+        config_hash=config_hash,
+        init_run_items=False,
+    )
 
-    new_refs = after_keys - before_keys
-    deleted_refs = before_keys - after_keys
-    modified_refs = {
-        ref for ref in before_keys & after_keys
-        if refs_before[ref] != refs_after[ref]
-    }
 
-    delta_items = []
-    change_types = []
-    for ref in sorted(new_refs):
-        delta_items.append((ref, "new", None, refs_after[ref]))
-        if "new" not in change_types:
-            change_types.append("new")
-    for ref in sorted(modified_refs):
-        delta_items.append((ref, "modified", refs_before[ref], refs_after[ref]))
-        if "modified" not in change_types:
-            change_types.append("modified")
-    for ref in sorted(deleted_refs):
-        delta_items.append((ref, "deleted", refs_before[ref], None))
-        if "deleted" not in change_types:
-            change_types.append("deleted")
+def _load_baseline_inventory_hashes(
+    db_path: Path,
+    *,
+    watermark_updated_at: str = "",
+    exclude_inventory_id: str = "",
+) -> tuple[dict[str, str], str]:
+    """Load evidence_ref→content_hash baseline from frozen inventory.
 
-    delta_count = len(delta_items)
-    if delta_count == 0:
-        return {
-            "no_op": True,
-            "delta_count": 0,
-            "change_types": [],
-            "fresh_run_id": "",
-            "delta_inventory_id": "",
-            "new_count": 0,
-            "modified_count": 0,
-            "deleted_count": 0,
-        }
+    Prefer the latest inventory at or before watermark.updated_at (last committed cycle).
+    Fall back to latest inventory that is not exclude_inventory_id (skip a same-day full
+    freeze that matches current source but was never extracted/committed).
+    """
+    if not db_path.exists():
+        return {}, ""
 
-    # Ordered dataset hash (content-addressed, immutable)
-    ordered_blob = json.dumps(delta_items, sort_keys=True)
-    ordered_dataset_hash = hashlib.sha256(ordered_blob.encode()).hexdigest()[:32]
+    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    inventory_id = ""
+    if watermark_updated_at:
+        row = con.execute(
+            "SELECT inventory_id FROM knowledge_inventory "
+            "WHERE generated_at <= ? ORDER BY generated_at DESC LIMIT 1",
+            (watermark_updated_at,),
+        ).fetchone()
+        if row:
+            inventory_id = row[0]
 
-    # Delta inventory ID = source_before|source_after|ordered_hash (deterministic)
-    delta_id_material = f"{source_before_checksum}|{source_after_checksum}|{ordered_dataset_hash}|{model}"
-    delta_inventory_id = "di_" + hashlib.sha256(delta_id_material.encode()).hexdigest()[:16]
+    if not inventory_id:
+        if exclude_inventory_id:
+            row = con.execute(
+                "SELECT inventory_id FROM knowledge_inventory "
+                "WHERE inventory_id != ? ORDER BY generated_at DESC LIMIT 1",
+                (exclude_inventory_id,),
+            ).fetchone()
+        else:
+            row = con.execute(
+                "SELECT inventory_id FROM knowledge_inventory "
+                "ORDER BY generated_at DESC LIMIT 1"
+            ).fetchone()
+        inventory_id = row[0] if row else ""
 
-    # Fresh run ID = delta inventory + model (deterministic, idempotent)
-    run_id_material = f"{delta_inventory_id}|{model}|{prompt_version}|{schema_version}"
-    fresh_run_id = "ir_" + hashlib.sha256(run_id_material.encode()).hexdigest()[:16]
+    if not inventory_id:
+        con.close()
+        return {}, ""
 
-    # Check if delta inventory already exists (idempotent)
-    con = sqlite3.connect(str(db_path))
-    existing = con.execute(
-        "SELECT delta_inventory_id FROM knowledge_delta_inventories WHERE delta_inventory_id=?",
-        (delta_inventory_id,),
-    ).fetchone()
-
-    if not existing:
-        # Insert delta inventory
-        con.execute(
-            "INSERT INTO knowledge_delta_inventories "
-            "(delta_inventory_id, source_before_checksum, source_after_checksum, "
-            "ordered_dataset_hash, new_count, modified_count, deleted_count, "
-            "model, prompt_version, schema_version, config_hash, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (delta_inventory_id, source_before_checksum, source_after_checksum,
-             ordered_dataset_hash, len(new_refs), len(modified_refs), len(deleted_refs),
-             model, prompt_version, schema_version, config_hash or "", _utc_now()),
-        )
-        # Insert delta items
-        for ref, ct, hash_before, hash_after in delta_items:
-            con.execute(
-                "INSERT INTO knowledge_delta_items "
-                "(delta_inventory_id, ref, change_type, content_hash_before, content_hash_after, created_at) "
-                "VALUES (?,?,?,?,?,?)",
-                (delta_inventory_id, ref, ct, hash_before, hash_after, _utc_now()),
-            )
-        con.commit()
-
-    # Check if fresh run already exists (idempotent)
-    existing_run = con.execute(
-        "SELECT run_id FROM knowledge_build_runs WHERE run_id=?", (fresh_run_id,)
-    ).fetchone()
-
-    if not existing_run:
-        input_hash = hashlib.sha256(ordered_blob.encode()).hexdigest()[:32]
-        con.execute(
-            "INSERT INTO knowledge_build_runs "
-            "(run_id, run_type, generated_at, source_build_id, input_hash, "
-            "prompt_version, schema_version, model, embedding_model, config_hash, "
-            "git_sha, dataset_hash, status, stats_json, supersedes_id) "
-            "VALUES (?,?,?,?,?,  ?,?,?,?, ?,?,?, ?,?,?)",
-            (fresh_run_id, "incremental", _utc_now(), delta_inventory_id, input_hash,
-             prompt_version, schema_version, model, "", config_hash or "",
-             "", ordered_dataset_hash, "pending", "", ""),
-        )
-        con.commit()
-
+    rows = con.execute(
+        "SELECT evidence_ref, content_hash FROM knowledge_inventory_items "
+        "WHERE inventory_id=?",
+        (inventory_id,),
+    ).fetchall()
     con.close()
+    return {r[0]: r[1] for r in rows if r[0] and r[1]}, inventory_id
 
-    return {
-        "no_op": False,
-        "delta_count": delta_count,
-        "change_types": change_types,
-        "fresh_run_id": fresh_run_id,
-        "delta_inventory_id": delta_inventory_id,
-        "new_count": len(new_refs),
-        "modified_count": len(modified_refs),
-        "deleted_count": len(deleted_refs),
+
+def _current_eligible_ref_hashes(canonical_db: Path) -> tuple[dict[str, str], dict]:
+    """Current eligible evidence set using full inventory eligibility + content hash."""
+    from personal_knowledge.application.knowledge.build_knowledge_inventory import (
+        build_inventory,
+    )
+
+    inventory = build_inventory(canonical_db)
+    if inventory.get("error"):
+        return {}, inventory
+    hashes = {
+        item["evidence_ref"]: item["content_hash"]
+        for item in inventory.get("items", [])
+        if item.get("evidence_ref") and item.get("content_hash")
     }
+    return hashes, inventory
 
 
 def execute_run(
@@ -1240,67 +1414,130 @@ def prepare_production_delta(
     auth_mode: str = "",
     model: str = "",
     artifact_path: Path | None = None,
+    *,
+    extract_new_only: bool = True,
+    extract_since_watermark: bool = True,
 ) -> dict:
     """Generate immutable production delta preflight artifact (non-paid).
 
-    Computes exact eligible delta from runtime source, creates delta inventory +
-    fresh run manifest (metadata staging only), writes desensitized artifact.
+    Computes exact eligible delta from runtime source vs durable inventory baseline,
+    creates delta inventory + fresh run + knowledge_run_items (metadata only),
+    writes desensitized artifact.
+
     Does NOT call LLM, write Chroma, write candidate/canonical/current, or advance watermark.
+
+    Important: never compare the same live canonical DB as both before and after.
+    Without a historical canonical snapshot, the durable before-set is the frozen
+    inventory at/before the committed watermark (not a same-path self-diff).
+
+    extract_new_only: queue only change_type=new (not modified) for paid extract.
+    extract_since_watermark: only queue evidence from sessions on/after watermark
+    updated_at date — avoids replaying large identity-churn backlog as "new".
     """
     if not model:
         raise ValueError("model is required — fail closed")
 
-    # Validate provider/model
+    # Ensure schema (idempotent)
+    from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+
+    con = sqlite3.connect(str(db_path))
+    con.executescript(SCHEMA_SQL)
     validation = validate_provider_model(provider, endpoint, model, auth_mode)
 
     # Compute source checksums (current vs committed watermark)
     src_after = compute_source_checksum(canonical_db)
-
-    # Read committed watermark (last successful source checksum)
-    con = sqlite3.connect(str(db_path))
     wm_row = con.execute(
-        "SELECT value FROM knowledge_source_watermark WHERE key='committed'"
+        "SELECT value, updated_at FROM knowledge_source_watermark WHERE key='committed'"
     ).fetchone()
     src_before = wm_row[0] if wm_row else ""
+    wm_updated_at = wm_row[1] if wm_row and len(wm_row) > 1 else ""
     con.close()
 
-    # If no watermark, use empty before (all new)
-    if not src_before:
-        # Create empty canonical DB for comparison
-        import tempfile
-        empty_canon = Path(tempfile.mktemp(suffix=".sqlite"))
-        empty_con = sqlite3.connect(str(empty_canon))
-        empty_con.execute("CREATE TABLE canonical_sessions (canonical_session_id TEXT PRIMARY KEY, evidence_eligible INTEGER DEFAULT 1)")
-        empty_con.execute("CREATE TABLE canonical_messages (canonical_message_id TEXT PRIMARY KEY, canonical_session_id TEXT, role TEXT, content TEXT)")
-        empty_con.commit()
-        empty_con.close()
-        src_before = compute_source_checksum(empty_canon)
-        # prepare_delta with empty before
-        delta = prepare_delta(
-            db_path, empty_canon, canonical_db, src_before, src_after, model=model
-        )
-        # Clean up temp
-        empty_canon.unlink(missing_ok=True)
-    else:
-        # Compare current source against watermark
-        if src_before == src_after:
-            delta = {"no_op": True, "delta_count": 0, "change_types": [],
-                     "fresh_run_id": "", "delta_inventory_id": "",
-                     "new_count": 0, "modified_count": 0, "deleted_count": 0}
-        else:
-            # Re-use canonical_db as both before and after but with watermark content
-            # For production, before = canonical store at watermark time
-            # Since we don't snapshot the canonical store at watermark time,
-            # we use the current canonical_db and compare against the stored watermark checksum
-            # The actual content comparison happens in prepare_delta
-            delta = prepare_delta(
-                db_path, canonical_db, canonical_db, src_before, src_after, model=model
-            )
-
-    # Build artifact
     config_hash = hashlib.sha256(
         f"{provider}|{endpoint}|{auth_mode}|{model}".encode()
     ).hexdigest()[:32]
+
+    baseline_inventory_id = ""
+    after_inventory_id = ""
+
+    if src_before and src_before == src_after:
+        delta = _empty_delta_result()
+    else:
+        # After = current eligible inventory (full eligibility + inventory content_hash)
+        after_hashes, after_meta = _current_eligible_ref_hashes(canonical_db)
+        after_inventory_id = str(after_meta.get("inventory_id") or "")
+
+        # Before = durable inventory baseline at/before watermark (not live self-diff)
+        before_hashes, baseline_inventory_id = _load_baseline_inventory_hashes(
+            db_path,
+            watermark_updated_at=wm_updated_at or "",
+            exclude_inventory_id=after_inventory_id,
+        )
+        if not src_before:
+            # No watermark: empty before means full current set is "new"
+            before_hashes = {}
+            baseline_inventory_id = ""
+            src_before = "none"
+
+        delta_items, change_types, new_count, modified_count, deleted_count = _diff_ref_hashes(
+            before_hashes, after_hashes
+        )
+        extract_types = (
+            frozenset({"new"}) if extract_new_only else frozenset({"new", "modified"})
+        )
+        if not delta_items:
+            delta = _empty_delta_result()
+        else:
+            # Order extract queue by session recency (newest first)
+            order_keys: dict[str, str] = {}
+            try:
+                ccon = sqlite3.connect(
+                    f"file:{canonical_db.as_posix()}?mode=ro", uri=True
+                )
+                for ref, ct, _hb, _ha in delta_items:
+                    if ct not in extract_types:
+                        continue
+                    row = ccon.execute(
+                        "SELECT s.started_at FROM canonical_messages m "
+                        "JOIN canonical_sessions s "
+                        "ON m.canonical_session_id=s.canonical_session_id "
+                        "WHERE m.canonical_message_id=?",
+                        (ref,),
+                    ).fetchone()
+                    if row and row[0]:
+                        order_keys[ref] = row[0]
+                ccon.close()
+            except sqlite3.Error:
+                order_keys = {}
+
+            # Default: only queue post-watermark sessions as paid extract targets
+            extract_floor = ""
+            if extract_since_watermark and wm_updated_at:
+                extract_floor = wm_updated_at[:10]  # YYYY-MM-DD
+
+            delta = _materialize_delta_run(
+                db_path,
+                source_before_checksum=src_before,
+                source_after_checksum=src_after,
+                model=model,
+                delta_items=delta_items,
+                new_count=new_count,
+                modified_count=modified_count,
+                deleted_count=deleted_count,
+                change_types=change_types,
+                config_hash=config_hash,
+                init_run_items=True,
+                extract_change_types=extract_types,
+                extract_order_keys=order_keys,
+                extract_min_started_at=extract_floor,
+            )
+
+    extract_calls = int(delta.get("extract_item_count") or 0)
+    if extract_calls <= 0 and not delta.get("no_op", True):
+        # Fallback estimate when items not re-seeded (idempotent existing run)
+        extract_calls = int(delta.get("new_count") or 0)
+        if not extract_new_only:
+            extract_calls += int(delta.get("modified_count") or 0)
 
     artifact = {
         "schema_version": "1.0",
@@ -1311,11 +1548,19 @@ def prepare_production_delta(
         "fresh_run_id": delta.get("fresh_run_id", ""),
         "source_before_checksum": src_before,
         "source_after_checksum": src_after,
+        "baseline_inventory_id": baseline_inventory_id,
+        "after_inventory_id": after_inventory_id,
         "ordered_dataset_hash": delta.get("delta_inventory_id", ""),
         "new_count": delta.get("new_count", 0),
         "modified_count": delta.get("modified_count", 0),
         "deleted_count": delta.get("deleted_count", 0),
         "delta_count": delta.get("delta_count", 0),
+        "extract_item_count": extract_calls,
+        "extract_new_only": extract_new_only,
+        "extract_since_watermark": extract_since_watermark,
+        "extract_min_started_at": (
+            (wm_updated_at[:10] if (extract_since_watermark and wm_updated_at) else "")
+        ),
         "no_op": delta.get("no_op", True),
         "provider": provider,
         "endpoint": endpoint,
@@ -1334,11 +1579,11 @@ def prepare_production_delta(
         "pointer_writes": 0,
         "watermark_writes": 0,
         "candidate_writes": 0,
-        # Estimates (non-paid, for budgeting)
-        "estimated_llm_calls": delta.get("new_count", 0) + delta.get("modified_count", 0),
-        "estimated_tokens": (delta.get("new_count", 0) + delta.get("modified_count", 0)) * 2000,
-        "estimated_cost_usd": round((delta.get("new_count", 0) + delta.get("modified_count", 0)) * 0.001, 4),
-        "estimated_time_minutes": round((delta.get("new_count", 0) + delta.get("modified_count", 0)) * 0.1, 1),
+        # Estimates (non-paid, for budgeting) — based on extract queue, not deleted
+        "estimated_llm_calls": extract_calls,
+        "estimated_tokens": extract_calls * 2000,
+        "estimated_cost_usd": round(extract_calls * 0.001, 4),
+        "estimated_time_minutes": round(extract_calls * 0.1, 1),
         "estimated_cache_hits": 0,
     }
 
