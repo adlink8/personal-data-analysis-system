@@ -48,9 +48,10 @@ progress:
 
 ## Current Position
 
-**Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE**  
-Readiness: `.planning/PRODUCT-READINESS.md` (**~81** weighted; product-grade **not yet** — active lag + lifecycle bar 80 + facade)  
-Next ops: canary strict PASS → promote → watermark; optional reconcile write with `--i-know`
+**Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
+Readiness: `.planning/PRODUCT-READINESS.md` (**~87** weighted; daily product-grade approach)  
+Active: `knowledge_units_ir_4cd8af4ad_20260716020508`; watermark matches source.  
+Next optional: `reconcile --write --i-know` after dry-run; Phase 17 human gold; facade retire 2026-08-13.
 
 ## Remaining human / product checkpoints
 

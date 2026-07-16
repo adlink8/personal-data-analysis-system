@@ -53,8 +53,8 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 |---|-----|-----------------|-------------|
 | G1 | Lifecycle reconcile without delete | **Shipped** (`pk-ku reconcile`) | Ops: dry-run review → selective `--write --i-know` |
 | G2 | Growth-line read + retrieval current-only | **Shipped** (`pk-ku history`) | Harden retrieval filters if any leak |
-| G3 | Canary critical triage → strict PASS | Partial (CLI triage) | Human / label residual |
-| G4 | Promote latest candidate after PASS + watermark | Ops blocked on G3 | S once strict green |
+| G3 | Canary critical triage → strict PASS | **Done 2026-07-16** (human triage + strict PASS) | — |
+| G4 | Promote latest candidate after PASS + watermark | **Done 2026-07-16** (active=ir_4cd8af; wm match) | — |
 | G5 | Facade import cleanup for product path | **Inventory only** (16 lines) | M before 2026-08-13 |
 
 ### Should close (product polish)
@@ -77,8 +77,7 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 
 | If we complete… | Expected overall |
 |-----------------|-----------------:|
-| Now (post 22-01…04 code) | **~81** weighted |
-| + canary strict PASS + promote + watermark | **~86–88** |
+| Now (post 22 + promote close-out) | **~87** weighted |
 | + Phase 17 human checkpoints | **~90** |
 | + facade retire (import 0) | **~91–93** |
 
@@ -98,7 +97,8 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 
 ## Next action
 
-1. Ops: canary critical residual → strict PASS → promote → watermark.  
+1. ~~Ops: canary → promote → watermark~~ **DONE 2026-07-16**.  
 2. Optional: `pk-ku reconcile` dry-run on hot subjects; write only with `--i-know`.  
-3. Before **2026-08-13**: rewrite remaining 16 `domains` imports (see `.planning/phases/22-ku-lifecycle-growth-line/22-FACADE-INVENTORY.md`).  
-4. Phase 17 human gold/judge when scheduled.
+3. Before **2026-08-13**: rewrite remaining 16 `domains` imports (see `22-FACADE-INVENTORY.md`).  
+4. Phase 17 human gold/judge when scheduled.  
+5. Optional: start REST/MCP (`start-services.ps1`) for live retrieval smoke on new active.
