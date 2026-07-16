@@ -240,4 +240,17 @@ Reference cycle (runbook + artifacts): **`ir_4cd8af4ad31ccdc2`** / delta **`di_9
 
 ---
 
+## Addendum — docs drift items fixed 2026-07-16
+
+P1 docs pass from §4 / §8 item 6 applied (wording only; no product code change):
+
+| File | Fix |
+|------|-----|
+| `docs/runbooks/product-sync.md` | `refresh_knowledge_units --inspect` → `pk-ku inspect` + full chain pointer to `ku-incremental.md` |
+| `docs/AGENTS.md` cheat sheet | `build_knowledge_units_prod --status` → `pk-ku status --run` |
+| `.planning/codebase/CONCERNS.md` §7 | canary/watermark marked **resolved 2026-07-16** (`pk-ku canary` / `pk-ku watermark`); Google sync still open |
+| `.planning/cleanup/2026-07-16-safe-cleanup.md` | canary/watermark moved from “NOT done / optional later” to **done** |
+
+---
+
 *End of audit — 2026-07-16*

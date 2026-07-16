@@ -2,7 +2,8 @@
 
 **Scope:** confirmed execution of low/medium cleanup steps from GSD map  
 (`.planning/codebase/CONCERNS.md`).  
-**Not in scope:** domains facade deletion, `tools/compat` retirement, archive physical delete, CLI canary/watermark (optional later).
+**Not in scope:** domains facade deletion, `tools/compat` retirement, archive physical delete.  
+**CLI canary/watermark:** done 2026-07-16 (`pk-ku canary` / `pk-ku watermark`) — no longer deferred.
 
 ## Done
 
@@ -50,7 +51,12 @@ Local MANIFEST: `archive/quarantine/bak-phase20-20260716/MANIFEST.md`
 | Delete `src/personal_knowledge/domains/*` facades | After **2026-08-13** + zero business imports |
 | Delete `tools/compat/v1_1` | Shim budget + consumer=0 |
 | Physical delete of `archive/` | Owner + retention journal only |
-| `pk-ku canary` / `watermark` CLI | Optional product packaging |
+
+## Done later same day (was deferred)
+
+| Item | Status |
+|------|--------|
+| `pk-ku canary` / `watermark` CLI | **Done 2026-07-16** — product subcommands on `pk-ku` (see `docs/runbooks/ku-incremental.md`) |
 
 ## Recovery
 

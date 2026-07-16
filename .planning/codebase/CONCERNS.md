@@ -189,7 +189,7 @@ sys.modules[__name__] = _canonical
 
 ---
 
-## 7. CLI gaps: canary, watermark advance, Google sync (not on `pk-ku` yet)
+## 7. CLI packaging: canary / watermark (**resolved 2026-07-16**); Google sync still open
 
 Product KU CLI: `src/personal_knowledge/application/ku.py` + entry `pk-ku`.
 
@@ -197,22 +197,24 @@ Product KU CLI: `src/personal_knowledge/application/ku.py` + entry `pk-ku`.
 |------------|-----------------|-------------|----------------|
 | inspect / prepare / extract / status / extract-gate / canonical / publish / vector / promote / workflow | Yes | **Yes** | `pk-ku …` |
 | Watermark **floor** on prepare (`--extract-since-watermark`) | Yes | **Yes** (policy flag only) | prepare flags |
-| Watermark **advance** / journal commit (`advance_watermark`, journal commit in `refresh_knowledge_units.py`) | Yes | **No** dedicated subcommand | module / promote-adjacent journal APIs — easy to skip or call wrong |
-| Canary eval | Yes — `evaluation/knowledge/evaluate_knowledge_canary.py` (also domain facade) | **No** | `python -m personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary …` then `pk-ku promote --require-eval-pass` |
+| Watermark **advance** / journal commit | Yes | **Yes** (**resolved 2026-07-16**) | `pk-ku watermark` / `pk-ku watermark --advance --from-canonical [--write]` |
+| Canary eval | Yes — `evaluation/knowledge/evaluate_knowledge_canary.py` | **Yes** (**resolved 2026-07-16**) | `pk-ku canary --candidate-override … --report …`; labels then `--strict`; then `pk-ku promote --require-eval-pass` |
 | Google activity sync / light assertions / normalized events | Yes — `application/build_google_*`, `application/google_structure_lifecycle.py`, adapters | **No** on `pk-ku` or `pk-sync` | manual `python -m personal_knowledge.application.…` |
 | Full inventory backfill | Yes | **Intentionally absent** | see §8 |
 
-**Risks**
+**Resolved 2026-07-16:** `pk-ku canary` and `pk-ku watermark` are product CLI (no longer “module only”). Daily KU path is fully on `pk-ku` through promote/watermark — see `docs/runbooks/ku-incremental.md`.
 
-- Operators finish extract/publish/vector but **never advance watermark** → prepare floors / baselines drift; inspect vs prepare conflicts (known defect note in `ku-incremental.md`).
+**Remaining risks**
+
+- Operators still may skip `pk-ku watermark --advance` after promote → prepare floors / baselines drift; inspect vs prepare conflicts (known defect note in `ku-incremental.md`).
 - Canary stays at `gate.status=pending_labels` while humans promote without labels if they skip `--require-eval-pass`.
 - Google pipeline remains tribal knowledge; easy to re-run wrong generation or mix with KU path.
 
 **Actions**
 
-1. Add (when productizing): `pk-ku canary …` wrapping evaluate_knowledge_canary; `pk-ku watermark show|advance` bound to journal preconditions.
+1. ~~Add `pk-ku canary` / `pk-ku watermark`~~ — **done 2026-07-16**.
 2. Add `pk-sync google` (or `pk-google`) only after runbook parity with conversation sync.
-3. Until then: document exact module commands in runbooks (already partially in `ku-incremental.md` Step E) — **do not** paper over by editing application code for daily ops.
+3. Keep Gate E/F process: labels + `--require-eval-pass` before promote; watermark advance only after promote OK.
 
 ---
 
@@ -286,7 +288,7 @@ Product KU CLI: `src/personal_knowledge/application/ku.py` + entry `pk-ku`.
 | archive/ ~4GB | quarantine-first | No | Hold; optional offline cold storage |
 | domains facades → 2026-08-13 | keep-facade | Yes after window if unmigrated | Retarget shims; grep ban domains imports |
 | rag-pipeline / memory batch | keep-facade (retired) | Yes if misused | Keep exit-2; never document as daily |
-| CLI gaps (canary/watermark/google) | process gap | Partial | Module runbook until CLI exists |
+| CLI gaps (google only; canary/watermark **resolved 2026-07-16**) | process gap | Partial (google) | Google still module path; canary/watermark via `pk-ku` |
 | Full inventory modules | never-delete capability | Yes if misused | Env/process gates; no pk-ku expose |
 | Mistaken full KU DB rows | data quarantine | Cost/quota risk | Abandon runs; never resume to zero |
 

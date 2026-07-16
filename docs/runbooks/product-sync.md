@@ -44,8 +44,8 @@ python -m personal_knowledge.application.sync conversations --write
 | Conversation source pointer | `python -m personal_knowledge.application.conversation.rollback_agent_conversation_source --to canonical --write` |
 | Session summaries (LLM) | `python -m personal_knowledge.application.conversation.summary --write` |
 | Turn vectors | `python -m personal_knowledge.application.conversation.build_conversation_vector_store --write` |
-| **Knowledge unit incremental** | **See [ku-incremental.md](ku-incremental.md)** — start with `refresh_knowledge_units --inspect` only |
-| Promote KU | After eval; see ku-incremental.md Step E |
+| **Knowledge unit incremental** | **See [ku-incremental.md](ku-incremental.md)** — start with `pk-ku inspect`; full chain: prepare → extract → extract-gate → canonical → publish → vector → canary → promote → watermark |
+| Promote KU | After eval; see ku-incremental.md Step E (`pk-ku promote` / `pk-ku watermark`) |
 
 **Do not** chain `pk-sync` into `build_knowledge_inventory --write` + `build_knowledge_units_prod --start`.  
 That freezes the **full** eligible set and re-queues old evidence (banned for daily use).

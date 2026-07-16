@@ -250,7 +250,7 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 | KU product CLI | **`pk-ku`** (`inspect` / `prepare` / `extract` / `status` / `extract-gate` / `canonical` / `publish` / `vector` / `canary` / `promote` / `watermark` / `workflow`) |
 | KU inspect (delta) | `pk-ku inspect` |
 | KU prepare (no LLM) | `pk-ku prepare --model … --provider vertex_google --endpoint https://aiplatform.googleapis.com --auth-mode gcloud` |
-| KU extract status | `build_knowledge_units_prod --status <run_id>` |
+| KU extract status | `pk-ku status --run <run_id>` |
 | KU full procedure | **[runbooks/ku-incremental.md](runbooks/ku-incremental.md)** |
 | Legacy pipeline help | `pk-sync help-legacy` |
 | Start REST+MCP+tunnel | `apps\...\scripts\start-services.ps1` |
