@@ -1,238 +1,403 @@
-# Architecture and Governance Design
+---
+mapped_at: 2026-07-16
+last_mapped_commit: ce6dfde1f6d759368077e47288dcfc811f2960b9
+focus: architecture
+branch: codex/llm-memory-mcp-integration
+phases: Phase 20 physical cutover + Phase 21 domains slimming + pk-ku packaging
+---
 
-**Mapped:** 2026-07-13  
-**Intent:** sustainable architecture for the complete repository, including every descendant file, without treating private data or generated artifacts as source code.
+# Architecture Map (Post Phase 20–21 / pk-ku)
 
-## Current system shape
+Current production shape for the personal knowledge system after:
 
-The production flow is a personal-data knowledge system:
+- **Phase 20** — physical roots `data/` · `var/` · `archive/`; path SSOT in `project_paths`
+- **Phase 21** — build/eval moved out of `domains/` into `application/` + `evaluation/`
+- **pk-ku packaging** — product CLI surface for incremental knowledge units
 
-```text
-AgentView / Google / imports
-        │ read-only adapters
-        ▼
-canonical conversations + normalized events
-        ▼
-L1/L2 knowledge units ── evidence/lineage
-        ▼
-memory + graph + vector indexes
-        ▼
-unified retrieval
-        ▼
-API / MCP / dashboard / evaluation
-```
+Authoritative operating docs: `docs/AGENTS.md`, `docs/architecture/retrieval-ssot.md`, `docs/architecture/domains-slimming.md`, `docs/architecture/repository-zones.md`, `docs/runbooks/product-sync.md`, `docs/runbooks/ku-incremental.md`.  
+Machine policies: `governance/policies/architecture.yaml`, `governance/policies/paths.yaml`.
 
-The domain packages under `integration/scripts/` reflect this direction, but the repository boundary is blurred by private data, generated reports/databases, 86 legacy root shims, old Google scripts, and two planning histories (`.planning` and `.gsd`).
+---
 
-## Target layers and dependency rule
-
-| Layer | Packages/surfaces | May depend on |
-|---|---|---|
-| Control plane | governance policy, `.planning`, CI | metadata/contracts only |
-| Delivery | `services`, app UI/MCP | application, public contracts |
-| Application | `pipeline`, use-case commands, promotion coordinator | domains, retrieval, ports |
-| Evaluation | `evaluation`, eval contracts/gates/report renderer | public domain/retrieval interfaces; never hidden production mutations |
-| Domain | conversation, knowledge, memory, graph | core contracts and explicit ports |
-| Infrastructure | vector, repositories, source adapters, model clients | core contracts, external libraries |
-| Foundation | `core` paths/config/IDs/contracts | standard library and narrow third-party utilities |
-| Data plane | raw, staging, canonical DBs, indexes, reports | no code dependencies; accessed through ports |
-
-Enforced direction:
+## 1. System overview
 
 ```text
-delivery → application → domain → foundation
-                    ↘ infrastructure via ports
-evaluation → public application/domain/retrieval contracts
-data plane ← adapters/repositories only
+AgentsView live (RO)          Google raw / structured          imports/
+        │                              │                          │
+        │ pk-sync conversations        │ Google lifecycle         │ intake
+        ▼                              ▼                          ▼
+agent_conversations.sqlite      google_data.sqlite         data/imports/
+  (dialogue SSOT)               (non-dialogue raw +
+                                 light assertions)
+        │
+        │  pk-ku inspect → prepare(delta) → extract(ir_*)
+        │  → extract-gate → canonical → publish
+        │  → vector(candidate) → eval → promote
+        ▼
+canonical_knowledge_units  +  Chroma active collection
+  (in var/db/personal_system.sqlite)   (pointer: knowledge_index_active.txt)
+        │
+        ▼
+unified_search (layered hybrid: KU → dialogue → Google PE → optional legacy pad)
+        │
+        ├── rag-search (CLI)
+        ├── rag-api  :8000  (REST)
+        ├── rag-mcp  stdio  / apps MCP :8789
+        └── tunnel   :8081 → ChatGPT
 ```
 
-Forbidden directions include domain-to-service, core-to-domain, production-to-`_tools`, source-to-`_recycle`, and any module reading raw/private paths directly when an adapter exists.
+**Core value:** personal history → evidence-backed, queryable knowledge with promote/rollback.  
+**Not knowledge SSOT:** `memory_*` experiment tables, raw `personal_events` as dialogue substitute, AgentsView insights.
 
-## Bounded contexts
+---
 
-### Ingestion and provenance
+## 2. SSOT layers
 
-Owns source snapshots, canonical source IDs, hashes, eligibility/privacy filtering, and idempotent staging/publish. AgentView must remain read-only. Google/import inputs are immutable. Each downstream row must trace to a source reference and run manifest.
+| Layer | Authority name | Physical / logical surface | Notes |
+|-------|----------------|----------------------------|-------|
+| **Dialogue evidence** | Canonical conversation | `data/canonical/agent/structured/db/agent_conversations.sqlite` | Message-level evidence; built by `pk-sync conversations` |
+| **Dialogue upstream (live)** | AgentsView | `%USERPROFILE%\.agentsview\sessions.db` | **protected-external**; open RO only; never relocate / never write |
+| **Dialogue normalized snapshot** | AgentsView adapter output | `data/canonical/agent/structured/db/agentsview_normalized.sqlite` | Intermediate publish target of sync |
+| **Knowledge** | KU + active index | SQLite `canonical_knowledge_units` in `var/db/personal_system.sqlite` + active Chroma collection named in `var/db/knowledge_index_active.txt` | Product knowledge SSOT |
+| **Non-dialogue raw (PE / transition)** | personal_events / unified_events | `var/db/personal_system.sqlite` | Google-preferred PE for hybrid; **not** dialogue gold |
+| **Google light structure** | activities + light assertions | `data/canonical/google/structured/db/google_data.sqlite`; active run pointer `google_structure_active_run.txt` | Not knowledge units; `not_knowledge_unit: true` |
+| **Memory** | Experimental only | memory tables / graph in unified DB | Phase 08 cancelled as product SSOT; still queryable via MCP/API |
+| **Vector indexes** | Retrieval features | Chroma (KU port typically 8001) | Not fact SSOT; active via pointer file |
+| **Path resolution** | `project_paths` | `src/personal_knowledge/core/project_paths.py` | Prefer Phase 20 paths; optional legacy fallback via `_prefer` |
 
-### Conversation
+Status API (`get_knowledge_status()` in `retrieval/semantic_search.py`) exposes:
 
-Owns canonical sessions/messages and conversation-derived summaries. It must not know retrieval ranking or UI details.
+```json
+{
+  "ssot": {
+    "dialogue": "agentsview_canonical",
+    "knowledge": "canonical_knowledge_units",
+    "non_dialogue_raw": "personal_events"
+  },
+  "fallback_policy": "layered",
+  "allow_legacy_pad": true
+}
+```
 
-### Knowledge units
+### Hybrid retrieval order (default `layered`)
 
-Owns L1/L2 extraction, evidence links, canonical merge, lifecycle, candidate indexes, promotion journal, and rollback. L2 is an extraction strategy inside the same knowledge contract, not a parallel database architecture.
+Implemented by `search_knowledge_units` / shared backend used by CLI · REST · MCP:
 
-### Memory and graph
+1. **Active KU collection** (knowledge-first)
+2. **Dialogue** — canonical messages (lexical/snippet) + `conversation_turns` vectors
+3. **Google personal_events** (`source=Google`)
+4. **Optional legacy_pad** — non-Google PE fill (`allow_legacy_pad`; env `PERSONAL_DATA_ALLOW_LEGACY_PAD`)
 
-Own durable memory candidates/decisions and relations between stable entities. These domains consume knowledge/evidence contracts; they do not scrape raw sessions again.
+`fallback_policy=legacy` restores full PE pad after KU (forensics / A-B only).  
+Env: `PERSONAL_DATA_FALLBACK_POLICY`.
 
-### Retrieval
+---
 
-Owns the query contract and ranking composition across KU, canonical messages, Google events, and controlled fallback. Index implementations are infrastructure behind named adapters. Search results must include layer, source, score, evidence ID, index generation, and fallback reason.
+## 3. Package layers (dependency direction)
 
-### Evaluation and promotion
-
-Owns frozen/private suites, ablations, metrics, confidence intervals, answer/judge calibration, visual reports, gates, and comparison history. Promotion is a state transition allowed only from a signed evaluation result; evaluation itself must not silently mutate the active pointer.
-
-## Stable contracts
-
-The architecture should standardize five contracts before further moves:
-
-1. `SourceRecord`: source, source_ref, timestamp, content hash, privacy/eligibility, snapshot/run ID.
-2. `EvidenceRef`: immutable link from derived fact to canonical source span/message/event.
-3. `KnowledgeUnit`: stable ID, L1/L2 strategy, type, statement, evidence, temporal scope, status, generation.
-4. `SearchResult`: query, result ID/type/layer, score/rank, evidence, generation, fallback metadata.
-5. `RunManifest`: command/version/config/input hashes/output generation/counts/gates/status/rollback target.
-
-These contracts should be schema-versioned and shared through `core` or a dedicated contracts package. Databases, CLI JSON, MCP/API responses, reports, and tests must validate the same schemas.
-
-## Configuration and path architecture
-
-`core.project_paths` should be the sole default path resolver. Configuration precedence:
+Policy: `governance/policies/architecture.yaml`. Enforced direction:
 
 ```text
-explicit CLI argument
-→ environment variable / local untracked config
-→ repository-relative default
-→ clear error (never a user-specific fallback)
+delivery (services, apps)
+    → application (orchestration, product CLIs)
+        → domains (rules/constants only; facades until 2026-08-13)
+            → foundation (core)
+    → infrastructure (adapters, retrieval)
+evaluation → public domain/retrieval/application contracts
+             (must not silently promote active pointer)
 ```
 
-Required named locations include repository root, private data root, runtime root, report root, AgentView database, Google input root, Chroma endpoint/path, and cloud SDK command. Secrets belong in credential providers/environment variables and must never enter manifests or reports.
+| Layer | Path | Role |
+|-------|------|------|
+| Foundation | `src/personal_knowledge/core/` | Paths, privacy_guard, llm client+retry, chroma_client, embed, rules, runtime_config, conversation_repository |
+| Infrastructure | `src/personal_knowledge/adapters/` | AgentsView RO adapter, Google activities adapter, base ports |
+| Infrastructure | `src/personal_knowledge/retrieval/` | Unified search facade + semantic/events/memory/google modules; vector build/search |
+| Domain (target) | `src/personal_knowledge/domains/{conversation,graph,knowledge,memory}/` | Rules/models/constants; **build/eval are re-export facades** until **2026-08-13** |
+| Application | `src/personal_knowledge/application/` | Canonical build/lifecycle; product entries `sync.py`, `ku.py` |
+| Evaluation | `src/personal_knowledge/evaluation/` | Gates, canary, RAG eval, vector compare, reports; does not write active pointer |
+| Delivery | `src/personal_knowledge/services/` | REST (`api_server`), MCP stdio (`mcp_server`), dashboard |
+| Delivery | `apps/personal_data_chatgpt/` | HTTP MCP Apps + widgets + tunnel start scripts |
+| Control | `src/personal_knowledge/governance/` + `governance/` | Preflight, manifests, path/architecture policies |
 
-## Build, publish, and rollback architecture
+**Forbidden:** domain → services; core → domain; evaluation silently mutating `knowledge_index_active.txt`; product imports of quarantine/archive as source.
 
-All materialized data products follow one lifecycle:
+---
+
+## 4. Domains facades vs application / evaluation
+
+**Note (hard):** `domains/*` build/eval modules are **facades** until **2026-08-13**. New code must import `application.*` / `evaluation.*` / `core.llm`, not `domains.*` facades.
+
+### Pattern
+
+Each former domain orchestration module is typically:
+
+```python
+# domains/<sub>/build_*.py  (or evaluate_*.py)
+_canonical = _import_module("personal_knowledge.application.<sub>.…")
+_sys.modules[__name__] = _canonical
+```
+
+Same for evaluation targets under `evaluation/`. Retrieval eval shims:
+
+- `retrieval/evaluate_vector_*.py`, `compare_*_generations.py` → `evaluation/vector/*`
+
+### Canonical homes after Phase 21
+
+| Concern | Application (build/lifecycle) | Evaluation |
+|---------|-------------------------------|------------|
+| Conversation | `application/conversation/` (normalized, canonical, graph, summary, segments, vector store) | `evaluation/conversation/` |
+| Knowledge | `application/knowledge/` (refresh, prod extract, canonical, publish, vector, promote, rollback) | `evaluation/knowledge/` (extract gate, canary, RAG) |
+| Graph | `application/graph/` | `evaluation/graph/` |
+| Memory | `application/memory/` (experimental lifecycle) | `evaluation/memory/` |
+| Vector generations | (build lives under knowledge/retrieval) | `evaluation/vector/` |
+| Cross-cutting product | `application/sync.py`, `application/ku.py`, Google light builders | `evaluation/gate_knowledge_candidate.py`, `run_knowledge_eval.py`, … |
+
+### Sole non-facade domain logic retained
+
+- `domains/knowledge/migrate_add_knowledge_unit_tables.py` — `SCHEMA_SQL` DDL constant
+
+### Product vs retired entries
+
+| Entry | Status | Module |
+|-------|--------|--------|
+| **`pk-sync`** | **Product** | `cli:sync` → `application/sync.py` |
+| **`pk-ku`** | **Product** | `cli:ku` → `application/ku.py` |
+| `rag-search` / `rag-api` / `rag-mcp` / `rag-dashboard` | Product serve/search | `cli` → retrieval / services |
+| `rag-pipeline` | **Retired** (exit 2) | Needs `PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated` |
+
+Console scripts: `pyproject.toml` `[project.scripts]` / `src/personal_knowledge.egg-info/entry_points.txt`.
+
+---
+
+## 5. Request flows
+
+### 5.1 `pk-sync` — conversation SSOT update
+
+**Entry:** `pk-sync` → `personal_knowledge.cli:sync` → `application/sync.py`
+
+| Command | Behavior |
+|---------|----------|
+| `pk-sync conversations` | Dry-run AgentsView → normalized → canonical |
+| `pk-sync conversations --write` | Publish `agentsview_normalized.sqlite` + `agent_conversations.sqlite` |
+| `pk-sync help-legacy` | Print emergency legacy pipeline notes |
+
+**Implementation path:** `sync._cmd_conversations` → `application.run_pipeline.run_agentsview_stage(write=…)`.
+
+**Does not:** run integrated personal_events/memory batch; does not extract KU.
+
+**Runbook:** `docs/runbooks/product-sync.md`.
 
 ```text
-immutable input snapshot
-→ run manifest
-→ staging generation
-→ contract + quality + privacy evaluation
-→ candidate pointer
-→ canary
-→ atomic active-pointer promotion
-→ post-promote verification
-→ retained rollback generation
+~/.agentsview/sessions.db (RO adapter)
+        → agentsview_normalized.sqlite
+        → agent_conversations.sqlite   ◄── dialogue SSOT
 ```
 
-No builder writes directly into the active generation. Reports and charts are immutable outputs keyed by evaluation run ID. A failed gate leaves active pointers and production databases unchanged.
+### 5.2 `pk-ku` — incremental knowledge units
 
-## Repository governance as a control plane
+**Entry:** `pk-ku` → `personal_knowledge.cli:ku` → `application/ku.py`
 
-Project governance is not documentation decoration. It is an executable control plane with four artifacts:
+| Subcommand | Delegates to | Side effects |
+|------------|--------------|--------------|
+| `workflow` | prints daily flow | none |
+| `inspect` | `application.knowledge.refresh_knowledge_units --inspect` | free delta report |
+| `prepare` | `refresh_knowledge_units --prepare` + policy flags | freezes delta inventory / `ir_*` run; no LLM |
+| `extract --run ir_*` | `build_knowledge_units_prod --resume` | paid LLM; rejects non-`ir_*` unless `PK_KU_ALLOW_NON_INCREMENTAL_RUN=1` |
+| `status --run` | `build_knowledge_units_prod --status` | ledger stats |
+| `extract-gate` | `evaluation.knowledge.evaluate_knowledge_unit_extraction` | gate row |
+| `canonical --run [--write]` | `build_canonical_knowledge_units` | staging/canonical units |
+| `publish --run [--write]` | `publish_incremental_run` | additive staging → current (**no** demote of other runs) |
+| `vector [--write]` | `build_knowledge_unit_vector_store` | **candidate** collection only |
+| `promote` | `promote_knowledge_index` | active pointer (last; prefer `--require-eval-pass`) |
 
-1. **Policy schema** — valid file classes and mandatory fields.
-2. **Ordered path manifest** — glob rules for every repository surface.
-3. **Local inventory** — expansion of those rules to every last file using metadata-only inspection for private areas.
-4. **Validator/report** — CI-safe checks plus a local private-aware report.
+**Daily order (hard):**
 
-Each file is classified as one of:
+```text
+1) pk-sync conversations [--write]     # if dialogue grew
+2) pk-ku inspect
+3) pk-ku prepare --model … --provider … --endpoint … --auth-mode …
+4) pk-ku extract --run <fresh_run_id>  # only if extract_item_count > 0
+5) pk-ku extract-gate --run … [--min-yield 0.7]
+6) pk-ku canonical --run … --write
+7) pk-ku publish --run … --write
+8) pk-ku vector --write
+9) canary/eval → pk-ku promote --collection … --require-eval-pass …
+```
 
-`source`, `test`, `config`, `documentation`, `prompt/eval asset`, `vendor`, `private_raw`, `private_canonical`, `generated`, `runtime`, `compatibility`, `tool`, `planning`, or `archive/quarantine`.
+**Hard rules:**
 
-The manifest is authoritative; directory READMEs explain only human-facing boundaries. This avoids duplicated rules and stale leaf documentation while still governing arbitrary depth.
+- Daily extract is **delta only** (prepare queue / watermark); not full inventory.
+- If `inspect` shows delta but `prepare` is `no_op` → **STOP** (prepare defect); do not invent full inventory path.
+- Forbidden daily: `build_knowledge_inventory --write` + `build_knowledge_units_prod --start` on full ledger.
+- Policy via CLI flags only; do not edit application code for daily ops.
+- Full inventory remains under underlying modules for planned backfill only (not exposed on `pk-ku`).
 
-## Governance gates
+**Runbook:** `docs/runbooks/ku-incremental.md`.  
+**Artifact default:** `var/reports/analysis/ai_context/knowledge_incremental_delta.json`.
 
-### Pull request gates
+### 5.3 `rag-search` — unified retrieval CLI
 
-- manifest coverage and non-overlap;
-- tracked/ignored classification agreement;
-- architecture import-direction check;
-- canonical-entry/shim-forwarding check;
-- hard-coded absolute-path check;
-- secret and private-data signature scan;
-- pytest discovery restricted to `tests/`;
-- generated artifact drift/provenance check;
-- prompt/schema/eval version-contract check;
-- planning status consistency.
+**Entry:** `rag-search` → `cli:search` → `retrieval.unified_search._cli`
 
-### Release/data-promotion gates
+Public API re-exported from facade modules:
 
-- migration/schema compatibility;
-- idempotence and staging isolation;
-- source/evidence lineage completeness;
-- privacy/secret hit zero;
-- comprehensive retrieval and answer-quality comparison;
-- latency/storage guardrails;
-- canary plus rollback drill;
-- signed run manifest and active-pointer journal.
+| Module | Responsibility |
+|--------|----------------|
+| `retrieval/semantic_search.py` | `search_semantic`, `search_knowledge_units`, `get_knowledge_status` |
+| `retrieval/google_assertions.py` | Google light assertion list/get |
+| `retrieval/events_query.py` | Structured event query + data-access contracts |
+| `retrieval/memory.py` | Memory list/graph/review contracts |
+| `retrieval/merge_cluster.py` | Merge layer / cluster |
+| `retrieval/search_vectors.py` | Low-level Chroma search |
 
-### Scheduled maintenance
+Typical subcommands: `semantic`, `knowledge`, `query`, `detail`, `stats`, `memory`, `cluster`, …
 
-- orphan/unclassified file report;
-- unused compatibility shim report;
-- archive/quarantine retention expiry;
-- database backup restore drill;
-- dependency and vendor provenance review;
-- docs-to-code command verification;
-- evaluation trend and regression dashboard.
+### 5.4 REST + MCP + tunnel
 
-## Compatibility strategy
+| Surface | Port / mode | Process | Backend |
+|---------|-------------|---------|---------|
+| REST API | `127.0.0.1:8000` | `rag-api` / `services/api_server.py` | `import retrieval.unified_search as backend` |
+| MCP Apps (ChatGPT) | `127.0.0.1:8789` · `/mcp` | Node `apps/personal_data_chatgpt/server.mjs` | HTTP to REST |
+| MCP stdio | stdio | `rag-mcp` / `services/mcp_server.py` | contracts + loopback REST for semantic |
+| Tunnel | `127.0.0.1:8081` | `tunnel-client.exe` (start scripts) | bridges ChatGPT control plane → MCP |
 
-The 86 root shims are a migration API, not a second implementation tree. Create a compatibility registry containing legacy path/import, canonical module, consumer count, deprecation date, removal gate, and parity test. Migrate in this order:
+**Start (keep PowerShell window open):**
 
-1. internal pipeline subprocess calls;
-2. tests and documentation;
-3. local scheduled tasks/MCP configs;
-4. external/manual consumers;
-5. removal after telemetry and deprecation window.
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File "apps\personal_data_chatgpt\scripts\start-services.ps1"
+```
 
-Until removal, root shims must remain logic-free. Duplicate module names such as `test_knowledge_unit_llm.py` must be kept out of pytest discovery or renamed away from test conventions.
+**Health:**
 
-## Data privacy and archive boundaries
+```text
+http://127.0.0.1:8000/health
+http://127.0.0.1:8789/health
+http://127.0.0.1:8081/healthz
+```
 
-- `Google/raw`, `imports`, Agent databases, `integration/db`, private evals, and session stores are restricted data planes.
-- Governance tooling may list relative path, size, timestamps, file type, rule match, and locally computed checksum; it must not upload or include content excerpts.
-- `_recycle` is quarantine, not backup and not source. It needs an index, origin, quarantine reason, retention deadline, and restore/delete decision.
-- `.ai-bridge` is external reference code. Pin source URL/revision/license/checksum and prohibit implicit imports.
-- Vendor assets under `integration/lib` need version/license/checksum; minified bodies are excluded from ordinary code/search audits.
+REST routes (representative): `/health`, `/stats`, `/knowledge`, `/search/semantic`, `/search/query`, `/google/assertions`, `/memory`, `/event/<id>`, `/profile`.  
+Privacy: outbound JSON via `core.privacy_guard`.  
+MCP profile: `PERSONAL_DATA_MCP_PROFILE=core|full` (default core).  
+Tunnel proxy typically `http://127.0.0.1:7897`; REST/MCP localhost-only; ensure `NO_PROXY` includes localhost.
 
-## Testing architecture
+Promote/rollback **never** go through REST/MCP — only via `pk-ku promote` / `promote_knowledge_index` / `rollback_knowledge_checkpoint`.
 
-Tests should be grouped logically even if the physical `tests/` directory remains flat:
+---
 
-- unit: pure domain and metrics;
-- contract: schemas, adapters, CLI/API/MCP;
-- integration: SQLite/Chroma/staging/promotion;
-- evaluation: deterministic frozen suites and judge calibration;
-- end-to-end: source snapshot to retrieval/answer report;
-- governance: manifest, dependency, path, privacy, generated-output rules.
+## 6. Promote and active pointer
 
-Use pytest markers and a test manifest so every production module maps to a verification class or documented exemption. Full collection must exclude `_recycle`, external reference trees, runtime output, and duplicate legacy test modules.
+### Active pointer
 
-## Operational ownership
+| Item | Path |
+|------|------|
+| Active collection name | `var/db/knowledge_index_active.txt` (`project_paths.KNOWLEDGE_ACTIVE_POINTER` / `DB_DIR`) |
+| Promote journal | `var/db/knowledge_index_promote_log.jsonl` |
+| Index version table | `knowledge_index_versions` in `var/db/personal_system.sqlite` |
+| Implementation | `application/knowledge/promote_knowledge_index.py` |
+| Rollback | `application/knowledge/rollback_knowledge_checkpoint.py` |
 
-Every manifest rule and public entry point needs an owner role, not necessarily a person:
+### Promote algorithm (summary)
 
-- platform: core, configuration, shims, CI;
-- data: ingestion, canonical stores, lineage, retention;
-- knowledge: extraction, memory, graph, retrieval;
-- evaluation: suites, metrics, gates, reports;
-- application: MCP/API/dashboard;
-- governance: planning consistency, manifest policy, release evidence.
+1. Read previous active from pointer file.
+2. Optionally enforce eval gate (`--require-eval-pass` + summary/gate paths).
+3. Compute Chroma collection ID-set checksum.
+4. Update SQLite version statuses (old active → rolled_back; candidate → active).
+5. Atomic write: `*.tmp` → `knowledge_index_active.txt`.
+6. Append JSONL promote log.
 
-Changes crossing two bounded contexts require a contract test; changes crossing data/promotion boundaries require rollback evidence.
+### Lifecycle separation
 
-## Phase 18 recommended execution slices
+| Stage | Touches active? |
+|-------|-----------------|
+| `pk-ku vector` | **No** — candidate only |
+| `pk-ku publish` | SQLite staging→current units only; **not** Chroma active |
+| `pk-ku promote` | **Yes** — flips active pointer last |
+| Mid-run promote | **Forbidden** |
 
-1. **Inventory and policy:** manifest schema, full metadata-only inventory, ownership/classes, zero-unclassified baseline.
-2. **Boundary enforcement:** import graph, test discovery, vendor/quarantine isolation, `.planning` SSOT decision.
-3. **Paths and artifacts:** centralized path/config migration, data/generated/runtime separation, run-manifest provenance.
-4. **Entry-point convergence:** canonical module commands, shim registry and cohort retirement, scheduled-task/MCP migration.
-5. **Quality automation:** CI/local governance gates, comprehensive test matrix, secret/private checks.
-6. **Operational closeout:** restore/rollback drills, retention policy, docs/runbooks, dashboard and maintenance cadence.
+Retrieval always resolves active via `_read_knowledge_active_collection()` in `semantic_search.py`.
 
-Each slice must be reversible and should move files only after the manifest can prove their old and new classifications.
+### Google structure pointer (separate)
 
-## Architecture acceptance criteria
+- `data/canonical/google/structured/db/google_structure_active_run.txt`
+- Lifecycle: `application/build_google_normalized_events`, `build_google_light_assertions`, `google_structure_lifecycle`
 
-- every repository file has exactly one governance rule and owner/lifecycle classification;
-- all maintained code respects the dependency direction;
-- all source access passes through adapters/repositories and all derived facts preserve evidence lineage;
-- mutable/generated/private assets are outside the tracked source plane;
-- one planning system is authoritative;
-- canonical entry points are documented and tested; compatibility debt is measurable and declining;
-- evaluation gates control promotion and produce reproducible JSON plus visual reports;
-- a fresh machine can configure paths without editing source;
-- CI catches structural drift before merge, while local metadata-only checks cover private files safely.
+---
+
+## 7. Data plane (Phase 20)
+
+| Zone | Primary paths | Mutability |
+|------|---------------|------------|
+| Private data | `data/raw/`, `data/staging/`, `data/canonical/`, `data/imports/` | private; adapters only |
+| Runtime DB / reports | `var/db/`, `var/runtime/`, `var/reports/`, `var/logs/`, `var/cache/`, `var/phase20-journals/` | generated / gitignored |
+| Archive | `archive/quarantine/`, `archive/planning/`, `archive/vendor-reference/` | read-only / retention |
+| Cutover backups | `*.bak-phase20` at root (`Agent.bak-phase20`, `Google.bak-phase20`, …) | recovery window only |
+
+Key DBs:
+
+| DB | Role |
+|----|------|
+| `data/canonical/agent/structured/db/agent_conversations.sqlite` | Dialogue SSOT |
+| `data/canonical/agent/structured/db/agentsview_normalized.sqlite` | Sync intermediate |
+| `data/canonical/agent/structured/db/agent_data.sqlite` | Agent structured |
+| `data/canonical/google/structured/db/google_data.sqlite` | Google activities / light |
+| `var/db/personal_system.sqlite` | Unified KU + PE + memory + index versions |
+| `var/db/conversation_graph.duckdb` | Conversation graph |
+| `var/db/evaluation_registry.sqlite` | Eval registry |
+
+Path resolution always through `personal_knowledge.core.project_paths` (never hard-coded `parents[N]` in new code).
+
+---
+
+## 8. Evaluation plane
+
+- Canonical suites under `src/personal_knowledge/evaluation/`
+- Public/synthetic assets: `assets/evals/knowledge_units/`, prompts under `assets/prompts/`
+- Private frozen suites may still resolve via `project_paths.KNOWLEDGE_EVAL_DIR` (prefer content under `integration/evals` or `assets/evals` when present)
+- Reports: `var/reports/analysis/evaluations/`, `var/reports/analysis/ai_context/`
+- Gate principle: evaluation **reads candidates**; promotion is an explicit application command after gate pass
+
+---
+
+## 9. Compatibility residue
+
+| Residue | Role | Status |
+|---------|------|--------|
+| `domains/*/build_*.py`, `evaluate_*.py` | re-export facades | remove after **2026-08-13** |
+| `retrieval/evaluate_*`, `compare_*` | facades → `evaluation/vector` | same window |
+| `integration/scripts/` | mostly `__pycache__` + residual governance scripts | not product path; prefer `src/` |
+| `tools/compat/v1_1/` | flat module-name compatibility shims | forensics / old import paths |
+| `rag-pipeline` / `run_pipeline` integrated steps | retired product path | flag-gated forensics only |
+| `*.bak-phase20` | Phase 20 recovery trees | do not treat as live SSOT |
+
+---
+
+## 10. Quick reference — product commands
+
+| Intent | Command |
+|--------|---------|
+| Sync dialogue (dry) | `pk-sync conversations` |
+| Sync dialogue (write) | `pk-sync conversations --write` |
+| KU workflow help | `pk-ku workflow` |
+| KU delta inspect | `pk-ku inspect` |
+| KU prepare (no LLM) | `pk-ku prepare --model … --provider … --endpoint … --auth-mode …` |
+| KU extract | `pk-ku extract --run ir_…` |
+| KU promote | `pk-ku promote --collection … --require-eval-pass …` |
+| Search | `rag-search semantic "…" --top-k 5` |
+| Knowledge status | `rag-search knowledge --json` |
+| REST | `rag-api` (or start-services.ps1) |
+| Serve stack | `apps\personal_data_chatgpt\scripts\start-services.ps1` |
+
+---
+
+## 11. Related maps
+
+| Doc | Content |
+|-----|---------|
+| `STRUCTURE.md` (this directory) | Top-level and package tree |
+| `docs/architecture/retrieval-ssot.md` | Three-layer SSOT + hybrid telemetry |
+| `docs/architecture/domains-slimming.md` | Phase 21 layout |
+| `docs/architecture/repository-zones.md` | Physical zones |
+| `.planning/phases/20-physical-data-runtime-relocation/` | Phase 20 cutover |
+| `.planning/phases/PDA-21-architectural-alignment-domains-slimming/` | Phase 21 |
+| `docs/runbooks/ku-incremental.md` | Operator KU procedure |
+| `docs/runbooks/product-sync.md` | Operator sync procedure |

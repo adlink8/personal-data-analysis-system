@@ -1,68 +1,274 @@
 ---
-mapped: 2026-07-13
+mapped_at: 2026-07-16
+last_mapped_commit: ce6dfde1f6d759368077e47288dcfc811f2960b9
 focus: quality
-scope: full-repository
+branch: codex/llm-memory-mcp-integration
 ---
 
-# 项目约定与可持续治理规则
+# Code Conventions (quality map)
 
-## 当前事实
+Authoritative sources: `docs/AGENTS.md`, `docs/architecture/domains-slimming.md`,
+`docs/architecture/repository-zones.md`, `governance/policies/architecture.yaml`,
+`governance/policies/paths.yaml`, `docs/runbooks/ku-incremental.md`,
+`docs/runbooks/product-sync.md`.
 
-- 主体是 Python 项目：已跟踪 473 个文件，其中 262 个 Python 文件；应用侧另有 Node.js/MCP widget，入口位于 `integration/apps/personal_data_chatgpt/`。
-- 生产实现按领域位于 `integration/scripts/{core,conversation,knowledge,memory,graph,vector,pipeline,services,evaluation,source_adapters}/`。
-- `integration/scripts/` 根目录仍保留旧命令兼容层；扫描到 86 个明确的 compatibility shim。真实实现应以领域包内模块为准。
-- 路径解析已有中心入口 `integration/scripts/core/project_paths.py`，但仍存在少量脚本自行计算根目录、修改 `sys.path` 或硬编码用户目录。
-- 测试集中在 `tests/`；私有数据、数据库、运行时输出和评测报告由 `.gitignore` 隔离。
+---
 
-## 权威目录分类
+## 1. Package layout and import rules
 
-所有目录和最末级文件都必须能归入下列一种类型。治理不是为每个叶目录堆一个 README，而是用机器可读 inventory 覆盖每个文件，再在稳定模块边界写 README。
+Product code lives under `src/personal_knowledge/` (editable install via
+`pyproject.toml` → package-dir `src`).
 
-| 类型 | 典型位置 | 版本控制 | 生命周期 |
-|---|---|---|---|
-| source | `integration/scripts/*/`, `integration/apps/` | 必须跟踪 | 评审、测试、兼容策略后变更 |
-| tests | `tests/`, app 内 `test/` | 必须跟踪 | 与公共契约同步 |
-| public fixtures | `integration/evals/knowledge_units/*.synthetic.jsonl`, YAML、rubric | 必须跟踪 | 版本化、不得含私人正文 |
-| docs | `README.md`, `integration/docs/`, `.planning/` | 必须跟踪 | 与代码和验证结果同步 |
-| private source | `Google/raw/`, AgentsView 数据库、private eval | 禁止跟踪 | 本机保留、只读导入 |
-| generated | `integration/analysis/`, `integration/structured/`, HTML/PNG/JSON 报告 | 默认忽略 | 可重建、设保留期 |
-| runtime state | `integration/db/`, `integration/runtime/`, Chroma、SQLite journal | 默认忽略 | 备份、迁移、回滚规则 |
-| archive | `_recycle/`, legacy `.gsd/` | 不参与运行和测试 | 只读、设退役/保留说明 |
-| tooling scratch | `integration/scripts/_tools/`, `logs/`, `.ai-bridge/` | 逐项分类 | 有 owner/用途/到期日，否则归档 |
+### 1.1 Layer map (Phase 21)
 
-## Python 代码约定
+| Layer | Path | Role |
+|-------|------|------|
+| foundation | `src/personal_knowledge/core/` | `project_paths`, `privacy_guard`, **`llm`**, chroma/common helpers |
+| infrastructure | `src/personal_knowledge/adapters/`, `src/personal_knowledge/retrieval/` | source adapters (RO); vector/search I/O |
+| domain | `src/personal_knowledge/domains/{conversation,graph,knowledge,memory}/` | rules, models, constants only (+ temporary facades) |
+| application | `src/personal_knowledge/application/{conversation,graph,knowledge,memory}/` | **canonical** build / lifecycle orchestration |
+| evaluation | `src/personal_knowledge/evaluation/{conversation,graph,knowledge,memory,vector}/` | **canonical** eval / compare / audit / gates |
+| delivery | `src/personal_knowledge/services/` | REST (`api_server`), MCP stdio, dashboard |
+| control | `src/personal_knowledge/governance/`, `governance/` | preflight, manifests, sanitized baselines |
 
-- 新实现放到领域包，不再向 `integration/scripts/` 根目录增加真实业务实现。
-- 根级脚本只允许薄 CLI shim；shim 必须包含目标模块、弃用状态和计划移除版本，不得复制业务逻辑。
-- 公共路径、规则、数据库连接和验证 helper 优先复用 `integration/scripts/core/`，禁止新增 `C:/Users/<name>`、Desktop 或当前工作目录假设。
-- 模块/函数使用 `snake_case`，类使用 `PascalCase`，常量使用 `UPPER_SNAKE_CASE`；测试文件与被测领域同名映射。
-- 对生产写操作采用 `stage -> validate/gate -> promote -> journal -> rollback`；默认 dry-run，commit/promote 必须显式确认并校验 checksum。
-- 所有权威记录保留 source/evidence/run/version 字段；禁止通过删除历史来模拟更新。
-- 错误必须区分输入错误、可重试外部错误、gate failure 和内部一致性错误；CLI 失败返回非零退出码并输出结构化摘要。
-- 私人正文、密钥、token、cookie 不进入日志、测试 fixture、规划文档或公开 eval 报告。
+Machine-readable import matrix: `governance/policies/architecture.yaml`
+(`modules.*.may_import`, `forbidden`).
 
-## 文档约定
+### 1.2 Where to import (new code)
 
-- 根 `README.md` 只承担入口、快速开始、架构导航和安全边界；领域细节下沉到对应目录。
-- 需要模块 README 的稳定边界：`integration/apps/`、`db/`、`docs/`、`evals/`、`lib/`、`prompts/`、`runtime/`，以及 `scripts/` 下所有领域包、`tests/`。
-- 每个模块 README 至少写：职责、允许/禁止内容、权威入口、输入输出、数据敏感级、测试命令、owner/维护状态。
-- 叶文件由 `project-inventory.yaml`（建议新增）逐项记录：`path, class, owner, status, source_of_truth, generated_by, retention, sensitivity, replacement`。这才是“直到最后一级文件”的可持续覆盖方式。
-- 文档事实优先级：运行时/数据库真实状态与测试 > verification/UAT > SUMMARY > STATE > ROADMAP > README > 历史设计稿。
-- Phase 状态只在 SUMMARY、VERIFICATION、UAT 达到关闭条件后标 complete；ROADMAP、STATE 与 GSD SDK 结果必须一致。
+| Need | Import from |
+|------|-------------|
+| Paths / privacy / LLM client | `personal_knowledge.core.project_paths`, `…privacy_guard`, **`personal_knowledge.core.llm`** |
+| Build / lifecycle / product CLI | `personal_knowledge.application.<subdomain>.…` or `application.sync` / `application.ku` |
+| Eval / compare / gate / report | `personal_knowledge.evaluation.<subdomain\|vector>.…` |
+| Search / vector I/O (non-eval) | `personal_knowledge.retrieval.…` |
+| REST / MCP | `personal_knowledge.services.…` |
+| Source adapters | `personal_knowledge.adapters.…` |
+| KU schema DDL constant | `personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables` (`SCHEMA_SQL`) |
+| Legacy facade only | `personal_knowledge.domains.<subdomain>.…` or `retrieval.evaluate_*` — **do not use in new code** |
 
-## 依赖与版本约定
+### 1.3 Facades (cleanup window through **2026-08-13**)
 
-- 生产依赖位于 `requirements.txt`，测试工具位于 `requirements-dev.txt`；Node 依赖由 app 自己的 `package.json`/lockfile 管理。
-- 当前 Python 依赖多为最低版本范围，不能保证长期可复现。治理目标应增加锁文件或 constraints，并明确支持 Python 3.12（CI）与 3.14（本机）矩阵。
-- 本机预装但未声明的 `torch`、`sentence-transformers` 属于隐式依赖，必须改成可选 extra/安装文档并增加缺失时的明确错误。
-- 外部 CLI/SDK 路径通过环境变量和 discovery 获取，不允许在代码内固定 `C:/Users/li/google-cloud-sdk`。
+Former orchestration modules under `domains/*/` and retrieval eval scripts are
+re-export facades:
 
-## 自动约定门
+```text
+# pattern in e.g. domains/knowledge/build_knowledge_units.py
+# and retrieval/evaluate_vector_collections.py
+_canonical = _import_module("personal_knowledge.application…|evaluation…")
+sys.modules[__name__] = _canonical
+```
 
-1. `inventory-check`：所有非忽略文件必须出现在分类规则或 inventory 中；未知文件阻断合并。
-2. `path-policy`：扫描源码/文档中的用户名、Desktop、绝对盘符和裸 `sys.path.insert`；新增命中阻断。
-3. `shim-budget`：现有 86 个 shim 建 baseline，新增 shim 阻断；每次 release 只允许下降。
-4. `docs-coverage`：稳定模块必须有 README；README 中入口和测试命令必须存在且可执行。
-5. `planning-consistency`：比较 ROADMAP、STATE、PLAN/SUMMARY/VERIFICATION/UAT 与 `gsd-sdk query progress`。
-6. `generated-artifact-policy`：大文件、数据库、个人数据、报告不得误跟踪；公开 fixture 必须经过隐私扫描。
+Rules:
 
+- **Do not add logic** to facade files.
+- **New imports** go to `application.*` / `evaluation.*` / `core.llm`.
+- Sole non-facade domain logic retained:
+  `domains/knowledge/migrate_add_knowledge_unit_tables.py`.
+- `domains` must **not** import `application` as a peer dependency for new
+  domain rules (facades only re-export). Evaluation must **not** silently promote
+  active indexes.
+
+### 1.4 Forbidden import directions
+
+From `governance/policies/architecture.yaml` and
+`docs/architecture/repository-zones.md`:
+
+- delivery → application → domain → foundation (allowed direction).
+- `core` must not import conversation/knowledge/memory/graph/vector/pipeline/services/evaluation.
+- domain packages must not import `pipeline` (application root), `services`, or `evaluation`.
+- evaluation may read public domain/retrieval contracts; **cannot silently promote**.
+- product source must not import `_tools`, raw private data trees, runtime outputs,
+  quarantine (`archive/`), or archived planning as import sources.
+- Prefer `personal_knowledge.core.project_paths` over ad-hoc `Path(__file__).parents[N]`
+  or hardcoded user paths.
+
+### 1.5 Module run form
+
+```powershell
+python -m personal_knowledge.application.conversation.summary --dry-run
+python -m personal_knowledge.application.knowledge.refresh_knowledge_units --help
+python -m personal_knowledge.evaluation.vector.evaluate_vector_collections
+python -m personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary
+python -m personal_knowledge.governance.preflight --ci
+```
+
+Console scripts (`pyproject.toml` `[project.scripts]`): `pk-sync`, `pk-ku`,
+`rag-search`, `rag-api`, `rag-mcp`, `rag-dashboard`; `rag-pipeline` is **retired**.
+
+---
+
+## 2. CLI-first ops (no code edits for daily policy)
+
+### 2.1 Product CLIs
+
+| Intent | Command | Notes |
+|--------|---------|-------|
+| Conversation SSOT | `pk-sync conversations` / `--write` | dry-run default; never writes AgentsView live DB |
+| Knowledge units | **`pk-ku`** | `inspect` → `prepare` → `extract` → `extract-gate` → `canonical` → `publish` → `vector` → `promote` |
+| Flow help | `pk-ku workflow` | prints allowed vs forbidden path |
+| Search | `rag-search …` | local retrieval CLI |
+| Legacy integrated batch | blocked | needs `PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated` |
+
+Runbooks:
+
+- `docs/runbooks/product-sync.md`
+- `docs/runbooks/ku-incremental.md` (hard rules)
+
+### 2.2 Policy via flags, not code
+
+Daily / after chat growth:
+
+1. Adjust **flags** on `pk-ku prepare` / `extract` (`--since`, `--roles`,
+   `--max-extract-items`, `--model`, …) — see `pk-ku prepare -h`.
+2. **Do not** edit `application/knowledge/*` or eval policy YAML for routine
+   batching, filters, or one-off scope.
+3. Eval policy thresholds (`assets/evals/knowledge_units/eval_policy_v1.yaml`)
+   require a **new policy version** if changed; never rewrite old run verdicts.
+
+### 2.3 KU hard rules (operators / agents)
+
+| Rule | Detail |
+|------|--------|
+| Delta only | Extract new/modified evidence; not full eligible set |
+| inspect ≠ prepare | If inspect has delta but prepare is `no_op` → **STOP**; report prepare defect; do not invent full-inventory workaround |
+| Forbidden daily | `build_knowledge_inventory --write` + `build_knowledge_units_prod --start` on full ledger |
+| No auto paid LLM | `refresh --write` prints approval commands; does not auto-call Vertex |
+| Active last | Never promote mid-run; prefer `--require-eval-pass` |
+| No `rag-pipeline` for KU | Wrong layer; product path is `pk-ku` |
+
+### 2.4 Write-path lifecycle pattern
+
+Production mutations follow:
+
+```text
+stage → validate / gate → promote → journal → rollback
+```
+
+- Default **dry-run**; `--write` / promote is explicit.
+- Candidate vector indexes never touch active pointer
+  (`var/db/knowledge_index_active.txt`) until promote.
+- Evaluation gates read candidates; promote is a separate command.
+
+---
+
+## 3. Naming
+
+| Kind | Convention | Examples |
+|------|------------|----------|
+| Modules / functions | `snake_case` | `build_canonical_knowledge_units`, `refresh_knowledge_units` |
+| Classes | `PascalCase` | test classes `TestMemoryDecomplexityPlan` |
+| Constants | `UPPER_SNAKE_CASE` | `SCHEMA_SQL`, path constants in `project_paths` |
+| Build orchestration modules | `build_*`, `import_*`, `promote_*`, `rollback_*`, `refresh_*` | under `application/` |
+| Eval modules | `evaluate_*`, `compare_*`, `gate_*`, `run_*_eval` | under `evaluation/` |
+| Tests | `test_<area>_<topic>.py` under `tests/{unit,contract,integration,governance,e2e}/` | `tests/unit/test_pk_ku_cli.py` |
+| Incremental run ids | `ir_*` prefix | `pk-ku extract --run ir_…` |
+| Policy / gate IDs | string ids in baselines | `architecture-boundary-v1`, `preflight-baseline-v1` |
+| Console product names | short `pk-*` for product; legacy `rag-*` for search/API | `pk-sync`, `pk-ku` |
+
+Path constants: define once in `src/personal_knowledge/core/project_paths.py`
+(`ROOT`, `DATA_DIR`, `VAR_DIR`, `DB_DIR`, …). Prefer Phase 20 trees
+(`data/`, `var/`, `archive/`) with legacy fallback only when new path absent.
+
+---
+
+## 4. Windows PowerShell notes
+
+Default environment: **Windows + PowerShell** (CI also `windows-latest` in
+`.github/workflows/ci.yml`).
+
+### 4.1 Install and PYTHONPATH
+
+```powershell
+cd <project-root>
+py -3.12 -m venv .venv
+.venv\Scripts\python -m pip install -c constraints.txt -r requirements-dev.txt
+.venv\Scripts\python -m pip install -e .
+# if not using editable install:
+$env:PYTHONPATH = "<project-root>\src"
+```
+
+### 4.2 Common ops
+
+```powershell
+pk-sync conversations
+pk-sync conversations --write
+pk-ku workflow
+pk-ku inspect
+
+# Vertex / gcloud when not on PATH
+$env:PERSONAL_DATA_GCLOUD = "<path-to-gcloud.bat>"
+
+# Services (REST 8000 + MCP 8789 + tunnel 8081) — keep window open
+pwsh -NoProfile -ExecutionPolicy Bypass -File "apps\personal_data_chatgpt\scripts\start-services.ps1"
+# or: apps\personal_data_chatgpt\scripts\启动服务.bat
+
+# Health (bypass proxy for localhost)
+curl.exe --noproxy "*" http://127.0.0.1:8000/health
+curl.exe --noproxy "*" http://127.0.0.1:8789/health
+curl.exe --noproxy "*" http://127.0.0.1:8081/healthz
+
+# Governance + tests
+python -m personal_knowledge.governance.preflight --ci
+python -m pytest -q
+```
+
+### 4.3 Environment / proxy
+
+| Item | Value / rule |
+|------|----------------|
+| Tunnel proxy | often `http://127.0.0.1:7897` for OpenAI control plane |
+| REST / MCP | localhost only; `NO_PROXY` must include localhost for tunnel → MCP |
+| AgentsView live | `%USERPROFILE%\.agentsview\sessions.db` — **read-only**, never relocate |
+| Closing watchdog PS window | **stops all child services** |
+| Paths | Use backticks or quotes for spaces; prefer `\` in native PS; avoid assuming `cwd` |
+
+### 4.4 Privacy on Windows
+
+- Do not commit `data/**`, `var/**` private DBs, secrets, tokens.
+- Do not log full `gcloud auth print-access-token` output (length-only checks OK).
+- No hardcoded `C:\Users\<name>\…` in production source; use env discovery
+  (`PERSONAL_DATA_GCLOUD`, `project_paths`). Path-policy baseline:
+  `governance/baselines/path_hits.yaml`.
+
+---
+
+## 5. Zones and git policy (short)
+
+| Zone | Primary paths | Git |
+|------|---------------|-----|
+| source | `src/`, `apps/`, `tools/` | track |
+| tests | `tests/` | track |
+| assets | `assets/` (prompts, public evals) | track; no private bodies |
+| docs / planning | `docs/`, `README.md`, `.planning/` | track |
+| governance | `governance/` | track (sanitized baselines only) |
+| data | `data/{raw,staging,canonical,imports}/` | private / ignore content |
+| var | `var/{db,runtime,reports,logs,cache}/` | generated / ignore |
+| archive | `archive/` | quarantine / retention |
+
+Detail: `docs/architecture/repository-zones.md`, `governance/policies/paths.yaml`.
+
+---
+
+## 6. Compatibility shims
+
+- Root/legacy shims under `tools/compat/v1_1/` and residual
+  `integration/scripts/*.py` forward only — no business logic.
+- Shim budget is baseline-only-down (`governance/manifests/entrypoints.yaml`,
+  check: `integration/scripts/governance/check_shim_budget.py --check`).
+- New product entry points: add console scripts / `python -m personal_knowledge…`,
+  not new root shims, unless an approved compatibility requirement exists.
+
+---
+
+## 7. Docs and planning priority
+
+Fact order when sources conflict:
+
+1. Runtime / DB / tests  
+2. VERIFICATION / UAT  
+3. SUMMARY  
+4. STATE / ROADMAP  
+5. README / historical design  
+
+Agent ops manual: `docs/AGENTS.md`. Workspace short form: `AGENTS.md`.

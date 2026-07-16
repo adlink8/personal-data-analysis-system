@@ -1,193 +1,384 @@
-# Repository Structure Map
+---
+mapped_at: 2026-07-16
+last_mapped_commit: ce6dfde1f6d759368077e47288dcfc811f2960b9
+focus: architecture
+branch: codex/llm-memory-mcp-integration
+phases: Phase 20 physical cutover + Phase 21 domains slimming + pk-ku packaging
+---
 
-**Mapped:** 2026-07-13  
-**Scope:** repository root through deepest descendants; file names, metadata, code/config/docs inspected, but `.git`, cache bodies, runtime databases, imported raw data, session text, and private evaluation bodies were excluded from content inspection.
+# Repository Structure Map (Post Phase 20–21)
 
-## Structural conclusion
+Physical and package layout after Phase 20 (`data/` / `var/` / `archive/`) and Phase 21 (`application/` + `evaluation/` as canonical build/eval homes; `domains/*` facades until **2026-08-13**).
 
-The repository is not one homogeneous source tree. It contains six distinct classes of material that must be governed differently:
+Path SSOT: `src/personal_knowledge/core/project_paths.py`.  
+Zone policy: `governance/policies/paths.yaml`, `docs/architecture/repository-zones.md`.
 
-1. product source and tests;
-2. immutable/private source data;
-3. derived databases, indexes, reports, and runtime state;
-4. planning and operational metadata;
-5. vendored/external code;
-6. quarantine/archive material.
+---
 
-The sustainable design is therefore **policy + generated manifest + automated validation**, not a README in every directory. Every file, including the deepest raw/import/archive file, must match exactly one manifest rule and inherit an owner, sensitivity, lifecycle, mutability, backup policy, and allowed dependency direction.
+## 1. Top-level directories
 
-## Current root map
+| Path | Zone / class | Role |
+|------|--------------|------|
+| `src/` | src | Product Python package `personal_knowledge` |
+| `apps/` | src | Deployable Node MCP Apps + service start scripts |
+| `tools/` | src | Forensics, migrations, supported analytics, compat shims |
+| `tests/` | tests | unit / contract / integration / e2e / governance |
+| `assets/` | assets | Versioned prompts, public/synthetic evals, vendored JS/CSS |
+| `docs/` | docs | Agent manual, architecture, runbooks |
+| `governance/` | governance | Policies, manifests, schemas, baselines, reports |
+| `data/` | data | Private personal data (raw / canonical / imports) — **gitignored content** |
+| `var/` | var | DB, runtime, reports, logs, cache, phase20 journals |
+| `archive/` | archive | Quarantine, old planning, vendor-reference |
+| `integration/` | mixed residual | Compat scripts cache, evals, empty/legacy shells after Phase 20 |
+| `.planning/` | planning | GSD roadmap, phases, codebase maps (this file) |
+| `*.bak-phase20/` | recovery | Phase 20 cutover backups (not live SSOT) |
+| Root config | control | `pyproject.toml`, `requirements*.txt`, `pytest.ini`, `AGENTS.md`, `README.md`, `LOCATION.md` |
 
-| Path | Current role | Governance class | Target treatment |
-|---|---|---|---|
-| `README.md`, requirements, `pytest.ini`, `.gitignore` | repository entry/config | tracked control plane | keep minimal and authoritative |
-| `integration/` | production implementation plus runtime/data/report surfaces | mixed | retain, but enforce sub-surface boundaries |
-| `tests/` | repository-level contract/regression tests | tracked test source | retain; mirror domains via markers/manifest rather than folders alone |
-| `Agent/` | agent-derived structured data and DB | private data product | data surface, never imported as Python source |
-| `Google/` | Google raw/structured data and legacy scripts | mixed private/legacy | raw immutable; migrate maintained scripts into adapters/pipeline |
-| `imports/` | intake, batches, duplicate audit | private ingestion state | immutable batches with retention and lineage |
-| `.planning/` | current GSD source of truth | tracked control plane | authoritative planning system |
-| `.gsd/` | older GSD history | legacy planning | read-only historical compatibility; no new writes |
-| `.github/` | CI automation | tracked control plane | enforce governance gates here |
-| `.agents/`, `.codex/`, `.workbuddy/` | runtime-specific agent config | tool config | explicitly allowlisted; no project data |
-| `.ai-bridge/` | external cloned project/reference | vendored/reference | pin provenance; exclude from product imports/tests unless promoted |
-| `_recycle/` | quarantine from prior cleanup, including very deep copied environments | quarantine | retention manifest; never scan/import/test by default |
-| `logs/` | operational output | ephemeral runtime | ignored, rotated, retention-bound |
-| standalone HTML | generated visualization | generated artifact | move/declare under report artifact policy |
+### Product console scripts (`pyproject.toml`)
 
-Observed scale illustrates why manual documentation cannot govern the tree: `_recycle/` alone contains roughly 9,210 files and reaches depth 17; the active non-private/non-runtime scan still includes roughly 985 files. Governance must operate on paths and metadata without opening private content.
+| Script | Entry |
+|--------|-------|
+| `pk-sync` | `personal_knowledge.cli:sync` |
+| `pk-ku` | `personal_knowledge.cli:ku` |
+| `rag-search` | `personal_knowledge.cli:search` |
+| `rag-api` | `personal_knowledge.cli:api` |
+| `rag-mcp` | `personal_knowledge.cli:mcp` |
+| `rag-dashboard` | `personal_knowledge.cli:dashboard` |
+| `rag-pipeline` | `personal_knowledge.cli:pipeline` (**retired**) |
 
-## `integration/` current and target map
+---
 
-| Surface | Current responsibility | Target boundary |
-|---|---|---|
-| `scripts/core/` | paths, common utilities, repositories, embedding, Chroma, rules | dependency-free foundation except third-party libraries |
-| `scripts/source_adapters/` | AgentView and Google source adapters | read-only source ports; emit canonical records only |
-| `scripts/conversation/` | canonical conversation normalization and summaries | conversation domain; may depend on core/adapters |
-| `scripts/knowledge/` | L1/L2 extraction, canonicalization, indexing lifecycle | knowledge-unit domain; no service/UI dependencies |
-| `scripts/memory/` | memory candidates, promotion, lifecycle, profile outputs | memory domain; consume canonical knowledge/evidence contracts |
-| `scripts/graph/` | relation candidates, judgments, triple graph | graph domain; consume stable IDs, never raw source paths |
-| `scripts/vector/` | vector build/search and retrieval policy | retrieval infrastructure; adapters behind explicit interfaces |
-| `scripts/evaluation/` | Phase 17 datasets, metrics, reports, gates | independent evaluation plane; read candidates, never promote except through gate command |
-| `scripts/pipeline/` | orchestration and build steps | application layer; compose domains, contain no domain rules |
-| `scripts/services/` | API, MCP, dashboard | delivery adapters; call application/domain APIs only |
-| `scripts/examples/` | integration examples | non-production examples, tested for import/syntax |
-| `scripts/_tools/` | one-off audit/migration/probe tools | developer tools with expiry/owner metadata |
-| `scripts/*.py` | 86 compatibility shims | controlled compatibility layer; no new logic |
-| `apps/personal_data_chatgpt/` | Node MCP/App UI | separate deployable adapter with its own package boundary |
-| `prompts/` | versioned prompt/schema/rubric assets | immutable versioned AI contracts |
-| `evals/` | public/synthetic evaluation assets | tracked evaluation inputs only; private cases remain runtime-only |
-| `docs/` | focused operational/design docs | authoritative domain/runbook docs |
-| `lib/` | vendored browser assets | pinned vendor assets with provenance/checksum |
-| `db/` | production/backup DB files | private runtime state, ignored and retention-controlled |
-| `runtime/` | private eval/runtime outputs | private ephemeral/stateful surface, never committed |
-| `analysis/` | generated reports and historical analyses | generated artifacts with run IDs and retention |
-| `structured/`, `raw_index/` | derived data | generated data product, traceable to run manifest |
-
-## Entry points and compatibility layer
-
-The canonical implementations now live in domain packages, but 86 files directly under `integration/scripts/` are compatibility shims. They preserve commands such as `python integration/scripts/run_pipeline.py` and legacy imports by forwarding to `pipeline.run_pipeline`, `knowledge.*`, `memory.*`, and other packages.
-
-This is acceptable only as a temporary, governed API surface:
-
-- canonical entry point: `python -m <domain>.<module>` or installed console command;
-- legacy shim: declares `target`, `introduced`, `owner`, `usage telemetry`, and `remove_after` in the repository manifest;
-- shim must contain forwarding logic only and have parity tests;
-- new modules must not receive root shims unless a documented compatibility requirement exists;
-- pipeline orchestration must call canonical modules, not shims, after the migration window;
-- removal requires zero observed consumers plus a deprecation release, not ad-hoc deletion.
-
-Current `pipeline/run_pipeline.py` still locates root script names, so the shim layer is an active dependency rather than historical residue. Phase 18 should first change orchestration to canonical module invocation, then retire shims by cohort.
-
-## Hard-coded path findings
-
-Maintained code still contains machine-specific paths:
-
-- four scripts under `Google/structured/scripts/` point at `C:\\Users\\li\\Desktop\\数据分析` and old Takeout/output locations;
-- three knowledge LLM scripts hard-code `C:/Users/li/google-cloud-sdk`;
-- the MCP server example embeds the local repository path.
-
-Target rule: executable code may obtain paths only through `core.project_paths`, explicit CLI parameters, or named environment variables. Documentation may show placeholders, never a real username. A CI path audit must reject new drive-letter/user-profile literals outside fixtures specifically marked `allow_hardcoded_path`.
-
-## File-level governance manifest
-
-Create one machine-readable manifest, for example `governance/repository-manifest.yaml`, whose ordered glob rules cover the complete tree. It should not enumerate millions of private files individually in Git. Instead, a generated local inventory expands rules to every file and records only metadata/hash where allowed.
-
-Minimum rule fields:
-
-```yaml
-version: 1
-rules:
-  - id: product-python
-    include: ["integration/scripts/**/*.py"]
-    exclude: ["integration/scripts/*.py"]
-    class: source
-    owner: product
-    sensitivity: internal
-    lifecycle: maintained
-    tracked: required
-    allowed_dependencies: [core, source_adapters, domain]
-
-  - id: legacy-cli-shims
-    include: ["integration/scripts/*.py"]
-    class: compatibility
-    owner: platform
-    lifecycle: deprecating
-    tracked: required
-    content_policy: forwarding_only
-
-  - id: private-raw
-    include: ["Google/raw/**", "imports/**", "Agent/structured/db/**"]
-    class: private_data
-    sensitivity: restricted
-    lifecycle: immutable_or_retention_bound
-    tracked: forbidden
-    content_scan: metadata_only
-```
-
-The local generated inventory should contain, for every file:
-
-`relative_path`, `rule_id`, `class`, `owner`, `sensitivity`, `source/run_id`, `tracked`, `generated`, `mutable`, `retention`, `checksum policy`, `backup policy`, and `last validation result`.
-
-Validation invariants:
-
-1. every file matches exactly one rule;
-2. no rule overlap and no unclassified file;
-3. tracked/ignored status agrees with the rule;
-4. private content is never opened by governance scans—metadata and optional locally computed hash only;
-5. generated files have a producing command/run manifest and are not edited manually;
-6. source files have an owner and tests or an explicit exemption;
-7. compatibility files have a canonical target and retirement condition;
-8. quarantine/vendor files cannot be imported, discovered by pytest, or used as production inputs;
-9. symlinks/reparse points cannot escape approved roots;
-10. case collisions and Windows-invalid/reserved path forms fail validation.
-
-This mechanism reaches the last file at any depth without producing thousands of stale README files. README files remain useful only at human entry boundaries: root, major deployables, public data contracts, and operationally distinct modules.
-
-## Target repository layout
-
-The target can be reached incrementally without a big-bang move:
+## 2. `src/personal_knowledge/` layout
 
 ```text
-/
-├── src/ or integration/scripts/       # product code, one canonical module per behavior
-│   ├── core/
-│   ├── adapters/
-│   ├── domains/{conversation,knowledge,memory,graph}/
-│   ├── retrieval/
-│   ├── evaluation/
-│   ├── application/
-│   └── services/
-├── apps/                              # independently runnable UI/MCP app
-├── tests/                             # unit, contract, integration, e2e
-├── assets/{prompts,evals,vendor}/     # versioned immutable inputs
-├── var/{db,runtime,reports,logs}/     # ignored mutable outputs
-├── data/{raw,staging,canonical}/       # ignored/private data planes
-├── governance/                        # policy, manifest, schema, generated summaries
-├── docs/                              # architecture/runbooks/ADRs
-├── .planning/                         # single GSD source of truth
-└── archive/                           # indexed, retention-bound cold material
+src/personal_knowledge/
+├── cli.py                    # console entry wiring (pk-sync, pk-ku, rag-*)
+├── core/                     # foundation
+│   ├── project_paths.py      # ROOT, DATA_*, VAR_*, AGENT_CONVERSATIONS_DB, KNOWLEDGE_ACTIVE_POINTER
+│   ├── llm.py                # OpenAI-compatible client + retry (Phase 21)
+│   ├── privacy_guard.py
+│   ├── chroma_client.py
+│   ├── local_embed.py
+│   ├── conversation_repository.py
+│   ├── common.py, rules.py, runtime_config.py, memory_governance.py
+│   └── _verify.py
+├── adapters/                 # infrastructure — source ports
+│   ├── agentsview.py         # RO AgentsView
+│   ├── google_activities.py
+│   └── base.py
+├── application/              # CANONICAL build / lifecycle / product CLIs
+│   ├── sync.py               # pk-sync
+│   ├── ku.py                 # pk-ku
+│   ├── run_pipeline.py       # agentsview stage + retired integrated
+│   ├── run_import_pipeline.py
+│   ├── conversation/         # normalize, canonical, graph, summary, vectors
+│   ├── knowledge/            # inventory, extract, canonical, publish, vector, promote
+│   ├── graph/
+│   ├── memory/               # experimental memory lifecycle
+│   ├── build_google_*.py, google_structure_lifecycle.py
+│   └── build_context_doc.py, build_deep_profiles.py, …
+├── evaluation/               # CANONICAL eval / gates / reports
+│   ├── conversation/
+│   ├── knowledge/            # extract-gate, canary, RAG eval
+│   ├── graph/
+│   ├── memory/
+│   ├── vector/               # evaluate/compare vector & sqlite generations
+│   ├── gate_knowledge_candidate.py, run_knowledge_eval.py
+│   └── eval_contracts.py, eval_registry.py, …
+├── domains/                  # facades (+ SCHEMA_SQL) until 2026-08-13
+│   ├── conversation/         # re-exports → application/evaluation
+│   ├── knowledge/            # facades; migrate_add_knowledge_unit_tables keeps SCHEMA_SQL
+│   ├── graph/
+│   └── memory/
+├── retrieval/                # unified search + vector I/O
+│   ├── unified_search.py     # public facade + _cli
+│   ├── semantic_search.py    # hybrid KU search + knowledge status
+│   ├── search_vectors.py, build_vector_store.py
+│   ├── events_query.py, google_assertions.py, memory.py, merge_cluster.py
+│   ├── _constants.py, _db_utils.py
+│   └── evaluate_* / compare_*  # facades → evaluation/vector
+├── services/                 # delivery
+│   ├── api_server.py         # REST :8000
+│   ├── mcp_server.py         # MCP stdio
+│   └── dashboard.py
+└── governance/               # in-package control helpers
+    ├── preflight.py
+    ├── apply_*_migration.py, source_manifest.py, …
 ```
 
-Physical renaming is secondary. The immediate requirement is that current paths map unambiguously to these logical zones and dependency rules.
+### Layer rule (import)
 
-## Migration order
+| Need | Import |
+|------|--------|
+| Paths / LLM / privacy | `personal_knowledge.core.*` |
+| Build / lifecycle | `personal_knowledge.application.<sub>.*` |
+| Eval / gate / compare | `personal_knowledge.evaluation.<sub>.*` |
+| Search contracts | `personal_knowledge.retrieval.*` |
+| Legacy domain path | `personal_knowledge.domains.*` (facade only; expire 2026-08-13) |
+| KU schema DDL | `personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables` |
 
-1. Establish manifest schema, ordered rules, metadata-only scanner, and zero-unclassified baseline.
-2. Mark `.planning/` authoritative and `.gsd/` historical; stop dual writes.
-3. Separate `integration/` tracked source/assets from private/generated `db/runtime/analysis/structured` surfaces.
-4. Replace hard-coded paths with `project_paths`/CLI/env and add CI audit.
-5. Change orchestration/tests to canonical package imports; inventory all 86 shims and retire by cohorts.
-6. Register vendor/reference/quarantine provenance and retention; exclude them from tests/import resolution.
-7. Add ownership, architecture dependency, pytest discovery, secret, generated-drift, and manifest-coverage gates.
+---
 
-## Definition of structural governance complete
+## 3. `data/` — private personal data
 
-- 100% of files, including deepest descendants, have exactly one manifest classification.
-- 0 private/runtime/generated files are accidentally tracked.
-- 0 source files depend on quarantine, raw data paths, or vendored reference projects.
-- 0 new hard-coded user/machine paths.
-- all public/CLI entry points are registered; every shim has a target and retirement status.
-- generated reports/databases identify producer, input lineage, schema version, and run ID.
-- CI and a local preflight reproduce the same governance result.
+```text
+data/
+├── README.md
+├── raw/
+│   └── google/Takeout/…          # immutable Takeout-style exports
+├── staging/                      # reserved intermediate import staging
+├── canonical/
+│   ├── agent/
+│   │   ├── README.md
+│   │   └── structured/db/
+│   │       ├── agent_conversations.sqlite     # DIALOGUE SSOT
+│   │       ├── agentsview_normalized.sqlite
+│   │       ├── agent_data.sqlite
+│   │       └── backups/
+│   └── google/
+│       ├── structured/
+│       │   ├── db/
+│       │   │   ├── google_data.sqlite
+│       │   │   ├── google_structure_active_run.txt
+│       │   │   └── google_data_schema.sql
+│       │   ├── by_service/, by_topic/, details_csv/, raw_index/
+│       │   └── scripts/                     # historical Google helper scripts
+│       └── _shell/…                         # residual shell / bak trees
+└── imports/
+    ├── README.md
+    ├── batches/                             # dated intake batches
+    ├── incoming/{agent,google,gpt}/
+    └── duplicate_audit/                     # quarantine + manifests
+```
 
+**External protected (not under `data/`):**
+
+- `%USERPROFILE%\.agentsview\sessions.db` — live WAL; RO only; never relocate
+
+**Phase 20 legacy → current:**
+
+| Legacy | Current |
+|--------|---------|
+| `Agent/structured/db/` | `data/canonical/agent/structured/db/` |
+| `Google/raw/` | `data/raw/google/` |
+| `Google/structured/` | `data/canonical/google/structured/` |
+| `imports/` | `data/imports/` |
+
+---
+
+## 4. `var/` — runtime / DB / reports
+
+```text
+var/
+├── README.md
+├── db/
+│   ├── personal_system.sqlite               # unified KU + PE + memory + versions
+│   ├── knowledge_index_active.txt           # ACTIVE CHROMA COLLECTION POINTER
+│   ├── knowledge_index_promote_log.jsonl
+│   ├── conversation_graph.duckdb
+│   ├── evaluation_registry.sqlite
+│   ├── conversation_source.txt (+ rollback log)
+│   ├── structured/                          # unified CSV exports
+│   ├── raw_index/
+│   └── backups/
+├── runtime/
+│   ├── governance/                          # preflight / inventory artifacts
+│   └── private_evals/
+├── reports/
+│   ├── analysis/
+│   │   ├── ai_context/                      # KU deltas, eval JSON, charts
+│   │   ├── evaluations/                     # knowledge eval HTML/JSON runs
+│   │   ├── stage1_profile/
+│   │   └── refactoring/
+│   └── classification_summary.json
+├── logs/                                    # api, mcp, tunnel, workers
+├── cache/pytest/
+└── phase20-journals/                        # migration journals (stay outside moved trees)
+```
+
+**Phase 20 legacy → current:**
+
+| Legacy | Current |
+|--------|---------|
+| `integration/db/` | `var/db/` |
+| `integration/runtime/` | `var/runtime/` |
+| `integration/analysis/` | `var/reports/analysis/` |
+| `logs/` | `var/logs/` |
+
+---
+
+## 5. `apps/`
+
+```text
+apps/
+├── README.md
+└── personal_data_chatgpt/
+    ├── package.json / package-lock.json
+    ├── server.mjs                 # HTTP MCP Apps on :8789
+    ├── public/                    # widgets (memory-graph, data-browser, relation-review)
+    ├── scripts/
+    │   ├── start-services.ps1     # REST + MCP + tunnel watchdog
+    │   ├── 启动服务.bat
+    │   └── 停止服务.bat
+    ├── logs/
+    ├── test/                      # contract + widget tests
+    ├── README.md
+    └── TUNNEL_RUNBOOK.md
+```
+
+Ports: REST **8000**, MCP Apps **8789**, tunnel **8081**.  
+Depends on Python `rag-api` backend.
+
+---
+
+## 6. `tools/`
+
+```text
+tools/
+├── compat/v1_1/          # flat-name shims (old integration/scripts module names)
+├── forensics/            # one-off audits, phase15 evals, sqlite probes, examples/
+├── migrations/           # path/shim fix scripts
+└── supported/            # maintained ancillary analytics (gap analysis, L1/L2 compare)
+```
+
+Not product daily path. Prefer `pk-sync` / `pk-ku` / `python -m personal_knowledge.…`.
+
+---
+
+## 7. `integration/` (residual after Phase 20)
+
+Live product code is under `src/`. `integration/` retains:
+
+| Path | Role |
+|------|------|
+| `integration/README.md` | Cross-source integration narrative + consumer notes |
+| `integration/evals/knowledge_units/` | Private frozen query suites (may be preferred by `KNOWLEDGE_EVAL_DIR`) |
+| `integration/scripts/` | Mostly `__pycache__` + residual `governance/*.py`; historical domain packages empty of sources |
+| `integration/prompts/`, `lib/` | Often empty shells; real assets moved to `assets/` |
+| `integration/db/`, `runtime/`, `analysis/` | Prefer empty or thin; live data in `var/` |
+| `*.bak-phase20` under integration | Cutover recovery copies |
+
+CLI bootstrap in `cli.py` may still fall back to `integration/scripts` on ModuleNotFoundError for a few legacy names — product entries (`pk-sync`, `pk-ku`) use `src` modules only.
+
+---
+
+## 8. `archive/`
+
+```text
+archive/
+├── README.md
+├── quarantine/
+│   ├── _recycle/                 # former _recycle (Agent/Google/GPT raw dumps, etc.)
+│   └── desktop-strays-20260713/  # quarantined loose scripts
+├── planning/                     # archived GSD / .gsd history
+└── vendor-reference/             # e.g. former .ai-bridge clones
+```
+
+Read-only / retention-bound. Never import as product source. Never scan into tests by default.
+
+---
+
+## 9. `assets/`, `docs/`, `governance/`, `tests/`
+
+### `assets/`
+
+```text
+assets/
+├── prompts/                 # versioned prompt packs (KU extractor, memory judges, …)
+├── evals/knowledge_units/   # public/synthetic eval contracts
+└── vendor/                  # tom-select, vis, bindings
+```
+
+### `docs/`
+
+```text
+docs/
+├── AGENTS.md                # full agent operating manual
+├── architecture/
+│   ├── retrieval-ssot.md
+│   ├── domains-slimming.md
+│   └── repository-zones.md
+├── runbooks/
+│   ├── product-sync.md      # pk-sync
+│   ├── ku-incremental.md    # pk-ku
+│   ├── dependency-governance.md
+│   └── tooling/
+└── testing/
+```
+
+### `governance/`
+
+```text
+governance/
+├── policies/                # architecture.yaml, paths.yaml, privacy, retention, …
+├── manifests/               # entrypoints, asset classification, migration
+├── baselines/               # inventory / storage budgets
+├── schema/
+├── reports/
+└── stable_modules.yaml
+```
+
+### `tests/`
+
+```text
+tests/
+├── unit/
+├── contract/
+├── integration/
+├── e2e/
+├── governance/
+└── README.md
+```
+
+---
+
+## 10. `.planning/`
+
+```text
+.planning/
+├── PROJECT.md, REQUIREMENTS.md, ROADMAP.md, STATE.md
+├── config.json
+├── codebase/                # ARCHITECTURE, STRUCTURE, STACK, TESTING, …
+├── intel/                   # synthesis / constraints
+├── phases/
+│   ├── 01-… through 20-…
+│   └── PDA-21-architectural-alignment-domains-slimming/
+└── MILESTONE-*.md, VERIFICATION-*.md
+```
+
+Authoritative process state for GSD. Architecture maps live in `codebase/`.
+
+---
+
+## 11. Cutover backups (not live tree)
+
+Root-level recovery only (do not treat as SSOT):
+
+- `Agent.bak-phase20/`, `Google.bak-phase20/`, `imports.bak-phase20/`
+- `_recycle.bak-phase20/`, `logs.bak-phase20/`
+- `integration/*.bak-phase20`, `integration/db.bak-phase20/`, …
+
+---
+
+## 12. Navigation cheatsheet
+
+| Goal | Go here |
+|------|---------|
+| Dialogue SSOT file | `data/canonical/agent/structured/db/agent_conversations.sqlite` |
+| Active KU pointer | `var/db/knowledge_index_active.txt` |
+| Unified DB | `var/db/personal_system.sqlite` |
+| Path constants | `src/personal_knowledge/core/project_paths.py` |
+| Product sync CLI | `src/personal_knowledge/application/sync.py` |
+| Product KU CLI | `src/personal_knowledge/application/ku.py` |
+| Promote logic | `src/personal_knowledge/application/knowledge/promote_knowledge_index.py` |
+| Hybrid search | `src/personal_knowledge/retrieval/semantic_search.py` |
+| REST | `src/personal_knowledge/services/api_server.py` |
+| ChatGPT adapter | `apps/personal_data_chatgpt/` |
+| KU operator docs | `docs/runbooks/ku-incremental.md` |
+| Architecture policy | `governance/policies/architecture.yaml` |
+
+---
+
+## 13. Related map
+
+See `ARCHITECTURE.md` in this directory for SSOT layers, request flows, promote/active pointer, and domains facades vs application/evaluation.

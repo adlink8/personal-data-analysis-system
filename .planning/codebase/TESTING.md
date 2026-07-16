@@ -1,89 +1,353 @@
 ---
-mapped: 2026-07-13
+mapped_at: 2026-07-16
+last_mapped_commit: ce6dfde1f6d759368077e47288dcfc811f2960b9
 focus: quality
-scope: full-repository
+branch: codex/llm-memory-mcp-integration
 ---
 
-# 测试体系与治理门
+# Testing Map (quality)
 
-## 当前测试体系
+Authoritative sources: `pytest.ini`, `tests/README.md`, `.github/workflows/ci.yml`,
+`src/personal_knowledge/governance/preflight.py`, `docs/runbooks/dependency-governance.md`,
+`assets/evals/knowledge_units/eval_policy_v1.yaml`, phase verification notes
+(`.planning/phases/PDA-21-…/21-VERIFICATION.md`).
 
-- Python 使用 pytest，配置位于 `pytest.ini`。
-- `testpaths = tests` 已限制裸 `python -m pytest` 不进入 `_recycle/`、`integration/scripts/test_*.py`、私有数据目录或历史 `.gsd/`，修复了早期重复模块收集问题。
-- 当前 `tests/` 有 58 个测试文件，静态计数约 408 个 `test_*` 函数。
-- 2026-07-13 实测：`python -m pytest --collect-only -q` 成功；`python -m pytest -q --tb=short` 全量通过，耗时约 48.1 秒。
-- GitHub Actions 位于 `.github/workflows/ci.yml`，使用 Ubuntu + Python 3.12，执行收集与全量测试；覆盖缺口审计当前为 informational、不会阻断。
-- App widget 另有 Node 测试：`integration/apps/personal_data_chatgpt/test/contract.test.mjs` 与 `widget-render.test.mjs`，不在 Python pytest job 内。
+---
 
-## 测试组织
+## 1. Tooling and config
 
-| 层级 | 位置/例子 | 目标 |
-|---|---|---|
-| unit/contract | `tests/test_*_contracts.py` | schema、API、路径和隐私契约 |
-| pipeline | `tests/test_import_pipeline.py`, `test_run_pipeline_contracts.py` | dry-run、幂等、失败语义 |
-| lifecycle | checkpoint、promotion、rollback、incremental tests | stage/gate/promote/rollback 一致性 |
-| retrieval/eval | `test_knowledge_eval_*.py`, vector/search tests | 统一指标、gate、报告与 registry |
-| service smoke | dashboard、MCP、Apps SDK tests | 入口可导入、协议字段稳定 |
-| UAT | `.planning/phases/*/*-UAT.md` | 需要真实运行环境或人工判断的闭环 |
+| Item | Location / value |
+|------|------------------|
+| Runner | `pytest` via `python -m pytest` |
+| Config | `pytest.ini` |
+| `testpaths` | `tests` only (bare pytest does **not** walk `_recycle/`, `integration/scripts/test_*.py`, `.planning`, private data) |
+| Patterns | `python_files=test_*.py`, `python_classes=Test*`, `python_functions=test_*` |
+| `pythonpath` | `src` |
+| Cache | `var/cache/pytest` (Phase 20; not repo root) |
+| Default addopts | `-q` |
+| Dev deps | `requirements-dev.txt` + `constraints.txt` |
+| Supported Python | **3.12 and 3.14** (CI matrix); package `requires-python >=3.11` |
+| Node tests | `apps/personal_data_chatgpt/` — Node 20, `npm test` |
 
-## 必须保持的测试规则
+```powershell
+# From project root
+.venv\Scripts\python -m pip install -c constraints.txt -r requirements-dev.txt
+.venv\Scripts\python -m pip install -e .
+python -m pytest --collect-only -q
+python -m pytest -q
+```
 
-- 单元测试不得读取用户真实数据库、Google Takeout、AgentsView live DB 或网络服务；使用 `tmp_path`、内存 SQLite 和 synthetic fixtures。
-- 涉及 live 数据的验证必须是显式命令，默认只读/dry-run，并记录到对应 VERIFICATION/UAT，不混入普通 CI。
-- candidate/promote 测试必须验证 gate fail 时 active 不变、journal 可追溯、rollback 恢复 pointer 与数据版本。
-- eval 测试必须固定 dataset/config/checksum，报告同时给绝对值、paired delta、置信区间、隐私命中和延迟；失败不得选择性隐藏。
-- no-answer、secret/privacy、冲突、过时知识、paraphrase、cross-turn 是知识单元评测的固定切片。
-- shim 必须有入口契约测试，确保旧 CLI 与领域模块行为一致；真实逻辑只在领域模块测试一次。
+---
 
-## 建议的四级治理门
+## 2. Layout under `tests/`
 
-### G0 — 本地快速门（每次改动）
+```text
+tests/
+  README.md                 # short responsibility / entry points
+  unit/                     # pure unit + synthetic fixtures
+  contract/                 # schema, CLI, API, pipeline contracts
+  integration/              # multi-module lifecycle, evals, adapters
+  governance/               # preflight contracts, path policy, migration layout
+  e2e/                      # thin smoke (e.g. dashboard import)
+```
 
-目标时长小于 60 秒：
+### 2.1 `tests/unit/` (representative)
+
+| File | Focus |
+|------|--------|
+| `test_pk_ku_cli.py` | `pk-ku` parser / workflow / non-incremental run_id reject |
+| `test_canonical_knowledge_units.py` | KU canonicalization |
+| `test_conversation_repository.py`, `test_conversation_summary_parse.py` | conversation helpers |
+| `test_knowledge_unit_*.py` | extraction, gate, pilot, vector store, retry cache, RAG eval, backfill |
+| `test_knowledge_l2_session_extract.py`, `test_knowledge_evidence_backfill.py` | L2 / evidence |
+| `test_graph_relation_*.py` | graph candidates / judgments |
+| `test_memory_*.py` | memory candidates, promotion, lifecycle, experiments, decomplexity plan |
+| `test_vector_*.py` | collection/retrieval eval, store filter |
+| `test_privacy_guard.py`, `test_rag_feedback_privacy.py` | privacy |
+
+Approx. **33** unit modules (see directory listing).
+
+### 2.2 `tests/contract/`
+
+| File | Focus |
+|------|--------|
+| `test_knowledge_unit_contracts.py` | KU public contracts |
+| `test_knowledge_search_contracts.py` | search surface |
+| `test_knowledge_distribution_contracts.py` | distribution |
+| `test_data_access_contracts.py` | data access APIs |
+| `test_run_pipeline_contracts.py` | step select / retired pipeline contracts |
+| `test_mcp_server_contracts.py` | MCP tool surface |
+| `test_apps_sdk_data_contracts.py` | Apps SDK payloads |
+| `test_agentsview_downstream_contracts.py` | AgentsView → downstream |
+
+**8** contract modules.
+
+### 2.3 `tests/integration/`
+
+| Area | Examples |
+|------|----------|
+| Import / AgentsView | `test_import_pipeline.py`, `test_agentsview_*.py` |
+| KU lifecycle | `test_knowledge_incremental_*.py`, `test_knowledge_index_promotion.py`, `test_knowledge_index_reconcile.py`, `test_knowledge_checkpoint_rollback.py`, `test_knowledge_unit_checkpoint.py` |
+| Knowledge eval | `test_knowledge_eval_{dataset,extraction,retrieval,answers,gate,report}.py` |
+| Google light | `test_google_light_structure.py` |
+| Conversation rollback | `test_agent_conversation_rollback.py` |
+
+**17** integration modules.
+
+### 2.4 `tests/governance/`
+
+| File | Focus |
+|------|--------|
+| `test_governance_preflight.py` | baseline cannot exempt P0 |
+| `test_governance_architecture.py` | architecture policy |
+| `test_governance_paths.py` | path baseline contract |
+| `test_governance_artifacts.py` | storage budgets |
+| `test_governance_inventory.py` | inventory check |
+| `test_governance_privacy.py` | privacy audit |
+| `test_governance_planning.py` | planning consistency |
+| `test_governance_shims.py` | shim registry |
+| `test_governance_migration.py`, `test_data_migration_*.py` | data migration cohorts |
+| `test_physical_data_layout.py`, `test_physical_source_layout.py`, `test_phase19_default_paths.py` | Phase 19/20 layout |
+| `test_governance_report.py` | report render contracts |
+
+**17** governance modules.
+
+### 2.5 `tests/e2e/`
+
+| File | Focus |
+|------|--------|
+| `test_dashboard_smoke.py` | dashboard import / path constants smoke |
+
+### 2.6 Node (outside pytest)
+
+| Path | Command |
+|------|---------|
+| `apps/personal_data_chatgpt/test/contract.test.mjs` | `npm test --prefix apps/personal_data_chatgpt` |
+| `apps/personal_data_chatgpt/test/widget-render.test.mjs` | same |
+
+CI job `node` on `windows-latest` with Node 20.
+
+### 2.7 UAT / human gates
+
+Live proofs live in `.planning/phases/*/*-UAT.md` and `*-VERIFICATION.md` — not
+in default CI.
+
+---
+
+## 3. How to run
+
+### 3.1 Full offline suite
+
+```powershell
+python -m pytest -q
+python -m pytest -q --tb=short
+```
+
+### 3.2 Subsets
+
+```powershell
+python -m pytest -q tests/unit/
+python -m pytest -q tests/contract/
+python -m pytest -q tests/integration/
+python -m pytest -q tests/governance/
+python -m pytest -q tests/e2e/
+python -m pytest -q tests/unit/test_pk_ku_cli.py
+python -m pytest -q -k knowledge
+python -m pytest -q tests/unit/test_vector_collection_eval.py
+# evaluation README also references legacy flat paths; prefer tests/unit + tests/integration
+```
+
+### 3.3 Collect-only (CI step 1)
+
+```powershell
+python -m pytest --collect-only -q
+```
+
+### 3.4 Governance preflight (CI step before pytest)
+
+```powershell
+# Canonical package entry
+python -m personal_knowledge.governance.preflight --ci
+# Compatibility wrapper used by CI workflow today:
+python integration/scripts/governance/preflight.py --ci
+```
+
+Optional HTML (aggregate only; under `var/runtime/` after Phase 20):
+
+```powershell
+python integration/scripts/governance/render_governance_report.py `
+  --preflight var/runtime/governance/preflight.json `
+  --history var/runtime/governance/governance_history.sqlite `
+  --output var/runtime/governance/governance_report.html
+```
+
+Note: package `preflight.py` default `--json-output` still mentions
+`integration/runtime/governance/preflight.json` (legacy path); prefer writing
+under `var/runtime/governance/` when documenting ops.
+
+### 3.5 Node
+
+```powershell
+npm ci --ignore-scripts --prefix apps/personal_data_chatgpt
+npm test --prefix apps/personal_data_chatgpt
+```
+
+### 3.6 CI matrix (`.github/workflows/ci.yml`)
+
+| Job | Runner | Steps |
+|-----|--------|-------|
+| `python` | `windows-latest` | matrix Python **3.12**, **3.14**; `pip install -c constraints.txt -r requirements-dev.txt`; preflight `--ci`; collect-only + full pytest |
+| `node` | `windows-latest` | Node **20**; `npm ci`; `npm test` in `apps/personal_data_chatgpt` |
+
+---
+
+## 4. Triple / multi-level gates
+
+Project language uses **preflight gates**, **pytest**, and **promotion/eval gates**.
+Documented quality ladder (local → PR → candidate → production):
+
+### G0 — Local fast gate (every change)
 
 ```powershell
 python -m pytest --collect-only -q
 python -m pytest -q --tb=short
+# targeted:
+python -m pytest -q tests/unit/test_pk_ku_cli.py
 ```
 
-并行加入静态检查：格式/lint、绝对路径扫描、inventory 未分类文件扫描、secret scan。
+Plus smoke imports / health when touching services:
 
-### G1 — PR 门（阻断合并）
+```powershell
+curl.exe --noproxy "*" http://127.0.0.1:8000/health
+curl.exe --noproxy "*" http://127.0.0.1:8789/health
+```
 
-- Python 3.12 与 3.14 双矩阵测试。
-- Node widget contract/render tests。
-- dependency lock/constraints 一致性与漏洞审计。
-- planning consistency、README 入口有效性、shim budget、生成物/大文件检查。
-- `_audit_test_gaps.py` 从 informational 改为带 baseline 的 regression gate：不要求一次补齐，但禁止新增 high gap。
+### G1 — PR / CI gate (blocking)
 
-### G2 — Candidate 发布门
+From preflight `evaluate()` (`src/personal_knowledge/governance/preflight.py`):
 
-- 构建隔离 candidate，不修改 active。
-- Raw/L1/L2/L1+L2/Hybrid 统一 retrieval 与 answer evaluation。
-- privacy hit 必须为 0；关键指标不得回退；满足预注册的提升阈值和置信区间。
-- 生成 SQLite/JSON/HTML/PNG 版本化结果，checksum 写入 promotion journal。
+| Gate id | Check |
+|---------|--------|
+| `inventory-check` | `build_project_inventory.py --check` |
+| `privacy-check` | `audit_artifacts.py --check --no-content` |
+| `path-policy` | `check_path_policy.py --check` vs `governance/baselines/path_hits.yaml` |
+| `shim-budget` | `check_shim_budget.py --check` (baseline-only-down) |
+| `docs-coverage` | `check_docs_coverage.py --check` |
+| `planning-consistency` | `check_planning_consistency.py --check` |
+| `dependency-lock` | dependency findings from `check_dependencies` |
+| `architecture-boundary` | AST import scan vs `governance/policies/architecture.yaml` |
+| `secret-scan` | P0 credential patterns on safe roots |
+| `artifact-lineage` | tied to privacy-check metadata |
+| `storage-retention` | budgets; no disposition side effects |
+| `test-matrix` | CI declares Python 3.12/3.14 + Node 20 + preflight |
 
-### G3 — 生产与周期治理门
+Plus full offline pytest (both Python versions) and Node `npm test`.
 
-- canary、post-promote reconcile、rollback 演练。
-- 每周/每次 source checksum 变化执行增量回归；每月执行全量数据 lineage、orphan、deprecated residue、备份可恢复性检查。
-- 趋势面板展示测试数/耗时、覆盖缺口、检索/回答指标、隐私命中、索引规模、fallback rate 和回滚成功率。
+Baseline file: `governance/baselines/preflight.json`
 
-## 当前缺口
+- `policy_id`: `preflight-baseline-v1`
+- **P0 findings never grandfathered**
+- Only exact IDs in `allowed_non_p0_findings` may be non-blocking (currently **empty**)
 
-- 没有 coverage.py/分支覆盖率基线，无法量化源码覆盖；现有 `_audit_test_gaps.py` 仅提示且 CI `continue-on-error`。
-- Python CI 只测 3.12，而生产说明称本机 3.14 已验证；缺少跨版本门。
-- requirements 只有范围，没有完全锁定；CI 每次可能安装不同依赖组合。
-- Node app tests 未进入 `.github/workflows/ci.yml`。
-- 缺少 lint/typecheck/secret scan/dependency audit/large-file/inventory/planning drift 等门。
-- 真实 cross-turn gold、judge calibration 与 Phase 17 sandbox promote/rollback UAT 仍是人工未关闭项。
+### G2 — Candidate / knowledge promotion gate
 
-## 建议自动检查脚本
+Not CI-default; product path after KU vector candidate:
 
-- `governance_inventory.py --check`：逐文件分类、owner、敏感级与生命周期。
-- `check_path_policy.py`：绝对路径、用户名、Desktop、裸 sys.path 修改。
-- `check_planning_consistency.py`：GSD 状态与文档事实同步。
-- `check_shim_budget.py --baseline 86`：禁止兼容面扩大。
-- `check_docs_links.py`：README 中本地入口、命令与模块是否存在。
-- `check_artifacts.py`：数据库/个人数据/生成物/超大文件不得跟踪。
+| Surface | Location |
+|---------|----------|
+| Policy | `assets/evals/knowledge_units/eval_policy_v1.yaml` |
+| Runner | `personal_knowledge.evaluation.run_knowledge_eval`, `gate_knowledge_candidate` |
+| CLI promote | `pk-ku promote --require-eval-pass …` |
+| Hard gates | `secret_privacy_hit: 0`, citation precision, no-answer FP, reconcile missing/orphan |
+| Quality gates | KU vs raw Recall@5 delta, MRR non-inferior, frozen regression, cross-turn L2, p95 latency, grounded L2 precision |
+| Modes | `raw`, `l1`, `l1_l2`, `hybrid` |
+| Rule | Candidate must not mutate active; journal + checksum; fail → active unchanged |
 
+Integration coverage: `tests/integration/test_knowledge_eval_*.py`,
+`tests/unit/test_knowledge_unit_gate.py`.
+
+### G3 — Production / periodic governance
+
+- Canary labels + post-promote reconcile + rollback drills
+- Incremental regression when source checksum changes
+- Monthly lineage / orphan / backup recoverability (ops, not bare pytest)
+- Optional: `preflight` with history HTML under `var/runtime/governance/`
+
+Phase 21 health residual checks: REST `:8000/health` and MCP `:8789/health` → 200.
+
+---
+
+## 5. Known governance baselines and residuals
+
+### 5.1 Baseline artifacts under `governance/baselines/`
+
+| File | Role |
+|------|------|
+| `preflight.json` | allowed non-P0 finding IDs (empty); P0 never exempt |
+| `path_hits.yaml` | path-policy categories / forbidden_new patterns |
+| `storage_budgets.yaml` | artifact size/retention budgets |
+| `inventory_summary.json` | sanitized inventory summary |
+| `phase19_active_data_snapshot.json`, `phase19_before_after_tree.json` | Phase 19 evidence |
+
+### 5.2 Shim / tool budgets
+
+| Registry | Config | Check |
+|----------|--------|-------|
+| Compatibility shims | `governance/manifests/entrypoints.yaml` → `shim_registry.expected_count` (**86**) | `check_shim_budget.py --check` |
+| Tools cohort | `governance/manifests/source/tools.json` + `tool_registry.expected_count` | same script; count must match manifest |
+
+Budget is **baseline-only-down**: increases fail closed.
+
+### 5.3 Documented pytest residuals (Phase 21)
+
+From `.planning/phases/PDA-21-architectural-alignment-domains-slimming/21-VERIFICATION.md`
+(re-run 2026-07-15):
+
+| Class | Count / note |
+|-------|----------------|
+| Known fail baseline | **13** total: **8 governance + 5 memory_decomplexity** |
+| Architecture goal | **PASS** if no *new* fails beyond that baseline |
+| `architecture-boundary` preflight | PASS (phase goal) |
+| Full `preflight --ci` | may still fail inventory/shim/docs/secret/lineage/retention (pre-existing governance debt) |
+
+`tests/unit/test_memory_decomplexity_plan.py` depends on generated plan files under
+`integration/analysis/ai_context/memory_decomplexity_plan.{json,md}` (private/generated
+tree) — absence or drift produces the memory_decomplexity failures.
+
+Treat “13-fail baseline” as **historical residual**, not a license to add new
+reds. Prefer fixing or marking intentional skips with rationale when touching
+those areas.
+
+### 5.4 Test rules (must keep)
+
+- Unit/contract tests: **no** live AgentsView DB, Google Takeout, paid LLM, or
+  network; use `tmp_path`, in-memory SQLite, synthetic fixtures.
+- Live-data validation: explicit operator commands + VERIFICATION/UAT only.
+- Candidate/promote tests: gate fail ⇒ active pointer unchanged; journal
+  traceable; rollback restores pointer/version.
+- Eval: fixed dataset/config/checksum; reports include absolute metrics, paired
+  delta, CI, privacy hits, latency; no selective hiding of failures.
+- Fixed KU eval slices: no-answer, secret/privacy, conflict, stale knowledge,
+  paraphrase, cross-turn.
+- Privacy: never commit personal evidence in fixtures; public fixtures under
+  `assets/evals/` only.
+
+### 5.5 Path resolution in tests
+
+Live path helpers: `personal_knowledge.core.project_paths` (`data/`, `var/`).
+Some governance layout tests `pytest.skip` when phase inventories or artifacts
+are not present on the machine (`test_physical_data_layout.py`).
+
+---
+
+## 6. Ownership
+
+| Surface | Owner (docs) |
+|---------|----------------|
+| `tests/` | quality (`governance/policies/paths.yaml` rule `tests`) |
+| Evaluation package | evaluation (`src/personal_knowledge/evaluation/README.md`) |
+| Preflight / policies | engineering-governance / platform-governance |
+| KU promotion policy | evaluation + knowledge product (`eval_policy_v1.yaml`) |
+
+Status: supported quality map after Phase 20 layout + Phase 21 domains slimming
++ 2026-07-16 product CLI (`pk-sync` / `pk-ku`).

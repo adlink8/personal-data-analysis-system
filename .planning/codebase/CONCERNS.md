@@ -1,105 +1,311 @@
 ---
-mapped: 2026-07-13
+mapped_at: 2026-07-16
+last_mapped_commit: ce6dfde1f6d759368077e47288dcfc811f2960b9
 focus: concerns
-scope: full-repository
+scope: risks-and-cleanup-candidates
+branch: codex/llm-memory-mcp-integration
 ---
 
-# 全仓治理风险与分级处置
+# Concerns — risks & cleanup candidates
 
-## 总体判断
+Severity legend (disposal class):
 
-项目核心测试当前全绿，主要风险不是功能立即失效，而是规模扩大后事实源漂移、兼容层永久化、私人数据误入版本库，以及环境不可复现。应先建立自动门，再分批搬迁；禁止一次性大重构或直接删除历史/私人文件。
+| Class | Meaning |
+|-------|---------|
+| **safe-delete** | No runtime import path; regenerable or pure cache; delete after one dry-run inventory check |
+| **quarantine-first** | Large / private / unclear consumers — move under `archive/quarantine/` with manifest, hold, then cohort-delete |
+| **keep-facade** | Temporary re-export or CLI shim; retain until stated window + consumer zero + gate pass |
+| **never-delete** | Product SSOT, schema DDL, active pointer contracts, or operational evidence still needed for forensics |
 
-## P0 — 必须始终阻断
+Automatic delete is **prohibited** (`governance/policies/retention.yaml`, `governance/baselines/storage_budgets.yaml`). Any physical delete needs owner approval + journal.
 
-### 私密数据或凭据进入 Git/公开报告
+---
 
-- 仓库同时处理 `Google/raw/`、AgentsView 会话、SQLite/Chroma、private eval，风险面天然较大。
-- `.gitignore` 已覆盖大部分私有/生成物，但 JSON/JSONL 使用“全局忽略 + eval 例外”，新增例外容易误放真实正文。
-- 治理门：每次提交执行 secret/PII scan、tracked artifact scan、文件大小门；公开 eval 只允许 synthetic schema 并人工抽查。
+## 1. `tools/compat/v1_1` (shims)
 
-### 绕过评测直接 promote
+| | |
+|--|--|
+| **Paths** | `D:\ADLINK\数据分析\tools\compat\v1_1\` (~87 `*.py` + README) |
+| **Severity** | **keep-facade** (budget-gated); individual members → **quarantine-first** only after cohort approval |
+| **Role** | v1.1 compatibility entrypoints that `import_module` into `personal_knowledge.domains.*` (themselves often facades → `application`/`evaluation`) |
+| **Gate** | `python integration/scripts/governance/check_shim_budget.py --check` discovers **this** tree (`SCRIPTS = …/tools/compat/v1_1`) |
+| **Manifest drift** | `governance/manifests/entrypoints.yaml` still claims `"root": "integration/scripts"` and `expected_count: 86` — **stale vs live discoverer**; fix manifest before any retirement |
 
-- Knowledge index、Google assertions 都是用户可见知识事实源。
-- 治理门：生产写路径必须绑定 immutable eval run/checksum；gate fail、缺报告、过期报告均 fail closed；active 不变和 rollback 是强制测试。
+**Risks**
 
-## P1 — Phase 18 必须解决
+- Double hop: `tools/compat/v1_1/X.py` → `domains.X` facade → `application`/`evaluation` (extra identity surface; `sys.modules` rebind).
+- Shims still teach callers the **old** domain path; new code should use `personal_knowledge.application.*` / `evaluation.*` (`docs/architecture/repository-zones.md`).
+- Retirement preview deferred: `.planning/phases/18-full-repository-governance/18-03-SHIM-RETIREMENT-PREVIEW.md` — **no shim delete authorized** (2026-07-13 DEFERRED).
+- Baseline-only-down: additions must fail `check_shim_budget`; count drift is a governance fail, not a delete trigger.
 
-### 规划状态漂移
+**Actions**
 
-- `.planning/STATE.md` 写 Phase 17 为 4/4 code complete、85%；`.planning/ROADMAP.md` 的进度表仍写 0/4 Planned。
-- `gsd-sdk query progress` 将 Phase 17 识别为 Executed，但旧 Phase 01–04、07、10 因缺 SUMMARY 仍被识别为 Planned；总进度显示 86%，与 ROADMAP 的历史完成声明冲突。
-- 处置：确定唯一关闭契约；为 legacy phase 使用 migration/cancelled/verified summary，不伪造执行证据；CI 加 planning consistency gate。
+1. Align `governance/manifests/entrypoints.yaml` `shim_registry.root` → `tools/compat/v1_1` and re-count expected.
+2. Keep product surface on console scripts (`pk-sync`, `pk-ku`, `rag-search`, … in `pyproject.toml`); do not document shim paths for daily ops.
+3. After **2026-08-13** domain-facade cleanup: re-point shims to **canonical** modules (skip domains hop), then retire leaf-library cohort only with consumer=0 + rollback manifest.
+4. **Do not** bulk-delete this directory.
 
-### 工作树未形成可审计发布单元
+---
 
-- 扫描时有 22 个 modified、67 个 untracked：其中 30 个在 `integration/`、29 个在 `.planning/`、7 个在 `tests/`，另有新 `pytest.ini`。
-- 这不代表文件应删除，但当前难以区分 Phase 17 交付、治理文档、实验探针和本地生成物。
-- 处置：生成 inventory，按 keep/ignore/archive/review 分类；按 phase/concern 拆分提交；任何删除、归档或覆盖需用户确认。
+## 2. `integration/scripts` (mostly pyc + governance)
 
-### 兼容 shim 面过大
+| | |
+|--|--|
+| **Paths** | `D:\ADLINK\数据分析\integration\scripts\` |
+| **Live source** | `governance/*.py` (preflight, shim budget, inventory, path/docs/planning checks, migration apply/plan) |
+| **Residue** | Domain package trees (`knowledge/`, `memory/`, …) populated almost entirely by `__pycache__/*.pyc`; root-level shims **moved** to `tools/compat/v1_1` |
+| **Severity** | **safe-delete** for orphan `*.pyc` / empty package shells after import-smoke; **keep-facade** for `governance/`; **quarantine-first** for any remaining real `.py` that is not governance |
 
-- `integration/scripts/` 根目录有 86 个明确 compatibility shim；另有 `build_google_light_assertions.py` 和 `build_google_normalized_events.py` 同名根/包文件但未被标准 shim 识别。
-- 兼容入口多会扩大导入路径组合、重复测试面和模块身份风险；`test_knowledge_unit_llm.py` 也同时存在根 shim 与 `knowledge/` 实现。
-- 处置：建立 shim manifest（target、consumer、deprecated_since、remove_after）；禁止新增；先迁移调用方和文档，再按使用证据逐批退役。
+**Risks**
 
-### 绝对路径与本机 SDK 假设
+- Stale bytecode: import if someone still puts `integration/scripts` on `sys.path` can load **wrong generation** vs `src/personal_knowledge`.
+- README still describes root shims + `python integration/scripts/build_*.py` (`integration/scripts/README.md`) — **docs lie** post Phase 19/20/21; operators follow dead paths.
+- `cli.py` legacy fallback still probes `…/integration/scripts` when package import fails (`src/personal_knowledge/cli.py`).
+- Manifest / tools.json still reference `integration/scripts/_tools/*` while live tools live under `tools/forensics/`, `tools/migrations/`.
 
-- `integration/scripts/knowledge/build_knowledge_units.py`、`build_knowledge_units_prod.py`、`test_knowledge_unit_llm.py` 硬编码 `C:/Users/li/google-cloud-sdk`。
-- `integration/scripts/services/mcp_server.py` 与根 `README.md` 示例硬编码当前 Desktop 路径。
-- `_tools/compare_l1_l2_retrieval.py` 固定写 `Path.home()/Desktop`，与项目内 report policy 冲突。
-- 处置：统一环境变量/discovery + `project_paths`；CI path-policy 阻断新增绝对路径。Eval fixture 中作为历史 query 内容的路径需标记为 fixture exception，而非机械替换。
+**Actions**
 
-### 依赖不可完全复现
+1. Delete only `__pycache__` under `integration/scripts/**` after confirming no `.py` body remains in those domain subpackages (governance **excluded**).
+2. Rewrite `integration/scripts/README.md` to: “governance + historical cache only; product code = `src/personal_knowledge`; shims = `tools/compat/v1_1`”.
+3. Update `governance/manifests/source/tools.json` inverse paths if `_tools` no longer exists under integration.
+4. Keep `integration/scripts/governance/` until preflight CI entry is moved under `src/personal_knowledge/governance` or `tools/supported`.
 
-- `requirements.txt` 主要使用最低版本范围；torch/sentence-transformers 依赖本机预装且被注释；CI 只测 Python 3.12，本机事实为 Python 3.14。
-- 处置：生成 constraints/lock，区分 core、AI/vector、app、dev extras；3.12/3.14 双矩阵；缺可选依赖时输出可操作错误。
+---
 
-## P2 — 近期持续治理
+## 3. `integration/analysis.bak-phase20` (~65MB)
 
-### 探针与一次性工具没有生命周期
+| | |
+|--|--|
+| **Paths** | `D:\ADLINK\数据分析\integration\analysis.bak-phase20\` |
+| **Live reports** | `var/reports/analysis/` (Phase 20 target); thin live stub `integration/analysis/ai_context/` |
+| **Severity** | **quarantine-first** (not safe-delete while recovery window open) |
+| **Contents** | Historical `ai_context/`, `evaluations/`, `stage1_profile/`, `refactoring/` reports, charts, canary supersets |
 
-- `integration/scripts/_tools/` 有 22 个脚本，包含 `_probe_*`、`_inspect_*`、`_fix_*`、重组脚本和旧 phase eval。
-- 有些是有价值的审计工具，有些是迁移后残留；目前缺 owner、输入风险、是否生产安全、到期日。
-- 处置：分类为 supported-tool / migration / forensic / obsolete-candidate；supported 工具补 `--help`、dry-run 和测试，其余移入只读 archive 前先确认。
+**Risks**
 
-### 模块文档覆盖不足
+- Disk / IDE index noise; privacy class inherits embedded personal analysis labels.
+- Operators may open **bak** paths thinking they are SSOT; live writes should go to `var/reports/analysis/`.
+- Sibling bak surfaces amplify confusion: `integration/db.bak-phase20/`, `integration/runtime.bak-phase20/`, `integration/raw_index.bak-phase20/`, root `Agent.bak-phase20/`, `Google.bak-phase20/`, `imports.bak-phase20/`, `logs.bak-phase20/`, `_recycle.bak-phase20/`.
 
-- `integration/{apps,db,docs,evals,lib,prompts,runtime}` 一级边界无 README；`scripts/` 的 core、knowledge、conversation、memory、graph、vector、services、pipeline、evaluation 无领域 README；`tests/` 也无测试导航。
-- 处置：只在稳定模块边界补 README；叶文件通过 inventory 全覆盖，避免“每层每目录 README”造成新的文档债务。
+**Actions**
 
-### `sys.path` 注入与执行上下文不统一
+1. Confirm live regeneration: canary/eval reports currently written under `var/reports/analysis/ai_context/` (see `docs/runbooks/ku-incremental.md`).
+2. After recovery window close: move entire `*.bak-phase20` cohort into `archive/quarantine/bak-phase20-<date>/` with MANIFEST; hold per `retention.yaml` `archive-quarantine`.
+3. Never import bak trees as Python packages; exclude from tests/inventory default scan.
+4. **never-delete** any bak tree that is the **only** copy of a needed eval evidence until rebuildability proven.
 
-- 多个领域模块和 `_tools` 直接修改 `sys.path`，部分使用相对字符串 `integration/scripts`，使从不同 cwd 启动时行为不同。
-- 处置：逐步包化/模块入口 `python -m ...`；保留 shim 期间用统一 bootstrap helper；新增裸注入由 lint 门阻断。
+---
 
-### CI 质量门仍偏窄
+## 4. `archive/` (~4GB quarantine)
 
-- 当前 `.github/workflows/ci.yml` 只有 pytest；覆盖缺口审计为 `continue-on-error`；Node widget、lint/typecheck、安全、依赖和 planning drift 未覆盖。
-- 处置：先以 baseline 模式引入，不要求旧债一次归零，但任何新增回归阻断；逐阶段降低 baseline。
+| | |
+|--|--|
+| **Paths** | `D:\ADLINK\数据分析\archive\` |
+| **Budget** | `governance/baselines/storage_budgets.yaml` → archive budget 6 GiB (`6442450944`) |
+| **Severity** | **quarantine-first** hold; physical delete = **never** without cohort review |
 
-## P3 — 观察项
+| Subpath | Content | Note |
+|---------|---------|------|
+| `archive/quarantine/_recycle/2026-07-12_structure_cleanup/` | Soft-deleted Agent/Google/GPT trees, raw agent exports, SQLite, empty stubs | ~9k files; depth high; **private** |
+| `archive/quarantine/desktop-strays-20260713/` | Hash-named `.py` strays + `quarantine-manifest.json` | Already manifested |
+| `archive/planning/` | Historical GSD (`.gsd`) | read-only |
+| `archive/vendor-reference/` | Vendored bridge refs | not product import |
 
-- 根 README 已较长，继续增长会产生重复事实；治理后应只保留导航与 quickstart。
-- `.gsd/` 与 `.planning/` 双历史目录可能让工具/人员选错事实源；明确 `.planning/` authoritative，`.gsd/` 只读迁移历史。
-- `_recycle/` 和 `.ai-bridge/` 体量可能显著干扰磁盘扫描、IDE 索引和误检；保持从测试/搜索/治理 inventory 默认排除，同时单独维护 archive manifest。
-- 行尾转换警告显示部分 Markdown/Python 将 LF 转 CRLF；建议增加 `.gitattributes`，避免无意义 diff。
+**Risks**
 
-## 分阶段治理门
+- Accidental scan/import/test of quarantine (policy: not an import source — `archive/README.md`, `docs/architecture/repository-zones.md`).
+- Private conversation dumps under recycle Agent raw trees if tools walk repo root.
+- Storage pressure vs budget (report_only overage, not auto-delete).
 
-| 门 | 阻断条件 | 允许以 baseline 迁移的旧债 |
-|---|---|---|
-| P0 security | secret/PII、私人 DB、未授权生产写入 | 无 |
-| P1 correctness | 测试失败、planning 状态冲突、gate/rollback 缺失 | legacy SUMMARY 可用 migration 记录收口 |
-| P1 reproducibility | 未声明依赖、硬编码新增路径、lock 漂移 | 现有硬编码建清单并逐步归零 |
-| P2 architecture | 新增根业务脚本、新增 shim、跨域循环依赖 | 现有 86 shim 建 baseline |
-| P2 maintainability | 未分类文件、缺 owner/生命周期、文档入口失效 | 67 untracked 必须人工分类，不自动删除 |
+**Actions**
 
-## 推荐 Phase 18 验收结果
+1. Keep gitignore + inventory exclude on `archive/**` private bodies.
+2. Cohort-review `_recycle` only with lineage journal; prefer cold offline storage over in-repo forever.
+3. Do not “clean by deleting” to free space without owner approval.
+4. **safe-delete** only: empty `root_empty_stubs/` style zero-byte noise **inside** quarantine after MANIFEST update (still requires approval).
 
-- 所有非忽略文件由 inventory 分类；所有关键模块有边界 README；生成物/私有数据规则可机器验证。
-- bare pytest、Python 3.12/3.14、Node app tests、lint/security/dependency/planning checks 全绿。
-- shim 数量不增加且有退役清单；硬编码本机路径归零（fixture exception 除外）。
-- ROADMAP、STATE、GSD progress、SUMMARY/VERIFICATION/UAT 一致。
-- 治理 dashboard 可展示未分类文件、shim、测试、依赖、文档覆盖、planning drift 与评测发布门趋势。
+---
 
+## 5. `domains/*` facades (cleanup window **2026-08-13**)
+
+| | |
+|--|--|
+| **Paths** | `src/personal_knowledge/domains/{conversation,graph,knowledge,memory}/*.py` |
+| **Also** | `src/personal_knowledge/retrieval/evaluate_vector_*.py`, `compare_*_generations.py` → `evaluation/vector/` |
+| **Severity** | **keep-facade** until 2026-08-13; then remove after import migration |
+| **Canonical** | `application/{conversation,graph,knowledge,memory}/`, `evaluation/{…,vector}/`, `core/llm.py` |
+| **Sole non-facade domain logic** | `domains/knowledge/migrate_add_knowledge_unit_tables.py` (`SCHEMA_SQL`) — **never-delete** without schema migration plan |
+
+**Pattern** (example `domains/knowledge/refresh_knowledge_units.py`):
+
+```text
+_canonical = import_module("personal_knowledge.application.knowledge.refresh_knowledge_units")
+sys.modules[__name__] = _canonical
+```
+
+**Risks**
+
+- New code still imports `domains.*` → cleanup breakage after 2026-08-13.
+- `tools/compat/v1_1` targets `domains.*` today — facade removal **breaks shims** unless retargeted first.
+- Residual: `retrieval/memory.py` lazy-imports `domains.graph.query_graph` (Phase 21 deferred, `21-VERIFICATION.md`).
+- ~63 facades counted at Phase 21 complete.
+
+**Actions (ordered)**
+
+1. Grep/CI: ban new `from personal_knowledge.domains…` outside tests/shims (new code → application/evaluation/core).
+2. Before window end: retarget `tools/compat/v1_1` → application/evaluation canonical.
+3. Fix `retrieval/memory.py` to import `application.graph.query_graph` (or retrieval-local API).
+4. On/after 2026-08-13: delete facade modules only; **keep** `migrate_add_knowledge_unit_tables.py` + domain `__init__`/README stating rules-only.
+5. Re-run architecture-boundary + import smoke + REST/MCP health.
+
+---
+
+## 6. `rag-pipeline` / memory experimental path
+
+| | |
+|--|--|
+| **CLI** | `rag-pipeline` → `personal_knowledge.cli:pipeline` (`pyproject.toml`) |
+| **Impl** | `src/personal_knowledge/application/run_pipeline.py` (steps 1–12: integrated system, PE enrich, memory store/graph, vectors, context docs) |
+| **Severity** | **keep-facade** (retired redirect + forensics); underlying modules **never-delete** until experimental data lifecycle closed |
+
+**Behavior**
+
+- Default: print redirect to `pk-sync` / `pk-ku`, **exit 2**.
+- Forensics only: `PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated`.
+- Memory / `personal_events` vectors are **not** knowledge SSOT (`AGENTS.md`, `docs/runbooks/product-sync.md`).
+
+**Risks**
+
+- Agents/docs outside repo still teach `rag-pipeline` or `run_pipeline` for “daily sync”.
+- Accidental legacy run **rebuilds** `personal_system.sqlite` / memory layers (paid + destructive relative to PE rebuild step 1).
+- Experimental memory tables/collections can be mistaken for KU active index.
+
+**Actions**
+
+1. Product path only: `pk-sync conversations [--write]` then optional `pk-ku …`.
+2. Leave CLI stub forever or until all external docs updated; do not remove env gate.
+3. Treat memory promotion/apply scripts as experimental: no auto-chain from `pk-sync`.
+4. Docs that still say “run integration/scripts/run_pipeline.py” (e.g. stale root snippets) must point to `pk-sync`.
+
+---
+
+## 7. CLI gaps: canary, watermark advance, Google sync (not on `pk-ku` yet)
+
+Product KU CLI: `src/personal_knowledge/application/ku.py` + entry `pk-ku`.
+
+| Capability | Exists in code? | On `pk-ku`? | Operator today |
+|------------|-----------------|-------------|----------------|
+| inspect / prepare / extract / status / extract-gate / canonical / publish / vector / promote / workflow | Yes | **Yes** | `pk-ku …` |
+| Watermark **floor** on prepare (`--extract-since-watermark`) | Yes | **Yes** (policy flag only) | prepare flags |
+| Watermark **advance** / journal commit (`advance_watermark`, journal commit in `refresh_knowledge_units.py`) | Yes | **No** dedicated subcommand | module / promote-adjacent journal APIs — easy to skip or call wrong |
+| Canary eval | Yes — `evaluation/knowledge/evaluate_knowledge_canary.py` (also domain facade) | **No** | `python -m personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary …` then `pk-ku promote --require-eval-pass` |
+| Google activity sync / light assertions / normalized events | Yes — `application/build_google_*`, `application/google_structure_lifecycle.py`, adapters | **No** on `pk-ku` or `pk-sync` | manual `python -m personal_knowledge.application.…` |
+| Full inventory backfill | Yes | **Intentionally absent** | see §8 |
+
+**Risks**
+
+- Operators finish extract/publish/vector but **never advance watermark** → prepare floors / baselines drift; inspect vs prepare conflicts (known defect note in `ku-incremental.md`).
+- Canary stays at `gate.status=pending_labels` while humans promote without labels if they skip `--require-eval-pass`.
+- Google pipeline remains tribal knowledge; easy to re-run wrong generation or mix with KU path.
+
+**Actions**
+
+1. Add (when productizing): `pk-ku canary …` wrapping evaluate_knowledge_canary; `pk-ku watermark show|advance` bound to journal preconditions.
+2. Add `pk-sync google` (or `pk-google`) only after runbook parity with conversation sync.
+3. Until then: document exact module commands in runbooks (already partially in `ku-incremental.md` Step E) — **do not** paper over by editing application code for daily ops.
+
+---
+
+## 8. Full inventory backfill still via modules (not `pk-ku`)
+
+| | |
+|--|--|
+| **Modules** | `application/knowledge/build_knowledge_inventory.py`, `build_knowledge_units_prod.py` |
+| **Intent** | Phase 14 **KU-05** rare production backfill — freeze **all** eligible evidence |
+| **Severity** | Capability **never-delete**; daily invocation **forbidden** (process, not code delete) |
+
+**Hard product rule** (`docs/runbooks/ku-incremental.md`, `docs/AGENTS.md`):
+
+- Daily: delta only via `pk-ku`.
+- Full freeze + `prod --start` **not** exposed on `pk-ku` by design.
+- `pk-ku extract` rejects non-`ir_*` / non-incremental runs unless `PK_KU_ALLOW_NON_INCREMENTAL_RUN=1`.
+
+**Risks**
+
+- Agents treat “prepare no_op” as permission to full-inventory (see §9).
+- Direct module CLI still fully available — guard is social/docs + env flags, not hard removal.
+
+**Actions**
+
+1. Keep full inventory **off** `pk-ku`.
+2. Optional: require second env flag for `build_knowledge_inventory --write` in production DBs.
+3. Planned backfill only with written inventory_id, cost estimate, human approval.
+
+---
+
+## 9. Mistaken full KU runs still in DB (data not code)
+
+| | |
+|--|--|
+| **Severity** | **never-delete** blind rows; **quarantine-first** operational handling |
+| **Evidence** | `docs/runbooks/ku-incremental.md` §4 **Incident 2026-07-16** |
+
+**Incident facts (documented)**
+
+- Agent ran **full inventory** after prepare `no_op` while inspect showed ~4k `new_refs`.
+- Process stopped; **active pointer left unchanged** (`var/db/knowledge_index_active.txt`).
+- Forbidden: resume mistaken full-inventory run “until pending=0”.
+
+**Later successful delta cycle (same doc, reference)**
+
+- Run `ir_4cd8af4ad31ccdc2` / delta `di_9e002cdac7af1460` — extract/canonical/publish/vector path; canary pending_labels; active still `knowledge_units_205bff9560b9_20260712142938`.
+
+**Where residue lives (data plane)**
+
+- KU run / item ledgers inside project SQLite under `var/db/` (and any canonical KU tables) — not in git.
+- May include full-inventory `run_id`s with pending/failed items, partial staging, or orphan candidate Chroma collections.
+- Active pointer and knowledge SSOT must **not** be rewritten to “finish” those runs.
+
+**Actions**
+
+1. Inventory mistaken runs: list run_ids with full-inventory lineage; mark status abandoned in ops notes (no mass SQL delete without journal).
+2. Do **not** `--resume` those run_ids for daily work.
+3. Orphan Chroma candidates: report via vector generation compare tools; delete collections only after rebuildability + approval (retention derived-artifact policy).
+4. Fix prepare/delta defect (inspect≠prepare) so agents are not tempted; treat as product bug not operator inventiveness.
+5. Code changes do not erase ledger rows — cleanup is **data ops**, tracked outside this file’s code disposal classes.
+
+---
+
+## Cross-cutting risk matrix
+
+| Concern | Primary severity | Blocks product? | Next concrete step |
+|---------|------------------|-----------------|--------------------|
+| Shim path + entrypoints.yaml drift | keep-facade | No (governance fail) | Fix `entrypoints.yaml` root/count |
+| integration/scripts pyc husks | safe-delete (cache) | No | Purge `__pycache__`; rewrite README |
+| analysis.bak-phase20 + root `*.bak-phase20` | quarantine-first | No | Cohort archive after recovery window |
+| archive/ ~4GB | quarantine-first | No | Hold; optional offline cold storage |
+| domains facades → 2026-08-13 | keep-facade | Yes after window if unmigrated | Retarget shims; grep ban domains imports |
+| rag-pipeline / memory batch | keep-facade (retired) | Yes if misused | Keep exit-2; never document as daily |
+| CLI gaps (canary/watermark/google) | process gap | Partial | Module runbook until CLI exists |
+| Full inventory modules | never-delete capability | Yes if misused | Env/process gates; no pk-ku expose |
+| Mistaken full KU DB rows | data quarantine | Cost/quota risk | Abandon runs; never resume to zero |
+
+---
+
+## Explicit never-delete (code/control plane)
+
+- `src/personal_knowledge/application/ku.py`, `sync.py`, `cli.py` product entries  
+- `src/personal_knowledge/application/knowledge/refresh_knowledge_units.py` and KU ledger writers  
+- `domains/knowledge/migrate_add_knowledge_unit_tables.py` (`SCHEMA_SQL`)  
+- `data/canonical/**` dialogue + knowledge SSOT (private data)  
+- `var/db/knowledge_index_active.txt` + active Chroma generation contracts  
+- `governance/policies/*`, evaluation public contracts under `assets/evals/`  
+- AgentsView live DB path (external) — never relocate/write  
+
+---
+
+## Mapping notes
+
+- Supersedes prior `.planning/codebase/CONCERNS.md` body focused on Phase 18 general governance; that content is partially absorbed into P0/P1 themes above where still true (shim budget, private data, promote-without-eval).
+- Physical sizes (~65MB bak analysis, ~4GB archive) are operator-scale estimates from zone layout + prior planning; re-measure with metadata-only inventory before disposal approvals.
+- `automatic_delete: prohibited` remains global default.
