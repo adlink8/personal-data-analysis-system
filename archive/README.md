@@ -7,4 +7,18 @@
 | `vendor-reference/.ai-bridge/` | Vendored bridge reference material |
 
 Not an import source, not a test root, not a runtime dependency.
-Recovery from Phase 20 cutover may also use sibling `*.bak-phase20` trees at the repo root during the compatibility window.
+
+## Quarantine (2026-07-16)
+
+Phase 20 recovery backups that previously lived as sibling `*.bak-phase20` trees
+(repo root + `integration/*`) were **moved** (not deleted) to:
+
+`archive/quarantine/bak-phase20-20260716/`
+
+Tracked summary: `.planning/cleanup/2026-07-16-safe-cleanup.md`.  
+Physical delete of quarantine still requires owner + retention journal.
+
+## Quarantine notes
+
+- 2026-07-16: Phase 20 `*.bak-phase20` trees moved to `quarantine/bak-phase20-20260716/` (see tracked log `.planning/cleanup/2026-07-16-safe-cleanup.md`).
+
