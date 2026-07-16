@@ -11,9 +11,9 @@ Does not rebuild Chroma; run build_knowledge_unit_vector_store after.
 
 Usage::
 
-    python -m personal_knowledge.domains.knowledge.merge_l2_into_canonical --dry-run
-    python -m personal_knowledge.domains.knowledge.merge_l2_into_canonical --write
-    python -m personal_knowledge.domains.knowledge.merge_l2_into_canonical --write --run-id 205bff…
+    python -m personal_knowledge.application.knowledge.merge_l2_into_canonical --dry-run
+    python -m personal_knowledge.application.knowledge.merge_l2_into_canonical --write
+    python -m personal_knowledge.application.knowledge.merge_l2_into_canonical --write --run-id 205bff…
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from personal_knowledge.core.project_paths import UNIFIED_DB, AI_CONTEXT_DIR
-from personal_knowledge.domains.knowledge.build_canonical_knowledge_units import (
+from personal_knowledge.application.knowledge.build_canonical_knowledge_units import (
     _canonical_id,
     compute_similarity,
 )

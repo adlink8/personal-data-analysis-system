@@ -3,7 +3,7 @@
 import sqlite3
 
 from personal_knowledge.core.project_paths import UNIFIED_DB
-from personal_knowledge.domains.knowledge.build_knowledge_units_prod import resume_run, process_run
+from personal_knowledge.application.knowledge.build_knowledge_units_prod import resume_run, process_run
 
 run_id = '731a6a8a0994ae9a5ae94a117b58dd1e'
 model = 'gemini-3.5-flash'

@@ -305,7 +305,7 @@ def write_duckdb(units: list[TurnUnit], dry: bool) -> dict:
     """Deprecated: 禁用旧伪关系 DuckDB 写入入口。"""
     _ = units, dry
     raise RuntimeError(
-        "DuckDB pseudo-graph path is deprecated; use \"python -m personal_knowledge.domains.conversation.build_conversation_graph --write\" instead."
+        "DuckDB pseudo-graph path is deprecated; use \"python -m personal_knowledge.application.conversation.build_conversation_graph --write\" instead."
     )
 
 

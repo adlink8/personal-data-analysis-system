@@ -14,8 +14,8 @@
 - 执行前先做 collection-summary 一致性门禁,避免用过期向量库生成候选
 
 用法:
-  python -m personal_knowledge.domains.graph.build_graph_relation_candidates --dry-run
-  python -m personal_knowledge.domains.graph.build_graph_relation_candidates --write --limit 100
+  python -m personal_knowledge.application.graph.build_graph_relation_candidates --dry-run
+  python -m personal_knowledge.application.graph.build_graph_relation_candidates --write --limit 100
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ def preflight_vector_sync(turn_map: dict[str, dict]) -> dict:
     coll_info = client._find_collection_by_name(COLLECTION_NAME)
     if not coll_info:
         raise RuntimeError(
-            'conversation_turns collection 不存在; 先运行 "python -m personal_knowledge.domains.conversation.build_conversation_vector_store --write"'
+            'conversation_turns collection 不存在; 先运行 "python -m personal_knowledge.application.conversation.build_conversation_vector_store --write"'
         )
     coll = client.get_or_create_collection(COLLECTION_NAME)
     actual_count = coll.count()
@@ -132,7 +132,7 @@ def preflight_vector_sync(turn_map: dict[str, dict]) -> dict:
     if actual_count != expected_count:
         raise RuntimeError(
             f'conversation_turns 过期: expected={expected_count}, actual={actual_count}; '
-            '先重跑 "python -m personal_knowledge.domains.conversation.build_conversation_vector_store --write"'
+            '先重跑 "python -m personal_knowledge.application.conversation.build_conversation_vector_store --write"'
         )
     if sample_missing_required > 0:
         raise RuntimeError(

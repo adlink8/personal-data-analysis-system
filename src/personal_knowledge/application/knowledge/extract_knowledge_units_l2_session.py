@@ -6,10 +6,10 @@ cross-turn context. Evidence quotes must match a concrete cm| message.
 
 Usage::
 
-    python -m personal_knowledge.domains.knowledge.extract_knowledge_units_l2_session --dry-run
-    python -m personal_knowledge.domains.knowledge.extract_knowledge_units_l2_session --write --limit 20
-    python -m personal_knowledge.domains.knowledge.extract_knowledge_units_l2_session --write --resume <run_id>
-    python -m personal_knowledge.domains.knowledge.extract_knowledge_units_l2_session --status <run_id>
+    python -m personal_knowledge.application.knowledge.extract_knowledge_units_l2_session --dry-run
+    python -m personal_knowledge.application.knowledge.extract_knowledge_units_l2_session --write --limit 20
+    python -m personal_knowledge.application.knowledge.extract_knowledge_units_l2_session --write --resume <run_id>
+    python -m personal_knowledge.application.knowledge.extract_knowledge_units_l2_session --status <run_id>
 """
 
 from __future__ import annotations
@@ -26,13 +26,13 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from personal_knowledge.core.project_paths import UNIFIED_DB, AGENT_CONVERSATIONS_DB, AI_CONTEXT_DIR
-from personal_knowledge.domains.knowledge.build_knowledge_units import (
+from personal_knowledge.application.knowledge.build_knowledge_units import (
     ExtractionResult,
     strip_system_injections,
     is_meaningful,
     _clean_json,
 )
-from personal_knowledge.domains.knowledge.build_knowledge_units_prod import (
+from personal_knowledge.application.knowledge.build_knowledge_units_prod import (
     call_llm_with_retry,
     TokenProvider,
     RequestRateLimiter,
@@ -42,8 +42,8 @@ from personal_knowledge.domains.knowledge.build_knowledge_units_prod import (
     DEFAULT_WORKERS,
     DEFAULT_MIN_REQUEST_INTERVAL,
 )
-from personal_knowledge.domains.knowledge.knowledge_unit_pipeline import RunManifest
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+from personal_knowledge.application.knowledge.knowledge_unit_pipeline import RunManifest
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
 
 PROMPT_PATH = (
     Path(__file__).resolve().parents[4] / "assets" / "prompts" / "knowledge_unit_extractor" / "v1_session_window.md"

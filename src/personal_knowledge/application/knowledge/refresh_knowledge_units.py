@@ -236,8 +236,8 @@ def _build_incremental_pipeline_commands(
         "step": "1_incremental_extraction",
         "description": f"对 {len(new_refs)} 个新增 evidence refs 执行 LLM 抽取",
         "command": (
-            f"python -m personal_knowledge.domains.knowledge.build_knowledge_units_prod "
-            f"--resume {run_id} --model gemini-3.5-flash --max-items {len(new_refs)}"
+            f"pk-ku extract --run {run_id} "
+            f"--model gemini-3.5-flash --max-items {len(new_refs)}"
         ),
         "requires_approval": True,
         "run_id": run_id,
@@ -248,10 +248,7 @@ def _build_incremental_pipeline_commands(
     commands.append({
         "step": "2_canonical_rebuild",
         "description": "重建受影响 subjects 的 canonical units",
-        "command": (
-            f"python -m personal_knowledge.domains.knowledge.build_canonical_knowledge_units "
-            f"--run {run_id} --write"
-        ),
+        "command": f"pk-ku canonical --run {run_id} --write",
         "requires_approval": True,
         "run_id": run_id,
         "depends_on": "1_incremental_extraction",
@@ -260,9 +257,7 @@ def _build_incremental_pipeline_commands(
     commands.append({
         "step": "3_candidate_build",
         "description": "构建增量 candidate 并 reconcile",
-        "command": (
-            "python -m personal_knowledge.domains.knowledge.build_knowledge_unit_vector_store --write"
-        ),
+        "command": "pk-ku vector --write",
         "requires_approval": True,
         "depends_on": "2_canonical_rebuild",
     })
@@ -271,7 +266,7 @@ def _build_incremental_pipeline_commands(
         "step": "4_ab_eval",
         "description": "对增量 candidate 执行 frozen A/B + hybrid eval",
         "command": (
-            "python -m personal_knowledge.domains.knowledge.evaluate_knowledge_unit_rag "
+            "python -m personal_knowledge.evaluation.knowledge.evaluate_knowledge_unit_rag "
             "--dataset hybrid --report integration/analysis/ai_context/knowledge_unit_incremental_eval.json"
         ),
         "requires_approval": False,
@@ -687,7 +682,7 @@ def prepare_delta(
         raise ValueError("model is required — fail closed, no silent fallback")
 
     # Ensure schema (idempotent)
-    from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+    from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
     con = sqlite3.connect(str(db_path))
     con.executescript(SCHEMA_SQL)
     con.close()
@@ -1370,7 +1365,7 @@ def run_sandbox_ku08_e2e(
     _mk_canon(canon_before, base)
     _mk_canon(canon_after, after)
 
-    from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+    from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
 
     con = sqlite3.connect(str(unified))
     con.executescript(SCHEMA_SQL)
@@ -1470,7 +1465,7 @@ def prepare_production_delta(
         raise ValueError("model is required — fail closed")
 
     # Ensure schema (idempotent)
-    from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+    from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
 
     con = sqlite3.connect(str(db_path))
     con.executescript(SCHEMA_SQL)

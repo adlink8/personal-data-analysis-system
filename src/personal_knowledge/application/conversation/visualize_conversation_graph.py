@@ -3,8 +3,8 @@
 从 conversation_graph.duckdb 读取当前 accepted 图谱，导出本地交互式 HTML。
 
 运行:
-  python -m personal_knowledge.domains.conversation.visualize_conversation_graph
-  python -m personal_knowledge.domains.conversation.visualize_conversation_graph --open
+  python -m personal_knowledge.application.conversation.visualize_conversation_graph
+  python -m personal_knowledge.application.conversation.visualize_conversation_graph --open
 """
 
 from __future__ import annotations

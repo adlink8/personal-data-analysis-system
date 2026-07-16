@@ -50,8 +50,8 @@ _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 from personal_knowledge.core.project_paths import UNIFIED_DB, AGENT_CONVERSATIONS_DB  # noqa: E402
 from personal_knowledge.core.runtime_config import gcloud_access_token, vertex_config  # noqa: E402
-from personal_knowledge.domains.knowledge.knowledge_unit_pipeline import RunManifest  # noqa: E402
-from personal_knowledge.domains.knowledge.build_knowledge_units import (  # noqa: E402
+from personal_knowledge.application.knowledge.knowledge_unit_pipeline import RunManifest  # noqa: E402
+from personal_knowledge.application.knowledge.build_knowledge_units import (  # noqa: E402
     KnowledgeUnit, ExtractionResult, strip_system_injections, is_meaningful,
     _clean_json, PROMPT_PATH, PROMPT_VERSION,
 )

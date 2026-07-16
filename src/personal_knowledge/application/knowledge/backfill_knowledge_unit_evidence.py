@@ -5,11 +5,10 @@
 
 用法::
 
-    python -m knowledge.backfill_knowledge_unit_evidence
-    python -m knowledge.backfill_knowledge_unit_evidence --dry-run
-    python -m knowledge.backfill_knowledge_unit_evidence --write
-    python -m knowledge.backfill_knowledge_unit_evidence --write --limit 1000
-    python -m personal_knowledge.domains.knowledge.backfill_knowledge_unit_evidence --dry-run
+    python -m personal_knowledge.application.knowledge.backfill_knowledge_unit_evidence
+    python -m personal_knowledge.application.knowledge.backfill_knowledge_unit_evidence --dry-run
+    python -m personal_knowledge.application.knowledge.backfill_knowledge_unit_evidence --write
+    python -m personal_knowledge.application.knowledge.backfill_knowledge_unit_evidence --write --limit 1000
 """
 
 from __future__ import annotations

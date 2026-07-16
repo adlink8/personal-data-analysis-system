@@ -50,7 +50,7 @@ def load_turn_units() -> list[dict]:
     """
     if not SUMMARIES_JSON.exists():
         print(f"[error] 缺少 summary 产物: {SUMMARIES_JSON.relative_to(ROOT)}")
-        print("        先运行: python -m personal_knowledge.domains.conversation.build_conversation_summary --write")
+        print("        先运行: python -m personal_knowledge.application.conversation.summary --write")
         return []
 
     data = json.loads(SUMMARIES_JSON.read_text(encoding="utf-8"))

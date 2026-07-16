@@ -22,7 +22,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 from personal_knowledge.core.project_paths import UNIFIED_DB, AI_CONTEXT_DIR  # noqa: E402
-from personal_knowledge.domains.knowledge.evaluate_knowledge_unit_extraction import evaluate_run  # noqa: E402
+from personal_knowledge.evaluation.knowledge.evaluate_knowledge_unit_extraction import evaluate_run  # noqa: E402
 
 REPORT_PATH = AI_CONTEXT_DIR / "knowledge_unit_pilot_report.json"
 

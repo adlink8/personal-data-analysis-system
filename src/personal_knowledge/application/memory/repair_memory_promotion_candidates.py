@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from personal_knowledge.core import llm as llm_mod
-from personal_knowledge.domains.memory import evaluate_memory_promotion_candidates as eval_mod
+from personal_knowledge.evaluation.memory import evaluate_memory_promotion_candidates as eval_mod
 ROOT = Path(__file__).resolve().parents[4]
 DB_PATH = ROOT / "integration" / "db" / "personal_system.sqlite"
 PROMPT_DIR = ROOT / "assets" / "prompts" / "gate_repair_loop"

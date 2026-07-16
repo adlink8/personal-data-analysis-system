@@ -20,16 +20,16 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 | **7. Eval / canary** | **88** | yes | LLM labels + human triage; **strict PASS**; Phase 17 gold still open |
 | **8. Ops / docs** | 90 | yes | Runbooks + AGENTS; **`pk-ku doctor`** (DBs, active pointer, watermark info, ports warn-only) |
 | **9. Governance / tests** | 90 | yes | Doctor unit tests + reconcile/history CLI tests; pytest path green |
-| **10. Facade / debt** | **68** | **no** | Inventory: **16** domain import lines / **10** files under `application/` (see 22-FACADE-INVENTORY.md); retire window 2026-08-13; no mass rewrite in 22-04 |
+| **10. Facade / debt** | **88** | yes | **application → domains real imports = 0** (2026-07-16 rewrite); domains package remains as re-export shims until optional 2026-08-13 package delete |
 
 ### Overall
 
 | Metric | Value |
 |--------|------:|
-| Simple average | **~86** |
-| Weighted (product daily = 2×, lifecycle 1.5×, publish 1.5×) | **~87** |
+| Simple average | **~88** |
+| Weighted (product daily = 2×, lifecycle 1.5×, publish 1.5×) | **~89** |
 | P0 open | **0** on daily publish path |
-| **Product-grade daily?** | **Yes (~87)** for local daily ops; eval-grade still needs Phase 17 human + lifecycle write discipline |
+| **Product-grade daily?** | **Yes (~89)**; Phase 17 human gold + optional domains package delete remain polish |
 
 ### Score deltas vs pre-22 (~72 weighted)
 
@@ -55,7 +55,7 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 | G2 | Growth-line read + retrieval current-only | **Shipped** (`pk-ku history`) | Harden retrieval filters if any leak |
 | G3 | Canary critical triage → strict PASS | **Done 2026-07-16** (human triage + strict PASS) | — |
 | G4 | Promote latest candidate after PASS + watermark | **Done 2026-07-16** (active=ir_4cd8af; wm match) | — |
-| G5 | Facade import cleanup for product path | **Inventory only** (16 lines) | M before 2026-08-13 |
+| G5 | Facade import cleanup for product path | **Done 2026-07-16** (application imports 0; domains package still optional shim) | Optional package delete after window |
 
 ### Should close (product polish)
 
@@ -99,6 +99,6 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 
 1. ~~Ops: canary → promote → watermark~~ **DONE 2026-07-16**.  
 2. Optional: `pk-ku reconcile` dry-run on hot subjects; write only with `--i-know`.  
-3. Before **2026-08-13**: rewrite remaining 16 `domains` imports (see `22-FACADE-INVENTORY.md`).  
+3. ~~Rewrite application→domains imports~~ **DONE 2026-07-16** (count 0). Optional: delete `domains/` package after external consumers zero.  
 4. Phase 17 human gold/judge when scheduled.  
 5. Optional: start REST/MCP (`start-services.ps1`) for live retrieval smoke on new active.

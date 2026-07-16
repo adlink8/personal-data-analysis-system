@@ -11,7 +11,7 @@
 
 用法::
 
-    from personal_knowledge.domains.knowledge.knowledge_unit_pipeline import RunManifest, StagingPublisher
+    from personal_knowledge.application.knowledge.knowledge_unit_pipeline import RunManifest, StagingPublisher
 
     manifest = RunManifest.create(run_type='extraction', ...)
     publisher = StagingPublisher(manifest, db_path=UNIFIED_DB)
