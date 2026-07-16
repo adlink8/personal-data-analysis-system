@@ -13,16 +13,17 @@
 | 目的 | 命令 |
 |------|------|
 | 同步本地对话 → 项目 SSOT | `pk-sync conversations` / `pk-sync conversations --write` |
-| KU 增量（先看 delta） | `python -m personal_knowledge.application.knowledge.refresh_knowledge_units --inspect` |
-| KU 完整步骤 | **必读** [`docs/runbooks/ku-incremental.md`](docs/runbooks/ku-incremental.md) |
+| KU 增量产品入口 | **`pk-ku`**（`inspect` / `prepare` / `extract` / `status` / `canonical` / `promote`） |
+| KU 流程说明 | `pk-ku workflow` · **必读** [`docs/runbooks/ku-incremental.md`](docs/runbooks/ku-incremental.md) |
 | 启动 REST + MCP + Tunnel | `apps/personal_data_chatgpt/scripts/启动服务.bat` 或 `start-services.ps1` |
 | 检索 CLI | `rag-search …` |
 
 **已退役（不要当产品路径）：** `rag-pipeline`（统合 1–12 步 / personal_events+memory 批处理）。  
-调用会 exit 2 并提示改用 `pk-sync`。取证才用 `PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated`。
+调用会 exit 2 并提示改用 `pk-sync` / `pk-ku`。取证才用 `PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated`。
 
-**知识 SSOT** = KU + active index（`application/knowledge/*`），不是 memory 实验层。  
-**KU 硬规则：** 只抽 inspect 给出的新增/变更；**禁止**日常 `build_knowledge_inventory --write` + `prod --start` 全量重抽。  
+**知识 SSOT** = KU + active index，不是 memory 实验层。  
+**KU 硬规则：** 日常只用 `pk-ku`；只抽 prepare 队列（默认 watermark 后新增）；**禁止**全量 inventory + `prod --start`。  
+策略调整走 CLI flag，**不要为日常运行改代码**。  
 若 `inspect` 有 delta 而 `prepare` 为 `no_op` → **停**，不要换全量路径。
 
 ---

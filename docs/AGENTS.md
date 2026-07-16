@@ -63,19 +63,22 @@ Details: `docs/runbooks/product-sync.md`.
 #### Required order
 
 ```text
-1) pk-sync conversations [--write]     # if dialogue grew
-2) refresh_knowledge_units --inspect # record new_refs_count
-3) refresh_knowledge_units --prepare # delta artifact only (no LLM)
-4) ONLY IF prepare has non-empty delta → build_knowledge_units_prod on THAT run
-5) canonical units → candidate vector store
-6) eval gate → promote_knowledge_index (active last)
+1) pk-sync conversations [--write]   # if dialogue grew
+2) pk-ku inspect                     # record new_refs_count
+3) pk-ku prepare --model …           # delta queue only (no LLM); policy via flags
+4) ONLY IF prepare has non-empty extract_item_count → pk-ku extract --run ir_*
+5) pk-ku canonical --run … --write → candidate vector store
+6) eval gate → pk-ku promote --collection … --require-eval-pass …
 ```
 
 ```powershell
 $env:PERSONAL_DATA_GCLOUD = "<path-to-gcloud.bat>"   # if gcloud not on PATH
-python -m personal_knowledge.application.knowledge.refresh_knowledge_units --inspect
-# prepare / prod flags: see ku-incremental.md
+pk-ku workflow          # print full flow
+pk-ku inspect
+# prepare / extract flags: pk-ku prepare -h | docs/runbooks/ku-incremental.md
 ```
+
+**Do not change KU application code for daily policy tweaks** — use `pk-ku prepare` flags (`--since`, `--roles`, `--max-extract-items`, …).
 
 #### Hard rules (KU)
 
@@ -238,8 +241,9 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 |--------|---------|
 | Sync conversations (dry) | `pk-sync conversations` |
 | Sync conversations (write) | `pk-sync conversations --write` |
-| KU inspect (delta) | `python -m personal_knowledge.application.knowledge.refresh_knowledge_units --inspect` |
-| KU prepare (no LLM) | `refresh_knowledge_units --prepare --model … --provider vertex_google --endpoint https://aiplatform.googleapis.com --auth-mode gcloud` |
+| KU product CLI | **`pk-ku`** (`inspect` / `prepare` / `extract` / `status` / `canonical` / `promote` / `workflow`) |
+| KU inspect (delta) | `pk-ku inspect` |
+| KU prepare (no LLM) | `pk-ku prepare --model … --provider vertex_google --endpoint https://aiplatform.googleapis.com --auth-mode gcloud` |
 | KU extract status | `build_knowledge_units_prod --status <run_id>` |
 | KU full procedure | **[runbooks/ku-incremental.md](runbooks/ku-incremental.md)** |
 | Legacy pipeline help | `pk-sync help-legacy` |

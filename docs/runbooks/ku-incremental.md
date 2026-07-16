@@ -12,14 +12,20 @@
 **Daily / after conversation sync: only extract the delta (new/modified evidence).  
 Never start a full frozen inventory production run as a substitute.**
 
+**Product CLI (preferred):** `pk-ku` — policy and batching via flags; do not change application code for daily ops.
+
 | Intent | Allowed? | Entry |
 |--------|----------|--------|
-| See if source changed | Yes | `refresh_knowledge_units --inspect` |
-| Freeze **delta** preflight (no LLM) | Yes when it works | `refresh_knowledge_units --prepare …` |
-| Extract **only new/modified** refs | Yes (design goal) | Delta inventory + `build_knowledge_units_prod --resume` / incremental commands from refresh |
-| Freeze **full** inventory + `--start` whole ledger | **No for daily** | Only **planned production backfill / rebuild** (KU-05), never as “prepare failed” fallback |
-| Promote to active | Yes after eval | `promote_knowledge_index` (+ prefer `--require-eval-pass`) |
+| See if source changed | Yes | **`pk-ku inspect`** |
+| Freeze **delta** preflight (no LLM) | Yes when it works | **`pk-ku prepare …`** (policy flags) |
+| Extract **only delta queue** | Yes (design goal) | **`pk-ku extract --run <ir_…>`** |
+| Run status | Yes | **`pk-ku status --run …`** |
+| Canonical units | Yes after extract | **`pk-ku canonical --run … --write`** |
+| Promote to active | Yes after eval | **`pk-ku promote --collection … --require-eval-pass …`** |
+| Freeze **full** inventory + prod `--start` whole ledger | **No for daily** | Not exposed on `pk-ku`; KU-05 backfill only via explicit underlying modules |
 | `rag-pipeline` for KU | **No** | Retired |
+
+Underlying modules (`refresh_knowledge_units`, `build_knowledge_units_prod`, …) remain for forensics; **operators and agents should use `pk-ku`**.
 
 ---
 
@@ -69,7 +75,8 @@ Also:
 ### Step A — Inspect (required, free)
 
 ```powershell
-python -m personal_knowledge.application.knowledge.refresh_knowledge_units --inspect
+pk-ku inspect
+# equivalent: python -m personal_knowledge.application.ku inspect
 ```
 
 Record:
@@ -88,8 +95,7 @@ Record:
 ### Step B — Prepare delta artifact (free metadata)
 
 ```powershell
-python -m personal_knowledge.application.knowledge.refresh_knowledge_units `
-  --prepare `
+pk-ku prepare `
   --model gemini-3.5-flash `
   --provider vertex_google `
   --endpoint "https://aiplatform.googleapis.com" `
@@ -97,7 +103,7 @@ python -m personal_knowledge.application.knowledge.refresh_knowledge_units `
   --artifact var\reports\analysis\ai_context\knowledge_incremental_delta.json
 ```
 
-**Extract-queue policy is CLI-controlled** (do not hardcode in agent ad-hoc scripts). Defaults are safe daily incremental:
+**Extract-queue policy is CLI-controlled** (do not hardcode in agent scripts; do not edit source for daily ops). Defaults are safe daily incremental:
 
 | Flag | Default | Meaning |
 |------|---------|---------|
@@ -113,19 +119,17 @@ Examples:
 
 ```powershell
 # Only user messages since 2026-07-13, cap 100
-python -m personal_knowledge.application.knowledge.refresh_knowledge_units `
-  --prepare --model gemini-3.5-flash --provider vertex_google `
+pk-ku prepare --model gemini-3.5-flash --provider vertex_google `
   --endpoint "https://aiplatform.googleapis.com" --auth-mode gcloud `
   --roles user --since 2026-07-13 --max-extract-items 100
 
-# Include modified + full post-baseline new (no watermark date floor)
-python -m personal_knowledge.application.knowledge.refresh_knowledge_units `
-  --prepare --model gemini-3.5-flash --provider vertex_google `
+# Include modified + no watermark date floor
+pk-ku prepare --model gemini-3.5-flash --provider vertex_google `
   --endpoint "https://aiplatform.googleapis.com" --auth-mode gcloud `
   --no-extract-new-only --no-extract-since-watermark
 ```
 
-Read `extract_item_count` / `fresh_run_id` from the JSON artifact before any paid `--resume`.
+Read `extract_item_count` / `fresh_run_id` from the JSON artifact before any paid extract.
 
 Expect non-paid: `production_llm_calls=0`, `active_changed=false`.
 
@@ -144,19 +148,17 @@ Known implementation note (2026-07): when a committed watermark exists, `prepare
 **Preferred (when prepare produced a fresh run bound to delta):**
 
 ```powershell
-python -m personal_knowledge.application.knowledge.build_knowledge_units_prod `
-  --resume <fresh_run_id> `
-  --model gemini-3.5-flash `
-  --max-items <batch> `
-  --workers 4 `
-  --min-request-interval 2.5
+pk-ku extract --run <fresh_run_id> --model gemini-3.5-flash `
+  --max-items <batch> --workers 4 --min-request-interval 2.5
 ```
+
+`pk-ku extract` only accepts incremental `ir_*` run ids by default (full-inventory run ids require `PK_KU_ALLOW_NON_INCREMENTAL_RUN=1` forensics).
 
 Use small `--max-items` first (e.g. 20–50) to smoke Vertex, then larger batches.  
 Monitor:
 
 ```powershell
-python -m personal_knowledge.application.knowledge.build_knowledge_units_prod --status <run_id>
+pk-ku status --run <run_id>
 ```
 
 **If refresh --write is used:** it may mark lifecycle and **print** pipeline commands with `requires_approval` — those commands must still target **new refs only**, not a brand-new full inventory. LLM is not auto-run by design.
@@ -164,20 +166,19 @@ python -m personal_knowledge.application.knowledge.build_knowledge_units_prod --
 ### Step D — Canonical / candidate index (after extraction succeeds)
 
 ```powershell
-python -m personal_knowledge.application.knowledge.build_canonical_knowledge_units --run <run_id> --write
-python -m personal_knowledge.application.knowledge.build_knowledge_unit_vector_store --write
+pk-ku canonical --run <run_id> --write
+# vector candidate still via module until packaged:
+# python -m personal_knowledge.application.knowledge.build_knowledge_unit_vector_store --write
 ```
 
-(Exact flags: follow each module `--help`. Do not promote yet.)
+(Do not promote yet.)
 
 ### Step E — Eval then promote
 
 ```powershell
 # Eval via existing knowledge eval entry (config under assets/evals or project eval paths)
-# Then:
-python -m personal_knowledge.application.knowledge.promote_knowledge_index --list
-python -m personal_knowledge.application.knowledge.promote_knowledge_index `
-  --promote <candidate_collection> `
+pk-ku promote --list
+pk-ku promote --collection <candidate_collection> `
   --require-eval-pass `
   --eval-summary <path> `
   --eval-gate <path>
@@ -232,13 +233,15 @@ Do **not** rewrite extraction to another LLM provider as a “quick fix” witho
 
 ```text
 [ ] Dialogue SSOT already current if goal is new chats (pk-sync first)
-[ ] refresh --inspect recorded; new_refs_count known
+[ ] Use pk-ku (not ad-hoc module paths / code edits) for daily KU
+[ ] pk-ku inspect recorded; new_refs_count known
 [ ] Human approval if paid batch is large
-[ ] prepare run; if no_op but inspect shows change → STOP (do not full inventory)
-[ ] Extraction only on delta/fresh_run_id — never invent full inventory fallback
-[ ] status shows pending decreasing on the CORRECT run
+[ ] pk-ku prepare; if no_op but inspect shows change → STOP (do not full inventory)
+[ ] pk-ku extract --run ir_* only — never invent full inventory fallback
+[ ] pk-ku status shows pending decreasing on the CORRECT run
 [ ] No promote until eval gate
 [ ] Report before/after: active pointer, unit counts, run_id, new_refs
+[ ] Policy changes → CLI flags only; do not patch prepare defaults for one-off runs
 ```
 
 ---

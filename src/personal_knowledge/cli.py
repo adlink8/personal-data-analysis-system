@@ -44,6 +44,13 @@ def sync() -> object:
     raise SystemExit(sync_main())
 
 
+def ku() -> object:
+    """Product KU entry: pk-ku (inspect / prepare / extract / promote)."""
+    from personal_knowledge.application.ku import main as ku_main
+
+    raise SystemExit(ku_main())
+
+
 def pipeline() -> object:
     """Deprecated: old rag-pipeline (integrated steps 1–12). Hidden from product use."""
     if _help(
@@ -67,10 +74,10 @@ def pipeline() -> object:
             "Use the canonical flow instead:\n"
             "  pk-sync conversations           # dry-run AgentsView → canonical\n"
             "  pk-sync conversations --write   # publish conversation SSOT\n"
+            "  pk-ku inspect / prepare / extract / promote   # knowledge units\n"
             "  pk-sync help-legacy             # emergency legacy notes\n"
             "\n"
-            "Knowledge SSOT: refresh/promote via application.knowledge.* modules\n"
-            "(not this command).\n"
+            "Knowledge SSOT: use `pk-ku` (not this command).\n"
             "\n"
             "To force the old integrated pipeline once (forensics only):\n"
             "  $env:PK_ALLOW_LEGACY_PIPELINE = '1'\n"

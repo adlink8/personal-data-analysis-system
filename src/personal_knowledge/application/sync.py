@@ -25,7 +25,7 @@ def _cmd_conversations(write: bool) -> int:
     mode = "write" if write else "dry-run"
     print(f"\n[done] pk-sync conversations ({mode}) finished.")
     print("  SSOT: data/canonical/agent/structured/db/agent_conversations.sqlite")
-    print("  Next (optional): knowledge unit refresh / promote — not part of this command.")
+    print("  Next (optional): pk-ku inspect → prepare → extract — not part of this command.")
     return 0
 
 

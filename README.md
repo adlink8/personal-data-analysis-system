@@ -14,6 +14,8 @@ python -m pytest -q
 # Product sync: AgentsView → canonical conversation SSOT
 pk-sync conversations           # dry-run
 pk-sync conversations --write   # publish
+pk-ku workflow                  # knowledge unit daily flow
+pk-ku inspect                   # free delta
 
 rag-search stats --json
 ```

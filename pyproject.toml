@@ -10,6 +10,8 @@ requires-python = ">=3.11"
 [project.scripts]
 # Product sync (canonical conversation path)
 pk-sync = "personal_knowledge.cli:sync"
+# Product knowledge units (incremental inspect/prepare/extract/promote)
+pk-ku = "personal_knowledge.cli:ku"
 # Retired integrated batch (hidden product use — prints migration message / exit 2)
 rag-pipeline = "personal_knowledge.cli:pipeline"
 rag-search = "personal_knowledge.cli:search"
