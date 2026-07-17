@@ -26,7 +26,7 @@ from personal_knowledge.evaluation.eval_contracts import (  # noqa: E402
     content_checksum,
     load_cases_jsonl,
 )
-from personal_knowledge.evaluation.run_knowledge_eval import load_config, resolve_cases_path  # noqa: E402
+from personal_knowledge.evaluation.run_knowledge_eval import load_config, resolve_cases_path, stage_dataset_audit  # noqa: E402
 from personal_knowledge.evaluation.build_private_suite import HOLDOUT, OUT_DIR, SYN  # noqa: E402
 
 
@@ -131,3 +131,12 @@ def test_eval_config_tracks_relocated_private_suite_and_runtime_active() -> None
     assert targets.get("candidate_collection") is None
     assert SYN.exists() and HOLDOUT.exists()
     assert OUT_DIR == _ROOT / "var" / "runtime" / "private_evals"
+
+
+def test_private_suite_fails_closed_without_real_cross_turn_gold(tmp_path: Path) -> None:
+    cfg = load_config(_ROOT / "assets" / "evals" / "knowledge_units" / "eval_v1.yaml")
+    cases = load_cases_jsonl(resolve_cases_path(cfg))
+    audit = stage_dataset_audit(cases, tmp_path, require_private_gold=True)
+    assert audit["ok"] is False
+    assert audit["real_gold_cases"] == 22
+    assert audit["real_cross_turn_gold_cases"] < 30

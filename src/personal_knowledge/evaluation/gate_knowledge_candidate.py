@@ -55,6 +55,21 @@ def evaluate_gate(
     reasons: list[str] = []
     checks: list[dict[str, Any]] = []
 
+    dataset_audit = (summary.get("stage_details") or {}).get("dataset_audit") or {}
+    dataset_ok = bool(dataset_audit.get("ok"))
+    checks.append(
+        {
+            "name": "dataset_audit",
+            "passed": dataset_ok,
+            "value": {
+                "real_gold_cases": dataset_audit.get("real_gold_cases"),
+                "real_cross_turn_gold_cases": dataset_audit.get("real_cross_turn_gold_cases"),
+            },
+        }
+    )
+    if not dataset_ok:
+        reasons.append("dataset audit failed: " + "; ".join(dataset_audit.get("errors") or ["missing audit evidence"]))
+
     modes = summary.get("modes") or summary.get("metrics") or {}
     if not modes:
         reasons.append("no mode metrics in eval run")

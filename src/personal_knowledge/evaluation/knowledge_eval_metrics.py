@@ -37,6 +37,7 @@ class CaseScore:
     secret_hit: bool
     latency_ms: float
     first_layer: str = ""
+    score_retrieval: bool = True
     ranked_ids: list[str] = field(default_factory=list)
     notes: str = ""
 
@@ -96,6 +97,7 @@ def score_case(
     forbid_subject_substrings: Sequence[str] | None = None,
     latency_ms: float = 0.0,
     first_layer: str = "",
+    score_retrieval: bool = True,
 ) -> CaseScore:
     refs = set(gold_refs or [])
     units = set(gold_unit_ids or [])
@@ -138,6 +140,7 @@ def score_case(
         secret_hit=secret_hit,
         latency_ms=latency_ms,
         first_layer=first_layer,
+        score_retrieval=score_retrieval,
         ranked_ids=[h.id for h in ranked],
     )
 
@@ -169,7 +172,7 @@ def aggregate_scores(
 
     n = len(scores)
     # only non-abstain cases contribute to recall/MRR denominators
-    ranked_cases = [s for s in scores if not s.expected_abstain]
+    ranked_cases = [s for s in scores if not s.expected_abstain and s.score_retrieval]
     den = len(ranked_cases)
 
     recall: dict[str, float | None] = {}
@@ -247,7 +250,10 @@ def paired_bootstrap_ci(
     ids = [
         q
         for q in ids
-        if not b_map[q].expected_abstain and not t_map[q].expected_abstain
+        if not b_map[q].expected_abstain
+        and not t_map[q].expected_abstain
+        and b_map[q].score_retrieval
+        and t_map[q].score_retrieval
     ]
     if len(ids) < 5:
         return {
@@ -323,7 +329,7 @@ def win_loss(
     t_map = {s.query_id: s for s in treatment}
     wins, losses, ties = [], [], []
     for q in sorted(set(b_map) & set(t_map)):
-        if b_map[q].expected_abstain:
+        if b_map[q].expected_abstain or not b_map[q].score_retrieval or not t_map[q].score_retrieval:
             continue
         br = b_map[q].rank_primary
         tr = t_map[q].rank_primary

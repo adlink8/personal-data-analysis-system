@@ -89,6 +89,21 @@ def test_metric_aggregate_and_na() -> None:
     assert empty["insufficient_evidence"] is True
 
 
+def test_synthetic_shell_can_exercise_safety_without_polluting_recall() -> None:
+    real = score_case("real", "m", [RankedHit(id="g")], gold_unit_ids=["g"])
+    shell = score_case(
+        "shell",
+        "m",
+        [RankedHit(id="x")],
+        gold_unit_ids=["syn-unit"],
+        score_retrieval=False,
+    )
+    agg = aggregate_scores([real, shell])
+    assert agg["n"] == 2
+    assert agg["n_scored_retrieval"] == 1
+    assert agg["recall_at"]["5"] == 1.0
+
+
 def test_metric_paired_bootstrap_seed() -> None:
     base = [
         score_case(f"q{i}", "raw", [RankedHit(id="x")], gold_unit_ids=["g"])

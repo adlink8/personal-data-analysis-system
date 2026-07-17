@@ -46,6 +46,7 @@ def _summary_base(**kwargs):
         "answer": {"modes": {"l1_l2": {"aggregate": {"citation_precision": 1.0}}}},
         "candidate_collection": "cand_a",
         "candidate_checksum": "ck1",
+        "stage_details": {"dataset_audit": {"ok": True}},
     }
     s.update(kwargs)
     return s

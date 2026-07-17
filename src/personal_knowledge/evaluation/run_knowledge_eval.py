@@ -113,7 +113,12 @@ def resolve_cases_path(cfg: dict[str, Any]) -> Path:
     return path
 
 
-def stage_dataset_audit(cases, run_dir: Path) -> dict[str, Any]:
+def stage_dataset_audit(
+    cases,
+    run_dir: Path,
+    *,
+    require_private_gold: bool = False,
+) -> dict[str, Any]:
     import sqlite3
 
     resolvable_refs: set[str] = set()
@@ -144,6 +149,27 @@ def stage_dataset_audit(cases, run_dir: Path) -> dict[str, Any]:
     audit["gold_resolvable_rate"] = (
         len(real_refs & resolvable_refs) / len(real_refs) if real_refs else None
     )
+    real_gold_cases = [
+        case
+        for case in cases
+        if not case.gold_provenance.startswith("synthetic")
+        and not case.expected_abstain
+        and (case.gold_evidence_refs or case.gold_unit_ids or case.gold_title_substrings)
+    ]
+    real_cross_turn = [case for case in real_gold_cases if case.requires_cross_turn]
+    audit["real_gold_cases"] = len(real_gold_cases)
+    audit["real_cross_turn_gold_cases"] = len(real_cross_turn)
+    if require_private_gold:
+        if len(real_gold_cases) < 30:
+            audit["errors"].append(
+                f"private suite requires >=30 real gold cases; found {len(real_gold_cases)}"
+            )
+        if len(real_cross_turn) < 30:
+            audit["errors"].append(
+                "private suite requires >=30 real cross-turn gold cases; "
+                f"found {len(real_cross_turn)}"
+            )
+        audit["ok"] = not audit["errors"]
     dump_json(run_dir / "dataset_audit.json", audit)
     return audit
 
@@ -219,6 +245,7 @@ def stage_retrieval(
                         privacy_sensitive=c.privacy_sensitive,
                         secret_ineligible=c.secret_ineligible,
                         forbid_subject_substrings=c.forbid_subject_substrings,
+                        score_retrieval=not c.gold_provenance.startswith("synthetic"),
                     )
                 )
             mode_scores[t.mode] = scores
@@ -262,6 +289,7 @@ def stage_retrieval(
                     gold_refs=c.gold_evidence_refs,
                     gold_unit_ids=c.gold_unit_ids,
                     expected_abstain=c.expected_abstain,
+                    score_retrieval=not c.gold_provenance.startswith("synthetic"),
                 )
                 sc.notes = t.blocked_reason
                 scores.append(sc)
@@ -303,6 +331,7 @@ def stage_retrieval(
                 forbid_subject_substrings=c.forbid_subject_substrings,
                 latency_ms=ar.latency_ms,
                 first_layer=ar.first_layer,
+                score_retrieval=not c.gold_provenance.startswith("synthetic"),
             )
             scores.append(sc)
             ranked_by_case.append(list(ar.ranked))
@@ -460,7 +489,24 @@ def run_eval(
 
     # 1 dataset audit
     try:
-        stages["dataset_audit"] = stage_dataset_audit(cases, run_dir)
+        private_path_value = (cfg.get("dataset") or {}).get("private_path")
+        private_path = (
+            (
+                ROOT / private_path_value
+                if not Path(private_path_value).is_absolute()
+                else Path(private_path_value)
+            )
+            if private_path_value
+            else None
+        )
+        stages["dataset_audit"] = stage_dataset_audit(
+            cases,
+            run_dir,
+            require_private_gold=(
+                private_path is not None
+                and cases_path.resolve() == private_path.resolve()
+            ),
+        )
         if not stages["dataset_audit"].get("ok"):
             errors.append("dataset_audit failed: " + str(stages["dataset_audit"].get("errors")))
     except Exception as e:
