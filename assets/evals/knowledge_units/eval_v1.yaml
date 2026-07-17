@@ -1,7 +1,7 @@
 # Phase 17 eval manifest v1 (JSON-compatible YAML)
 version: v1
 top_k: 5
-scorer_version: knowledge_eval_metrics_v1
+scorer_version: knowledge_eval_metrics_v2
 modes:
   - raw
   - l1

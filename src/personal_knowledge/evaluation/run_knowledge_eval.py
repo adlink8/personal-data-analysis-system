@@ -127,6 +127,44 @@ def _is_real_gold_case(case) -> bool:
     )
 
 
+def _load_ineligible_evidence_refs() -> set[str]:
+    """Load identifiers whose canonical source is explicitly evidence-ineligible."""
+    import sqlite3
+
+    if not AGENT_CONVERSATIONS_DB.exists():
+        return set()
+    con = sqlite3.connect(
+        f"file:{AGENT_CONVERSATIONS_DB.as_posix()}?mode=ro", uri=True
+    )
+    rows = con.execute(
+        "SELECT m.canonical_message_id, m.source_message_ref "
+        "FROM canonical_messages m "
+        "JOIN canonical_sessions s ON s.canonical_session_id=m.canonical_session_id "
+        "WHERE COALESCE(s.evidence_eligible,0)=0 "
+        "OR LOWER(COALESCE(m.evidence_scope,'')) IN ('secret','excluded') "
+        "OR LOWER(COALESCE(s.evidence_scope,'')) IN ('secret','excluded')"
+    ).fetchall()
+    con.close()
+    return {
+        str(value)
+        for row in rows
+        for value in row
+        if value is not None and str(value)
+    }
+
+
+def _annotate_evidence_eligibility(ranked, ineligible_refs: set[str]) -> None:
+    for hit in ranked:
+        refs = {
+            str(hit.source_ref or ""),
+            str(hit.meta.get("source_message_ref") or ""),
+            str(hit.meta.get("canonical_message_id") or ""),
+        }
+        hit.meta["source_evidence_ineligible"] = bool(
+            ineligible_refs.intersection(refs - {""})
+        )
+
+
 def stage_dataset_audit(
     cases,
     run_dir: Path,
@@ -209,6 +247,7 @@ def stage_retrieval(
     raw = targets_cfg.get("raw_collection") or "personal_events"
     l2_runs = targets_cfg.get("l2_run_ids")
     l2_ids = load_l2_unit_ids(UNIFIED_DB, l2_runs)
+    ineligible_refs = _load_ineligible_evidence_refs()
     l2_collection = targets_cfg.get("l2_only_collection") or ""
     l2_audit = (
         audit_l2_collection(l2_collection, l2_ids)
@@ -359,6 +398,7 @@ def stage_retrieval(
                 ar.blocked_reason = str(e)[:200]
             if getattr(ar, "blocked", False) and t.mode == "l2_only":
                 pass
+            _annotate_evidence_eligibility(ar.ranked, ineligible_refs)
             sc = score_case(
                 c.id,
                 t.mode,
@@ -506,6 +546,12 @@ def run_eval(
     out_dir: Path | None = None,
 ) -> dict[str, Any]:
     cfg = load_config(config_path)
+    declared_scorer = str(cfg.get("scorer_version") or "")
+    if declared_scorer != SCORER_VERSION:
+        raise ContractError(
+            f"config scorer_version={declared_scorer!r} does not match runtime "
+            f"{SCORER_VERSION!r}"
+        )
     cases_path = resolve_cases_path(cfg)
     cases = load_cases_jsonl(cases_path)
     ds_ck = cases_checksum(cases)

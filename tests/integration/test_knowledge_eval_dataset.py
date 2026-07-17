@@ -33,6 +33,7 @@ from personal_knowledge.evaluation.run_knowledge_eval import (  # noqa: E402
     stage_dataset_audit,
 )
 from personal_knowledge.evaluation.build_private_suite import HOLDOUT, OUT_DIR, SYN  # noqa: E402
+from personal_knowledge.evaluation.knowledge_eval_metrics import SCORER_VERSION  # noqa: E402
 
 
 def test_contract_roundtrip_eval_case() -> None:
@@ -130,6 +131,7 @@ def test_contract_load_holdout_schema() -> None:
 
 def test_eval_config_tracks_relocated_private_suite_and_runtime_active() -> None:
     cfg = load_config(_ROOT / "assets" / "evals" / "knowledge_units" / "eval_v1.yaml")
+    assert cfg["scorer_version"] == SCORER_VERSION
     assert resolve_cases_path(cfg) == _ROOT / "var" / "runtime" / "private_evals" / "comprehensive_v1.private.jsonl"
     targets = cfg["targets"]
     assert targets.get("l1_l2_collection") is None

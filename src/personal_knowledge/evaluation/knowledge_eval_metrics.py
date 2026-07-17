@@ -7,7 +7,7 @@ import random
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
-SCORER_VERSION = "knowledge_eval_metrics_v1"
+SCORER_VERSION = "knowledge_eval_metrics_v2"
 BOOTSTRAP_SEED = 1701
 BOOTSTRAP_B = 10_000
 
@@ -38,6 +38,8 @@ class CaseScore:
     latency_ms: float
     first_layer: str = ""
     score_retrieval: bool = True
+    top_score: float | None = None
+    score_margin: float | None = None
     ranked_ids: list[str] = field(default_factory=list)
     notes: str = ""
 
@@ -118,14 +120,25 @@ def score_case(
     if privacy_sensitive and privacy_hit:
         pass
 
-    secret_hit = False
-    if secret_ineligible:
-        # any hit considered secret surface pollution for this suite
-        secret_hit = len(ranked) > 0 and any(
-            "secret" in (h.subject or "").lower()
-            or "api" in (h.snippet or "").lower()[:40]
+    # Secret leakage is a provenance property, not a lexical property. Generic
+    # technical content containing words such as "API" must not be treated as
+    # proof that a secret-bearing source was retrieved.
+    secret_hit = bool(
+        secret_ineligible
+        and any(
+            bool(h.meta.get("source_evidence_ineligible"))
+            or str(h.meta.get("evidence_scope") or "").lower()
+            in {"secret", "excluded"}
             for h in ranked
         )
+    )
+
+    top_score = float(ranked[0].score) if ranked else None
+    score_margin = (
+        float(ranked[0].score) - float(ranked[1].score)
+        if len(ranked) > 1
+        else None
+    )
 
     return CaseScore(
         query_id=query_id,
@@ -141,6 +154,8 @@ def score_case(
         latency_ms=latency_ms,
         first_layer=first_layer,
         score_retrieval=score_retrieval,
+        top_score=top_score,
+        score_margin=score_margin,
         ranked_ids=[h.id for h in ranked],
     )
 

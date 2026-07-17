@@ -104,6 +104,38 @@ def test_synthetic_shell_can_exercise_safety_without_polluting_recall() -> None:
     assert agg["recall_at"]["5"] == 1.0
 
 
+def test_secret_gate_uses_provenance_not_technical_words() -> None:
+    lexical_only = score_case(
+        "secret-query",
+        "l1",
+        [RankedHit(id="safe", subject="API client", snippet="secret naming")],
+        secret_ineligible=True,
+    )
+    actual_ineligible = score_case(
+        "secret-query",
+        "l1",
+        [
+            RankedHit(
+                id="blocked",
+                meta={"source_evidence_ineligible": True},
+            )
+        ],
+        secret_ineligible=True,
+    )
+    assert lexical_only.secret_hit is False
+    assert actual_ineligible.secret_hit is True
+
+
+def test_case_score_records_threshold_diagnostics() -> None:
+    score = score_case(
+        "q",
+        "l1",
+        [RankedHit(id="a", score=0.8), RankedHit(id="b", score=0.7)],
+    )
+    assert score.top_score == pytest.approx(0.8)
+    assert score.score_margin == pytest.approx(0.1)
+
+
 def test_metric_paired_bootstrap_seed() -> None:
     base = [
         score_case(f"q{i}", "raw", [RankedHit(id="x")], gold_unit_ids=["g"])
