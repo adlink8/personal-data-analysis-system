@@ -31,9 +31,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from personal_knowledge.core import local_embed as ollama_embed
 from personal_knowledge.core.chroma_client import ChromaClient, ChromaError
+from personal_knowledge.core.project_paths import AI_CONTEXT_DIR, ROOT
 
-ROOT = Path(__file__).resolve().parents[4]
-SUMMARIES_JSON = ROOT / "integration" / "analysis" / "ai_context" / "conversation_summaries.json"
+SUMMARIES_JSON = AI_CONTEXT_DIR / "conversation_summaries.json"
 COLLECTION_NAME = "conversation_turns"  # 独立 collection,绝不碰 personal_events
 MIN_NARRATIVE_LEN = 20   # turn 叙述最短长度,短于此跳过(无语义价值)
 BATCH_SIZE = 32          # 每批 embedding + 写入的条数

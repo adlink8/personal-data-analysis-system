@@ -129,6 +129,54 @@ def _snapshot_member_for_collection(
     return member, inspector
 
 
+def _record_successful_knowledge_publication(
+    db_path: Path, member: dict, collection: str
+) -> list[dict]:
+    """Append publication metadata only after serving activation succeeds."""
+    from personal_knowledge.application.serving.versions import json_checksum, record_publication
+
+    metadata = dict(member.get("metadata") or {})
+    canonical_build_id = str(metadata.get("canonical_build_id") or "")
+    recorded: list[dict] = []
+    canonical_version_id: str | None = None
+    if canonical_build_id:
+        con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+        rows = con.execute(
+            "SELECT canonical_unit_id FROM canonical_knowledge_units WHERE status='current' ORDER BY canonical_unit_id"
+        ).fetchall()
+        con.close()
+        canonical_checksum = json_checksum([str(row[0]) for row in rows])
+        canonical = record_publication(
+            db_path,
+            registry_id="s.knowledge_unit",
+            version=canonical_build_id,
+            checksum=canonical_checksum,
+            location_kind="sqlite_table",
+            location_ref="canonical_knowledge_units",
+            source_key="canonical_message",
+            watermark_value=canonical_build_id,
+            producer_run_id=canonical_build_id,
+            metadata={"unit_count": len(rows)},
+        )
+        canonical_version_id = canonical["artifact_version_id"]
+        recorded.append(canonical)
+    retrieval = record_publication(
+        db_path,
+        registry_id="r.knowledge_index",
+        version=str(member["version"]),
+        checksum=str(member["checksum"]),
+        location_kind="chroma_collection",
+        location_ref=collection,
+        source_key="canonical_knowledge",
+        watermark_value=canonical_build_id or str(member["checksum"]),
+        producer_run_id=member.get("producer_run_id"),
+        evidence_version_id=canonical_version_id,
+        metadata=metadata,
+    )
+    recorded.append(retrieval)
+    return recorded
+
+
 def promote(
     collection: str,
     db_path: Path = UNIFIED_DB,
@@ -182,6 +230,7 @@ def promote(
         pointer_path=ACTIVE_POINTER,
         before_commit=_update_versions,
     )
+    publications = _record_successful_knowledge_publication(db_path, member, collection)
     _log("promote", collection, {"previous": previous, "checksum": member["checksum"], "snapshot_id": draft["snapshot_id"]})
     return {
         "promoted": collection,
@@ -189,6 +238,7 @@ def promote(
         "checksum": member["checksum"],
         "snapshot_id": draft["snapshot_id"],
         "projection_ok": activated["projection_ok"],
+        "publications": publications,
     }
 
 
