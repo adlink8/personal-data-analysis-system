@@ -243,7 +243,12 @@ def _classify(
         return None
     if after.status == "conflict":
         latest = _latest_steps(after)
-        if len(latest) >= 2 and len({row.value_checksum for row in latest}) >= 2:
+        value_types = {row.value_type for row in latest if row.value_type}
+        if (
+            len(latest) >= 2
+            and len(value_types) == 1
+            and len({row.value_checksum for row in latest}) >= 2
+        ):
             if before is None or before.status != "conflict":
                 return "conflict", tuple(sorted(set(after.uncertainty)))
         return None
@@ -259,10 +264,28 @@ def _classify(
         return "stale", tuple(sorted(set(after.uncertainty + ("no_current_evidence",))))
     if not after.current_assertion_id or after.status not in {"current", "uncertain"}:
         return None
+    if _value_type(before.current_value) != _value_type(after.current_value):
+        return None
     before_value = canonical_json(before.current_value)
     after_value = canonical_json(after.current_value)
     change_type = "reaffirmed" if before_value == after_value else "updated"
     return change_type, tuple(sorted(set(before.uncertainty + after.uncertainty)))
+
+
+def _value_type(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, (tuple, list)):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    raise ChangeError("unsupported_value_type", type(value).__name__)
 
 
 def _record(

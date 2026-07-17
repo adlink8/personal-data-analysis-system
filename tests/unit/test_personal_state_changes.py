@@ -54,6 +54,14 @@ def _step(
         value_checksum=checksum(value),
         evidence_refs=(ref,),
         uncertainty=("source:bounded",),
+        value_type=(
+            "boolean" if isinstance(value, bool)
+            else "number" if isinstance(value, (int, float))
+            else "string" if isinstance(value, str)
+            else "null" if value is None
+            else "array" if isinstance(value, (tuple, list))
+            else "object"
+        ),
     )
 
 
@@ -157,6 +165,21 @@ def test_incompatible_scope_never_compares_and_missing_predecessor_is_uncertaint
     result = compare_projections(_projection("2026-01-01T00:00:00Z", (before,)), _projection("2026-02-01T00:00:00Z", (after,)))
     assert [row.change_type for row in result.records] == ["created"]
     assert all(row.change_type not in {"updated", "resolved", "conflict"} for row in result.records)
+
+
+def test_incompatible_value_types_never_compare_as_update_or_conflict() -> None:
+    before = _state("a1", 30, steps=(_step("a1", 30, valid_from="2026-01-01T00:00:00Z"),))
+    after = _state("a2", "30", steps=before.formation_path + (_step("a2", "30", valid_from="2026-02-01T00:00:00Z"),))
+    conflict = _state(
+        None,
+        status="conflict",
+        steps=(
+            _step("a2", 30, valid_from="2026-02-01T00:00:00Z"),
+            _step("a3", "30", valid_from="2026-02-01T00:00:00Z"),
+        ),
+    )
+    assert _types(_projection("2026-01-01T00:00:00Z", (before,)), _projection("2026-02-01T00:00:00Z", (after,))) == []
+    assert _types(_projection("2026-01-01T00:00:00Z", (before,)), _projection("2026-02-01T00:00:00Z", (conflict,))) == []
 
 
 def test_reordered_states_and_tied_steps_replay_identically() -> None:

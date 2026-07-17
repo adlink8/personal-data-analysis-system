@@ -239,6 +239,7 @@ class FormationStep:
     value_checksum: str
     evidence_refs: tuple[str, ...]
     uncertainty: tuple[str, ...]
+    value_type: str = ""
 
 
 @dataclass(frozen=True)
@@ -357,7 +358,24 @@ def _formation_step(
         value_checksum=checksum(assertion.value),
         evidence_refs=tuple(sorted(item.ref for item in assertion.evidence)),
         uncertainty=tuple(uncertainty),
+        value_type=_value_type(assertion.value),
     )
+
+
+def _value_type(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, (tuple, list)):
+        return "array"
+    if isinstance(value, Mapping):
+        return "object"
+    raise ProjectionError("unsupported_value_type", type(value).__name__)
 
 
 def _history_matches(row: Mapping[str, Any], key: StateKey) -> bool:
