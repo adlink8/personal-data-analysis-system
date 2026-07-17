@@ -428,6 +428,170 @@ CREATE TRIGGER IF NOT EXISTS trg_active_snapshot_member_delete
 BEFORE DELETE ON serving_snapshot_members
 WHEN OLD.snapshot_id = (SELECT active_snapshot_id FROM serving_authority WHERE singleton_id=1)
 BEGIN SELECT RAISE(ABORT, 'active snapshot members are immutable'); END;
+
+-- === Phase 25: snapshot-bound personal-state analysis (A layer only) ===
+CREATE TABLE IF NOT EXISTS personal_state_runs (
+    run_id                  TEXT PRIMARY KEY,
+    registry_id             TEXT NOT NULL REFERENCES artifact_registry_entries(registry_id),
+    snapshot_id             TEXT NOT NULL REFERENCES serving_snapshots(snapshot_id),
+    snapshot_hash           TEXT NOT NULL CHECK(length(snapshot_hash) > 0),
+    producer_version        TEXT NOT NULL CHECK(length(producer_version) > 0),
+    input_manifest_json     TEXT NOT NULL,
+    input_manifest_checksum TEXT NOT NULL CHECK(length(input_manifest_checksum) = 64),
+    output_manifest_json    TEXT NOT NULL,
+    output_manifest_checksum TEXT NOT NULL CHECK(length(output_manifest_checksum) = 64),
+    status                  TEXT NOT NULL CHECK(status = 'committed'),
+    created_at              TEXT NOT NULL,
+    UNIQUE(snapshot_id, snapshot_hash, producer_version, input_manifest_checksum)
+);
+
+CREATE TABLE IF NOT EXISTS personal_state_assertions (
+    assertion_id       TEXT PRIMARY KEY,
+    run_id             TEXT NOT NULL REFERENCES personal_state_runs(run_id),
+    assertion_kind     TEXT NOT NULL CHECK(assertion_kind IN ('goal','constraint','observation','state')),
+    provenance_class   TEXT NOT NULL CHECK(provenance_class IN ('fact','observation','inference')),
+    subject            TEXT NOT NULL CHECK(length(subject) > 0),
+    domain             TEXT NOT NULL CHECK(length(domain) > 0),
+    scope              TEXT NOT NULL CHECK(length(scope) > 0),
+    predicate          TEXT NOT NULL CHECK(length(predicate) > 0),
+    value_json         TEXT NOT NULL,
+    valid_from         TEXT NOT NULL CHECK(length(valid_from) > 0),
+    valid_to           TEXT,
+    observed_at        TEXT NOT NULL CHECK(length(observed_at) > 0),
+    confidence         REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
+    uncertainty        TEXT NOT NULL,
+    lifecycle          TEXT NOT NULL CHECK(lifecycle IN ('current','stale','conflict','resolved','expired')),
+    payload_json       TEXT NOT NULL,
+    payload_checksum   TEXT NOT NULL CHECK(length(payload_checksum) = 64),
+    created_at         TEXT NOT NULL,
+    UNIQUE(run_id, assertion_id)
+);
+
+CREATE TABLE IF NOT EXISTS personal_state_evidence (
+    evidence_id        TEXT PRIMARY KEY,
+    assertion_id       TEXT NOT NULL REFERENCES personal_state_assertions(assertion_id),
+    snapshot_id        TEXT NOT NULL,
+    snapshot_hash      TEXT NOT NULL CHECK(length(snapshot_hash) > 0),
+    serving_role       TEXT NOT NULL,
+    artifact_version_id TEXT NOT NULL,
+    evidence_type      TEXT NOT NULL CHECK(evidence_type IN ('canonical_message','knowledge_unit','turn','google_signal')),
+    evidence_ref       TEXT NOT NULL CHECK(length(evidence_ref) > 0),
+    evidence_checksum  TEXT NOT NULL CHECK(length(evidence_checksum) > 0),
+    eligibility        TEXT NOT NULL CHECK(eligibility = 'eligible'),
+    privacy_class      TEXT NOT NULL CHECK(privacy_class IN ('R1','R2','R3','R4')),
+    created_at         TEXT NOT NULL,
+    FOREIGN KEY(snapshot_id, serving_role)
+        REFERENCES serving_snapshot_members(snapshot_id, serving_role),
+    FOREIGN KEY(snapshot_id, artifact_version_id)
+        REFERENCES serving_snapshot_members(snapshot_id, artifact_version_id),
+    UNIQUE(assertion_id, evidence_type, evidence_ref)
+);
+
+CREATE TABLE IF NOT EXISTS personal_state_changes (
+    change_id          TEXT PRIMARY KEY,
+    run_id             TEXT NOT NULL REFERENCES personal_state_runs(run_id),
+    change_kind        TEXT NOT NULL CHECK(change_kind IN ('created','updated','reaffirmed','stale','conflict','resolved','trend_up','trend_down','risk')),
+    before_assertion_id TEXT,
+    after_assertion_id TEXT,
+    confidence         REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
+    uncertainty        TEXT NOT NULL,
+    payload_json       TEXT NOT NULL,
+    payload_checksum   TEXT NOT NULL CHECK(length(payload_checksum) = 64),
+    created_at         TEXT NOT NULL,
+    CHECK(before_assertion_id IS NOT NULL OR after_assertion_id IS NOT NULL),
+    FOREIGN KEY(run_id, before_assertion_id)
+        REFERENCES personal_state_assertions(run_id, assertion_id),
+    FOREIGN KEY(run_id, after_assertion_id)
+        REFERENCES personal_state_assertions(run_id, assertion_id)
+);
+
+CREATE TABLE IF NOT EXISTS personal_state_risks (
+    risk_id            TEXT PRIMARY KEY,
+    run_id             TEXT NOT NULL REFERENCES personal_state_runs(run_id),
+    assertion_id       TEXT NOT NULL,
+    rule_id            TEXT NOT NULL CHECK(length(rule_id) > 0),
+    rule_version       TEXT NOT NULL CHECK(length(rule_version) > 0),
+    severity           TEXT NOT NULL CHECK(severity IN ('low','medium','high')),
+    confidence         REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
+    uncertainty        TEXT NOT NULL,
+    payload_json       TEXT NOT NULL,
+    payload_checksum   TEXT NOT NULL CHECK(length(payload_checksum) = 64),
+    created_at         TEXT NOT NULL,
+    FOREIGN KEY(run_id, assertion_id)
+        REFERENCES personal_state_assertions(run_id, assertion_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_personal_state_runs_snapshot
+    ON personal_state_runs(snapshot_id, producer_version, created_at);
+CREATE INDEX IF NOT EXISTS idx_personal_state_assertions_run
+    ON personal_state_assertions(run_id, assertion_kind, subject, domain);
+CREATE INDEX IF NOT EXISTS idx_personal_state_evidence_assertion
+    ON personal_state_evidence(assertion_id, evidence_type);
+CREATE INDEX IF NOT EXISTS idx_personal_state_changes_run
+    ON personal_state_changes(run_id, change_kind, created_at);
+CREATE INDEX IF NOT EXISTS idx_personal_state_risks_run
+    ON personal_state_risks(run_id, severity, created_at);
+
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_runs_immutable_update
+BEFORE UPDATE ON personal_state_runs BEGIN
+    SELECT RAISE(ABORT, 'personal state runs are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_runs_snapshot_match
+BEFORE INSERT ON personal_state_runs
+WHEN NOT EXISTS (
+    SELECT 1 FROM serving_snapshots s
+    WHERE s.snapshot_id = NEW.snapshot_id AND s.manifest_hash = NEW.snapshot_hash
+) BEGIN
+    SELECT RAISE(ABORT, 'personal state run snapshot hash mismatch');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_runs_immutable_delete
+BEFORE DELETE ON personal_state_runs BEGIN
+    SELECT RAISE(ABORT, 'personal state runs are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_assertions_immutable_update
+BEFORE UPDATE ON personal_state_assertions BEGIN
+    SELECT RAISE(ABORT, 'personal state assertions are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_assertions_immutable_delete
+BEFORE DELETE ON personal_state_assertions BEGIN
+    SELECT RAISE(ABORT, 'personal state assertions are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_evidence_immutable_update
+BEFORE UPDATE ON personal_state_evidence BEGIN
+    SELECT RAISE(ABORT, 'personal state evidence is immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_evidence_snapshot_match
+BEFORE INSERT ON personal_state_evidence
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM personal_state_assertions a
+    JOIN personal_state_runs r ON r.run_id = a.run_id
+    WHERE a.assertion_id = NEW.assertion_id
+      AND r.snapshot_id = NEW.snapshot_id
+      AND r.snapshot_hash = NEW.snapshot_hash
+) BEGIN
+    SELECT RAISE(ABORT, 'personal state evidence snapshot mismatch');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_evidence_immutable_delete
+BEFORE DELETE ON personal_state_evidence BEGIN
+    SELECT RAISE(ABORT, 'personal state evidence is immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_changes_immutable_update
+BEFORE UPDATE ON personal_state_changes BEGIN
+    SELECT RAISE(ABORT, 'personal state changes are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_changes_immutable_delete
+BEFORE DELETE ON personal_state_changes BEGIN
+    SELECT RAISE(ABORT, 'personal state changes are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_risks_immutable_update
+BEFORE UPDATE ON personal_state_risks BEGIN
+    SELECT RAISE(ABORT, 'personal state risks are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_risks_immutable_delete
+BEFORE DELETE ON personal_state_risks BEGIN
+    SELECT RAISE(ABORT, 'personal state risks are immutable');
+END;
 """
 
 
@@ -735,6 +899,10 @@ def inspect(db_path: Path = UNIFIED_DB) -> dict:
         "artifact_registry_entries", "artifact_versions", "source_watermarks",
         "serving_snapshots", "serving_snapshot_members", "serving_authority",
         "serving_snapshot_events",
+        # Phase 25 immutable personal-state analysis
+        "personal_state_runs", "personal_state_assertions",
+        "personal_state_evidence", "personal_state_changes",
+        "personal_state_risks",
         # Phase 24 governed lifecycle
         "knowledge_lifecycle_manifests", "knowledge_lifecycle_actions",
         "knowledge_lifecycle_events", "knowledge_unit_corrections",
