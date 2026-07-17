@@ -15,6 +15,8 @@ from typing import Callable
 
 import yaml
 
+from personal_knowledge.governance.artifact_registry import registry_report
+
 try:
     from integration.scripts.governance.check_dependencies import check as dependency_check
 except ModuleNotFoundError:
@@ -125,6 +127,18 @@ def evaluate(root: Path = ROOT, *, run_tests: bool = False) -> dict[str, object]
         {"gate": "storage-retention", "ok": privacy_ok, "detail": "budgets checked; no disposition action executed", "owner": "data-platform", "policy": "retention-v1"},
         {"gate": "test-matrix", "ok": matrix_ok, "detail": "Python 3.12/3.14 and Node 20 declared in CI", "owner": "engineering-governance", "policy": "test-matrix-v1"},
     ])
+    registry = registry_report(root / "governance" / "policies" / "artifact_layers.yaml")
+    gates.append({
+        "gate": "artifact-layer-registry",
+        "ok": bool(registry["ok"]),
+        "detail": (
+            f"{registry['artifacts']} typed artifacts; authority uniqueness and dependency direction checked"
+            if registry["ok"]
+            else json.dumps(registry["issues"], ensure_ascii=False, sort_keys=True)
+        ),
+        "owner": "data-platform",
+        "policy": "artifact-layer-registry-v1",
+    })
     if run_tests:
         ok, detail = _run("tests", [python, "-m", "pytest", "-q", "tests/test_governance_*.py"], root)
         gates.append({"gate": "governance-tests", "ok": ok, "detail": detail, "owner": "engineering-governance", "policy": "test-matrix-v1"})

@@ -13,6 +13,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -23,7 +24,7 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Mapping
 
 from personal_knowledge.core.project_paths import (
     AGENT_CONVERSATIONS_DB,
@@ -45,6 +46,19 @@ CRITICAL_CHECK_IDS = frozenset(
         "import_personal_knowledge",
         "unified_db",
         "active_pointer",
+        "artifact_registry",
+        "serving_snapshot",
+        "snapshot_pointer_parity",
+        "evidence_resolver",
+        "source_watermarks",
+    }
+)
+
+WATERMARK_ROLES = frozenset(
+    {
+        "canonical_conversation", "canonical_message", "turn_summary",
+        "google_normalized", "google_assertion", "canonical_knowledge",
+        "turn_retrieval", "knowledge_retrieval",
     }
 )
 
@@ -150,6 +164,181 @@ def _check_active_pointer(pointer_path: Path) -> CheckResult:
         message=f"active collection: {name}",
         detail={"path": str(pointer_path), "collection": name},
     )
+
+
+def _check_artifact_registry(registry_path: Path | None = None) -> CheckResult:
+    try:
+        from personal_knowledge.governance.artifact_registry import DEFAULT_REGISTRY, registry_report
+        report = registry_report(registry_path or DEFAULT_REGISTRY)
+        return CheckResult(
+            id="artifact_registry",
+            ok=bool(report["ok"]),
+            severity="critical",
+            message="artifact registry valid" if report["ok"] else "artifact registry invalid",
+            detail=report,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult("artifact_registry", False, "critical", f"artifact registry check failed: {exc}", {"error": str(exc)})
+
+
+def _default_collection_inspector(name: str) -> Mapping[str, Any]:
+    from personal_knowledge.application.knowledge.promote_knowledge_index import _compute_collection_checksum
+    from personal_knowledge.core.chroma_client import ChromaClient
+
+    client = ChromaClient(port=8001)
+    existing = {str(row["name"]) for row in client.list_collections()}
+    if name not in existing:
+        return {"exists": False, "count": -1, "checksum": ""}
+    collection = client.get_or_create_collection(name)
+    return {"exists": True, "count": int(collection.count()), "checksum": _compute_collection_checksum(name)}
+
+
+def _check_serving_snapshot(
+    db_path: Path,
+    *,
+    collection_inspector: Callable[[str], Mapping[str, Any]] | None = None,
+) -> CheckResult:
+    errors: list[str] = []
+    detail: dict[str, Any] = {"db": str(db_path)}
+    try:
+        from personal_knowledge.application.serving.snapshots import canonical_json, manifest_hash
+        from personal_knowledge.governance.artifact_registry import load_registry
+
+        con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+        con.row_factory = sqlite3.Row
+        required_tables = {"serving_authority", "serving_snapshots", "serving_snapshot_members", "artifact_versions", "artifact_registry_entries", "source_watermarks"}
+        present = {str(row[0]) for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        missing_tables = sorted(required_tables - present)
+        if missing_tables:
+            con.close()
+            return CheckResult("serving_snapshot", False, "critical", "serving schema incomplete", {**detail, "errors": ["missing_tables:" + ",".join(missing_tables)]})
+        snap = con.execute(
+            "SELECT s.* FROM serving_authority a JOIN serving_snapshots s ON s.snapshot_id=a.active_snapshot_id WHERE a.singleton_id=1"
+        ).fetchone()
+        if snap is None:
+            con.close()
+            return CheckResult("serving_snapshot", False, "critical", "no active serving snapshot", {**detail, "errors": ["no_active_snapshot"]})
+        manifest = json.loads(str(snap["manifest_json"]))
+        if manifest_hash(manifest) != str(snap["manifest_hash"]):
+            errors.append("manifest_hash_mismatch")
+        if str(snap["status"]) != "validated":
+            errors.append("snapshot_not_validated")
+        rows = con.execute(
+            "SELECT m.serving_role,m.watermark_id,v.*,r.authority_role,r.definition_hash FROM serving_snapshot_members m "
+            "JOIN artifact_versions v ON v.artifact_version_id=m.artifact_version_id "
+            "JOIN artifact_registry_entries r ON r.registry_id=v.registry_id WHERE m.snapshot_id=? ORDER BY m.serving_role",
+            (snap["snapshot_id"],),
+        ).fetchall()
+        roles = {str(row["serving_role"]) for row in rows}
+        registry_doc = load_registry()
+        required = set(registry_doc.get("required_serving_roles") or [])
+        definitions = {str(item["authority_role"]): item for item in registry_doc.get("artifacts") or []}
+        manifest_members = manifest.get("members") if isinstance(manifest, dict) else {}
+        if not isinstance(manifest_members, dict):
+            manifest_members = {}
+        missing_roles = sorted(required - roles)
+        if missing_roles:
+            errors.append("missing_roles:" + ",".join(missing_roles))
+        if set(manifest_members) != roles:
+            errors.append("manifest_member_roles")
+        inspector = collection_inspector or _default_collection_inspector
+        collection_detail: dict[str, Any] = {}
+        for row in rows:
+            role = str(row["serving_role"])
+            if str(row["authority_role"]) != role:
+                errors.append(f"registry_role_mismatch:{role}")
+            definition = definitions.get(role) or {}
+            expected_definition_hash = hashlib.sha256(canonical_json(definition).encode("utf-8")).hexdigest()
+            if str(row["definition_hash"]) != expected_definition_hash:
+                errors.append(f"runtime_registry_hash:{role}")
+            if str(row["location_kind"]) != str(definition.get("kind") or ""):
+                errors.append(f"registry_kind_mismatch:{role}")
+            if str(row["privacy_class"]) != str(definition.get("privacy") or ""):
+                errors.append(f"registry_privacy_mismatch:{role}")
+            declared = manifest_members.get(role) or {}
+            for key in ("artifact_version_id", "version", "checksum", "location_kind", "location_ref", "watermark_id"):
+                if str(declared.get(key) or "") != str(row[key] or ""):
+                    errors.append(f"manifest_member_mismatch:{role}:{key}")
+            if str(row["location_kind"]) == "chroma_collection":
+                actual = dict(inspector(str(row["location_ref"])))
+                collection_detail[role] = actual
+                if not actual.get("exists"):
+                    errors.append(f"collection_missing:{role}")
+                if str(actual.get("checksum") or "") != str(row["checksum"]):
+                    errors.append(f"collection_checksum:{role}")
+                expected_count = json.loads(row["metadata_json"] or "{}").get("count")
+                if expected_count is None:
+                    expected_count = json.loads(row["metadata_json"] or "{}").get("unit_count")
+                if expected_count is not None and int(actual.get("count", -1)) != int(expected_count):
+                    errors.append(f"collection_count:{role}")
+        detail.update({"snapshot_id": str(snap["snapshot_id"]), "roles": sorted(roles), "collections": collection_detail, "errors": errors})
+        con.close()
+        return CheckResult("serving_snapshot", not errors, "critical", "active serving snapshot integral" if not errors else "active serving snapshot invalid", detail)
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult("serving_snapshot", False, "critical", f"serving snapshot check failed: {exc}", {**detail, "error": str(exc)})
+
+
+def _check_pointer_parity(db_path: Path, pointer_path: Path) -> CheckResult:
+    try:
+        from personal_knowledge.retrieval.serving import ServingSnapshotResolver
+        state = ServingSnapshotResolver(db_path, pointer_path).resolve()
+        ok = not state.legacy and not state.drift
+        return CheckResult("snapshot_pointer_parity", ok, "critical", "SQLite authority matches compatibility pointer" if ok else "serving authority/pointer drift", {"snapshot_id": state.snapshot_id, "legacy": state.legacy, "drift": state.drift})
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult("snapshot_pointer_parity", False, "critical", f"pointer parity check failed: {exc}", {"error": str(exc)})
+
+
+def _check_source_watermarks(db_path: Path) -> CheckResult:
+    errors: list[str] = []
+    try:
+        con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+        rows = con.execute(
+            "SELECT m.serving_role,m.watermark_id,w.artifact_version_id,m.artifact_version_id,"
+            "w.recorded_at,(SELECT MAX(w2.recorded_at) FROM source_watermarks w2 WHERE w2.registry_id=v.registry_id AND w2.source_key=w.source_key) "
+            "FROM serving_authority a JOIN serving_snapshot_members m ON m.snapshot_id=a.active_snapshot_id "
+            "JOIN artifact_versions v ON v.artifact_version_id=m.artifact_version_id "
+            "LEFT JOIN source_watermarks w ON w.watermark_id=m.watermark_id WHERE a.singleton_id=1"
+        ).fetchall()
+        by_role = {str(row[0]): row for row in rows}
+        for role in sorted(WATERMARK_ROLES):
+            row = by_role.get(role)
+            if row is None:
+                errors.append(f"missing_member:{role}")
+            elif not row[1]:
+                errors.append(f"missing_watermark:{role}")
+            elif str(row[2]) != str(row[3]):
+                errors.append(f"watermark_version_mismatch:{role}")
+            elif str(row[4]) != str(row[5]):
+                errors.append(f"stale_watermark:{role}")
+        con.close()
+        return CheckResult("source_watermarks", not errors, "critical", "source watermarks current and version-bound" if not errors else "source watermark drift", {"errors": errors})
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult("source_watermarks", False, "critical", f"source watermark check failed: {exc}", {"error": str(exc)})
+
+
+def _check_evidence_probe(
+    db_path: Path,
+    conversation_db: Path,
+    *,
+    probe: Callable[[], Mapping[str, Any]] | None = None,
+) -> CheckResult:
+    try:
+        if probe is not None:
+            result = dict(probe())
+        else:
+            from personal_knowledge.retrieval.evidence import EvidenceResolver
+            con = sqlite3.connect(f"file:{conversation_db.resolve().as_posix()}?mode=ro", uri=True)
+            row = con.execute("SELECT canonical_message_id FROM canonical_messages ORDER BY canonical_message_id LIMIT 1").fetchone()
+            con.close()
+            if row is None:
+                result = {"status": "missing", "error": "no_evidence_probe"}
+            else:
+                result = EvidenceResolver(unified_db=db_path, conversation_db=conversation_db).resolve(str(row[0]), artifact_type="canonical_message")
+        ok = result.get("status") in {"ok", "ineligible"}
+        safe = {k: v for k, v in result.items() if k != "content"}
+        return CheckResult("evidence_resolver", ok, "critical", "typed evidence probe resolved" if ok else "typed evidence probe failed", safe)
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult("evidence_resolver", False, "critical", f"evidence probe failed: {exc}", {"error": str(exc)})
 
 
 def _check_watermark(
@@ -383,6 +572,10 @@ def run_doctor(
     skip_ports: bool = False,
     include_facade: bool = True,
     application_root: Path | None = None,
+    composite_checks: bool = True,
+    registry_path: Path | None = None,
+    collection_inspector: Callable[[str], Mapping[str, Any]] | None = None,
+    evidence_probe: Callable[[], Mapping[str, Any]] | None = None,
 ) -> DoctorReport:
     """Run read-only product checks. Never mutates state."""
     db = unified_db or UNIFIED_DB
@@ -413,6 +606,12 @@ def run_doctor(
     )
     checks.append(_check_active_pointer(pointer))
     checks.append(_check_watermark(db_path=db, canonical_db=conv))
+    if composite_checks:
+        checks.append(_check_artifact_registry(registry_path))
+        checks.append(_check_serving_snapshot(db, collection_inspector=collection_inspector))
+        checks.append(_check_pointer_parity(db, pointer))
+        checks.append(_check_evidence_probe(db, conv, probe=evidence_probe))
+        checks.append(_check_source_watermarks(db))
 
     if not skip_ports:
         checks.extend(_check_ports())
@@ -431,6 +630,11 @@ def run_doctor(
         "agent_conversations_db",
         "active_pointer",
         "sqlite_foreign_keys",
+        "artifact_registry",
+        "serving_snapshot",
+        "snapshot_pointer_parity",
+        "evidence_resolver",
+        "source_watermarks",
     }
     hard_failed = [c for c in checks if c.id in hard_fail_ids and not c.ok]
     ok = not hard_failed

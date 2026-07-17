@@ -51,8 +51,13 @@ def sync_registry_entries(con: sqlite3.Connection) -> dict[str, dict[str, Any]]:
             (row["id"],),
         ).fetchone()
         values = (row["layer"], row["authority_role"], row["privacy"], digest)
-        if existing and tuple(existing) != values:
-            raise RuntimeError(f"runtime registry drift for {row['id']}")
+        if existing and tuple(existing[:3]) != values[:3]:
+            raise RuntimeError(f"runtime registry authority drift for {row['id']}")
+        if existing and str(existing[3]) != digest:
+            con.execute(
+                "UPDATE artifact_registry_entries SET definition_hash=?, registered_at=? WHERE registry_id=?",
+                (digest, _now(), row["id"]),
+            )
         con.execute(
             "INSERT OR IGNORE INTO artifact_registry_entries VALUES (?,?,?,?,?,?)",
             (row["id"], *values, _now()),
@@ -80,6 +85,16 @@ def prepare_snapshot(
         assert_foreign_key_integrity(con)
         con.execute("BEGIN IMMEDIATE")
         roles = sync_registry_entries(con)
+        existing_snapshot = con.execute(
+            "SELECT manifest_hash,status FROM serving_snapshots WHERE snapshot_id=?",
+            (snapshot_id,),
+        ).fetchone()
+        if existing_snapshot is not None:
+            if str(existing_snapshot[0]) != digest:
+                raise RuntimeError(f"snapshot id collision: {snapshot_id}")
+            con.commit()
+            result.update({"status": str(existing_snapshot[1]), "written": False, "existing": True})
+            return result
         con.execute(
             "INSERT OR IGNORE INTO serving_snapshots VALUES (?,?,?,?,?,?,NULL)",
             (snapshot_id, canonical_json(manifest), digest, "draft", eval_gate_ref, _now()),
@@ -193,9 +208,13 @@ def validate_snapshot(
 
 
 def get_active_snapshot(db_path: Path) -> dict[str, Any] | None:
+    if not db_path.exists():
+        return None
     con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     try:
+        if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='serving_authority'").fetchone() is None:
+            return None
         row = con.execute(
             "SELECT s.* FROM serving_authority a JOIN serving_snapshots s ON s.snapshot_id=a.active_snapshot_id WHERE a.singleton_id=1"
         ).fetchone()
@@ -284,3 +303,236 @@ def rollback_snapshot(db_path: Path, snapshot_id: str, **kwargs: Any) -> dict[st
         finally:
             con.close()
     return result
+
+
+def repair_pointer_projection(
+    db_path: Path,
+    pointer_path: Path,
+    *,
+    pointer_role: str = "knowledge_retrieval",
+    write: bool = False,
+) -> dict[str, Any]:
+    """Repair only the compatibility pointer from SQLite authority."""
+    active = get_active_snapshot(db_path)
+    if not active:
+        return {"ok": False, "error": "no_active_snapshot", "written": False}
+    member = (active.get("members") or {}).get(pointer_role) or {}
+    expected = str(member.get("location_ref") or "")
+    actual = pointer_path.read_text(encoding="utf-8").strip() if pointer_path.exists() else ""
+    result = {"ok": bool(expected), "snapshot_id": active["snapshot_id"], "expected": expected, "actual": actual, "drift": actual != expected, "written": False}
+    if not write or not expected or actual == expected:
+        return result
+    pointer_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = pointer_path.with_suffix(pointer_path.suffix + ".tmp")
+    tmp.write_text(expected, encoding="utf-8")
+    tmp.replace(pointer_path)
+    con = connect_rw(db_path)
+    try:
+        _event(con, "projection_repair", str(active["snapshot_id"]), {"previous": actual, "expected": expected})
+        con.commit()
+    finally:
+        con.close()
+    result.update({"actual": expected, "drift": False, "written": True})
+    return result
+
+
+def bootstrap_current_snapshot(
+    db_path: Path,
+    *,
+    eval_gate: Path,
+    write: bool = False,
+) -> dict[str, Any]:
+    """Prepare a complete draft from latest published versions; never activates."""
+    from personal_knowledge.application.serving.versions import file_checksum, json_checksum, publication_status, record_publication
+    from personal_knowledge.core.project_paths import (
+        AGENT_CONVERSATIONS_DB, AI_CONTEXT_DIR, GOOGLE_DB,
+        KNOWLEDGE_ACTIVE_POINTER, ROOT,
+    )
+
+    retrieval_contract = ROOT / "src" / "personal_knowledge" / "retrieval" / "semantic_search.py"
+    turn_summaries = AI_CONTEXT_DIR / "conversation_summaries.json"
+    if not eval_gate.exists():
+        return {"ok": False, "written": False, "error": "eval_gate_missing", "path": str(eval_gate)}
+    if not _eval_gate_passes(str(eval_gate)):
+        return {"ok": False, "written": False, "error": "eval_gate_not_passed", "path": str(eval_gate)}
+    contract_checksum = file_checksum(retrieval_contract)
+    eval_checksum = file_checksum(eval_gate)
+    missing_proofs: list[str] = []
+    specs: list[dict[str, Any]] = []
+    if not AGENT_CONVERSATIONS_DB.exists():
+        missing_proofs.append("canonical_conversation")
+    else:
+        conversation_checksum = file_checksum(AGENT_CONVERSATIONS_DB)
+        specs.extend([
+            {"role": "canonical_conversation", "registry_id": "d.canonical_conversation", "version": conversation_checksum, "checksum": conversation_checksum, "location_kind": "sqlite_store", "location_ref": str(AGENT_CONVERSATIONS_DB), "source_key": "agentsview", "watermark_value": conversation_checksum},
+            {"role": "canonical_message", "registry_id": "d.canonical_message", "version": conversation_checksum, "checksum": conversation_checksum, "location_kind": "sqlite_view", "location_ref": f"{AGENT_CONVERSATIONS_DB}#canonical_messages", "source_key": "canonical_conversation", "watermark_value": conversation_checksum, "parent_role": "canonical_conversation"},
+        ])
+    if not turn_summaries.exists():
+        missing_proofs.append("turn_summary")
+    else:
+        turn_checksum = file_checksum(turn_summaries)
+        try:
+            turn_actual = dict(_collection_inspector("conversation_turns"))
+        except Exception as exc:  # noqa: BLE001
+            turn_actual = {"exists": False, "error": str(exc)}
+        if not turn_actual.get("exists") or not turn_actual.get("checksum"):
+            missing_proofs.append("turn_retrieval")
+        else:
+            specs.extend([
+                {"role": "turn_summary", "registry_id": "s.turn_summary", "version": turn_checksum, "checksum": turn_checksum, "location_kind": "json_artifact", "location_ref": str(turn_summaries), "source_key": "canonical_message", "watermark_value": turn_checksum, "parent_role": "canonical_message"},
+                {"role": "turn_retrieval", "registry_id": "r.turn_vector", "version": str(turn_actual["checksum"]), "checksum": str(turn_actual["checksum"]), "location_kind": "chroma_collection", "location_ref": "conversation_turns", "source_key": "turn_summary", "watermark_value": turn_checksum, "parent_role": "turn_summary", "metadata": {"count": int(turn_actual.get("count", 0))}},
+            ])
+    if not GOOGLE_DB.exists():
+        missing_proofs.extend(["google_normalized", "google_assertion"])
+    else:
+        con = sqlite3.connect(f"file:{GOOGLE_DB.resolve().as_posix()}?mode=ro", uri=True)
+        con.row_factory = sqlite3.Row
+        try:
+            google_runs = {str(row["run_type"]): dict(row) for row in con.execute("SELECT run_id,run_type,input_hash,dataset_hash FROM google_structure_runs WHERE status='current'")}
+        except sqlite3.Error:
+            google_runs = {}
+        con.close()
+        normalized, assertion = google_runs.get("normalized_events"), google_runs.get("light_assertions")
+        if not normalized:
+            missing_proofs.append("google_normalized")
+        else:
+            specs.append({"role": "google_normalized", "registry_id": "d.google_normalized", "version": normalized["dataset_hash"], "checksum": normalized["dataset_hash"], "location_kind": "sqlite_store", "location_ref": f"{GOOGLE_DB}#normalized_events", "source_key": "google_activities", "watermark_value": normalized["input_hash"], "producer_run_id": normalized["run_id"]})
+        if not assertion:
+            missing_proofs.append("google_assertion")
+        else:
+            specs.append({"role": "google_assertion", "registry_id": "s.google_assertion", "version": assertion["dataset_hash"], "checksum": assertion["dataset_hash"], "location_kind": "sqlite_table", "location_ref": f"{GOOGLE_DB}#google_light_assertions", "source_key": "google_normalized", "watermark_value": assertion["input_hash"], "producer_run_id": assertion["run_id"], "parent_role": "google_normalized"})
+    con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    index_row = con.execute("SELECT version_id,build_id,collection_name,canonical_build_id,unit_count,checksum FROM knowledge_index_versions WHERE status='active' ORDER BY activated_at DESC LIMIT 1").fetchone()
+    canonical_ids = [str(row[0]) for row in con.execute("SELECT canonical_unit_id FROM canonical_knowledge_units WHERE status='current' ORDER BY canonical_unit_id")]
+    con.close()
+    if index_row is None or not canonical_ids:
+        missing_proofs.extend(["canonical_knowledge", "knowledge_retrieval"])
+    else:
+        try:
+            knowledge_actual = dict(_collection_inspector(str(index_row["collection_name"])))
+        except Exception as exc:  # noqa: BLE001
+            knowledge_actual = {"exists": False, "error": str(exc)}
+        if not knowledge_actual.get("exists") or not knowledge_actual.get("checksum"):
+            missing_proofs.append("knowledge_retrieval")
+        elif index_row["checksum"] and str(index_row["checksum"]) != str(knowledge_actual["checksum"]):
+            missing_proofs.append("knowledge_retrieval_checksum")
+        else:
+            canonical_build = str(index_row["canonical_build_id"] or index_row["build_id"])
+            canonical_checksum = json_checksum(canonical_ids)
+            specs.extend([
+                {"role": "canonical_knowledge", "registry_id": "s.knowledge_unit", "version": canonical_build, "checksum": canonical_checksum, "location_kind": "sqlite_table", "location_ref": "canonical_knowledge_units", "source_key": "canonical_message", "watermark_value": canonical_build, "producer_run_id": canonical_build, "parent_role": "canonical_message", "metadata": {"unit_count": len(canonical_ids)}},
+                {"role": "knowledge_retrieval", "registry_id": "r.knowledge_index", "version": str(index_row["version_id"]), "checksum": str(knowledge_actual["checksum"]), "location_kind": "chroma_collection", "location_ref": str(index_row["collection_name"]), "source_key": "canonical_knowledge", "watermark_value": canonical_build, "producer_run_id": str(index_row["build_id"]), "parent_role": "canonical_knowledge", "metadata": {"unit_count": int(knowledge_actual.get("count", index_row["unit_count"])), "canonical_build_id": canonical_build}},
+            ])
+    specs.extend([
+        {"role": "product_retrieval", "registry_id": "r.layered_search", "version": contract_checksum, "checksum": contract_checksum, "location_kind": "service_contract", "location_ref": str(retrieval_contract), "source_key": "retrieval_contract", "watermark_value": contract_checksum, "parent_role": "knowledge_retrieval"},
+        {"role": "knowledge_evaluation", "registry_id": "a.knowledge_evaluation", "version": eval_checksum, "checksum": eval_checksum, "location_kind": "evaluation_run", "location_ref": str(eval_gate), "source_key": "knowledge_evaluation", "watermark_value": eval_checksum, "parent_role": "knowledge_retrieval"},
+    ])
+    if missing_proofs:
+        return {"ok": False, "written": False, "mode": "draft_only", "missing_proofs": sorted(set(missing_proofs)), "discovered_roles": [spec["role"] for spec in specs]}
+    if not write:
+        return {"ok": True, "written": False, "mode": "draft_only", "would_record": [spec["role"] for spec in specs], "required_roles": list(load_registry().get("required_serving_roles") or [])}
+    if write:
+        recorded_by_role: dict[str, dict[str, Any]] = {}
+        for spec in specs:
+            payload = {key: value for key, value in spec.items() if key not in {"role", "parent_role"}}
+            parent = recorded_by_role.get(str(spec.get("parent_role") or ""))
+            payload["evidence_version_id"] = parent.get("artifact_version_id") if parent else None
+            recorded_by_role[spec["role"]] = record_publication(db_path, **payload)
+    status = publication_status(db_path)
+    artifacts = status.get("artifacts") or {}
+    registry = load_registry()
+    required = list(registry.get("required_serving_roles") or [])
+    by_role = {str(item.get("authority_role")): item for item in artifacts.values() if item.get("artifact_version_id")}
+    missing = sorted(role for role in required if role not in by_role)
+    if missing:
+        return {"ok": False, "written": False, "mode": "draft_only", "missing_proofs": missing, "would_record": [spec["role"] for spec in specs] if not write else []}
+    members: dict[str, dict[str, Any]] = {}
+    for role in required:
+        row = by_role[role]
+        members[role] = {
+            "artifact_version_id": row["artifact_version_id"],
+            "version": row["version"],
+            "checksum": row["checksum"],
+            "location_kind": row["location_kind"],
+            "location_ref": row["location_ref"],
+            "producer_run_id": row.get("producer_run_id"),
+            "watermark_id": row.get("watermark_id"),
+            "metadata": row.get("metadata") or {},
+        }
+    draft = prepare_snapshot(db_path, members, eval_gate_ref=str(eval_gate), write=write)
+    return {"ok": True, "mode": "draft_only", "required_roles": required, **draft}
+
+
+def _eval_gate_passes(reference: str) -> bool:
+    path = Path(reference)
+    if not path.exists():
+        return False
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    candidates = [doc, doc.get("gate") or {}, doc.get("result") or {}, doc.get("summary") or {}]
+    return any(
+        item.get("passed") is True or str(item.get("status") or item.get("verdict") or "").upper() == "PASS"
+        for item in candidates if isinstance(item, dict)
+    )
+
+
+def _collection_inspector(name: str) -> Mapping[str, Any]:
+    from personal_knowledge.application.knowledge.doctor_ku import _default_collection_inspector
+    return _default_collection_inspector(name)
+
+
+def _evidence_integrity(db_path: Path, snapshot_id: str) -> Mapping[str, Any]:
+    from personal_knowledge.application.knowledge.doctor_ku import _check_evidence_probe
+    from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB
+    result = _check_evidence_probe(db_path, AGENT_CONVERSATIONS_DB)
+    return {"ok": result.ok, "errors": [] if result.ok else ["evidence_integrity_failed"]}
+
+
+def _cli() -> int:
+    import argparse
+    from personal_knowledge.core.project_paths import KNOWLEDGE_ACTIVE_POINTER, UNIFIED_DB
+
+    parser = argparse.ArgumentParser(description="Composite serving snapshot operations")
+    parser.add_argument("--db", type=Path, default=UNIFIED_DB)
+    sub = parser.add_subparsers(dest="command", required=True)
+    status = sub.add_parser("status")
+    status.add_argument("--pointer", type=Path, default=KNOWLEDGE_ACTIVE_POINTER)
+    bootstrap = sub.add_parser("bootstrap")
+    bootstrap.add_argument("--eval-gate", type=Path, required=True)
+    bootstrap.add_argument("--write", action="store_true")
+    validate = sub.add_parser("validate")
+    validate.add_argument("--snapshot", required=True)
+    activate = sub.add_parser("activate")
+    activate.add_argument("--snapshot", required=True)
+    activate.add_argument("--pointer", type=Path, default=KNOWLEDGE_ACTIVE_POINTER)
+    rollback = sub.add_parser("rollback")
+    rollback.add_argument("--snapshot", required=True)
+    rollback.add_argument("--pointer", type=Path, default=KNOWLEDGE_ACTIVE_POINTER)
+    repair = sub.add_parser("repair-pointer")
+    repair.add_argument("--pointer", type=Path, default=KNOWLEDGE_ACTIVE_POINTER)
+    repair.add_argument("--write", action="store_true")
+    args = parser.parse_args()
+    if args.command == "status":
+        active = get_active_snapshot(args.db)
+        projected = args.pointer.read_text(encoding="utf-8").strip() if args.pointer.exists() else ""
+        expected = str((((active or {}).get("members") or {}).get("knowledge_retrieval") or {}).get("location_ref") or "")
+        result = {"ok": bool(active), "active": active, "pointer": projected, "pointer_drift": bool(active) and projected != expected}
+    elif args.command == "bootstrap":
+        result = bootstrap_current_snapshot(args.db, eval_gate=args.eval_gate, write=args.write)
+    elif args.command == "validate":
+        result = validate_snapshot(args.db, args.snapshot, collection_inspector=_collection_inspector, required_roles=set(load_registry().get("required_serving_roles") or []), require_gate=True, gate_validator=_eval_gate_passes, integrity_validator=lambda sid: _evidence_integrity(args.db, sid))
+    elif args.command == "activate":
+        result = activate_snapshot(args.db, args.snapshot, pointer_path=args.pointer)
+    elif args.command == "rollback":
+        result = rollback_snapshot(args.db, args.snapshot, pointer_path=args.pointer)
+    else:
+        result = repair_pointer_projection(args.db, args.pointer, write=args.write)
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    return 0 if result.get("ok") else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(_cli())

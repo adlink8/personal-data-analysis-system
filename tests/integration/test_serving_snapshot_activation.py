@@ -7,7 +7,8 @@ import pytest
 
 from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
 from personal_knowledge.application.serving.snapshots import (
-    activate_snapshot, get_active_snapshot, prepare_snapshot, rollback_snapshot, validate_snapshot,
+    activate_snapshot, bootstrap_current_snapshot, get_active_snapshot, prepare_snapshot,
+    repair_pointer_projection, rollback_snapshot, validate_snapshot,
 )
 
 
@@ -99,3 +100,38 @@ def test_rollback_reactivates_prior_snapshot_without_deleting_history(tmp_path: 
     assert con.execute("SELECT COUNT(*) FROM serving_snapshots").fetchone()[0] == 2
     assert con.execute("SELECT COUNT(*) FROM serving_snapshot_events WHERE action='rollback'").fetchone()[0] == 1
     con.close()
+
+
+def test_pointer_repair_is_dry_run_first_and_logs_explicit_write(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    pointer = tmp_path / "active.txt"
+    snapshot = _validated(db, "authoritative")
+    activate_snapshot(db, snapshot, pointer_path=pointer)
+    pointer.write_text("drifted", encoding="utf-8")
+    dry = repair_pointer_projection(db, pointer)
+    assert dry["drift"] is True and dry["written"] is False
+    assert pointer.read_text() == "drifted"
+    fixed = repair_pointer_projection(db, pointer, write=True)
+    assert fixed["ok"] and fixed["written"] and pointer.read_text() == "authoritative"
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT COUNT(*) FROM serving_snapshot_events WHERE action='projection_repair'").fetchone()[0] == 1
+    con.close()
+
+
+def test_bootstrap_discovers_proofs_and_never_activates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _db(tmp_path)
+    gate = tmp_path / "gate.json"
+    gate.write_text('{"status":"PASS"}', encoding="utf-8")
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO knowledge_build_runs (run_id,run_type,generated_at,input_hash,schema_version,status) VALUES ('run','merge','now','h','v1','current')")
+    con.execute("INSERT INTO canonical_knowledge_units (canonical_unit_id,subject,unit_type,question,answer,confidence,status,run_id,created_at) VALUES ('cu1','s','personal_fact','q','a',1,'current','run','now')")
+    con.execute("INSERT INTO knowledge_index_versions (version_id,build_id,collection_name,canonical_build_id,unit_count,status,created_at,checksum,activated_at) VALUES ('kiv','run','knowledge_collection','run',1,'active','now','ck','now')")
+    con.commit(); con.close()
+    monkeypatch.setattr("personal_knowledge.application.serving.snapshots._collection_inspector", lambda _: {"exists": True, "checksum": "ck", "count": 1})
+    dry = bootstrap_current_snapshot(db, eval_gate=gate)
+    assert dry["ok"] is True and dry["written"] is False
+    assert len(dry["would_record"]) == 10
+    assert get_active_snapshot(db) is None
+    written = bootstrap_current_snapshot(db, eval_gate=gate, write=True)
+    assert written["ok"] and written["written"] and written["status"] == "draft"
+    assert get_active_snapshot(db) is None

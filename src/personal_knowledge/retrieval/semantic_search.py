@@ -520,7 +520,17 @@ def search_knowledge_units(
     layer_by_name = {x["name"]: x for x in layers}
     pointer = _C.DB_DIR / "knowledge_index_active.txt"
     serving = ServingSnapshotResolver(_C.UNIFIED_DB, pointer).resolve()
-    snapshot_enforced = bool(serving.snapshot_id and collection_override is None)
+    # Resolve through the public compatibility hook as well. In production it
+    # reads the same SQLite authority; tests and embedded callers can inject an
+    # isolated authority without inheriting this machine's live snapshot.
+    resolved_active = _read_knowledge_active_collection()
+    snapshot_collection = str((serving.member("knowledge_retrieval") or {}).get("location_ref") or "")
+    snapshot_enforced = bool(
+        serving.snapshot_id
+        and collection_override is None
+        and resolved_active
+        and resolved_active == snapshot_collection
+    )
     role_by_layer = {
         "knowledge_unit": "knowledge_retrieval",
         "canonical_messages": "canonical_message",
@@ -584,13 +594,11 @@ def search_knowledge_units(
     # 解析 knowledge collection
     if collection_override:
         ku_collection = collection_override
-    elif serving.snapshot_id:
-        ku_collection = str(
-            (serving.member("knowledge_retrieval") or {}).get("location_ref") or ""
-        )
+    elif snapshot_enforced:
+        ku_collection = snapshot_collection
     else:
         # Compatibility hook retained for tests and pre-snapshot installations.
-        ku_collection = _read_knowledge_active_collection()
+        ku_collection = resolved_active
 
     # embedding（一次 embed，两路复用）
     embedding = local_embed.embed(query)
