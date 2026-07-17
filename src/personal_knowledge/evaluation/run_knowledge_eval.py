@@ -113,6 +113,18 @@ def resolve_cases_path(cfg: dict[str, Any]) -> Path:
     return path
 
 
+def _is_real_gold_case(case) -> bool:
+    return (
+        not case.gold_provenance.startswith("synthetic")
+        and not case.expected_abstain
+        and bool(
+            case.gold_evidence_refs
+            or case.gold_unit_ids
+            or case.gold_title_substrings
+        )
+    )
+
+
 def stage_dataset_audit(
     cases,
     run_dir: Path,
@@ -149,13 +161,7 @@ def stage_dataset_audit(
     audit["gold_resolvable_rate"] = (
         len(real_refs & resolvable_refs) / len(real_refs) if real_refs else None
     )
-    real_gold_cases = [
-        case
-        for case in cases
-        if not case.gold_provenance.startswith("synthetic")
-        and not case.expected_abstain
-        and (case.gold_evidence_refs or case.gold_unit_ids or case.gold_title_substrings)
-    ]
+    real_gold_cases = [case for case in cases if _is_real_gold_case(case)]
     real_cross_turn = [case for case in real_gold_cases if case.requires_cross_turn]
     audit["real_gold_cases"] = len(real_gold_cases)
     audit["real_cross_turn_gold_cases"] = len(real_cross_turn)
@@ -245,7 +251,7 @@ def stage_retrieval(
                         privacy_sensitive=c.privacy_sensitive,
                         secret_ineligible=c.secret_ineligible,
                         forbid_subject_substrings=c.forbid_subject_substrings,
-                        score_retrieval=not c.gold_provenance.startswith("synthetic"),
+                        score_retrieval=_is_real_gold_case(c),
                     )
                 )
             mode_scores[t.mode] = scores
@@ -289,7 +295,7 @@ def stage_retrieval(
                     gold_refs=c.gold_evidence_refs,
                     gold_unit_ids=c.gold_unit_ids,
                     expected_abstain=c.expected_abstain,
-                    score_retrieval=not c.gold_provenance.startswith("synthetic"),
+                    score_retrieval=_is_real_gold_case(c),
                 )
                 sc.notes = t.blocked_reason
                 scores.append(sc)
@@ -331,7 +337,7 @@ def stage_retrieval(
                 forbid_subject_substrings=c.forbid_subject_substrings,
                 latency_ms=ar.latency_ms,
                 first_layer=ar.first_layer,
-                score_retrieval=not c.gold_provenance.startswith("synthetic"),
+                score_retrieval=_is_real_gold_case(c),
             )
             scores.append(sc)
             ranked_by_case.append(list(ar.ranked))

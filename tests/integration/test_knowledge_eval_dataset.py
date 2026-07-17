@@ -26,7 +26,12 @@ from personal_knowledge.evaluation.eval_contracts import (  # noqa: E402
     content_checksum,
     load_cases_jsonl,
 )
-from personal_knowledge.evaluation.run_knowledge_eval import load_config, resolve_cases_path, stage_dataset_audit  # noqa: E402
+from personal_knowledge.evaluation.run_knowledge_eval import (  # noqa: E402
+    _is_real_gold_case,
+    load_config,
+    resolve_cases_path,
+    stage_dataset_audit,
+)
 from personal_knowledge.evaluation.build_private_suite import HOLDOUT, OUT_DIR, SYN  # noqa: E402
 
 
@@ -140,3 +145,17 @@ def test_private_suite_fails_closed_without_real_cross_turn_gold(tmp_path: Path)
     assert audit["ok"] is False
     assert audit["real_gold_cases"] == 22
     assert audit["real_cross_turn_gold_cases"] < 30
+
+
+def test_real_gold_case_excludes_synthetic_abstain_and_unlabelled() -> None:
+    base = {"id": "q", "query": "query", "split": "test", "gold_unit_ids": ["gold"]}
+    assert _is_real_gold_case(EvalCase.from_dict({**base, "gold_provenance": "human"}))
+    assert not _is_real_gold_case(
+        EvalCase.from_dict({**base, "gold_provenance": "synthetic_v1"})
+    )
+    assert not _is_real_gold_case(
+        EvalCase.from_dict({**base, "expected_abstain": True})
+    )
+    assert not _is_real_gold_case(
+        EvalCase.from_dict({"id": "q", "query": "query", "split": "test"})
+    )
