@@ -39,6 +39,8 @@ import urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+
+from personal_knowledge.core.sqlite import connect_rw
 from typing import Any
 
 from pydantic import ValidationError
@@ -359,7 +361,7 @@ def start_run(
 
     pilot_positions: 如果提供，只处理这些 position 的 items，其余标记 abstained。
     """
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
 
     # 读 inventory
     inv = con.execute(
@@ -429,7 +431,7 @@ def start_run(
 def resume_run(run_id: str, model: str, db_path: Path = UNIFIED_DB,
                batch_size: int = 50) -> dict:
     """恢复 production extraction run。不调用 begin_staging（不删除旧结果）。"""
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
 
     # 验证 run 存在
     run = con.execute(
@@ -572,7 +574,7 @@ def process_run(
 
     多线程：worker 只调 LLM 返回纯响应；主线程单 writer 提交 SQLite。
     """
-    con = sqlite3.connect(str(db_path), timeout=60)
+    con = connect_rw(db_path, timeout=60)
     token_provider = TokenProvider()
     rate_limiter = RequestRateLimiter(min_request_interval)
     prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
@@ -840,7 +842,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     if args.status:
-        con = sqlite3.connect(str(args.db))
+        con = connect_rw(args.db)
         stats = get_run_stats(con, args.status)
         con.close()
         print(json.dumps({"run_id": args.status, "item_stats": stats}, ensure_ascii=False, indent=2))

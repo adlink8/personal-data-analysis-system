@@ -30,6 +30,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from personal_knowledge.core.sqlite import connect_rw
+
 from personal_knowledge.core.project_paths import UNIFIED_DB, KNOWLEDGE_EVAL_DIR
 
 MERGE_SIMILARITY_THRESHOLD = 0.85
@@ -212,7 +214,7 @@ def build_canonical(run_id: str, db_path: Path = UNIFIED_DB,
 def _write_canonical_to_db(canonical_list: list[dict], run_id: str,
                             db_path: Path = UNIFIED_DB) -> None:
     """写 canonical_knowledge_units + canonical_unit_members。"""
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     now = _utc_now()
     try:
         for cu in canonical_list:

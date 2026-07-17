@@ -23,6 +23,8 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+from personal_knowledge.core.sqlite import connect_rw
 from typing import Iterable
 
 from personal_knowledge.core.project_paths import UNIFIED_DB
@@ -389,7 +391,7 @@ def reconcile_knowledge_lifecycle(
         report.note = f"db missing: {db_path}"
         return report
 
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     con.row_factory = sqlite3.Row
     try:
         report.row_count_before = int(

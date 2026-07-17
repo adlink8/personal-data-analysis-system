@@ -1,6 +1,6 @@
 """Phase 14 分批 backfill 循环。每次处理 100 条，重复直到全部完成。"""
 
-import sqlite3
+from personal_knowledge.core.sqlite import connect_rw
 
 from personal_knowledge.core.project_paths import UNIFIED_DB
 from personal_knowledge.application.knowledge.build_knowledge_units_prod import resume_run, process_run
@@ -12,7 +12,7 @@ for batch in range(1, 50):
     resume_run(run_id, model)
     stats = process_run(run_id, model, max_items=100)
     
-    con = sqlite3.connect(UNIFIED_DB)
+    con = connect_rw(UNIFIED_DB)
     pend = con.execute(
         "SELECT COUNT(*) FROM knowledge_run_items WHERE run_id=? AND status IN ('pending','retryable')",
         (run_id,)

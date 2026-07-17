@@ -20,6 +20,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from personal_knowledge.core.sqlite import assert_foreign_key_integrity, connect_rw
+
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
@@ -92,8 +94,9 @@ def promote(collection: str, db_path: Path = UNIFIED_DB) -> dict:
     checksum = _compute_collection_checksum(collection)
 
     # 更新 DB
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     try:
+        assert_foreign_key_integrity(con)
         # 旧 active → rolled_back（保留其 checksum 供 rollback reconcile 用）
         if previous:
             # 如果旧 active 还没有 checksum，现在补算
@@ -150,7 +153,7 @@ def rollback_to_previous(db_path: Path = UNIFIED_DB) -> dict:
         return {"error": "no previous collection found in log"}
 
     # 更新 DB
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     try:
         con.execute(
             "UPDATE knowledge_index_versions SET status='rolled_back' "

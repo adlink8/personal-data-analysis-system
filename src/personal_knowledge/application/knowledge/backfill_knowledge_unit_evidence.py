@@ -19,6 +19,8 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from personal_knowledge.core.sqlite import connect_rw
 from typing import Any
 
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
@@ -44,9 +46,7 @@ def _connect_ro(path: Path) -> sqlite3.Connection:
 
 
 def _connect_rw(path: Path) -> sqlite3.Connection:
-    con = sqlite3.connect(str(path))
-    con.execute("PRAGMA foreign_keys=ON")
-    return con
+    return connect_rw(path)
 
 
 def coverage_stats(con: sqlite3.Connection) -> dict[str, Any]:

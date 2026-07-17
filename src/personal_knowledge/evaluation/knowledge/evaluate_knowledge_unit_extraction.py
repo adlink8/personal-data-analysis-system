@@ -36,6 +36,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from personal_knowledge.core.sqlite import connect_rw
+
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
@@ -291,7 +293,7 @@ def write_gate_to_db(report: GateReport, db_path: Path = UNIFIED_DB) -> None:
 
     只写 extraction checkpoint，不改 canonical current 或 active pointer。
     """
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     gate_id = f"gate_{report.run_id[:16]}"
     con.execute(
         "INSERT OR REPLACE INTO knowledge_extraction_gates VALUES (?,?,?,?,?,?)",

@@ -23,6 +23,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
+from personal_knowledge.core.sqlite import connect_rw
+
 from pydantic import ValidationError
 
 from personal_knowledge.core.project_paths import UNIFIED_DB, AGENT_CONVERSATIONS_DB, AI_CONTEXT_DIR
@@ -208,7 +210,7 @@ def build_window(
 
 
 def ensure_schema(db_path: Path) -> None:
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     con.executescript(SCHEMA_SQL)
     con.executescript(JOBS_SCHEMA)
     con.commit()
@@ -240,7 +242,7 @@ def start_l2_run(
             "min_user_msgs": MIN_USER_MSGS,
         },
     )
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     con.execute(
         "INSERT OR REPLACE INTO knowledge_build_runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
@@ -321,7 +323,7 @@ def process_l2_run(
         for s in list_l2_sessions(canonical_db, min_user_msgs=min_user_msgs, limit=None)
     }
 
-    con = sqlite3.connect(str(db_path), timeout=60)
+    con = connect_rw(db_path, timeout=60)
     token_provider = TokenProvider()
     rate_limiter = RequestRateLimiter(min_request_interval)
     stats = {
@@ -636,7 +638,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.status:
         ensure_schema(args.db)
-        con = sqlite3.connect(str(args.db))
+        con = connect_rw(args.db)
         st = _job_stats(con, args.status)
         n_units = con.execute(
             "SELECT COUNT(*) FROM knowledge_units WHERE run_id=?", (args.status,)

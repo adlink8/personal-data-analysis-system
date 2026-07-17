@@ -33,6 +33,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from personal_knowledge.core.sqlite import assert_foreign_key_integrity, connect_rw
+
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
@@ -121,7 +123,7 @@ class StagingPublisher:
         self.db_path = db_path
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(str(self.db_path))
+        return connect_rw(self.db_path)
 
     def begin_staging(self) -> None:
         """在 DB 写入 manifest 行，status='staging'。
@@ -162,6 +164,7 @@ class StagingPublisher:
         """gate 通过：manifest → current，旧 current units → superseded。"""
         con = self._connect()
         try:
+            assert_foreign_key_integrity(con)
             # 旧 current units 标记 superseded
             con.execute(
                 "UPDATE knowledge_units SET status='staging', "

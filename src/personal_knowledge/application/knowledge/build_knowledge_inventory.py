@@ -29,6 +29,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 from personal_knowledge.core.project_paths import UNIFIED_DB, AGENT_CONVERSATIONS_DB, AI_CONTEXT_DIR  # noqa: E402
+from personal_knowledge.core.sqlite import connect_rw  # noqa: E402
 
 INVENTORY_JSON = AI_CONTEXT_DIR / "knowledge_unit_inventory.json"
 INVENTORY_MD = AI_CONTEXT_DIR / "knowledge_unit_inventory.md"
@@ -224,7 +225,7 @@ def build_inventory(canonical_db: Path = AGENT_CONVERSATIONS_DB) -> dict:
 
 def write_inventory_to_db(inventory: dict, db_path: Path = UNIFIED_DB) -> None:
     """把 inventory 写入 knowledge_inventory + knowledge_inventory_items 表。"""
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     try:
         con.execute(
             "INSERT OR REPLACE INTO knowledge_inventory VALUES (?,?,?,?,?,?,?,?,?,?)",

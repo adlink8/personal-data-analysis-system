@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from personal_knowledge.core.project_paths import UNIFIED_DB
+from personal_knowledge.core.sqlite import assert_foreign_key_integrity, connect_rw
 
 
 def _utc_now() -> str:
@@ -35,7 +36,7 @@ def publish_incremental_run(
     if not run_id:
         raise ValueError("run_id required")
 
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     con.row_factory = sqlite3.Row
     run = con.execute(
         "SELECT run_id, run_type, status FROM knowledge_build_runs WHERE run_id=?",
@@ -92,6 +93,7 @@ def publish_incremental_run(
         return report
 
     # Additive only — never demote other runs
+    assert_foreign_key_integrity(con)
     con.execute(
         "UPDATE knowledge_units SET status='current' "
         "WHERE run_id=? AND status='staging'",

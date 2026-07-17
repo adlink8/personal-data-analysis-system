@@ -27,6 +27,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from personal_knowledge.core.sqlite import connect_rw
+
 from personal_knowledge.core.project_paths import UNIFIED_DB, AI_CONTEXT_DIR
 from personal_knowledge.application.knowledge.build_canonical_knowledge_units import (
     _canonical_id,
@@ -139,7 +141,7 @@ def merge_l2(
     for c in current:
         by_type.setdefault(c["unit_type"] or "", []).append(c)
 
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     # already linked members
     linked = {
         r[0]

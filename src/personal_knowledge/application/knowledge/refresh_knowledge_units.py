@@ -21,6 +21,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from personal_knowledge.core.sqlite import connect_rw
+
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
@@ -191,7 +193,7 @@ def refresh(
 
     if not dry_run and detail.get("deleted_refs"):
         # 传播 deleted → deprecated lifecycle
-        con = sqlite3.connect(str(db_path))
+        con = connect_rw(db_path)
         now = _utc_now()
         deleted_refs = detail["deleted_refs"]
         # 标记全部受影响 units；500 只是单批参数上限，不是执行上限。
@@ -541,7 +543,7 @@ def _materialize_delta_run(
         run_id_material = f"{run_id_material}|{extract_policy}"
     fresh_run_id = "ir_" + hashlib.sha256(run_id_material.encode()).hexdigest()[:16]
 
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     existing = con.execute(
         "SELECT delta_inventory_id FROM knowledge_delta_inventories WHERE delta_inventory_id=?",
         (delta_inventory_id,),
@@ -698,7 +700,7 @@ def prepare_delta(
 
     # Ensure schema (idempotent)
     from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     con.executescript(SCHEMA_SQL)
     con.close()
 
@@ -816,7 +818,7 @@ def execute_run(
 
     Returns: {"processed": N, "succeeded": N, "abstained": N, "failed": N}
     """
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     con.row_factory = sqlite3.Row
 
     # Ensure knowledge_run_items exist for this run
@@ -1103,7 +1105,7 @@ CREATE TABLE IF NOT EXISTS knowledge_incremental_journals (
 
 
 def ensure_journal_schema(db_path: Path) -> None:
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     con.executescript(JOURNAL_SCHEMA)
     con.execute(
         "CREATE TABLE IF NOT EXISTS knowledge_source_watermark ("
@@ -1135,7 +1137,7 @@ def advance_watermark(db_path: Path, checksum: str, *, key: str = "committed") -
         raise ValueError("checksum required for watermark advance")
     ensure_journal_schema(db_path)
     before = get_committed_watermark(db_path)
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     con.execute(
         "INSERT INTO knowledge_source_watermark(key, value, updated_at) VALUES (?,?,?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
@@ -1163,7 +1165,7 @@ def prepare_incremental_journal(
     ensure_journal_schema(db_path)
     material = f"{delta_inventory_id}|{fresh_run_id}|{source_after_checksum}"
     journal_id = "ij_" + hashlib.sha256(material.encode()).hexdigest()[:16]
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     existing = con.execute(
         "SELECT journal_id, status FROM knowledge_incremental_journals WHERE journal_id=?",
         (journal_id,),
@@ -1220,7 +1222,7 @@ def commit_incremental_journal(
     Fail closed if journal missing/not prepared. Rollback leaves watermark alone.
     """
     ensure_journal_schema(db_path)
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     row = con.execute(
         "SELECT status, source_after_checksum, candidate_collection, source_before_checksum "
         "FROM knowledge_incremental_journals WHERE journal_id=?",
@@ -1291,7 +1293,7 @@ def rollback_incremental_journal(
 ) -> dict:
     """Restore previous watermark (and optional pointer) from a committed journal."""
     ensure_journal_schema(db_path)
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     row = con.execute(
         "SELECT status, source_before_checksum, source_after_checksum "
         "FROM knowledge_incremental_journals WHERE journal_id=?",
@@ -1357,7 +1359,7 @@ def run_sandbox_ku08_e2e(
     def _mk_canon(path: Path, messages: list[tuple[str, str]]) -> None:
         if path.exists():
             path.unlink()
-        con = sqlite3.connect(str(path))
+        con = connect_rw(path)
         con.execute(
             "CREATE TABLE canonical_sessions "
             "(canonical_session_id TEXT PRIMARY KEY, evidence_eligible INTEGER DEFAULT 1)"
@@ -1388,7 +1390,7 @@ def run_sandbox_ku08_e2e(
 
     from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
 
-    con = sqlite3.connect(str(unified))
+    con = connect_rw(unified)
     con.executescript(SCHEMA_SQL)
     con.commit()
     con.close()
@@ -1488,7 +1490,7 @@ def prepare_production_delta(
     # Ensure schema (idempotent)
     from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
 
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     con.executescript(SCHEMA_SQL)
     validation = validate_provider_model(provider, endpoint, model, auth_mode)
 

@@ -33,6 +33,8 @@ import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
+from personal_knowledge.core.sqlite import connect_rw
+
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
@@ -294,7 +296,7 @@ def run(dry_run: bool, write: bool, limit: int | None = None,
         "by_type": {},
     }
 
-    con = sqlite3.connect(str(unified_db))
+    con = connect_rw(unified_db)
     for i, ev in enumerate(evidence, 1):
         print(f"[{i}/{len(evidence)}] agent={ev['agent']:10} len={len(ev['cleaned_content']):4}", end="")
 
