@@ -334,8 +334,8 @@ Plans:
 **Goal:** 建立证据支持的个人状态与变化模型，可靠总结近期变化，并从历史解释目标、约束、项目和偏好的当前状态。
 **Requirements**: INTEL-01, INTEL-02
 **Depends on:** Phase 24
-**Status:** All plans implemented; phase verification pending (release remains blocked on Phase 24 human/quality gates)
-**Plans:** 4/4 plans executed
+**Status:** Technically verified — INTEL-01/02 passed; release remains blocked on Phase 24 human/quality gates
+**Plans:** 4/4 plans complete
 
 Plans:
 - [x] 25-01: Immutable personal-state schema and snapshot-bound run contract
