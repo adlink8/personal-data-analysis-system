@@ -36,6 +36,7 @@ from personal_knowledge.retrieval._db_utils import (  # noqa: E402
 )
 from personal_knowledge.retrieval.google_assertions import get_google_structure_status  # noqa: E402
 from personal_knowledge.retrieval.merge_cluster import _merge_layer_ready, _dedup_event_ids  # noqa: E402
+from personal_knowledge.retrieval.serving import ServingSnapshotResolver, member_version  # noqa: E402
 
 def search_semantic(
     query: str,
@@ -361,13 +362,10 @@ def _search_dialogue_canonical_messages(
 
 
 def _read_knowledge_active_collection() -> str:
-    """读 active knowledge index pointer。"""
-    from personal_knowledge.core.project_paths import DB_DIR  # noqa: E402
+    """Resolve active knowledge index from SQLite authority, then legacy pointer."""
     pointer = _C.DB_DIR / "knowledge_index_active.txt"
-    if pointer.exists():
-        name = pointer.read_text(encoding="utf-8").strip()
-        return name if name else ""
-    return ""
+    state = ServingSnapshotResolver(_C.UNIFIED_DB, pointer).resolve()
+    return str((state.member("knowledge_retrieval") or {}).get("location_ref") or "")
 
 
 def get_knowledge_status(*, probe_chroma: bool = True) -> dict:
@@ -380,6 +378,7 @@ def get_knowledge_status(*, probe_chroma: bool = True) -> dict:
 
     pointer = _C.DB_DIR / "knowledge_index_active.txt"
     active = _read_knowledge_active_collection()
+    serving = ServingSnapshotResolver(_C.UNIFIED_DB, pointer).resolve()
     policy = _resolve_fallback_policy(None)
     if policy == "layered":
         route_policy = "knowledge-first + layered fallback (dialogue→non_dialogue_raw)"
@@ -388,6 +387,9 @@ def get_knowledge_status(*, probe_chroma: bool = True) -> dict:
     out: dict[str, Any] = {
         "available": bool(active),
         "active_collection": active or None,
+        "serving_snapshot_id": serving.snapshot_id,
+        "snapshot_hash": serving.manifest_hash,
+        "snapshot_drift": serving.drift,
         "pointer_path": str(pointer),
         "pointer_exists": pointer.exists(),
         "search_backend": "search_knowledge_units",
@@ -516,6 +518,20 @@ def search_knowledge_units(
         _empty_layer_telemetry("legacy_personal_events"),
     ]
     layer_by_name = {x["name"]: x for x in layers}
+    pointer = _C.DB_DIR / "knowledge_index_active.txt"
+    serving = ServingSnapshotResolver(_C.UNIFIED_DB, pointer).resolve()
+    snapshot_enforced = bool(serving.snapshot_id and collection_override is None)
+    role_by_layer = {
+        "knowledge_unit": "knowledge_retrieval",
+        "canonical_messages": "canonical_message",
+        "conversation_turns": "turn_retrieval",
+        "non_dialogue_raw": "google_normalized",
+    }
+    for layer_name, role in role_by_layer.items():
+        layer_by_name[layer_name]["version"] = member_version(serving.member(role))
+
+    def _role_allowed(role: str) -> bool:
+        return not snapshot_enforced or serving.member(role) is not None
 
     def _pack(
         *,
@@ -533,6 +549,13 @@ def search_knowledge_units(
             "allow_legacy_pad": pad_allowed,
             "telemetry": _finalize_search_telemetry(
                 layers, pad_allowed=pad_allowed, t0=t0
+            ),
+            "serving_snapshot_id": serving.snapshot_id,
+            "snapshot_hash": serving.manifest_hash,
+            "snapshot_drift": serving.drift,
+            "snapshot_consistency": (
+                "override_unbound" if collection_override else
+                "enforced" if snapshot_enforced else "legacy"
             ),
         }
         if reason is not None:
@@ -559,7 +582,15 @@ def search_knowledge_units(
     versions: dict = {}
 
     # 解析 knowledge collection
-    ku_collection = collection_override or _read_knowledge_active_collection()
+    if collection_override:
+        ku_collection = collection_override
+    elif serving.snapshot_id:
+        ku_collection = str(
+            (serving.member("knowledge_retrieval") or {}).get("location_ref") or ""
+        )
+    else:
+        # Compatibility hook retained for tests and pre-snapshot installations.
+        ku_collection = _read_knowledge_active_collection()
 
     # embedding（一次 embed，两路复用）
     embedding = local_embed.embed(query)
@@ -654,7 +685,7 @@ def search_knowledge_units(
         fallback_results.append(item)
         return True
 
-    if policy == "legacy":
+    if policy == "legacy" and not snapshot_enforced:
         # --- Legacy Phase 2: raw personal_events 检索（补剩余 slot，全源） ---
         raw_target = _remaining()
         layer = layer_by_name["legacy_personal_events"]
@@ -682,10 +713,14 @@ def search_knowledge_units(
                 layer["hits"] = max(0, len(fallback_results) - n_before)
                 layer["latency_ms"] = round((time.perf_counter() - t_layer) * 1000, 2)
     else:
+        if policy == "legacy" and snapshot_enforced:
+            layer_by_name["legacy_personal_events"]["skipped_reason"] = "not_bound_to_serving_snapshot"
         # --- Layered Phase 2a: message-level dialogue (canonical_messages) ---
         need = _remaining()
         layer = layer_by_name["canonical_messages"]
-        if need > 0:
+        if need > 0 and not _role_allowed("canonical_message"):
+            layer["skipped_reason"] = "snapshot_member_missing:canonical_message"
+        if need > 0 and _role_allowed("canonical_message"):
             layer["attempted"] = True
             t_layer = time.perf_counter()
             n_before = len(fallback_results)
@@ -704,7 +739,9 @@ def search_knowledge_units(
         # --- Layered Phase 2b: dialogue_fallback via conversation_turns ---
         need = _remaining()
         layer = layer_by_name["conversation_turns"]
-        if need > 0:
+        if need > 0 and not _role_allowed("turn_retrieval"):
+            layer["skipped_reason"] = "snapshot_member_missing:turn_retrieval"
+        if need > 0 and _role_allowed("turn_retrieval"):
             layer["attempted"] = True
             t_layer = time.perf_counter()
             n_before = len(fallback_results)
@@ -734,7 +771,9 @@ def search_knowledge_units(
         # --- Layered Phase 3: non_dialogue_raw (prefer Google personal_events) ---
         need = _remaining()
         layer = layer_by_name["non_dialogue_raw"]
-        if need > 0:
+        if need > 0 and not _role_allowed("google_normalized"):
+            layer["skipped_reason"] = "snapshot_member_missing:google_normalized"
+        if need > 0 and _role_allowed("google_normalized"):
             layer["attempted"] = True
             t_layer = time.perf_counter()
             n_before = len(fallback_results)
@@ -764,7 +803,9 @@ def search_knowledge_units(
         # --- Layered Phase 4: optional legacy pad (non-Google personal_events) ---
         need = _remaining()
         layer = layer_by_name["legacy_pad"]
-        if need > 0 and pad_allowed:
+        if need > 0 and pad_allowed and snapshot_enforced:
+            layer["skipped_reason"] = "not_bound_to_serving_snapshot"
+        if need > 0 and pad_allowed and not snapshot_enforced:
             layer["attempted"] = True
             t_layer = time.perf_counter()
             n_before = len(fallback_results)
@@ -807,6 +848,36 @@ def search_knowledge_units(
         route = "knowledge"
 
     # 编号
+    if include_evidence:
+        from personal_knowledge.retrieval.evidence import EvidenceResolver  # noqa: E402
+        resolver = EvidenceResolver(
+            unified_db=_C.UNIFIED_DB,
+            conversation_db=_C.AGENT_CONVERSATIONS_DB,
+            google_db=_C.GOOGLE_DB,
+        )
+        for item in merged:
+            ref = str(item.get("source_message_ref") or item.get("unit_id") or item.get("event_id") or "")
+            if not ref:
+                continue
+            if item.get("retrieval_unit") == "dialogue" and ref.startswith("cm|"):
+                artifact_type = "canonical_message"
+                role = "canonical_message"
+            elif str(item.get("source") or "").lower() == "google" or ref.startswith("g|"):
+                artifact_type = "google_signal"
+                role = "google_normalized"
+            elif item.get("retrieval_unit") == "dialogue":
+                artifact_type = "turn"
+                role = "turn_retrieval"
+            else:
+                artifact_type = "knowledge_unit"
+                role = "canonical_knowledge"
+            item["evidence"] = resolver.resolve(
+                ref,
+                artifact_type=artifact_type,
+                include_content=True,
+                source_version=member_version(serving.member(role)),
+            )
+
     for i, item in enumerate(merged, 1):
         item["rank"] = i
 
