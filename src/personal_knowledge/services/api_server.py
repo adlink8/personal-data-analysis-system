@@ -78,6 +78,8 @@ _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 import personal_knowledge.retrieval.unified_search as backend  # noqa: E402
 from personal_knowledge.core.privacy_guard import guard_jsonable, guard_text  # noqa: E402
+from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
+from personal_knowledge.intelligence.service import IntelligenceService  # noqa: E402
 
 # AI 长期上下文文档路径(给 /profile 用)
 ROOT = _THIS_DIR.parents[1]
@@ -131,6 +133,25 @@ def _data_filters(qs: dict) -> dict:
         ),
         "keyword": qs.get("keyword") or qs.get("q"),
     }
+
+
+def intelligence_rest_contract(
+    operation: str,
+    params: dict,
+    *,
+    db_path: Path | None = None,
+    resolver=None,
+) -> dict:
+    """Thin REST adapter over the shared intelligence service."""
+    values = {key: value for key, value in params.items() if value not in {None, ""}}
+    if "limit" in values:
+        try:
+            values["limit"] = int(values["limit"])
+        except (TypeError, ValueError):
+            return IntelligenceService._error(operation, "invalid_limit", str(values["limit"]))
+    return IntelligenceService(db_path or UNIFIED_DB, resolver=resolver).invoke(
+        operation, **values
+    )
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -189,6 +210,34 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/stats":
                 self._send(_ok(backend.stats()))
+                return
+
+            intelligence_routes = {
+                "/intelligence/state/current": "state.current",
+                "/intelligence/state/history": "state.history",
+                "/intelligence/changes/recent": "changes.recent",
+                "/intelligence/state/explain": "state.explain",
+            }
+            if path in intelligence_routes:
+                params = {
+                    "snapshot_id": qs.get("snapshot_id"),
+                    "run_id": qs.get("run_id"),
+                    "as_of": qs.get("as_of"),
+                }
+                if path.endswith("/current") or path.endswith("/history") or path.endswith("/recent"):
+                    params["limit"] = qs.get("limit", "50")
+                if path.endswith("/recent"):
+                    params["window_start"] = qs.get("window_start")
+                if path.endswith("/explain"):
+                    params.update({
+                        "assertion_kind": qs.get("assertion_kind"),
+                        "subject": qs.get("subject"),
+                        "domain": qs.get("domain"),
+                        "scope": qs.get("scope"),
+                        "predicate": qs.get("predicate"),
+                    })
+                data = intelligence_rest_contract(intelligence_routes[path], params)
+                self._send(_contract(data), 200 if data.get("ok") else 400)
                 return
 
             if path in ("/knowledge", "/knowledge/status"):
@@ -467,6 +516,7 @@ def main() -> None:
     print(f"[api]   POST /search/query         精确查询(sqlite)")
     print(f"[api]   GET  /event/<id>           单条事件详情")
     print(f"[api]   GET  /profile              AI 长期上下文文档(RAG 注入)")
+    print(f"[api]   GET  /intelligence/*       个人状态/变化只读接口")
     print(f"[api]   GET  /data/*               分页/导出/聚合/时间线/质量")
     print(f"[api] Ctrl+C 退出")
     try:

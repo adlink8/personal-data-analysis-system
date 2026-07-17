@@ -84,6 +84,8 @@ os.environ.setdefault("PERSONAL_DATA_EMBED_DEVICE", "cpu")
 import personal_knowledge.retrieval.unified_search as backend  # noqa: E402
 from personal_knowledge.core.privacy_guard import guard_mcp_payload  # noqa: E402
 from personal_knowledge.core.runtime_config import semantic_api_url  # noqa: E402
+from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
+from personal_knowledge.intelligence.service import IntelligenceService  # noqa: E402
 
 SEMANTIC_API_URL = semantic_api_url()
 
@@ -124,6 +126,10 @@ CORE_TOOL_NAMES = frozenset({
     "data_get_event_by_id",
     "data_get_memory_by_id",
     "data_quality_report",
+    "personal_state_current",
+    "personal_state_history",
+    "personal_changes_recent",
+    "personal_state_explain",
 })
 
 FULL_ONLY_TOOL_NAMES = frozenset({
@@ -499,6 +505,64 @@ ALL_TOOLS = [
         description="Data.data_quality_report: 对齐 GET /data/quality,返回重复、缺失字段、断链、LLM judgment 状态等只读质量报告。",
         inputSchema={"type": "object", "properties": {}},
     ),
+    types.Tool(
+        name="personal_state_current",
+        description="读取一个快照/运行绑定的当前目标、约束和观察；默认仅元数据。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "snapshot_id": {"type": "string"},
+                "run_id": {"type": "string"},
+                "as_of": {"type": "string"},
+                "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 100},
+            },
+        },
+    ),
+    types.Tool(
+        name="personal_state_history",
+        description="读取一个快照内的个人状态形成历史；仅返回引用、checksum 和不确定性。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "snapshot_id": {"type": "string"},
+                "run_id": {"type": "string"},
+                "as_of": {"type": "string"},
+                "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 100},
+            },
+        },
+    ),
+    types.Tool(
+        name="personal_changes_recent",
+        description="读取有界时间窗内的个人状态变化；不产生建议或动作。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "snapshot_id": {"type": "string"},
+                "run_id": {"type": "string"},
+                "as_of": {"type": "string"},
+                "window_start": {"type": "string"},
+                "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 100},
+            },
+        },
+    ),
+    types.Tool(
+        name="personal_state_explain",
+        description="解释一个明确状态键的形成路径和证据状态；不返回私有正文。",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "snapshot_id": {"type": "string"},
+                "run_id": {"type": "string"},
+                "as_of": {"type": "string"},
+                "assertion_kind": {"type": "string", "enum": ["goal", "constraint", "observation", "state"]},
+                "subject": {"type": "string"},
+                "domain": {"type": "string"},
+                "scope": {"type": "string"},
+                "predicate": {"type": "string"},
+            },
+            "required": ["assertion_kind", "subject", "domain", "scope", "predicate"],
+        },
+    ),
 ]
 
 
@@ -713,6 +777,29 @@ def _event_contract_args(arguments: dict) -> dict:
     }
 
 
+def intelligence_tool_contract(
+    name: str,
+    arguments: dict,
+    *,
+    db_path: Path | None = None,
+    resolver=None,
+) -> dict:
+    """Thin MCP adapter over exactly the same service used by CLI and REST."""
+    operation_by_tool = {
+        "personal_state_current": "state.current",
+        "personal_state_history": "state.history",
+        "personal_changes_recent": "changes.recent",
+        "personal_state_explain": "state.explain",
+    }
+    operation = operation_by_tool.get(name)
+    if operation is None:
+        return IntelligenceService._error("unknown", "unknown_operation", name)
+    values = {key: value for key, value in arguments.items() if value not in {None, ""}}
+    return IntelligenceService(db_path or UNIFIED_DB, resolver=resolver).invoke(
+        operation, **values
+    )
+
+
 # === MCP Server ===========================================================
 
 server = Server("personal-data")
@@ -906,6 +993,14 @@ async def handle_call_tool(
 
         elif name == "data_quality_report":
             text = _json_contract(backend.data_quality_report_contract())
+
+        elif name in {
+            "personal_state_current",
+            "personal_state_history",
+            "personal_changes_recent",
+            "personal_state_explain",
+        }:
+            text = _json_contract(intelligence_tool_contract(name, arguments))
 
         else:
             text = f"未知工具: {name}"
