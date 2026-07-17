@@ -48,7 +48,7 @@ Underlying modules (`refresh_knowledge_units`, `build_knowledge_units_prod`, …
 | **Full inventory** | All eligible user messages frozen once for **backfill** (`build_knowledge_inventory`) |
 | **Delta inventory** | Only new/modified/deleted refs for **incremental** run |
 | **Watermark** | `knowledge_source_watermark` committed checksum after a successful incremental cycle |
-| **Active pointer** | `var/db/knowledge_index_active.txt` — **last** step; never touch mid-extraction |
+| **Serving authority** | Active immutable snapshot in `personal_system.sqlite`; the text pointer is compatibility-only |
 
 Phase 14 split:
 
@@ -237,8 +237,26 @@ pk-ku watermark --advance --from-canonical         # dry-run
 pk-ku watermark --advance --from-canonical --write # persist
 ```
 
-**Gate E:** No promote while canary `gate.status=pending_labels`, **`--strict` FAIL**, or extract-gate critical fail without human waiver. Active pointer is the **last** write.  
+**Gate E:** No promote while canary `gate.status=pending_labels`, **`--strict` FAIL**, or extract-gate critical fail without human waiver. Snapshot activation is the final authority write; the text pointer is projected afterward.
 **Gate F:** Do **not** advance watermark before promote.
+
+After successful activation, KU canonical/index publication metadata is
+appended to `artifact_versions` and `source_watermarks`. It is not written for
+a refused gate or failed activation. Verify the complete composite authority:
+
+```powershell
+pk-sync status --json
+pk-ku doctor --json --skip-ports
+python -m personal_knowledge.application.serving.snapshots status
+```
+
+If the SQLite snapshot and text pointer differ, do not edit the pointer by
+hand. Inspect and repair it from authority:
+
+```powershell
+python -m personal_knowledge.application.serving.snapshots repair-pointer
+python -m personal_knowledge.application.serving.snapshots repair-pointer --write
+```
 
 ### Step F — Lifecycle reconcile (optional; never DELETE)
 

@@ -167,8 +167,10 @@ pk-ku history --subject "Shell" --include-all-lifecycle --json
 | 语义检索 | `unified_search.py semantic` | `POST /search/semantic` | `search_semantic` |
 | 知识状态（含 `ssot` / `fallback_policy`） | `unified_search.py knowledge` | `GET /knowledge` | `knowledge_status` |
 
-Active 指针：`var/db/knowledge_index_active.txt`（`project_paths.KNOWLEDGE_ACTIVE_POINTER`）。  
-promote / rollback **不**经分发接口。
+Active authority：`var/db/personal_system.sqlite` 的 `serving_authority` →
+immutable `serving_snapshots`。`var/db/knowledge_index_active.txt` 仅为旧入口
+兼容投影；发生漂移时 SQLite 胜出，检索响应暴露 snapshot id/hash/drift，
+doctor 返回非零。promote / rollback **不**经分发接口。
 
 ## 5. 相关代码
 

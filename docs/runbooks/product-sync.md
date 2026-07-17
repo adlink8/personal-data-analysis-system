@@ -1,6 +1,6 @@
 # Product sync runbook
 
-**Status:** supported (2026-07-16)  
+**Status:** supported (2026-07-17)
 **Audience:** humans and coding agents operating this repo
 
 ## Goal
@@ -18,6 +18,13 @@ $env:PYTHONPATH = "<project-root>\src"   # if not using installed package
 # Dialogue SSOT: AgentsView live → normalized → canonical
 pk-sync conversations           # dry-run (default)
 pk-sync conversations --write   # publish DBs
+
+# Other source products (all dry-run by default)
+pk-sync turns                    # preview Turn vector rebuild
+pk-sync turns --write            # publish only after retrieval probe succeeds
+pk-sync google                   # preview normalized + assertion lifecycle
+pk-sync google --write           # publish only after privacy gate succeeds
+pk-sync status --json            # read-only versions/watermarks/drift
 ```
 
 Equivalent module form:
@@ -36,6 +43,63 @@ python -m personal_knowledge.application.sync conversations --write
 
 - **Never writes** `%USERPROFILE%\.agentsview\sessions.db` (protected-external, read-only).
 - Privacy gates: secret sessions get no message bodies; local PII/credential scan.
+- A successful `--write` appends immutable artifact versions and source
+  watermarks. Repeating unchanged input is a metadata no-op. Dry-run, build
+  failure, privacy failure, or retrieval-probe failure does not advance them.
+- None of these commands calls paid KU extraction or activates a composite
+  serving snapshot.
+
+## Composite serving authority (Phase 23)
+
+`var/db/personal_system.sqlite` is the authority for the active immutable
+snapshot. `var/db/knowledge_index_active.txt` is only a compatibility
+projection. When they differ, SQLite wins and `doctor` fails closed.
+
+### Schema and safe current-state bootstrap
+
+```powershell
+# Inspect first; no write when --write is absent
+python -m personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables --inspect
+python -m personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables --write
+
+# Read-only proof inventory; does not create or activate a snapshot
+python -m personal_knowledge.application.serving.snapshots bootstrap `
+  --eval-gate <passing-eval-gate.json>
+
+# Explicitly write a complete DRAFT only; still no active change
+python -m personal_knowledge.application.serving.snapshots bootstrap `
+  --eval-gate <passing-eval-gate.json> --write
+```
+
+Bootstrap fails with `missing_proofs` until Conversation, Turn, Google and KU
+publications all have version-bound watermarks. It also records the tracked
+retrieval contract and named evaluation artifact only on explicit `--write`.
+
+### Validate, activate, roll back, recover
+
+```powershell
+python -m personal_knowledge.application.serving.snapshots validate --snapshot <ss_id>
+python -m personal_knowledge.application.serving.snapshots activate --snapshot <ss_id>
+python -m personal_knowledge.application.serving.snapshots status
+
+# Roll back by reactivating an existing validated immutable snapshot
+python -m personal_knowledge.application.serving.snapshots rollback --snapshot <prior_ss_id>
+
+# Inspect pointer drift, then explicitly repair projection from SQLite authority
+python -m personal_knowledge.application.serving.snapshots repair-pointer
+python -m personal_knowledge.application.serving.snapshots repair-pointer --write
+
+# Full read-only product integrity gate; critical failure exits 1
+pk-ku doctor --json --skip-ports
+python -m personal_knowledge.governance.preflight --ci
+```
+
+Validation verifies all required registry roles, Chroma count/checksum, a
+passing eval gate, typed evidence resolution and watermark ordering. Failed
+validation never changes active authority. Activation commits SQLite first;
+pointer projection failure is reported as drift and is repaired separately.
+Normal `status`, `doctor`, validation diagnostics and repair dry-runs are
+read-only.
 
 ### After conversation sync (optional)
 
@@ -43,7 +107,7 @@ python -m personal_knowledge.application.sync conversations --write
 |------|----------------------------------------|
 | Conversation source pointer | `python -m personal_knowledge.application.conversation.rollback_agent_conversation_source --to canonical --write` |
 | Session summaries (LLM) | `python -m personal_knowledge.application.conversation.summary --write` |
-| Turn vectors | `python -m personal_knowledge.application.conversation.build_conversation_vector_store --write` |
+| Turn vectors | `pk-sync turns --write` |
 | **Knowledge unit incremental** | **See [ku-incremental.md](ku-incremental.md)** — start with `pk-ku inspect`; full chain: prepare → extract → extract-gate → canonical → publish → vector → canary → promote → watermark |
 | Promote KU | After eval; see ku-incremental.md Step E (`pk-ku promote` / `pk-ku watermark`) |
 
