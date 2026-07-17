@@ -20,6 +20,13 @@ from personal_knowledge.evaluation.knowledge_eval_metrics import RankedHit  # no
 from personal_knowledge.evaluation.knowledge_eval_metrics import score_case  # noqa: E402
 from personal_knowledge.evaluation.run_knowledge_eval import stage_answer  # noqa: E402
 from personal_knowledge.evaluation.eval_contracts import EvalCase  # noqa: E402
+from personal_knowledge.evaluation.review_packets import (  # noqa: E402
+    ReviewError,
+    build_packet,
+    calibrate_judge,
+)
+import json
+import pytest
 
 
 def test_deterministic_answer_replay() -> None:
@@ -83,3 +90,27 @@ def test_answer_stage_uses_ephemeral_ranked_content_without_persisting_it(tmp_pa
     assert agg["rule_correctness"] == 1.0
     persisted = (tmp_path / "answer.json").read_text(encoding="utf-8")
     assert "用户偏好 PowerShell" not in persisted
+
+
+def test_judge_calibration_requires_complete_30x5_and_human_provenance(tmp_path: Path) -> None:
+    rows = [
+        {"case_id": f"c{i}", "mode": mode, "answer": "private"}
+        for i in range(30) for mode in ("raw", "l1", "l2_only", "l1_l2", "hybrid")
+    ]
+    packet = build_packet("judge_30x5", rows)
+    ratings = [
+        {"case_id": row["case_id"], "mode": row["mode"], "score": (i % 5) + 1, "pass": i % 2 == 0, "privacy_violation": False}
+        for i, row in enumerate(rows)
+    ]
+    human = {"packet_id": packet["packet_id"], "source_checksum": packet["source_checksum"], "reviewer_id": "human-rater-01", "reviewed_at": "2026-07-17T12:00:00Z", "ratings": ratings}
+    judge = {"ratings": ratings}
+    pp, hp, jp = tmp_path / "p.json", tmp_path / "h.json", tmp_path / "j.json"
+    for path, value in ((pp, packet), (hp, human), (jp, judge)):
+        path.write_text(json.dumps(value), encoding="utf-8")
+    report = calibrate_judge(pp, hp, jp, report_path=tmp_path / "report.json")
+    assert report["judge_gate_enabled"] is True
+    assert report["spearman_rho"] == 1.0
+    assert report["network_used"] is False
+
+    with pytest.raises(ReviewError):
+        calibrate_judge(pp, hp, jp, allow_network_judge=True)

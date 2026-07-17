@@ -16,6 +16,11 @@ if str(_SCRIPTS) not in sys.path:
 
 from personal_knowledge.core.project_paths import ROOT  # noqa: E402
 from personal_knowledge.evaluation.eval_contracts import audit_dataset, load_cases_jsonl  # noqa: E402
+from personal_knowledge.evaluation.review_packets import (  # noqa: E402
+    GOLD_IMPORT,
+    GOLD_MANIFEST,
+    checksum,
+)
 
 ASSET_DIR = ROOT / "assets" / "evals" / "knowledge_units"
 PRIVATE_SOURCE_DIR = ROOT / "integration" / "evals" / "knowledge_units"
@@ -23,6 +28,29 @@ OUT_DIR = ROOT / "var" / "runtime" / "private_evals"
 SYN = ASSET_DIR / "comprehensive_v1.synthetic.jsonl"
 FROZEN = PRIVATE_SOURCE_DIR / "frozen_test_queries.private.jsonl"
 HOLDOUT = ASSET_DIR / "holdout_15_02.synthetic.jsonl"
+
+
+def load_reviewed_human_gold() -> list[dict]:
+    if not GOLD_IMPORT.exists() and not GOLD_MANIFEST.exists():
+        return []
+    if not GOLD_IMPORT.exists() or not GOLD_MANIFEST.exists():
+        raise ValueError("human Gold import and manifest must exist together")
+    rows = [
+        json.loads(line)
+        for line in GOLD_IMPORT.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    manifest = json.loads(GOLD_MANIFEST.read_text(encoding="utf-8"))
+    if checksum(rows) != manifest.get("import_checksum"):
+        raise ValueError("human Gold import checksum mismatch")
+    for row in rows:
+        if row.get("gold_provenance") != "human_reviewed_v1":
+            raise ValueError("human Gold provenance invalid")
+        if not row.get("reviewer_id") or not row.get("reviewed_at"):
+            raise ValueError("human Gold reviewer provenance missing")
+        if str(row.get("split") or "").startswith("synthetic"):
+            raise ValueError("synthetic row cannot enter human Gold")
+    return rows
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             c = json.loads(line)
             rows.append(c)
+    rows.extend(load_reviewed_human_gold())
 
     # dedupe by id (frozen wins)
     seen = set()

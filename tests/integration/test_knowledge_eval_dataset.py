@@ -34,6 +34,11 @@ from personal_knowledge.evaluation.run_knowledge_eval import (  # noqa: E402
 )
 from personal_knowledge.evaluation.build_private_suite import HOLDOUT, OUT_DIR, SYN  # noqa: E402
 from personal_knowledge.evaluation.knowledge_eval_metrics import SCORER_VERSION  # noqa: E402
+from personal_knowledge.evaluation.review_packets import (  # noqa: E402
+    ReviewError,
+    build_packet,
+    import_gold,
+)
 
 
 def test_contract_roundtrip_eval_case() -> None:
@@ -164,3 +169,56 @@ def test_real_gold_case_excludes_synthetic_abstain_and_unlabelled() -> None:
     assert not _is_real_gold_case(
         EvalCase.from_dict({"id": "q", "query": "query", "split": "test"})
     )
+
+
+class _Evidence:
+    def __init__(self, status: str = "ok") -> None:
+        self.status = status
+
+    def resolve(self, ref, *, artifact_type=None, **kwargs):
+        return {"ref": ref, "status": self.status}
+
+
+def _write_json(path: Path, value: dict) -> None:
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+
+def test_human_gold_import_requires_provenance_checksum_and_resolved_refs(tmp_path: Path) -> None:
+    packet = build_packet(
+        "gold",
+        [{
+            "case_id": "real-1", "id": "real-1", "query": "reviewed query",
+            "split": "human_review_candidate", "gold_evidence_refs": ["cm|1"],
+            "gold_unit_ids": ["cu|1"], "requires_cross_turn": True,
+        }],
+    )
+    packet_path, labels_path = tmp_path / "packet.json", tmp_path / "labels.json"
+    _write_json(packet_path, packet)
+    labels = {
+        "packet_id": packet["packet_id"], "source_checksum": packet["source_checksum"],
+        "reviewer_id": "human-reviewer-01", "reviewed_at": "2026-07-17T12:00:00Z",
+        "labels": [{"case_id": "real-1", "decision": "accept"}],
+    }
+    _write_json(labels_path, labels)
+    result = import_gold(
+        packet_path, labels_path, out_path=tmp_path / "gold.jsonl",
+        manifest_path=tmp_path / "manifest.json", resolver=_Evidence(),
+    )
+    assert result["count"] == 1 and result["cross_turn_count"] == 1
+    imported = json.loads((tmp_path / "gold.jsonl").read_text(encoding="utf-8"))
+    assert imported["gold_provenance"] == "human_reviewed_v1"
+
+    labels["reviewer_id"] = "codex-agent"
+    _write_json(labels_path, labels)
+    with pytest.raises(ReviewError):
+        import_gold(packet_path, labels_path, out_path=tmp_path / "x", manifest_path=tmp_path / "y", resolver=_Evidence())
+
+
+def test_human_gold_import_rejects_ineligible_and_synthetic(tmp_path: Path) -> None:
+    row = {"case_id": "x", "id": "x", "query": "q", "split": "synthetic", "gold_evidence_refs": ["cm|1"]}
+    packet = build_packet("gold", [row])
+    labels = {"packet_id": packet["packet_id"], "source_checksum": packet["source_checksum"], "reviewer_id": "human-01", "reviewed_at": "2026-07-17T12:00:00Z", "labels": [{"case_id": "x", "decision": "accept"}]}
+    pp, lp = tmp_path / "p", tmp_path / "l"
+    _write_json(pp, packet); _write_json(lp, labels)
+    with pytest.raises(ReviewError):
+        import_gold(pp, lp, out_path=tmp_path / "o", manifest_path=tmp_path / "m", resolver=_Evidence("ineligible"))
