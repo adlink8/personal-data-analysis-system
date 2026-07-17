@@ -26,6 +26,13 @@ _CONFIRMATIONS = frozenset({"accept", "reject", "defer", "revoke_before_action"}
 _FORBIDDEN_ACTION_KEYS = frozenset(
     {"command", "url", "uri", "connector", "credential", "token", "dispatch_target", "executable"}
 )
+_FORBIDDEN_OUTCOME_KEYS = frozenset(
+    {"body", "content", "raw_body", "raw_content", "note", "notes", "secret", "token",
+     "credential", "credentials", "password", "cookie", "prompt", "message"}
+)
+_OUTCOME_SOURCES = frozenset({"user_reported", "evidence_measured"})
+_OUTCOME_DIRECTIONS = frozenset({"increase", "decrease", "maintain"})
+_ADHERENCE = frozenset({"adhered", "non_adherent", "unknown"})
 _URL_RE = re.compile(r"(?i)\b(?:https?|ftp)://")
 
 
@@ -67,6 +74,32 @@ def _reject_action_metadata(value: Any, path: str = "metadata") -> None:
         raise DecisionStateError("forbidden_action_field", path)
 
 
+def validate_outcome_metadata(metadata: Mapping[str, Any], evidence_refs: tuple[Mapping[str, Any], ...]) -> None:
+    """Reject source bodies/secrets and require bounded typed reference manifests."""
+    def inspect(value: Any, path: str) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                label = str(key).lower()
+                if label in _FORBIDDEN_OUTCOME_KEYS:
+                    raise DecisionStateError("forbidden_outcome_field", f"{path}.{label}")
+                inspect(item, f"{path}.{label}")
+        elif isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                inspect(item, f"{path}[{index}]")
+    inspect(metadata, "metadata")
+    for ref in evidence_refs:
+        if not isinstance(ref, Mapping):
+            raise DecisionStateError("typed_evidence_ref_required")
+        required = {"cognitive_type", "authority_id", "record_id", "record_checksum",
+                    "source_run_id", "snapshot_id", "snapshot_hash"}
+        if set(ref) != required:
+            raise DecisionStateError("typed_evidence_ref_invalid")
+        if ref["cognitive_type"] not in {"fact", "observation", "inference"}:
+            raise DecisionStateError("typed_evidence_ref_invalid")
+        if ref["authority_id"] != "a.personal_change" or len(str(ref["record_checksum"])) != 64:
+            raise DecisionStateError("typed_evidence_ref_invalid")
+
+
 def _load_recommendation(con: sqlite3.Connection, recommendation_id: str) -> tuple[sqlite3.Row, dict[str, Any], sqlite3.Row]:
     row = con.execute(
         "SELECT * FROM decision_recommendations WHERE recommendation_id=?", (recommendation_id,)
@@ -93,8 +126,12 @@ def _load_recommendation(con: sqlite3.Connection, recommendation_id: str) -> tup
 
 
 def _typed_payload(con: sqlite3.Connection, event_type: str, record_id: str) -> dict[str, Any]:
-    table = "decision_confirmations" if event_type == "confirmation" else "decision_actions"
-    id_column = "confirmation_id" if event_type == "confirmation" else "action_id"
+    table, id_column = {
+        "confirmation": ("decision_confirmations", "confirmation_id"),
+        "action": ("decision_actions", "action_id"),
+        "outcome": ("decision_outcomes", "outcome_id"),
+        "assessment": ("decision_effectiveness", "assessment_id"),
+    }[event_type]
     row = con.execute(f"SELECT payload_json,payload_checksum FROM {table} WHERE {id_column}=?", (record_id,)).fetchone()
     if row is None:
         raise DecisionStateError("typed_record_missing", record_id)
@@ -181,7 +218,7 @@ def _project(con: sqlite3.Connection, recommendation_id: str) -> DecisionState:
             if str(row["typed_record_id"]) != recommendation_id:
                 raise DecisionStateError("genesis_binding_mismatch", recommendation_id)
         else:
-            if event_type not in {"confirmation", "action"}:
+            if event_type not in {"confirmation", "action", "outcome", "assessment"}:
                 raise DecisionStateError("unsupported_event_type", event_type)
             typed = _typed_payload(con, event_type, str(row["typed_record_id"]))
             if payload.get("typed_record_checksum") != checksum(typed):
@@ -200,11 +237,11 @@ def _project(con: sqlite3.Connection, recommendation_id: str) -> DecisionState:
                 typed.get("recommendation_id") != recommendation_id
                 or typed.get("recommendation_checksum") != str(recommendation["payload_checksum"])
                 or typed.get("expected_sequence") != sequence - 1
-                or typed.get("actor_class") != "user"
-                or len(str(typed.get("actor_identity_hash", ""))) != 64
             ):
                 raise DecisionStateError("typed_record_binding_mismatch", str(row["typed_record_id"]))
             if event_type == "confirmation":
+                if typed.get("actor_class") != "user" or len(str(typed.get("actor_identity_hash", ""))) != 64:
+                    raise DecisionStateError("typed_record_binding_mismatch", str(row["typed_record_id"]))
                 decision = str(typed["decision"])
                 if typed.get("cognitive_type") != "user_confirmation" or decision not in _CONFIRMATIONS:
                     raise DecisionStateError("typed_record_binding_mismatch", str(row["typed_record_id"]))
@@ -213,11 +250,29 @@ def _project(con: sqlite3.Connection, recommendation_id: str) -> DecisionState:
                 ):
                     raise DecisionStateError("recommendation_expired", recommendation_id)
                 confirmation_state = _confirmation_transition(confirmation_state, action_state, decision)
-            else:
+            elif event_type == "action":
+                if typed.get("actor_class") != "user" or len(str(typed.get("actor_identity_hash", ""))) != 64:
+                    raise DecisionStateError("typed_record_binding_mismatch", str(row["typed_record_id"]))
                 next_action = str(typed["action_state"])
                 if typed.get("record_type") != "action_attestation" or next_action not in _ACTION_STATES:
                     raise DecisionStateError("typed_record_binding_mismatch", str(row["typed_record_id"]))
                 action_state = _action_transition(confirmation_state, action_state, next_action)
+            elif event_type == "outcome":
+                if (
+                    typed.get("record_type") != "outcome_observation"
+                    or typed.get("cognitive_type") != "observation"
+                    or typed.get("causal_claim") is not False
+                    or typed.get("actor_class") != "user"
+                    or len(str(typed.get("actor_identity_hash", ""))) != 64
+                ):
+                    raise DecisionStateError("typed_record_binding_mismatch", str(row["typed_record_id"]))
+            else:
+                if (
+                    typed.get("record_type") != "effectiveness_assessment"
+                    or typed.get("cognitive_type") != "inference"
+                    or typed.get("causal_claim") is not False
+                ):
+                    raise DecisionStateError("typed_record_binding_mismatch", str(row["typed_record_id"]))
         events.append(DecisionEvent(
             event_id=str(row["event_id"]), recommendation_id=recommendation_id,
             sequence=sequence, event_type=event_type, typed_record_id=str(row["typed_record_id"]),
@@ -489,4 +544,165 @@ def record_action(
         con.close()
 
 
-__all__ = ["DecisionStateError", "project_history", "record_action", "record_confirmation"]
+def record_outcome(
+    db_path: Path,
+    *,
+    recommendation_id: str,
+    recommendation_checksum: str,
+    action_id: str,
+    action_checksum: str,
+    source_class: str,
+    actor_class: str,
+    actor_identity_hash: str,
+    measurement_definition: str,
+    metric: str,
+    baseline_value: float | None,
+    target_value: float | None,
+    observed_value: float | None,
+    unit: str,
+    direction: str,
+    window_start: str,
+    window_end: str,
+    adherence_status: str,
+    evidence_refs: tuple[Mapping[str, Any], ...],
+    confidence: float,
+    uncertainty: tuple[str, ...],
+    confounders: tuple[str, ...],
+    concurrent_actions: tuple[str, ...],
+    expected_sequence: int,
+    idempotency_key: str,
+    occurred_at: str,
+    metadata: Mapping[str, Any] | None = None,
+    inject_failure_at: str | None = None,
+) -> DecisionReceipt:
+    if source_class not in _OUTCOME_SOURCES:
+        raise DecisionStateError("invalid_outcome_source", source_class)
+    _validate_actor(actor_class, actor_identity_hash)
+    if direction not in _OUTCOME_DIRECTIONS or adherence_status not in _ADHERENCE:
+        raise DecisionStateError("invalid_measurement_definition")
+    if not all(value.strip() for value in (measurement_definition, metric, unit, idempotency_key)):
+        raise DecisionStateError("outcome_metadata_required")
+    if not 0.0 <= confidence <= 1.0:
+        raise DecisionStateError("invalid_outcome_confidence")
+    start = _parse_time(window_start, "window_start")
+    end = _parse_time(window_end, "window_end")
+    _parse_time(occurred_at, "occurred_at")
+    if end <= start:
+        raise DecisionStateError("invalid_outcome_window")
+    for value in (baseline_value, target_value, observed_value):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+            raise DecisionStateError("invalid_measurement_value")
+    metadata = dict(metadata or {})
+    evidence_refs = tuple(dict(ref) if isinstance(ref, Mapping) else ref for ref in evidence_refs)
+    validate_outcome_metadata(metadata, evidence_refs)  # type: ignore[arg-type]
+    if source_class == "evidence_measured" and not evidence_refs:
+        raise DecisionStateError("evidence_required")
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "record_type": "outcome_observation",
+        "cognitive_type": "observation",
+        "causal_claim": False,
+        "recommendation_id": recommendation_id,
+        "recommendation_checksum": recommendation_checksum,
+        "action_id": action_id,
+        "action_checksum": action_checksum,
+        "source_class": source_class,
+        "actor_class": actor_class,
+        "actor_identity_hash": actor_identity_hash,
+        "measurement_definition": measurement_definition,
+        "metric": metric,
+        "baseline_value": baseline_value,
+        "target_value": target_value,
+        "observed_value": observed_value,
+        "unit": unit,
+        "direction": direction,
+        "window_start": window_start,
+        "window_end": window_end,
+        "adherence_status": adherence_status,
+        "evidence_refs": evidence_refs,
+        "confidence": confidence,
+        "uncertainty": tuple(sorted(set(uncertainty))),
+        "confounders": tuple(sorted(set(confounders))),
+        "concurrent_actions": tuple(sorted(set(concurrent_actions))),
+        "expected_sequence": expected_sequence,
+        "idempotency_key": idempotency_key,
+        "metadata": metadata,
+        "occurred_at": occurred_at,
+    }
+    con = connect_rw(Path(db_path), timeout=60)
+    con.row_factory = sqlite3.Row
+    try:
+        assert_foreign_key_integrity(con)
+        con.execute("BEGIN IMMEDIATE")
+        state = _project(con, recommendation_id)
+        rec, _, _ = _load_recommendation(con, recommendation_id)
+        if str(rec["payload_checksum"]) != recommendation_checksum:
+            raise DecisionStateError("recommendation_checksum_mismatch", recommendation_id)
+        existing = _existing_receipt(
+            con, table="decision_outcomes", id_column="outcome_id",
+            recommendation_id=recommendation_id, actor_identity_hash=actor_identity_hash,
+            idempotency_key=idempotency_key, payload=payload,
+        )
+        if existing is not None:
+            con.commit()
+            return existing
+        if expected_sequence != state.events[-1].sequence:
+            raise DecisionStateError("stale_expected_sequence", str(expected_sequence))
+        action = con.execute(
+            "SELECT payload_json,payload_checksum,action_state FROM decision_actions "
+            "WHERE action_id=? AND recommendation_id=?", (action_id, recommendation_id),
+        ).fetchone()
+        if action is None:
+            raise DecisionStateError("action_missing", action_id)
+        if str(action["payload_checksum"]) != action_checksum:
+            raise DecisionStateError("action_checksum_mismatch", action_id)
+        if str(action["action_state"]) not in {"completed", "abandoned", "not_taken"}:
+            raise DecisionStateError("action_not_terminal", action_id)
+        rec_snapshot = (str(rec["snapshot_id"]), str(rec["snapshot_hash"]))
+        for ref in evidence_refs:
+            if (str(ref["snapshot_id"]), str(ref["snapshot_hash"])) != rec_snapshot:
+                raise DecisionStateError("cross_snapshot_evidence")
+            support = con.execute(
+                "SELECT 1 FROM decision_support_refs WHERE recommendation_id=? AND cognitive_type=? "
+                "AND authority_id=? AND record_id=? AND record_checksum=? AND source_run_id=? "
+                "AND snapshot_id=? AND snapshot_hash=?",
+                (recommendation_id, ref["cognitive_type"], ref["authority_id"], ref["record_id"],
+                 ref["record_checksum"], ref["source_run_id"], ref["snapshot_id"], ref["snapshot_hash"]),
+            ).fetchone()
+            if support is None:
+                raise DecisionStateError("outcome_evidence_unbound", str(ref["record_id"]))
+        outcome_id = f"doc_{checksum(payload)[:24]}"
+        payload_checksum = checksum(payload)
+        con.execute(
+            "INSERT INTO decision_outcomes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (outcome_id, recommendation_id, recommendation_checksum, action_id, action_checksum,
+             source_class, actor_class, actor_identity_hash, metric, unit, window_start, window_end,
+             adherence_status, confidence, canonical_json(payload["uncertainty"]), expected_sequence,
+             idempotency_key, canonical_json(payload), payload_checksum, occurred_at),
+        )
+        if inject_failure_at == "after_typed_record":
+            raise RuntimeError("injected decision state failure after typed record")
+        event_id, _ = _append_event(
+            con, recommendation_id=recommendation_id,
+            recommendation_checksum=recommendation_checksum, event_type="outcome",
+            typed_record_id=outcome_id, typed_payload_checksum=payload_checksum,
+            sequence=expected_sequence + 1,
+            previous_event_checksum=state.events[-1].payload_checksum,
+            occurred_at=occurred_at,
+        )
+        if inject_failure_at == "after_event":
+            raise RuntimeError("injected decision state failure after event")
+        con.commit()
+        return DecisionReceipt(outcome_id, event_id, recommendation_id,
+                               expected_sequence + 1, payload_checksum)
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+__all__ = [
+    "DecisionStateError", "project_history", "record_action", "record_confirmation",
+    "record_outcome", "validate_outcome_metadata",
+]

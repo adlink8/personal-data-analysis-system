@@ -191,9 +191,47 @@ class DecisionReceipt:
     payload_checksum: str
 
 
+@dataclass(frozen=True)
+class OutcomeObservation:
+    outcome_id: str
+    recommendation_id: str
+    recommendation_checksum: str
+    action_id: str
+    action_checksum: str
+    source_class: str
+    measurement_definition: str
+    metric: str
+    baseline_value: float | None
+    target_value: float | None
+    observed_value: float | None
+    unit: str
+    direction: str
+    window_start: str
+    window_end: str
+    adherence_status: str
+    evidence_refs: tuple[Any, ...]
+    confidence: float
+    uncertainty: tuple[str, ...]
+    confounders: tuple[str, ...]
+    concurrent_actions: tuple[str, ...]
+    payload_checksum: str
+
+    def __post_init__(self) -> None:
+        if self.source_class not in {"user_reported", "evidence_measured"}:
+            raise DecisionSchemaError("invalid_outcome_source", self.source_class)
+        if self.direction not in {"increase", "decrease", "maintain"}:
+            raise DecisionSchemaError("invalid_outcome_direction", self.direction)
+        if self.adherence_status not in {"adhered", "non_adherent", "unknown"}:
+            raise DecisionSchemaError("invalid_adherence_status", self.adherence_status)
+        if not 0.0 <= self.confidence <= 1.0:
+            raise DecisionSchemaError("invalid_confidence")
+        if len(self.recommendation_checksum) != 64 or len(self.action_checksum) != 64 or len(self.payload_checksum) != 64:
+            raise DecisionSchemaError("invalid_checksum", "outcome")
+
+
 __all__ = [
     "COGNITIVE_TYPES", "GENESIS_SENTINEL", "REFERENCE_TYPES", "SCHEMA_VERSION",
     "CognitionReference", "DecisionEvent", "DecisionReceipt", "DecisionRun",
-    "DecisionSchemaError", "DecisionState", "Recommendation", "RecommendationDraft",
+    "DecisionSchemaError", "DecisionState", "OutcomeObservation", "Recommendation", "RecommendationDraft",
     "RecommendationGenesis", "canonical_json", "checksum",
 ]

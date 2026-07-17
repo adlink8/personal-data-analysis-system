@@ -254,6 +254,10 @@ def _outcome(db: Path, rec: Any, **changes: Any) -> Any:
     action_id, action_checksum = con.execute(
         "SELECT action_id,payload_checksum FROM decision_actions WHERE action_state='completed'"
     ).fetchone()
+    support = con.execute(
+        "SELECT cognitive_type,authority_id,record_id,record_checksum,source_run_id,snapshot_id,snapshot_hash "
+        "FROM decision_support_refs WHERE recommendation_id=?", (rec.recommendation_id,)
+    ).fetchone()
     con.close()
     args = dict(
         recommendation_id=rec.recommendation_id,
@@ -273,7 +277,10 @@ def _outcome(db: Path, rec: Any, **changes: Any) -> Any:
         window_start="2026-07-18T01:00:00Z",
         window_end="2026-07-25T01:00:00Z",
         adherence_status="adhered",
-        evidence_refs=("observation:a.personal_change:obs1:" + "c" * 64,),
+        evidence_refs=(dict(zip(
+            ("cognitive_type", "authority_id", "record_id", "record_checksum", "source_run_id", "snapshot_id", "snapshot_hash"),
+            support,
+        )),),
         confidence=.8,
         uncertainty=(),
         confounders=(),
@@ -304,7 +311,11 @@ def test_outcome_rejects_invalid_action_binding_sequence_and_cross_snapshot_ref(
     for changes, code in (
         ({"action_checksum": "0" * 64}, "action_checksum_mismatch"),
         ({"expected_sequence": 4}, "stale_expected_sequence"),
-        ({"evidence_refs": ("observation:a.personal_change:obs1:" + "c" * 64 + ":other",)}, "typed_evidence_ref_invalid"),
+        ({"evidence_refs": ({
+            "cognitive_type": "fact", "authority_id": "a.personal_change", "record_id": "missing",
+            "record_checksum": "c" * 64, "source_run_id": "missing", "snapshot_id": "other",
+            "snapshot_hash": "other",
+        },)}, "cross_snapshot_evidence"),
     ):
         with pytest.raises(DecisionStateError, match=code):
             _outcome(db, rec, **changes)

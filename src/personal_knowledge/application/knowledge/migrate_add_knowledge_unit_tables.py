@@ -710,16 +710,25 @@ CREATE TABLE IF NOT EXISTS decision_actions (
 CREATE TABLE IF NOT EXISTS decision_outcomes (
     outcome_id              TEXT PRIMARY KEY,
     recommendation_id       TEXT NOT NULL REFERENCES decision_recommendations(recommendation_id),
+    recommendation_checksum TEXT NOT NULL CHECK(length(recommendation_checksum) = 64),
+    action_id               TEXT NOT NULL REFERENCES decision_actions(action_id),
+    action_checksum         TEXT NOT NULL CHECK(length(action_checksum) = 64),
     source_class            TEXT NOT NULL CHECK(source_class IN ('user_reported','evidence_measured')),
+    actor_class             TEXT NOT NULL CHECK(actor_class = 'user'),
+    actor_identity_hash     TEXT NOT NULL CHECK(length(actor_identity_hash) = 64),
     metric                  TEXT NOT NULL,
     unit                    TEXT NOT NULL,
     window_start            TEXT NOT NULL,
     window_end              TEXT NOT NULL,
+    adherence_status        TEXT NOT NULL CHECK(adherence_status IN ('adhered','non_adherent','unknown')),
     confidence              REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
     uncertainty             TEXT NOT NULL,
+    expected_sequence       INTEGER NOT NULL CHECK(expected_sequence > 0),
+    idempotency_key         TEXT NOT NULL,
     payload_json            TEXT NOT NULL,
     payload_checksum        TEXT NOT NULL CHECK(length(payload_checksum) = 64),
-    created_at              TEXT NOT NULL
+    created_at              TEXT NOT NULL,
+    UNIQUE(recommendation_id, actor_identity_hash, idempotency_key)
 );
 
 CREATE TABLE IF NOT EXISTS decision_effectiveness (
@@ -729,9 +738,14 @@ CREATE TABLE IF NOT EXISTS decision_effectiveness (
     rule_version            TEXT NOT NULL,
     verdict                 TEXT NOT NULL CHECK(verdict IN ('effective','ineffective','mixed','inconclusive')),
     causal_claim            INTEGER NOT NULL CHECK(causal_claim = 0),
+    outcome_id              TEXT NOT NULL REFERENCES decision_outcomes(outcome_id),
+    outcome_checksum        TEXT NOT NULL CHECK(length(outcome_checksum) = 64),
+    expected_sequence       INTEGER NOT NULL CHECK(expected_sequence > 0),
+    idempotency_key         TEXT NOT NULL,
     payload_json            TEXT NOT NULL,
     payload_checksum        TEXT NOT NULL CHECK(length(payload_checksum) = 64),
-    created_at              TEXT NOT NULL
+    created_at              TEXT NOT NULL,
+    UNIQUE(recommendation_id, rule_id, rule_version, outcome_id, idempotency_key)
 );
 
 CREATE TABLE IF NOT EXISTS decision_events (
