@@ -29,6 +29,7 @@ from personal_knowledge.evaluation.eval_contracts import (  # noqa: E402
     ContractError,
     audit_dataset,
     cases_checksum,
+    content_checksum,
     compute_run_id,
     config_checksum,
     dump_json,
@@ -220,6 +221,40 @@ def stage_dataset_audit(
         audit["ok"] = not audit["errors"]
     dump_json(run_dir / "dataset_audit.json", audit)
     return audit
+
+
+def stage_human_review(*, enabled: bool) -> dict[str, Any]:
+    """Capture a metadata-only, checksum-bound view of required human evidence."""
+    if not enabled:
+        return {"skipped": True, "ok": False}
+    from personal_knowledge.evaluation.review_packets import status
+
+    review = status()
+    proofs: dict[str, Any] = {}
+    for kind, manifest in sorted((review.get("manifests") or {}).items()):
+        if not manifest:
+            proofs[kind] = {"present": False}
+            continue
+        proofs[kind] = {
+            "present": True,
+            "kind": manifest.get("kind"),
+            "count": manifest.get("count"),
+            "cross_turn_count": manifest.get("cross_turn_count"),
+            "reviewer_id_hash": manifest.get("reviewer_id_hash"),
+            "reviewed_at": manifest.get("reviewed_at"),
+            "source_checksum": manifest.get("source_checksum"),
+            "import_checksum": manifest.get("import_checksum"),
+            "human_checksum": manifest.get("human_checksum"),
+            "judge_cache_checksum": manifest.get("judge_cache_checksum"),
+            "judge_gate_enabled": manifest.get("judge_gate_enabled"),
+            "manifest_checksum": content_checksum(manifest),
+        }
+    binding_body = {"checks": review.get("checks") or {}, "proofs": proofs}
+    return {
+        "ok": bool(review.get("ok")),
+        **binding_body,
+        "binding_checksum": content_checksum(binding_body),
+    }
 
 
 def stage_extraction(run_dir: Path, enabled: bool) -> dict[str, Any]:
@@ -627,6 +662,12 @@ def run_eval(
         errors.append(f"dataset_audit: {e}")
         stages["dataset_audit"] = {"ok": False, "error": str(e)}
 
+    # Genuine full claims require imported human evidence. The binding is
+    # metadata-only and becomes part of the immutable run manifest.
+    stages["human_review"] = stage_human_review(enabled=full)
+    if full and not stages["human_review"].get("ok"):
+        errors.append("human_review_evidence_incomplete")
+
     # 2 extraction + lineage
     try:
         stages["extraction"] = stage_extraction(
@@ -703,6 +744,7 @@ def run_eval(
             )
             if isinstance(stages.get("retrieval"), dict)
             else None,
+            "human_review": stages.get("human_review"),
         },
         "candidate_collection": (cfg.get("targets") or {}).get("candidate_collection")
         or (cfg.get("targets") or {}).get("l1_l2_collection")
@@ -823,6 +865,7 @@ def run_eval(
             "serving_snapshot_before": serving_before,
             "serving_snapshot_after": serving_after,
             "active_unchanged": summary["active_unchanged"],
+            "human_review_binding": stages.get("human_review"),
             "errors": errors,
         },
     )

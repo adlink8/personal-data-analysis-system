@@ -2,6 +2,7 @@
 version: v2
 policy_version: v2
 require_answer_eval: true
+require_human_review_evidence: true
 required_modes:
   - raw
   - l1

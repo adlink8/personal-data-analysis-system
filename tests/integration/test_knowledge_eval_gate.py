@@ -137,6 +137,8 @@ def test_full_entrypoint_offline_dry_run(tmp_path: Path) -> None:
     assert (tmp_path / "run" / "run_manifest.json").exists()
     manifest = json.loads((tmp_path / "run" / "run_manifest.json").read_text(encoding="utf-8"))
     assert manifest["serving_snapshot_before"] == manifest["serving_snapshot_after"]
+    assert manifest["human_review_binding"]["ok"] is False
+    assert manifest["human_review_binding"]["binding_checksum"]
     # missing candidate / structural gate may FAIL — non-zero path tested via gate verdict
     assert "run_id" in summary
 
@@ -183,3 +185,24 @@ def test_full_policy_fails_closed_on_unimplemented_human_and_quality_evidence() 
     assert "mrr_at_5_non_inferior" in names
     assert "cross_turn_l2_vs_l1" in names
     assert "p95_latency_vs_l1_baseline" in names
+
+
+def test_v2_gate_requires_checksum_bound_human_review_evidence() -> None:
+    from personal_knowledge.evaluation.gate_knowledge_candidate import load_policy
+
+    policy = load_policy(
+        _ROOT / "assets" / "evals" / "knowledge_units" / "eval_policy_v2.yaml"
+    )
+    summary = _summary_base()
+    gate = evaluate_gate(summary, policy, require_answer=False)
+    assert gate["passed"] is False
+    assert any("human review evidence" in reason for reason in gate["reasons"])
+
+    summary["stage_details"]["human_review"] = {
+        "ok": True,
+        "checks": {"additional_real_gold": True},
+        "binding_checksum": "review-binding-checksum",
+    }
+    rebound = evaluate_gate(summary, policy, require_answer=False)
+    human = next(c for c in rebound["checks"] if c["name"] == "human_review_evidence")
+    assert human["passed"] is True
