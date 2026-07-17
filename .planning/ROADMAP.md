@@ -348,7 +348,7 @@ Plans:
 **Goal:** 建立事实/观察/推断/建议/确认的认知边界，以及建议→用户决定→行动→结果→有效性评估的可审计闭环。
 **Requirements**: DEC-01, DEC-02
 **Depends on:** Phase 25
-**Status:** In progress — 2/4 plans complete
+**Status:** In progress — 3/4 plans complete
 **Plans:** 4 plans
 
 Plans:
@@ -359,7 +359,7 @@ Plans:
 - [x] 26-02: Recommendation, confirmation and action state machine
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 26-03: Outcome, observational effectiveness and calibration loop
+- [x] 26-03: Outcome, observational effectiveness and calibration loop
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 26-04: Shared interfaces, local explicit-write CLI and metadata-only acceptance
