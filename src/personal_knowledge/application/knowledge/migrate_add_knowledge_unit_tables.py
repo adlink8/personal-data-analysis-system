@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sqlite3
 import sys
 from pathlib import Path
@@ -30,7 +31,46 @@ _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
 
-SCHEMA_SQL = """
+INVENTORY_REGISTRY_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS knowledge_inventory_registry (
+    inventory_id    TEXT PRIMARY KEY,
+    inventory_kind  TEXT NOT NULL CHECK(inventory_kind IN ('full','delta')),
+    created_at      TEXT NOT NULL
+);
+"""
+
+RUN_ITEMS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS knowledge_run_items (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id          TEXT NOT NULL REFERENCES knowledge_build_runs(run_id),
+    inventory_id    TEXT NOT NULL REFERENCES knowledge_inventory_registry(inventory_id),
+    position        INTEGER NOT NULL,
+    evidence_ref    TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending','in_flight','retryable','succeeded','abstained','terminal_failed')),
+    attempt_count   INTEGER NOT NULL DEFAULT 0,
+    lease_started_at TEXT,
+    last_error_class TEXT,
+    cache_key       TEXT,
+    response_hash   TEXT,
+    unit_count      INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT,
+    UNIQUE(run_id, position)
+);
+"""
+
+EXTRACTION_GATES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS knowledge_extraction_gates (
+    gate_id         TEXT PRIMARY KEY,
+    run_id          TEXT NOT NULL REFERENCES knowledge_build_runs(run_id),
+    inventory_id    TEXT NOT NULL REFERENCES knowledge_inventory_registry(inventory_id),
+    gate_status     TEXT NOT NULL CHECK(gate_status IN ('passed','failed','awaiting_pilot_threshold')),
+    gate_json       TEXT NOT NULL,
+    evaluated_at    TEXT NOT NULL
+);
+"""
+
+SCHEMA_SQL = f"""
 -- 构建运行记录（每次抽取/merge/index build 的版本合同）
 CREATE TABLE IF NOT EXISTS knowledge_build_runs (
     run_id          TEXT PRIMARY KEY,
@@ -145,6 +185,20 @@ CREATE TABLE IF NOT EXISTS knowledge_inventory (
     report_json     TEXT               -- 隐私安全统计（无原文）
 );
 
+{INVENTORY_REGISTRY_TABLE_SQL}
+
+CREATE TRIGGER IF NOT EXISTS trg_knowledge_inventory_registry
+AFTER INSERT ON knowledge_inventory
+BEGIN
+    INSERT OR IGNORE INTO knowledge_inventory_registry
+        (inventory_id, inventory_kind, created_at)
+    VALUES (NEW.inventory_id, 'full', NEW.generated_at);
+END;
+
+INSERT OR IGNORE INTO knowledge_inventory_registry
+    (inventory_id, inventory_kind, created_at)
+SELECT inventory_id, 'full', generated_at FROM knowledge_inventory;
+
 -- inventory 逐项明细（每条 evidence 的冻结记录）
 CREATE TABLE IF NOT EXISTS knowledge_inventory_items (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -163,23 +217,7 @@ CREATE TABLE IF NOT EXISTS knowledge_inventory_items (
 );
 
 -- run work-item 状态机（逐项持久化）
-CREATE TABLE IF NOT EXISTS knowledge_run_items (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id          TEXT NOT NULL REFERENCES knowledge_build_runs(run_id),
-    inventory_id    TEXT NOT NULL REFERENCES knowledge_inventory(inventory_id),
-    position        INTEGER NOT NULL,
-    evidence_ref    TEXT NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'pending'
-                    CHECK(status IN ('pending','in_flight','retryable','succeeded','abstained','terminal_failed')),
-    attempt_count   INTEGER NOT NULL DEFAULT 0,
-    lease_started_at TEXT,
-    last_error_class TEXT,
-    cache_key       TEXT,
-    response_hash   TEXT,
-    unit_count      INTEGER NOT NULL DEFAULT 0,
-    updated_at      TEXT,
-    UNIQUE(run_id, position)
-);
+{RUN_ITEMS_TABLE_SQL}
 
 -- 内容寻址 response cache（LLM 原始响应）
 CREATE TABLE IF NOT EXISTS knowledge_response_cache (
@@ -197,14 +235,7 @@ CREATE TABLE IF NOT EXISTS knowledge_response_cache (
 );
 
 -- extraction gate decision（机器可读）
-CREATE TABLE IF NOT EXISTS knowledge_extraction_gates (
-    gate_id         TEXT PRIMARY KEY,
-    run_id          TEXT NOT NULL REFERENCES knowledge_build_runs(run_id),
-    inventory_id    TEXT NOT NULL REFERENCES knowledge_inventory(inventory_id),
-    gate_status     TEXT NOT NULL CHECK(gate_status IN ('passed','failed','awaiting_pilot_threshold')),
-    gate_json       TEXT NOT NULL,     -- 完整 gate 报告
-    evaluated_at    TEXT NOT NULL
-);
+{EXTRACTION_GATES_TABLE_SQL}
 
 -- Plan 02 索引
 CREATE INDEX IF NOT EXISTS idx_kii_inventory ON knowledge_inventory_items(inventory_id);
@@ -267,6 +298,18 @@ CREATE TABLE IF NOT EXISTS knowledge_delta_inventories (
     created_at             TEXT NOT NULL
 );
 
+CREATE TRIGGER IF NOT EXISTS trg_knowledge_delta_inventory_registry
+AFTER INSERT ON knowledge_delta_inventories
+BEGIN
+    INSERT OR IGNORE INTO knowledge_inventory_registry
+        (inventory_id, inventory_kind, created_at)
+    VALUES (NEW.delta_inventory_id, 'delta', NEW.created_at);
+END;
+
+INSERT OR IGNORE INTO knowledge_inventory_registry
+    (inventory_id, inventory_kind, created_at)
+SELECT delta_inventory_id, 'delta', created_at FROM knowledge_delta_inventories;
+
 CREATE TABLE IF NOT EXISTS knowledge_delta_items (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     delta_inventory_id  TEXT NOT NULL REFERENCES knowledge_delta_inventories(delta_inventory_id),
@@ -288,6 +331,285 @@ CREATE TABLE IF NOT EXISTS knowledge_source_watermark (
 """
 
 
+def _foreign_key_target(
+    con: sqlite3.Connection, table: str, column: str
+) -> str:
+    for row in con.execute(f'PRAGMA foreign_key_list("{table}")'):
+        if row[3] == column:
+            return str(row[2])
+    return ""
+
+
+def inspect_inventory_registry(db_path: Path = UNIFIED_DB) -> dict:
+    """Inspect the full/delta inventory parent model without writing."""
+    if not db_path.exists():
+        return {"db_exists": False, "db_path": str(db_path)}
+    con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        tables = {
+            str(row[0])
+            for row in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        required = {
+            "knowledge_inventory",
+            "knowledge_delta_inventories",
+            "knowledge_run_items",
+            "knowledge_extraction_gates",
+        }
+        missing_tables = sorted(required - tables)
+        registry_exists = "knowledge_inventory_registry" in tables
+        run_target = (
+            _foreign_key_target(con, "knowledge_run_items", "inventory_id")
+            if "knowledge_run_items" in tables
+            else ""
+        )
+        gate_target = (
+            _foreign_key_target(con, "knowledge_extraction_gates", "inventory_id")
+            if "knowledge_extraction_gates" in tables
+            else ""
+        )
+        violations = con.execute("PRAGMA foreign_key_check").fetchall()
+        by_table: dict[str, int] = {}
+        for row in violations:
+            by_table[str(row[0])] = by_table.get(str(row[0]), 0) + 1
+        counts = {
+            "full": con.execute(
+                "SELECT COUNT(*) FROM knowledge_inventory"
+            ).fetchone()[0]
+            if "knowledge_inventory" in tables
+            else 0,
+            "delta": con.execute(
+                "SELECT COUNT(*) FROM knowledge_delta_inventories"
+            ).fetchone()[0]
+            if "knowledge_delta_inventories" in tables
+            else 0,
+            "registry": con.execute(
+                "SELECT COUNT(*) FROM knowledge_inventory_registry"
+            ).fetchone()[0]
+            if registry_exists
+            else 0,
+            "run_items": con.execute(
+                "SELECT COUNT(*) FROM knowledge_run_items"
+            ).fetchone()[0]
+            if "knowledge_run_items" in tables
+            else 0,
+            "gates": con.execute(
+                "SELECT COUNT(*) FROM knowledge_extraction_gates"
+            ).fetchone()[0]
+            if "knowledge_extraction_gates" in tables
+            else 0,
+        }
+        target = "knowledge_inventory_registry"
+        healthy = (
+            not missing_tables
+            and registry_exists
+            and run_target == target
+            and gate_target == target
+            and not violations
+            and counts["registry"] == counts["full"] + counts["delta"]
+        )
+        return {
+            "db_exists": True,
+            "db_path": str(db_path),
+            "missing_tables": missing_tables,
+            "registry_exists": registry_exists,
+            "run_items_inventory_fk_target": run_target,
+            "gates_inventory_fk_target": gate_target,
+            "counts": counts,
+            "foreign_key_violations_total": len(violations),
+            "foreign_key_violations_by_table": by_table,
+            "healthy": healthy,
+        }
+    finally:
+        con.close()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _backup_sqlite(source: Path, backup_path: Path) -> dict:
+    if backup_path.exists():
+        raise FileExistsError(f"backup target already exists: {backup_path}")
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
+    src = sqlite3.connect(f"file:{source.resolve().as_posix()}?mode=ro", uri=True)
+    dst = sqlite3.connect(str(backup_path))
+    try:
+        src.backup(dst)
+        integrity = dst.execute("PRAGMA integrity_check").fetchone()[0]
+        if integrity != "ok":
+            raise sqlite3.DatabaseError(f"backup integrity_check: {integrity}")
+    finally:
+        dst.close()
+        src.close()
+    return {
+        "path": str(backup_path),
+        "bytes": backup_path.stat().st_size,
+        "sha256": _sha256_file(backup_path),
+        "integrity_check": "ok",
+    }
+
+
+def _rebuild_inventory_fk_table(
+    con: sqlite3.Connection,
+    *,
+    table: str,
+    create_sql: str,
+    columns: tuple[str, ...],
+    indexes: tuple[str, ...],
+) -> tuple[int, int]:
+    legacy = f"{table}_legacy_inventory_fk"
+    if con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (legacy,)
+    ).fetchone():
+        raise RuntimeError(f"stale migration table exists: {legacy}")
+    before = int(con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+    con.execute(f'ALTER TABLE "{table}" RENAME TO "{legacy}"')
+    con.execute(create_sql)
+    column_sql = ", ".join(f'"{name}"' for name in columns)
+    con.execute(
+        f'INSERT INTO "{table}" ({column_sql}) '
+        f'SELECT {column_sql} FROM "{legacy}"'
+    )
+    after = int(con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+    if after != before:
+        raise RuntimeError(f"row count mismatch rebuilding {table}: {before} != {after}")
+    con.execute(f'DROP TABLE "{legacy}"')
+    for index_sql in indexes:
+        con.execute(index_sql)
+    return before, after
+
+
+def migrate_inventory_registry(
+    db_path: Path = UNIFIED_DB,
+    *,
+    write: bool = False,
+    backup_path: Path | None = None,
+) -> dict:
+    """Repair polymorphic inventory FKs using a unified parent registry."""
+    before = inspect_inventory_registry(db_path)
+    if not before.get("db_exists"):
+        return {"error": f"DB does not exist: {db_path}"}
+    if before.get("missing_tables"):
+        return {"error": f"required tables missing: {before['missing_tables']}"}
+    if before.get("healthy"):
+        return {"no_op": True, "before": before, "after": before}
+    if not write:
+        return {
+            "dry_run": True,
+            "would_backup": str(backup_path) if backup_path else None,
+            "would_create_registry": not before.get("registry_exists"),
+            "would_rebuild": ["knowledge_run_items", "knowledge_extraction_gates"],
+            "before": before,
+        }
+    if backup_path is None:
+        return {"error": "--backup is required for --write"}
+
+    backup = _backup_sqlite(db_path, backup_path)
+    con = sqlite3.connect(str(db_path), timeout=60)
+    rebuilt: dict[str, dict[str, int]] = {}
+    try:
+        con.execute("PRAGMA foreign_keys = OFF")
+        con.execute("BEGIN IMMEDIATE")
+        con.execute(INVENTORY_REGISTRY_TABLE_SQL)
+        con.execute(
+            "INSERT OR IGNORE INTO knowledge_inventory_registry "
+            "(inventory_id, inventory_kind, created_at) "
+            "SELECT inventory_id, 'full', generated_at FROM knowledge_inventory"
+        )
+        con.execute(
+            "INSERT OR IGNORE INTO knowledge_inventory_registry "
+            "(inventory_id, inventory_kind, created_at) "
+            "SELECT delta_inventory_id, 'delta', created_at "
+            "FROM knowledge_delta_inventories"
+        )
+        con.execute(
+            "CREATE TRIGGER IF NOT EXISTS trg_knowledge_inventory_registry "
+            "AFTER INSERT ON knowledge_inventory BEGIN "
+            "INSERT OR IGNORE INTO knowledge_inventory_registry "
+            "(inventory_id, inventory_kind, created_at) "
+            "VALUES (NEW.inventory_id, 'full', NEW.generated_at); END"
+        )
+        con.execute(
+            "CREATE TRIGGER IF NOT EXISTS trg_knowledge_delta_inventory_registry "
+            "AFTER INSERT ON knowledge_delta_inventories BEGIN "
+            "INSERT OR IGNORE INTO knowledge_inventory_registry "
+            "(inventory_id, inventory_kind, created_at) "
+            "VALUES (NEW.delta_inventory_id, 'delta', NEW.created_at); END"
+        )
+
+        if _foreign_key_target(
+            con, "knowledge_run_items", "inventory_id"
+        ) != "knowledge_inventory_registry":
+            old, new = _rebuild_inventory_fk_table(
+                con,
+                table="knowledge_run_items",
+                create_sql=RUN_ITEMS_TABLE_SQL,
+                columns=(
+                    "id", "run_id", "inventory_id", "position", "evidence_ref",
+                    "status", "attempt_count", "lease_started_at",
+                    "last_error_class", "cache_key", "response_hash",
+                    "unit_count", "updated_at",
+                ),
+                indexes=(
+                    "CREATE INDEX idx_kri_run ON knowledge_run_items(run_id)",
+                    "CREATE INDEX idx_kri_status ON knowledge_run_items(status)",
+                ),
+            )
+            rebuilt["knowledge_run_items"] = {"before": old, "after": new}
+
+        if _foreign_key_target(
+            con, "knowledge_extraction_gates", "inventory_id"
+        ) != "knowledge_inventory_registry":
+            old, new = _rebuild_inventory_fk_table(
+                con,
+                table="knowledge_extraction_gates",
+                create_sql=EXTRACTION_GATES_TABLE_SQL,
+                columns=(
+                    "gate_id", "run_id", "inventory_id", "gate_status",
+                    "gate_json", "evaluated_at",
+                ),
+                indexes=(
+                    "CREATE INDEX idx_keg_run ON knowledge_extraction_gates(run_id)",
+                ),
+            )
+            rebuilt["knowledge_extraction_gates"] = {"before": old, "after": new}
+
+        violations = con.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            counts: dict[str, int] = {}
+            for row in violations:
+                counts[str(row[0])] = counts.get(str(row[0]), 0) + 1
+            raise sqlite3.IntegrityError(
+                f"foreign_key_check still reports {len(violations)}: {counts}"
+            )
+        if con.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise sqlite3.DatabaseError("integrity_check failed before commit")
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+    after = inspect_inventory_registry(db_path)
+    if not after.get("healthy"):
+        raise RuntimeError(f"post-migration verification failed: {after}")
+    return {
+        "migrated": True,
+        "backup": backup,
+        "rebuilt": rebuilt,
+        "before": before,
+        "after": after,
+    }
+
+
 def inspect(db_path: Path = UNIFIED_DB) -> dict:
     """检查现有表状态。"""
     if not db_path.exists():
@@ -303,6 +625,7 @@ def inspect(db_path: Path = UNIFIED_DB) -> dict:
         "canonical_knowledge_units", "canonical_unit_members", "knowledge_index_versions",
         # Plan 02
         "knowledge_inventory", "knowledge_inventory_items",
+        "knowledge_inventory_registry",
         "knowledge_run_items", "knowledge_response_cache", "knowledge_extraction_gates",
         # Plan 05
         "rag_runs", "rag_retrieval_items", "rag_feedback",
@@ -324,6 +647,20 @@ def migrate(db_path: Path = UNIFIED_DB, write: bool = False) -> dict:
         return {"error": f"DB 不存在: {db_path}"}
     if not info["missing_tables"] and write:
         return {"message": "所有表已存在，无需迁移", "tables": info["existing_tables"]}
+
+    if write and {
+        "knowledge_run_items",
+        "knowledge_extraction_gates",
+    }.issubset(set(info["existing_tables"])):
+        registry_state = inspect_inventory_registry(db_path)
+        if not registry_state.get("healthy"):
+            return {
+                "error": (
+                    "existing inventory consumers require the guarded repair: "
+                    "--repair-inventory-fks --write --backup <path>"
+                ),
+                "inventory_registry": registry_state,
+            }
 
     if not write:
         return {"dry_run": True, "would_create": info["missing_tables"],
@@ -347,8 +684,28 @@ def main(argv: list[str] | None = None) -> int:
     g = p.add_mutually_exclusive_group()
     g.add_argument("--inspect", action="store_true", help="检查现有表状态")
     g.add_argument("--write", action="store_true", help="执行迁移")
+    p.add_argument(
+        "--repair-inventory-fks",
+        action="store_true",
+        help="Repair full/delta inventory parent FKs (guarded, backup required for write)",
+    )
+    p.add_argument(
+        "--backup",
+        type=Path,
+        default=None,
+        help="New backup path required with --repair-inventory-fks --write",
+    )
     p.add_argument("--db", type=Path, default=UNIFIED_DB)
     args = p.parse_args(argv)
+
+    if args.repair_inventory_fks:
+        result = migrate_inventory_registry(
+            args.db,
+            write=args.write,
+            backup_path=args.backup,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if "error" not in result else 1
 
     if args.inspect or not args.write:
         result = inspect(args.db)
