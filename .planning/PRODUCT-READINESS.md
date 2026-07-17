@@ -17,7 +17,7 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 | **4. Retrieval layered** | 82 | yes | KU→dialogue→Google; fallback_policy=layered |
 | **5. Publish / active safety** | **90** | yes | Fail-closed promote; **active=`knowledge_units_ir_4cd8af4ad_20260716020508`** (2026-07-16); watermark matches source |
 | **6. Lifecycle / growth line** | **78** | **no** | **22-01** `pk-ku reconcile` (dry-run default, never DELETE); **22-02** `pk-ku history`; write still operator-gated |
-| **7. Eval / canary** | **74** | **no** | All five modes now live with exact L2-only audit; comprehensive gate still FAILS: only 22 real scoreable gold and 0 real cross-turn gold; human gold/judge/UAT open |
+| **7. Eval / canary** | **74** | **no** | Five modes live; scorer v2 secret provenance=0; score-only abstention rejected by isolated dev calibration; comprehensive gate still FAILS on coverage/privacy/no-answer/human checks |
 | **8. Ops / docs** | 90 | yes | Runbooks + AGENTS; **`pk-ku doctor`** (DBs, active pointer, watermark info, ports warn-only) |
 | **9. Governance / tests** | 90 | yes | Doctor unit tests + reconcile/history CLI tests; pytest path green |
 | **10. Facade / debt** | **88** | yes | **application → domains real imports = 0** (2026-07-16 rewrite); domains package remains as re-export shims until optional 2026-08-13 package delete |

@@ -24,7 +24,7 @@ python -m personal_knowledge.evaluation.run_knowledge_eval --config assets/evals
 | L2 lineage | 768+47=815 explained | `ok=True`, DB unchanged | PASS |
 | Five modes | raw/l1/l2_only/l1_l2/hybrid | all five live; L2-only exact collection audit 764/764 and R@5=18.18% on 22 real gold cases | PASS |
 | Answer eval | present or skip reason | present for all five live modes; real context kept ephemeral | PASS |
-| HTML report | under `var/reports/analysis/evaluations/` | `dc71b5d38813ce66/report.html` | PASS |
+| HTML report | under `var/reports/analysis/evaluations/` | `48ecbf5e8f6618a6/report.html` | PASS |
 | Gate verdict | PASS or FAIL with reasons | FAIL with explicit policy checks | PASS (correct fail) |
 | Active after | **unchanged** on dry-run / FAIL | unchanged | PASS |
 | Promote refuse without PASS | `--require-eval-pass` | contract tests pass; no promotion attempted | PASS |
@@ -37,3 +37,5 @@ python -m personal_knowledge.evaluation.run_knowledge_eval --config assets/evals
 - Grounded review packet prepared at `var/runtime/private_evals/grounded_l2_review_v1.jsonl` (50 rows; private; labels pending).
 - Latest full live run is intentionally FAIL; rollback UAT must wait for a genuine PASS candidate.
 - L2-only collection `knowledge_units_eval_l2_894985b38fe5` is evaluation-only, exact 764/764, and did not change Active.
+- Scorer v2 provenance audit reports secret_hit=0 for every mode; privacy hits remain and the overall gate stays FAIL.
+- Abstention calibration artifact `abstention_calibration_v1.json` is development-only and FAILS its positive-retention constraint; no threshold was applied.
