@@ -7,10 +7,19 @@ from .runs import (
     resolve_cognition_reference,
     validate_run,
 )
+from .recommendations import (
+    RecommendationEvaluation,
+    RecommendationInput,
+    RecommendationPolicyError,
+    RecommendationRule,
+    RecommendationRuleRegistry,
+    evaluate_rule,
+)
 from .schema import CognitionReference, DecisionRun, Recommendation, RecommendationDraft
 
 __all__ = [
     "CognitionReference", "DecisionRun", "DecisionValidationError", "Recommendation",
-    "RecommendationDraft", "plan_run", "publish_run", "resolve_cognition_reference",
-    "validate_run",
+    "RecommendationDraft", "RecommendationEvaluation", "RecommendationInput",
+    "RecommendationPolicyError", "RecommendationRule", "RecommendationRuleRegistry",
+    "evaluate_rule", "plan_run", "publish_run", "resolve_cognition_reference", "validate_run",
 ]
