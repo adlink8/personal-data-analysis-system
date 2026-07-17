@@ -103,6 +103,71 @@ def test_deleted_evidence_detected(tmp_path: Path) -> None:
     assert result["deleted_refs_count"] >= 1
 
 
+def test_large_delta_keeps_full_execution_lists_and_batched_subjects(
+    tmp_path: Path,
+) -> None:
+    """Preview limits must never truncate execution or subject discovery."""
+    db = tmp_path / "test.sqlite"
+    canon = tmp_path / "canon.sqlite"
+    _setup_db(db)
+
+    con = sqlite3.connect(db)
+    for i in range(600):
+        ref = f"gone{i:03d}"
+        con.execute(
+            "INSERT INTO knowledge_inventory_items VALUES "
+            "(NULL,'inv1',?,?,?,?,?,?,?,?,?,?)",
+            (1000 + i, ref, f"hash-{i}", f"cs-{i}", "agentsview", "codex", "2026-01", "mid", 0, "eligible"),
+        )
+        con.execute(
+            "INSERT INTO knowledge_units "
+            "(unit_id, run_id, unit_type, subject, question, answer, confidence, "
+            "evidence_quote, lifecycle, evidence_scope, status, created_at, source_message_ref) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                f"gone-unit-{i}", "run1", "preference", f"subject-{i}",
+                f"q-{i}", f"a-{i}", 0.9, "ev", "current", "user",
+                "current", "2026-01-01", ref,
+            ),
+        )
+    con.commit()
+    con.close()
+    _make_canonical_db(canon, ["cm0", "cm1", "cm2"])
+
+    from personal_knowledge.domains.knowledge.refresh_knowledge_units import (
+        find_affected_evidence,
+        refresh,
+    )
+
+    result = find_affected_evidence(db, canon, last_source_checksum="")
+    assert result["deleted_refs_count"] == 600
+    assert len(result["deleted_refs"]) == 600
+    assert len(result["deleted_refs_preview"]) == 100
+    assert result["preview_truncated"] is True
+    assert len(result["affected_subjects"]) == 600
+
+    stats, _detail = refresh(db, canon, last_source_checksum="", dry_run=False)
+    assert stats.deprecated_count == 600
+
+
+def test_large_new_delta_has_full_input_and_bounded_preview(tmp_path: Path) -> None:
+    db = tmp_path / "test.sqlite"
+    canon = tmp_path / "canon.sqlite"
+    _setup_db(db)
+    refs = ["cm0", "cm1", "cm2"] + [f"cm-new-{i:03d}" for i in range(150)]
+    _make_canonical_db(canon, refs)
+
+    from personal_knowledge.domains.knowledge.refresh_knowledge_units import (
+        find_affected_evidence,
+    )
+
+    result = find_affected_evidence(db, canon, last_source_checksum="")
+    assert result["new_refs_count"] == 150
+    assert len(result["new_refs"]) == 150
+    assert len(result["new_refs_preview"]) == 100
+    assert result["preview_truncated"] is True
+
+
 def test_deprecated_propagation(tmp_path: Path) -> None:
     """deleted refs 的 units 被标记为 deprecated。"""
     db = tmp_path / "test.sqlite"
@@ -132,3 +197,21 @@ def test_source_checksum_stable(tmp_path: Path) -> None:
     cs1 = compute_source_checksum(canon)
     cs2 = compute_source_checksum(canon)
     assert cs1 == cs2
+
+
+def test_get_committed_watermark_does_not_create_schema(tmp_path: Path) -> None:
+    db = tmp_path / "empty.sqlite"
+    sqlite3.connect(db).close()
+
+    from personal_knowledge.domains.knowledge.refresh_knowledge_units import (
+        get_committed_watermark,
+    )
+
+    assert get_committed_watermark(db) == ""
+    con = sqlite3.connect(db)
+    tables = {
+        row[0]
+        for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    con.close()
+    assert "knowledge_source_watermark" not in tables

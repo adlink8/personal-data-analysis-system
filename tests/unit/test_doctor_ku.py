@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -41,7 +42,34 @@ def test_doctor_ok_when_critical_paths_present(tmp_path: Path):
     assert by_id["unified_db"].ok
     assert by_id["agent_conversations_db"].ok
     assert by_id["active_pointer"].ok
+    assert by_id["sqlite_foreign_keys"].ok
     assert by_id["active_pointer"].detail["collection"] == "knowledge_units_test_collection"
+
+
+def test_doctor_fails_on_foreign_key_violations(tmp_path: Path):
+    paths = _healthy_layout(tmp_path)
+    con = sqlite3.connect(paths["db"])
+    con.executescript(
+        "CREATE TABLE parent (id INTEGER PRIMARY KEY);"
+        "CREATE TABLE child (parent_id INTEGER REFERENCES parent(id));"
+        "INSERT INTO child(parent_id) VALUES (42);"
+    )
+    con.commit()
+    con.close()
+
+    report = run_doctor(
+        unified_db=paths["db"],
+        conversations_db=paths["conv"],
+        active_pointer=paths["pointer"],
+        skip_ports=True,
+        include_facade=False,
+    )
+    assert report.ok is False
+    assert report.exit_code == 1
+    check = next(c for c in report.checks if c.id == "sqlite_foreign_keys")
+    assert check.ok is False
+    assert check.detail["violations_total"] == 1
+    assert check.detail["violations_by_table"] == {"child": 1}
 
 
 def test_doctor_fails_when_unified_db_missing(tmp_path: Path):

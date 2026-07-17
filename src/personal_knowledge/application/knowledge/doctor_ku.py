@@ -17,6 +17,7 @@ import json
 import os
 import re
 import socket
+import sqlite3
 import sys
 import urllib.error
 import urllib.request
@@ -210,6 +211,62 @@ def _check_watermark(
         )
 
 
+def _check_sqlite_foreign_keys(db_path: Path) -> CheckResult:
+    """Fail closed when the live unified DB contains FK violations."""
+    detail: dict[str, Any] = {"path": str(db_path)}
+    if not db_path.exists():
+        return CheckResult(
+            id="sqlite_foreign_keys",
+            ok=True,
+            severity="info",
+            message="foreign-key check skipped (unified db missing)",
+            detail=detail,
+        )
+    try:
+        con = sqlite3.connect(
+            f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True
+        )
+        initial = int(con.execute("PRAGMA foreign_keys").fetchone()[0])
+        con.execute("PRAGMA foreign_keys = ON")
+        enabled = int(con.execute("PRAGMA foreign_keys").fetchone()[0])
+        rows = con.execute(
+            'SELECT "table", COUNT(*) FROM pragma_foreign_key_check '
+            'GROUP BY "table" ORDER BY "table"'
+        ).fetchall()
+        con.close()
+        by_table = {str(table): int(count) for table, count in rows}
+        total = sum(by_table.values())
+        detail.update(
+            {
+                "connection_initially_enabled": bool(initial),
+                "check_connection_enabled": bool(enabled),
+                "violations_total": total,
+                "violations_by_table": by_table,
+            }
+        )
+        ok = bool(enabled) and total == 0
+        message = (
+            "foreign-key integrity clean"
+            if ok
+            else f"foreign-key violations: {total}"
+        )
+        return CheckResult(
+            id="sqlite_foreign_keys",
+            ok=ok,
+            severity="critical",
+            message=message,
+            detail=detail,
+        )
+    except sqlite3.Error as exc:
+        return CheckResult(
+            id="sqlite_foreign_keys",
+            ok=False,
+            severity="critical",
+            message=f"foreign-key check failed: {exc}",
+            detail={**detail, "error": str(exc)},
+        )
+
+
 def _tcp_listening(host: str, port: int, timeout: float = 0.4) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -342,6 +399,7 @@ def run_doctor(
             label="UNIFIED_DB",
         )
     )
+    checks.append(_check_sqlite_foreign_keys(db))
     # Conversations DB missing is warn if import/db OK — product can still run
     # with stale knowledge, but daily sync needs it. Plan: "report missing".
     # Treat as critical for product daily ops integrity.
@@ -372,6 +430,7 @@ def run_doctor(
         "unified_db",
         "agent_conversations_db",
         "active_pointer",
+        "sqlite_foreign_keys",
     }
     hard_failed = [c for c in checks if c.id in hard_fail_ids and not c.ok]
     ok = not hard_failed

@@ -129,17 +129,22 @@ def find_affected_evidence(
     # 消失的 refs（在 inventory 但不在 canonical）
     deleted_refs = inv_refs - current_refs
 
-    # 查受影响的 subjects（从 knowledge_units）
+    ordered_new_refs = sorted(new_refs)
+    ordered_deleted_refs = sorted(deleted_refs)
+
+    # 查受影响的 subjects（从 knowledge_units）。分批查询全部 refs，避免
+    # SQLite 参数上限，同时不能让展示 preview 的限制影响执行范围。
     affected_subjects = set()
     if new_refs or deleted_refs:
         con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
         # 删除的 refs 对应的 units 的 subjects
-        if deleted_refs:
-            placeholders = ",".join("?" * min(len(deleted_refs), 500))
+        for start in range(0, len(ordered_deleted_refs), 500):
+            batch = ordered_deleted_refs[start:start + 500]
+            placeholders = ",".join("?" * len(batch))
             for r in con.execute(
                 f"SELECT DISTINCT subject FROM knowledge_units "
                 f"WHERE source_message_ref IN ({placeholders})",
-                tuple(list(deleted_refs)[:500]),
+                tuple(batch),
             ):
                 affected_subjects.add(r[0])
         con.close()
@@ -149,8 +154,15 @@ def find_affected_evidence(
         "current_checksum": current_checksum,
         "new_refs_count": len(new_refs),
         "deleted_refs_count": len(deleted_refs),
-        "new_refs": list(new_refs)[:100],  # 限制输出
-        "deleted_refs": list(deleted_refs)[:100],
+        # Full lists are the execution input. Preview fields are display-only.
+        "new_refs": ordered_new_refs,
+        "deleted_refs": ordered_deleted_refs,
+        "new_refs_preview": ordered_new_refs[:100],
+        "deleted_refs_preview": ordered_deleted_refs[:100],
+        "preview_limit": 100,
+        "preview_truncated": (
+            len(ordered_new_refs) > 100 or len(ordered_deleted_refs) > 100
+        ),
         "affected_subjects": sorted(affected_subjects),
         "no_op": len(new_refs) == 0 and len(deleted_refs) == 0,
     }
@@ -182,13 +194,16 @@ def refresh(
         con = sqlite3.connect(str(db_path))
         now = _utc_now()
         deleted_refs = detail["deleted_refs"]
-        # 标记受影响 units 为 deprecated
-        placeholders = ",".join("?" * min(len(deleted_refs), 500))
-        updated = con.execute(
-            f"UPDATE knowledge_units SET lifecycle='deprecated' "
-            f"WHERE source_message_ref IN ({placeholders}) AND lifecycle='current'",
-            tuple(deleted_refs[:500]),
-        ).rowcount
+        # 标记全部受影响 units；500 只是单批参数上限，不是执行上限。
+        updated = 0
+        for start in range(0, len(deleted_refs), 500):
+            batch = deleted_refs[start:start + 500]
+            placeholders = ",".join("?" * len(batch))
+            updated += con.execute(
+                f"UPDATE knowledge_units SET lifecycle='deprecated' "
+                f"WHERE source_message_ref IN ({placeholders}) AND lifecycle='current'",
+                tuple(batch),
+            ).rowcount
         con.commit()
         con.close()
         stats.deprecated_count = updated
@@ -1099,12 +1114,18 @@ def ensure_journal_schema(db_path: Path) -> None:
 
 
 def get_committed_watermark(db_path: Path) -> str:
-    ensure_journal_schema(db_path)
-    con = sqlite3.connect(str(db_path))
-    row = con.execute(
-        "SELECT value FROM knowledge_source_watermark WHERE key='committed'"
-    ).fetchone()
-    con.close()
+    """Read the committed watermark without creating or mutating schema."""
+    if not db_path.exists():
+        return ""
+    con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        row = con.execute(
+            "SELECT value FROM knowledge_source_watermark WHERE key='committed'"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    finally:
+        con.close()
     return row[0] if row else ""
 
 

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sqlite3
+from pathlib import Path
+
 import pytest
 
 from personal_knowledge.application.ku import build_parser, main
@@ -35,6 +38,35 @@ def test_prepare_requires_model():
     p = build_parser()
     with pytest.raises(SystemExit):
         p.parse_args(["prepare"])  # missing --model
+
+
+def test_inspect_uses_committed_watermark_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    db = tmp_path / "personal_system.sqlite"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE knowledge_source_watermark "
+        "(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)"
+    )
+    con.execute(
+        "INSERT INTO knowledge_source_watermark VALUES ('committed', 'wm-safe', 'now')"
+    )
+    con.commit()
+    con.close()
+
+    captured: list[str] = []
+
+    def _capture(argv: list[str] | None = None) -> int:
+        captured.extend(argv or [])
+        return 0
+
+    monkeypatch.setattr(
+        "personal_knowledge.application.knowledge.refresh_knowledge_units.main",
+        _capture,
+    )
+    assert main(["inspect", "--db", str(db)]) == 0
+    assert captured[:3] == ["--inspect", "--source-checksum", "wm-safe"]
 
 
 def test_extract_rejects_non_incremental_run_id(capsys):

@@ -422,11 +422,18 @@ Docs: docs/runbooks/ku-incremental.md
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
-    from personal_knowledge.application.knowledge.refresh_knowledge_units import main as refresh_main
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import (
+        get_committed_watermark,
+        main as refresh_main,
+    )
+    from personal_knowledge.core.project_paths import UNIFIED_DB
 
     argv: list[str] = ["--inspect"]
-    if args.source_checksum:
-        argv.extend(["--source-checksum", args.source_checksum])
+    source_checksum = args.source_checksum or get_committed_watermark(
+        args.db or UNIFIED_DB
+    )
+    if source_checksum:
+        argv.extend(["--source-checksum", source_checksum])
     if args.db is not None:
         argv.extend(["--db", str(args.db)])
     if args.canonical_db is not None:
