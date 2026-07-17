@@ -17,22 +17,23 @@ release_status: release_blocked
 
 ## Verdict
 
-Clean after remediation. All six findings are resolved by commits `11c54d0` and `865b4b1`; the expanded Phase 25 suite, adjacent interface regressions, governance preflight and full repository suite pass. Phase 24 remains `release_blocked`; this review does not approve a migration, live publication, lifecycle apply, or serving change.
+Clean after remediation. All six findings are resolved by commits `11c54d0`, `865b4b1` and compatibility hardening `58957b7`; the expanded Phase 25 suite, adjacent interface regressions, governance preflight and full repository suite pass. Phase 24 remains `release_blocked`; this review does not approve a migration, live publication, lifecycle apply, or serving change.
 
 ## Resolution Summary
 
 - `11c54d0` makes hydration verify canonical assertion payloads, normalized columns, row checksums and snapshot/member-bound evidence; acceptance now allowlists only schema-unapplied/no-run empty states and blocks all integrity failures.
 - `11c54d0` adds immutable `personal_state_publications.publication_sequence` ordering and uses it consistently for latest selection and explicit-run history cutoffs, including same-second, concurrent and VACUUM stability coverage.
+- `58957b7` rejects partially upgraded databases where any committed run lacks an explicit publication sequence, including through the acceptance integrity gate.
 - `865b4b1` applies one observed/valid bitemporal boundary to projection, history, lifecycle and explanation formation; future knowledge is excluded.
 - `865b4b1` carries typed evidence metadata into explanations, passes expected artifact version/type to resolvers, requires `eligible is True`, and abstains on missing eligibility, missing binding or version drift.
 - `865b4b1` unifies derived risk severity on `low|medium|high` (`medium` for the current rules) and proves direct schema persistence.
 
 Validation after remediation:
 
-- Phase 25 unit/contract/integration suite: **86 passed**.
+- Phase 25 unit/contract/integration suite: **87 passed**.
 - Apps SDK, knowledge search and serving snapshot regression: **33 passed**.
 - Governance preflight: **13/13 PASS**.
-- Full repository: **722 passed, 2 skipped**; two pre-existing `SyntaxWarning` messages only.
+- Full repository: **723 passed, 2 skipped**; two pre-existing `SyntaxWarning` messages only.
 - Live metadata-only acceptance: `ok=true`, `status=release_blocked`, fingerprints unchanged, `mutations=0`, no network/paid calls.
 
 ## Findings
