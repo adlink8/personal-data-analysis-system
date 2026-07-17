@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
 status: executing
-last_updated: "2026-07-16T18:30:00+08:00"
-last_activity: 2026-07-16 -- Phase 22 plans 01-04 implemented (reconcile/history/canary triage/doctor)
+last_updated: "2026-07-17T19:30:00+08:00"
+last_activity: 2026-07-17 -- governance audit P0 remediation verified; Phase 22 roadmap close-out
 progress:
   total_phases: 24
-  completed_phases: 21
+  completed_phases: 22
   total_plans: 54
-  completed_plans: 53
+  completed_plans: 54
   percent: 78
 ---
 
@@ -53,6 +53,15 @@ Readiness: `.planning/PRODUCT-READINESS.md` (**~87** weighted; daily product-gra
 Active: `knowledge_units_ir_4cd8af4ad_20260716020508`; watermark matches source.  
 Next optional: `reconcile --write --i-know` after dry-run; Phase 17 human gold; facade retire 2026-08-13.
 
+## Cross-cutting architecture/data governance audit
+
+- **Authoritative issue inventory:** [`ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md`](./ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md)
+- **Expected target gap:** [`TARGET-GAP-ANALYSIS-2026-07-17.md`](./TARGET-GAP-ANALYSIS-2026-07-17.md) — separately evaluates foundation integrity, v1.1 evaluation closure, stable knowledge-product readiness, and the long-term personal-intelligence loop.
+- Scope: D/S/R/A layer separation, SQLite/Chroma composite SSOT, inventory/watermark/lifecycle integrity, evaluation evidence, repository and runtime drift.
+- Initial verdict: **gaps_found**. The audit found disabled SQLite FK enforcement, 18,859 FK violations, Delta Inventory FK mismatch, and unsafe incremental inspection/execution boundaries.
+- **2026-07-17 remediation:** unified Full/Delta Inventory registry migrated with verified backup; FK violations are 0; knowledge write connections enforce FK; doctor and publish/promote gates fail closed; inspect defaults to committed watermark; execution lists are no longer preview-truncated; governance preflight is 12/12 PASS.
+- No reconcile write, additional promotion, watermark advance, pointer change, data delete, or compat/archive retirement was performed during remediation.
+
 ## Remaining human / product checkpoints
 
 1. **Phase 17 code complete; human checkpoints** still open (gold/judge/UAT sign-off — parallel)
@@ -67,5 +76,6 @@ $env:PYTHONPATH="D:\ADLINK\数据分析\src"
 python -m personal_knowledge.application.ku doctor
 python -m personal_knowledge.application.ku workflow
 python -m personal_knowledge.application.ku watermark   # read-only
-python -m pytest -q tests/unit/test_doctor_ku.py tests/unit/test_pk_ku_cli.py -k "doctor or history or reconcile" --tb=short
+python -m pytest -q
+python -m personal_knowledge.governance.preflight
 ```

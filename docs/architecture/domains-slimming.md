@@ -1,7 +1,7 @@
 # Domains slimming (Phase 21) + facade debt clearance
 
 **Status:** Phase 21 complete (2026-07-15); **application→domains real imports cleared (2026-07-16)**  
-**Planning:** `.planning/phases/PDA-21-architectural-alignment-domains-slimming/`  
+**Planning:** `.planning/phases/21-architectural-alignment-domains-slimming/`
 **Inventory:** `.planning/phases/22-ku-lifecycle-growth-line/22-FACADE-INVENTORY.md`
 
 ## Goal

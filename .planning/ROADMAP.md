@@ -31,9 +31,16 @@
 - [x] **Phase 19: Physical Source Consolidation** - src layout、console entrypoints、shim/tools/apps/assets/tests/docs 物理收口
 - [x] **Phase 20: Physical Data & Runtime Relocation** - 全部批准后 apply 完成；bak/alias 兼容窗口保留
 - [x] **Phase 21: Architectural Alignment - Domains Slimming** - build/eval → application/evaluation；facade 窗口至 2026-08-13（2026-07-15）
-- [ ] **Phase 22: KU Lifecycle & Growth Line** - 不删数的 supersede/conflict；成长线；canary 收口；产品就绪（2026-07-16 planned）
+- [x] **Phase 22: KU Lifecycle & Growth Line** - 不删数的 supersede/conflict；成长线；canary 收口；产品就绪（2026-07-16 complete）
 
 > **Audit note (2026-07-12):** P0 + P1 (15-02 / 16-02) executed and verified. See [Phase 15–16 audit](phases/15-retrieval-ssot-governance/15-16-AUDIT.md).
+
+## Cross-cutting architecture/data governance gaps
+
+- Source of truth: [`ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md`](./ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md)
+- Expected-goal distance and staged path: [`TARGET-GAP-ANALYSIS-2026-07-17.md`](./TARGET-GAP-ANALYSIS-2026-07-17.md)
+- Before adding more memory/profile layers, close or explicitly accept the audit's P0 contracts: SQLite FK enforcement and schema repair, Delta Inventory identity, watermark-safe inspect, non-truncated refresh execution, SQLite/Chroma publication consistency, and D/S/R/A layer registry.
+- This entry is backlog only and does not authorize lifecycle writes, promotion, watermark advance, pointer mutation, or data cleanup.
 
 ## Optional Next (post-v1.0 backlog — not scheduled)
 
@@ -246,7 +253,7 @@
 | 19 | 5/5 | **Complete** | 2026-07-13 |
 | 20 | apply complete | **Complete** (alias/bak removal deferred) | 2026-07-13 |
 | 21 | 4/4 | **Complete** | 2026-07-15 |
-| 22 | 0/4 outlined | **Planned** (lifecycle/growth line) | — |
+| 22 | 4/4 | **Complete** | 2026-07-16 |
 | **v1.1** | Phase 17 human + Phase 22 product hardening | **Executing** | — |
 
 ### Phase 21: Architectural Alignment - Domains Slimming
@@ -274,15 +281,15 @@ Plans:
 - canary 关键 triage；strict PASS 路径或明确 hold 文档化
 - 产品就绪分 ≥80（见 `PRODUCT-READINESS.md`）在加权维度无 P0
 **Status:** Planned (2026-07-16)  
-**Plans:** 4/4 outlined
+**Plans:** 4/4 complete
 
 Plans:
-- [ ] 22-01: Lifecycle reconcile dry-run + CLI (zero delete)
-- [ ] 22-02: Growth-line query surface + retrieval current-only contract
-- [ ] 22-03: Product loop close — canary triage, promote, watermark
-- [ ] 22-04: Facade retire prep + product readiness gates
+- [x] 22-01: Lifecycle reconcile dry-run + CLI (zero delete)
+- [x] 22-02: Growth-line query surface + retrieval current-only contract
+- [x] 22-03: Product loop close — canary triage, promote, watermark
+- [x] 22-04: Facade retire prep + product readiness gates
 
-**Progress table note:** Phase 21 complete; Phase 22 next executable.
+**Progress table note:** Phase 22 code/ops complete; Phase 17 human gold/judge/UAT remains open.
 
 ---
-*Roadmap migrated from `.gsd/phases/` on 2026-07-10. Updated 2026-07-16 for Phase 22 lifecycle/growth-line planning.*
+*Roadmap migrated from `.gsd/phases/` on 2026-07-10. Updated 2026-07-17 for Phase 22 close-out and governance audit remediation.*

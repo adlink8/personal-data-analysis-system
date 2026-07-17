@@ -10,7 +10,7 @@ branch: codex/llm-memory-mcp-integration
 Authoritative sources: `pytest.ini`, `tests/README.md`, `.github/workflows/ci.yml`,
 `src/personal_knowledge/governance/preflight.py`, `docs/runbooks/dependency-governance.md`,
 `assets/evals/knowledge_units/eval_policy_v1.yaml`, phase verification notes
-(`.planning/phases/PDA-21-…/21-VERIFICATION.md`).
+(`.planning/phases/21-…/21-VERIFICATION.md`).
 
 ---
 
@@ -300,7 +300,7 @@ Budget is **baseline-only-down**: increases fail closed.
 
 ### 5.3 Documented pytest residuals (Phase 21)
 
-From `.planning/phases/PDA-21-architectural-alignment-domains-slimming/21-VERIFICATION.md`
+From `.planning/phases/21-architectural-alignment-domains-slimming/21-VERIFICATION.md`
 (re-run 2026-07-15):
 
 | Class | Count / note |

@@ -342,7 +342,7 @@ tests/
 ├── intel/                   # synthesis / constraints
 ├── phases/
 │   ├── 01-… through 20-…
-│   └── PDA-21-architectural-alignment-domains-slimming/
+│   └── 21-architectural-alignment-domains-slimming/
 └── MILESTONE-*.md, VERIFICATION-*.md
 ```
 

@@ -398,6 +398,6 @@ Path resolution always through `personal_knowledge.core.project_paths` (never ha
 | `docs/architecture/domains-slimming.md` | Phase 21 layout |
 | `docs/architecture/repository-zones.md` | Physical zones |
 | `.planning/phases/20-physical-data-runtime-relocation/` | Phase 20 cutover |
-| `.planning/phases/PDA-21-architectural-alignment-domains-slimming/` | Phase 21 |
+| `.planning/phases/21-architectural-alignment-domains-slimming/` | Phase 21 |
 | `docs/runbooks/ku-incremental.md` | Operator KU procedure |
 | `docs/runbooks/product-sync.md` | Operator sync procedure |
