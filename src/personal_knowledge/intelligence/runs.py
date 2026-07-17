@@ -1,6 +1,7 @@
 """Read-first planning and atomic publication for personal-state analysis runs."""
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import re
 from pathlib import Path
@@ -294,11 +295,8 @@ def _validated_assertion(
     payload = _assertion_payload(validated, snapshot=snapshot)
     _reject_private_payload(payload, "assertion")
     payload_checksum = checksum(payload)
-    assertion_id = f"psa_{payload_checksum[:24]}"
-    if assertion.assertion_id and assertion.assertion_id != assertion_id:
-        raise PersonalStateValidationError("assertion_id_mismatch", assertion.assertion_id)
     return ValidatedAssertion(
-        assertion_id=assertion_id,
+        assertion_id=f"psa_{payload_checksum[:24]}",
         assertion_kind=validated.assertion_kind,
         provenance_class=validated.provenance_class,
         subject=validated.subject,
@@ -314,6 +312,42 @@ def _validated_assertion(
         lifecycle=validated.lifecycle,
         evidence=validated.evidence,
         payload_checksum=payload_checksum,
+    )
+
+
+def _run_context_digest(
+    snapshot: SnapshotBinding,
+    producer_version: str,
+    input_manifest: Mapping[str, Any],
+) -> str:
+    return checksum(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "snapshot_id": snapshot.snapshot_id,
+            "snapshot_hash": snapshot.snapshot_hash,
+            "snapshot_members": snapshot.members,
+            "producer_version": producer_version,
+            "input": input_manifest,
+        }
+    )
+
+
+def _scope_assertions(
+    assertions: Iterable[ValidatedAssertion],
+    *,
+    context_digest: str,
+) -> tuple[ValidatedAssertion, ...]:
+    return tuple(
+        sorted(
+            (
+                replace(
+                    item,
+                    assertion_id=f"psa_{checksum([context_digest, item.payload_checksum])[:24]}",
+                )
+                for item in assertions
+            ),
+            key=lambda item: item.assertion_id,
+        )
     )
 
 
@@ -337,19 +371,24 @@ def plan_run(
     finally:
         con.close()
     evidence_resolver = resolver or EvidenceResolver(unified_db=db_path)
-    validated = tuple(
+    source_assertions = tuple(assertions)
+    if any(item.assertion_id for item in source_assertions):
+        raise PersonalStateValidationError("preassigned_assertion_id")
+    base_validated = tuple(
         sorted(
             (
                 _validated_assertion(item, snapshot=snapshot, resolver=evidence_resolver)
-                for item in assertions
+                for item in source_assertions
             ),
             key=lambda item: item.assertion_id,
         )
     )
-    if not validated:
+    if not base_validated:
         raise PersonalStateValidationError("assertions_required")
-    if len({item.assertion_id for item in validated}) != len(validated):
+    if len({item.payload_checksum for item in base_validated}) != len(base_validated):
         raise PersonalStateValidationError("duplicate_assertion")
+    context_digest = _run_context_digest(snapshot, producer_version, input_manifest)
+    validated = _scope_assertions(base_validated, context_digest=context_digest)
     canonical_input = {
         "schema_version": SCHEMA_VERSION,
         "snapshot_id": snapshot.snapshot_id,
@@ -412,7 +451,7 @@ def validate_run(
     if canonical_json(current.members) != canonical_json(run.snapshot.members):
         raise PersonalStateValidationError("snapshot_members_mismatch", run.snapshot.snapshot_id)
     evidence_resolver = resolver or EvidenceResolver(unified_db=db_path)
-    refreshed_assertions: list[ValidatedAssertion] = []
+    base_assertions: list[ValidatedAssertion] = []
     for assertion in run.assertions:
         refreshed = _validated_assertion(
             StateAssertion(
@@ -429,7 +468,7 @@ def validate_run(
                 confidence=assertion.confidence,
                 uncertainty=assertion.uncertainty,
                 lifecycle=assertion.lifecycle,
-                assertion_id=assertion.assertion_id,
+                assertion_id="",
                 evidence=tuple(
                     EvidenceReference(
                     ref=item.ref,
@@ -445,16 +484,25 @@ def validate_run(
             snapshot=current,
             resolver=evidence_resolver,
         )
-        if refreshed != assertion:
-            raise PersonalStateValidationError("assertion_drift", assertion.assertion_id)
-        refreshed_assertions.append(refreshed)
+        base_assertions.append(refreshed)
+    input_value = run.input_manifest.get("input")
+    context_digest = _run_context_digest(current, run.producer_version, input_value)
+    refreshed_assertions = _scope_assertions(
+        base_assertions, context_digest=context_digest
+    )
+    expected_by_id = {item.assertion_id: item for item in refreshed_assertions}
+    actual_by_id = {item.assertion_id: item for item in run.assertions}
+    if set(expected_by_id) != set(actual_by_id):
+        raise PersonalStateValidationError("assertion_id_mismatch")
+    if expected_by_id != actual_by_id:
+        raise PersonalStateValidationError("assertion_drift")
     canonical_input = {
         "schema_version": SCHEMA_VERSION,
         "snapshot_id": current.snapshot_id,
         "snapshot_hash": current.snapshot_hash,
         "snapshot_members": current.members,
         "producer_version": run.producer_version,
-        "input": run.input_manifest.get("input"),
+        "input": input_value,
         "assertions": refreshed_assertions,
     }
     if canonical_json(canonical_input) != canonical_json(run.input_manifest):

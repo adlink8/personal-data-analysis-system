@@ -5,20 +5,28 @@ network access and never writes source, knowledge, lifecycle, or serving state.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 import re
+from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .schema import (
     ASSERTION_KINDS,
+    ASSERTION_LIFECYCLES,
+    EVIDENCE_TYPES,
     PRIVACY_CLASSES,
     PROVENANCE_CLASSES,
     EvidenceReference,
+    PersonalStateRun,
     SnapshotBinding,
     StateAssertion,
+    ValidatedAssertion,
+    ValidatedEvidence,
     canonical_json,
     checksum,
 )
+from .runs import REGISTRY_ID, plan_run
 
 
 NORMALIZABLE_KINDS = frozenset({"goal", "constraint", "observation"})
@@ -109,6 +117,8 @@ def _normalize_evidence(
                 privacy_class=privacy,
             )
         )
+        if evidence[-1].artifact_type not in EVIDENCE_TYPES:
+            raise ProjectionError("unknown_evidence_type", evidence[-1].artifact_type)
     ordered = tuple(
         sorted(
             evidence,
@@ -177,6 +187,9 @@ def normalize_candidates(
         }
         if any(not value for value in values.values()):
             raise ProjectionError("missing_identity_field")
+        lifecycle = str(raw.get("lifecycle") or "current")
+        if lifecycle not in ASSERTION_LIFECYCLES:
+            raise ProjectionError("invalid_assertion_lifecycle", lifecycle)
         normalized.append(
             StateAssertion(
                 assertion_kind=assertion_kind,
@@ -191,7 +204,7 @@ def normalize_candidates(
                 observed_at=observed_at,
                 confidence=confidence,
                 uncertainty=uncertainty,
-                lifecycle=str(raw.get("lifecycle") or "current"),
+                lifecycle=lifecycle,
                 evidence=_normalize_evidence(raw.get("evidence"), snapshot=snapshot),
             )
         )
@@ -202,3 +215,365 @@ def normalize_candidates(
         raise ProjectionError("duplicate_candidate")
     return ordered
 
+
+@dataclass(frozen=True, order=True)
+class StateKey:
+    assertion_kind: str
+    subject: str
+    domain: str
+    scope: str
+    predicate: str
+
+
+@dataclass(frozen=True)
+class FormationStep:
+    run_id: str
+    assertion_id: str
+    valid_from: str
+    valid_to: str | None
+    observed_at: str
+    provenance_class: str
+    lifecycle: str
+    status: str
+    confidence: float
+    value_checksum: str
+    evidence_refs: tuple[str, ...]
+    uncertainty: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class LifecycleTrace:
+    event_id: str
+    unit_id: str
+    event_type: str
+    lifecycle_before: str
+    lifecycle_after: str
+    created_at: str
+    reason_checksum: str
+
+
+@dataclass(frozen=True)
+class ProjectedState:
+    key: StateKey
+    status: str
+    current_assertion_id: str | None
+    current_value: Any
+    provenance_class: str | None
+    confidence: float | None
+    uncertainty: tuple[str, ...]
+    evidence: tuple[ValidatedEvidence, ...]
+    formation_path: tuple[FormationStep, ...]
+    lifecycle_path: tuple[LifecycleTrace, ...]
+
+
+@dataclass(frozen=True)
+class StateProjection:
+    snapshot_id: str
+    snapshot_hash: str
+    as_of: str
+    states: tuple[ProjectedState, ...]
+
+    @property
+    def current_goals(self) -> tuple[ProjectedState, ...]:
+        return tuple(
+            row
+            for row in self.states
+            if row.key.assertion_kind == "goal" and row.current_assertion_id
+        )
+
+    @property
+    def current_constraints(self) -> tuple[ProjectedState, ...]:
+        return tuple(
+            row
+            for row in self.states
+            if row.key.assertion_kind == "constraint" and row.current_assertion_id
+        )
+
+    @property
+    def current_observations(self) -> tuple[ProjectedState, ...]:
+        return tuple(
+            row
+            for row in self.states
+            if row.key.assertion_kind == "observation" and row.current_assertion_id
+        )
+
+
+def _key(assertion: ValidatedAssertion) -> StateKey:
+    return StateKey(
+        assertion_kind=assertion.assertion_kind,
+        subject=assertion.subject,
+        domain=assertion.domain,
+        scope=assertion.scope,
+        predicate=assertion.predicate,
+    )
+
+
+def _assertion_status(assertion: ValidatedAssertion, as_of: datetime) -> str:
+    if _parse_time(assertion.valid_from, "valid_from") > as_of:
+        return "future"
+    if assertion.valid_to and _parse_time(assertion.valid_to, "valid_to") < as_of:
+        return "expired"
+    if assertion.lifecycle != "current":
+        return assertion.lifecycle
+    return "candidate"
+
+
+def _lineage_is_bound(
+    assertion: ValidatedAssertion,
+    snapshot: SnapshotBinding,
+) -> bool:
+    if not assertion.evidence:
+        return False
+    for evidence in assertion.evidence:
+        member = snapshot.members.get(evidence.serving_role)
+        if member is None or str(member.get("artifact_version_id") or "") != str(
+            evidence.artifact_version_id
+        ):
+            return False
+        if evidence.privacy_class != str(member.get("privacy_class") or ""):
+            return False
+    return True
+
+
+def _formation_step(
+    run_id: str,
+    assertion: ValidatedAssertion,
+    *,
+    as_of: datetime,
+) -> FormationStep:
+    uncertainty = [f"source:{assertion.uncertainty}"]
+    if assertion.confidence < 0.6:
+        uncertainty.append("low_confidence")
+    return FormationStep(
+        run_id=run_id,
+        assertion_id=assertion.assertion_id,
+        valid_from=assertion.valid_from,
+        valid_to=assertion.valid_to,
+        observed_at=assertion.observed_at,
+        provenance_class=assertion.provenance_class,
+        lifecycle=assertion.lifecycle,
+        status=_assertion_status(assertion, as_of),
+        confidence=assertion.confidence,
+        value_checksum=checksum(assertion.value),
+        evidence_refs=tuple(sorted(item.ref for item in assertion.evidence)),
+        uncertainty=tuple(uncertainty),
+    )
+
+
+def _history_matches(row: Mapping[str, Any], key: StateKey) -> bool:
+    if str(row.get("subject") or "") != key.subject:
+        return False
+    return all(
+        not row.get(field) or str(row[field]) == getattr(key, field)
+        for field in ("domain", "scope", "predicate")
+    )
+
+
+def _lifecycle_trace(
+    history_rows: Iterable[Mapping[str, Any]],
+    key: StateKey,
+) -> tuple[tuple[LifecycleTrace, ...], bool]:
+    matched = [row for row in history_rows if _history_matches(row, key)]
+    accepted_rows = [
+        row
+        for row in matched
+        if str(row.get("status") or "").lower()
+        not in {"pending", "proposed", "unreviewed"}
+        and str(row.get("decision") or "").lower() not in {"pending", "reject"}
+    ]
+    ids = {str(row.get("unit_id") or row.get("canonical_unit_id") or "") for row in accepted_rows}
+    missing_predecessor = any(
+        row.get("supersedes_id") and str(row["supersedes_id"]) not in ids
+        for row in accepted_rows
+    )
+    traces: list[LifecycleTrace] = []
+    for row in accepted_rows:
+        unit_id = str(row.get("unit_id") or row.get("canonical_unit_id") or "")
+        for event in row.get("lifecycle_events") or []:
+            if not isinstance(event, Mapping):
+                continue
+            if not event.get("event_id") or not event.get("reviewer_id_hash") or not event.get("actor_id"):
+                continue
+            if str(event.get("status") or "").lower() in {"pending", "proposed"}:
+                continue
+            traces.append(
+                LifecycleTrace(
+                    event_id=str(event["event_id"]),
+                    unit_id=unit_id,
+                    event_type=str(event.get("event_type") or ""),
+                    lifecycle_before=str(event.get("lifecycle_before") or ""),
+                    lifecycle_after=str(event.get("lifecycle_after") or ""),
+                    created_at=str(event.get("created_at") or ""),
+                    reason_checksum=checksum(str(event.get("reason") or "")),
+                )
+            )
+    return (
+        tuple(sorted(traces, key=lambda row: (row.created_at, row.event_id))),
+        missing_predecessor,
+    )
+
+
+def project_current_state(
+    runs: Iterable[PersonalStateRun],
+    *,
+    as_of: str,
+    history_rows: Iterable[Mapping[str, Any]] = (),
+    expected_keys: Iterable[StateKey] = (),
+) -> StateProjection:
+    """Project deterministic current state from immutable runs at one snapshot."""
+    run_rows = tuple(sorted(runs, key=lambda row: row.run_id))
+    if not run_rows:
+        raise ProjectionError("runs_required")
+    as_of_dt = _parse_time(as_of, "as_of")
+    snapshot = run_rows[0].snapshot
+    seen_runs: set[str] = set()
+    grouped: dict[StateKey, list[tuple[str, ValidatedAssertion]]] = {}
+    for run in run_rows:
+        if run.run_id in seen_runs:
+            raise ProjectionError("duplicate_run", run.run_id)
+        seen_runs.add(run.run_id)
+        if run.registry_id != REGISTRY_ID:
+            raise ProjectionError("registry_authority_mismatch", run.registry_id)
+        if (
+            run.snapshot.snapshot_id != snapshot.snapshot_id
+            or run.snapshot.snapshot_hash != snapshot.snapshot_hash
+            or canonical_json(run.snapshot.members) != canonical_json(snapshot.members)
+        ):
+            raise ProjectionError("mixed_snapshot", run.run_id)
+        if checksum(run.input_manifest) != run.input_manifest_checksum or checksum(
+            run.output_manifest
+        ) != run.output_manifest_checksum:
+            raise ProjectionError("run_manifest_checksum_mismatch", run.run_id)
+        for assertion in run.assertions:
+            if not _lineage_is_bound(assertion, snapshot):
+                raise ProjectionError("evidence_snapshot_mismatch", assertion.assertion_id)
+            grouped.setdefault(_key(assertion), []).append((run.run_id, assertion))
+    for key in expected_keys:
+        grouped.setdefault(key, [])
+
+    history = tuple(history_rows)
+    states: list[ProjectedState] = []
+    for key, rows in sorted(grouped.items(), key=lambda item: item[0]):
+        ordered = sorted(
+            rows,
+            key=lambda item: (
+                _parse_time(item[1].valid_from, "valid_from"),
+                _parse_time(item[1].observed_at, "observed_at"),
+                item[1].assertion_id,
+                item[0],
+            ),
+        )
+        formation = tuple(
+            _formation_step(run_id, assertion, as_of=as_of_dt)
+            for run_id, assertion in ordered
+        )
+        lifecycle_path, missing_predecessor = _lifecycle_trace(history, key)
+        uncertainty: list[str] = []
+        if missing_predecessor:
+            uncertainty.append("missing_predecessor")
+        active = [
+            item
+            for item in ordered
+            if _assertion_status(item[1], as_of_dt) == "candidate"
+        ]
+        relevant = [
+            item
+            for item in ordered
+            if _assertion_status(item[1], as_of_dt) != "future"
+        ]
+        latest_moment = (
+            max(
+                (
+                    _parse_time(item[1].valid_from, "valid_from"),
+                    _parse_time(item[1].observed_at, "observed_at"),
+                )
+                for item in relevant
+            )
+            if relevant
+            else None
+        )
+        explicit_conflicts = [
+            item
+            for item in relevant
+            if _assertion_status(item[1], as_of_dt) == "conflict"
+            and (
+                _parse_time(item[1].valid_from, "valid_from"),
+                _parse_time(item[1].observed_at, "observed_at"),
+            )
+            == latest_moment
+        ]
+        selected: ValidatedAssertion | None = None
+        status = "unknown"
+        if explicit_conflicts:
+            status = "conflict"
+            uncertainty.append("unresolved_conflict")
+        elif active:
+            selected = active[-1][1]
+            if len(active) > 1:
+                previous = active[-2][1]
+                simultaneous = (
+                    previous.valid_from == selected.valid_from
+                    and previous.observed_at == selected.observed_at
+                )
+                if simultaneous and canonical_json(previous.value) != canonical_json(
+                    selected.value
+                ):
+                    selected = None
+                    status = "conflict"
+                    uncertainty.append("unresolved_conflict")
+            if selected is not None:
+                status = "current"
+                uncertainty.append(f"source:{selected.uncertainty}")
+                if selected.confidence < 0.6:
+                    status = "uncertain"
+                    uncertainty.append("low_confidence")
+        elif ordered:
+            statuses = {step.status for step in formation}
+            if statuses <= {"expired", "future"} and "expired" in statuses:
+                status = "expired"
+            elif "stale" in statuses:
+                status = "stale"
+            uncertainty.append("no_current_evidence")
+        else:
+            uncertainty.append("unknown_no_evidence")
+        states.append(
+            ProjectedState(
+                key=key,
+                status=status,
+                current_assertion_id=selected.assertion_id if selected else None,
+                current_value=selected.value if selected else None,
+                provenance_class=selected.provenance_class if selected else None,
+                confidence=selected.confidence if selected else None,
+                uncertainty=tuple(sorted(set(uncertainty))),
+                evidence=selected.evidence if selected else (),
+                formation_path=formation,
+                lifecycle_path=lifecycle_path,
+            )
+        )
+    return StateProjection(
+        snapshot_id=snapshot.snapshot_id,
+        snapshot_hash=snapshot.snapshot_hash,
+        as_of=as_of,
+        states=tuple(states),
+    )
+
+
+def plan_projection_run(
+    db_path: Path,
+    candidates: Iterable[Mapping[str, Any]],
+    *,
+    snapshot: SnapshotBinding,
+    producer_version: str,
+    input_manifest: Mapping[str, Any],
+    resolver: Any = None,
+) -> PersonalStateRun:
+    """Normalize and delegate persistence planning to the 25-01 run API."""
+    assertions = normalize_candidates(candidates, snapshot=snapshot)
+    return plan_run(
+        db_path,
+        assertions,
+        producer_version=producer_version,
+        input_manifest=input_manifest,
+        snapshot_id=snapshot.snapshot_id,
+        resolver=resolver,
+    )

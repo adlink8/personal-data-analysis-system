@@ -222,7 +222,18 @@ def test_snapshot_or_producer_change_creates_distinct_identity(tmp_path: Path) -
         resolver=resolver,
     )
     assert len({base.run_id, other_producer.run_id, other_snapshot.run_id}) == 3
+    assert len(
+        {
+            base.assertions[0].assertion_id,
+            other_producer.assertions[0].assertion_id,
+            other_snapshot.assertions[0].assertion_id,
+        }
+    ) == 3
     assert other_snapshot.snapshot.snapshot_id == "ss2"
+    for run in (base, other_producer, other_snapshot):
+        assert publish_run(db_path, run, write=True, resolver=resolver)["written"] is True
+    counts = _counts(db_path)
+    assert counts["runs"] == counts["assertions"] == counts["evidence"] == 3
 
 
 def test_registry_snapshot_and_privacy_fail_closed(tmp_path: Path) -> None:
