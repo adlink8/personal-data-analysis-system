@@ -702,7 +702,120 @@ def record_outcome(
         con.close()
 
 
+def record_assessment(
+    db_path: Path,
+    *,
+    assessment: Any,
+    expected_sequence: int,
+    idempotency_key: str,
+    occurred_at: str,
+    inject_failure_at: str | None = None,
+) -> DecisionReceipt:
+    if (
+        getattr(assessment, "cognitive_type", None) != "inference"
+        or getattr(assessment, "causal_claim", None) is not False
+        or getattr(assessment, "verdict", None) not in {"effective", "ineffective", "mixed", "inconclusive"}
+    ):
+        raise DecisionStateError("invalid_effectiveness_assessment")
+    if not idempotency_key:
+        raise DecisionStateError("assessment_metadata_required")
+    _parse_time(occurred_at, "occurred_at")
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "record_type": "effectiveness_assessment",
+        "cognitive_type": "inference",
+        "causal_claim": False,
+        "recommendation_id": assessment.recommendation_id,
+        "recommendation_checksum": assessment.recommendation_checksum,
+        "outcome_id": assessment.outcome_id,
+        "outcome_checksum": assessment.outcome_checksum,
+        "verdict": assessment.verdict,
+        "rule_id": assessment.rule_id,
+        "rule_version": assessment.rule_version,
+        "input_checksums": tuple(assessment.input_checksums),
+        "limitations": tuple(assessment.limitations),
+        "confidence": assessment.confidence,
+        "uncertainty": tuple(assessment.uncertainty),
+        "expected_sequence": expected_sequence,
+        "idempotency_key": idempotency_key,
+        "occurred_at": occurred_at,
+    }
+    con = connect_rw(Path(db_path), timeout=60)
+    con.row_factory = sqlite3.Row
+    try:
+        assert_foreign_key_integrity(con)
+        con.execute("BEGIN IMMEDIATE")
+        state = _project(con, assessment.recommendation_id)
+        rec, _, _ = _load_recommendation(con, assessment.recommendation_id)
+        existing = con.execute(
+            "SELECT assessment_id,payload_json,payload_checksum FROM decision_effectiveness "
+            "WHERE recommendation_id=? AND rule_id=? AND rule_version=? AND outcome_id=? AND idempotency_key=?",
+            (assessment.recommendation_id, assessment.rule_id, assessment.rule_version,
+             assessment.outcome_id, idempotency_key),
+        ).fetchone()
+        if existing is not None:
+            if canonical_json(json.loads(str(existing["payload_json"]))) != canonical_json(payload) or str(existing["payload_checksum"]) != checksum(payload):
+                raise DecisionStateError("idempotency_conflict", idempotency_key)
+            event = con.execute(
+                "SELECT event_id,sequence FROM decision_events WHERE typed_record_id=?", (existing["assessment_id"],)
+            ).fetchone()
+            if event is None:
+                raise DecisionStateError("typed_event_missing", str(existing["assessment_id"]))
+            con.commit()
+            return DecisionReceipt(str(existing["assessment_id"]), str(event["event_id"]),
+                                   assessment.recommendation_id, int(event["sequence"]),
+                                   str(existing["payload_checksum"]))
+        if expected_sequence != state.events[-1].sequence:
+            raise DecisionStateError("stale_expected_sequence", str(expected_sequence))
+        outcome = con.execute(
+            "SELECT recommendation_id,action_checksum,payload_json,payload_checksum FROM decision_outcomes WHERE outcome_id=?",
+            (assessment.outcome_id,),
+        ).fetchone()
+        if outcome is None:
+            raise DecisionStateError("outcome_missing", assessment.outcome_id)
+        try:
+            outcome_payload = json.loads(str(outcome["payload_json"]))
+        except json.JSONDecodeError as exc:
+            raise DecisionStateError("outcome_payload_invalid", assessment.outcome_id) from exc
+        if checksum(outcome_payload) != str(outcome["payload_checksum"]):
+            raise DecisionStateError("outcome_checksum_mismatch", assessment.outcome_id)
+        if (
+            str(outcome["recommendation_id"]) != assessment.recommendation_id
+            or str(outcome["payload_checksum"]) != assessment.outcome_checksum
+            or tuple(assessment.input_checksums) != (str(outcome["action_checksum"]), str(outcome["payload_checksum"]))
+        ):
+            raise DecisionStateError("assessment_input_mismatch", assessment.outcome_id)
+        assessment_id = assessment.assessment_id
+        payload_checksum = checksum(payload)
+        con.execute(
+            "INSERT INTO decision_effectiveness VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (assessment_id, assessment.recommendation_id, assessment.rule_id, assessment.rule_version,
+             assessment.verdict, 0, assessment.outcome_id, assessment.outcome_checksum,
+             expected_sequence, idempotency_key, canonical_json(payload), payload_checksum, occurred_at),
+        )
+        if inject_failure_at == "after_typed_record":
+            raise RuntimeError("injected decision state failure after typed record")
+        event_id, _ = _append_event(
+            con, recommendation_id=assessment.recommendation_id,
+            recommendation_checksum=str(rec["payload_checksum"]), event_type="assessment",
+            typed_record_id=assessment_id, typed_payload_checksum=payload_checksum,
+            sequence=expected_sequence + 1,
+            previous_event_checksum=state.events[-1].payload_checksum,
+            occurred_at=occurred_at,
+        )
+        if inject_failure_at == "after_event":
+            raise RuntimeError("injected decision state failure after event")
+        con.commit()
+        return DecisionReceipt(assessment_id, event_id, assessment.recommendation_id,
+                               expected_sequence + 1, payload_checksum)
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
 __all__ = [
     "DecisionStateError", "project_history", "record_action", "record_confirmation",
-    "record_outcome", "validate_outcome_metadata",
+    "record_assessment", "record_outcome", "validate_outcome_metadata",
 ]

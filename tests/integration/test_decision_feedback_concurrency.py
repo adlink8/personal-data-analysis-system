@@ -10,11 +10,13 @@ import pytest
 from personal_knowledge.application.knowledge.lifecycle_events import ensure_lifecycle_schema
 from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
 from personal_knowledge.intelligence.decision.runs import plan_run, publish_run, resolve_cognition_reference
+from personal_knowledge.intelligence.decision.effectiveness import EffectivenessRule, assess_outcome, load_outcome
 from personal_knowledge.intelligence.decision.schema import RecommendationDraft
 from personal_knowledge.intelligence.decision.state_machine import (
     DecisionStateError,
     project_history,
     record_action,
+    record_assessment,
     record_confirmation,
     record_outcome,
 )
@@ -333,3 +335,29 @@ def test_concurrent_outcome_writers_allow_one_sequence_owner(tmp_path: Path) -> 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(writer, ("outcome-a", "outcome-b")))
     assert sorted(results) == ["stale_expected_sequence", "written"]
+
+
+def test_assessment_is_immutable_non_causal_and_tamper_checked(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path)
+    _complete(db, rec)
+    outcome_receipt = _outcome(db, rec)
+    outcome = load_outcome(db, outcome_receipt.record_id)
+    rule = EffectivenessRule("observed_goal_attainment", "1", "focus_blocks", "count/week", "increase", 86400)
+    assessment = assess_outcome(outcome, rule, action_state="completed")
+    receipt = record_assessment(
+        db, assessment=assessment, expected_sequence=6, idempotency_key="assessment-1",
+        occurred_at="2026-07-25T01:02:00Z",
+    )
+    assert receipt.sequence == 7
+    assert project_history(db, rec.recommendation_id).events[-1].event_type == "assessment"
+    assert record_assessment(
+        db, assessment=assessment, expected_sequence=6, idempotency_key="assessment-1",
+        occurred_at="2026-07-25T01:02:00Z",
+    ) == receipt
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT causal_claim FROM decision_effectiveness").fetchone()[0] == 0
+    con.execute("DROP TRIGGER trg_decision_outcomes_immutable_update")
+    con.execute("UPDATE decision_outcomes SET payload_json='{}'")
+    con.commit(); con.close()
+    with pytest.raises(ValueError, match="outcome_checksum_mismatch"):
+        load_outcome(db, outcome_receipt.record_id)
