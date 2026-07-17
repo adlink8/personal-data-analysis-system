@@ -608,6 +608,200 @@ CREATE TRIGGER IF NOT EXISTS trg_personal_state_risks_immutable_delete
 BEFORE DELETE ON personal_state_risks BEGIN
     SELECT RAISE(ABORT, 'personal state risks are immutable');
 END;
+
+-- === Phase 26: independent immutable decision-feedback authority (A layer only) ===
+CREATE TABLE IF NOT EXISTS decision_runs (
+    run_id                    TEXT PRIMARY KEY,
+    registry_id               TEXT NOT NULL REFERENCES artifact_registry_entries(registry_id),
+    source_run_id             TEXT NOT NULL REFERENCES personal_state_runs(run_id),
+    source_run_checksum       TEXT NOT NULL CHECK(length(source_run_checksum) = 64),
+    source_publication_sequence INTEGER NOT NULL CHECK(source_publication_sequence > 0),
+    snapshot_id               TEXT NOT NULL REFERENCES serving_snapshots(snapshot_id),
+    snapshot_hash             TEXT NOT NULL CHECK(length(snapshot_hash) > 0),
+    policy_id                 TEXT NOT NULL CHECK(length(policy_id) > 0),
+    policy_version            TEXT NOT NULL CHECK(length(policy_version) > 0),
+    input_manifest_json       TEXT NOT NULL,
+    input_manifest_checksum   TEXT NOT NULL CHECK(length(input_manifest_checksum) = 64),
+    output_manifest_json      TEXT NOT NULL,
+    output_manifest_checksum  TEXT NOT NULL CHECK(length(output_manifest_checksum) = 64),
+    run_checksum              TEXT NOT NULL UNIQUE CHECK(length(run_checksum) = 64),
+    status                    TEXT NOT NULL CHECK(status = 'committed'),
+    created_at                TEXT NOT NULL,
+    UNIQUE(snapshot_id, snapshot_hash, policy_id, policy_version, input_manifest_checksum)
+);
+
+CREATE TABLE IF NOT EXISTS decision_recommendations (
+    recommendation_id       TEXT PRIMARY KEY,
+    run_id                  TEXT NOT NULL REFERENCES decision_runs(run_id),
+    source_run_id           TEXT NOT NULL REFERENCES personal_state_runs(run_id),
+    source_run_checksum     TEXT NOT NULL CHECK(length(source_run_checksum) = 64),
+    snapshot_id             TEXT NOT NULL REFERENCES serving_snapshots(snapshot_id),
+    snapshot_hash           TEXT NOT NULL CHECK(length(snapshot_hash) > 0),
+    subject                 TEXT NOT NULL CHECK(length(subject) > 0),
+    domain                  TEXT NOT NULL CHECK(length(domain) > 0),
+    scope                   TEXT NOT NULL CHECK(length(scope) > 0),
+    recommendation_kind     TEXT NOT NULL CHECK(length(recommendation_kind) > 0),
+    target                  TEXT NOT NULL CHECK(length(target) > 0),
+    horizon                 TEXT NOT NULL CHECK(length(horizon) > 0),
+    confidence              REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
+    uncertainty             TEXT NOT NULL,
+    expires_at              TEXT NOT NULL,
+    payload_json            TEXT NOT NULL,
+    payload_checksum        TEXT NOT NULL UNIQUE CHECK(length(payload_checksum) = 64),
+    created_at              TEXT NOT NULL,
+    UNIQUE(run_id, recommendation_id)
+);
+
+CREATE TABLE IF NOT EXISTS decision_support_refs (
+    support_id                  TEXT PRIMARY KEY,
+    recommendation_id           TEXT NOT NULL REFERENCES decision_recommendations(recommendation_id),
+    cognitive_type              TEXT NOT NULL CHECK(cognitive_type IN ('fact','observation','inference')),
+    authority_id                TEXT NOT NULL CHECK(authority_id = 'a.personal_change'),
+    record_id                   TEXT NOT NULL CHECK(length(record_id) > 0),
+    source_run_id               TEXT NOT NULL REFERENCES personal_state_runs(run_id),
+    source_run_checksum         TEXT NOT NULL CHECK(length(source_run_checksum) = 64),
+    source_publication_sequence INTEGER NOT NULL CHECK(source_publication_sequence > 0),
+    snapshot_id                 TEXT NOT NULL REFERENCES serving_snapshots(snapshot_id),
+    snapshot_hash               TEXT NOT NULL CHECK(length(snapshot_hash) > 0),
+    provenance_class            TEXT NOT NULL CHECK(provenance_class IN ('fact','observation','inference')),
+    evidence_status             TEXT NOT NULL CHECK(evidence_status = 'eligible'),
+    uncertainty                 TEXT NOT NULL,
+    record_checksum             TEXT NOT NULL CHECK(length(record_checksum) = 64),
+    payload_json                TEXT NOT NULL,
+    payload_checksum            TEXT NOT NULL CHECK(length(payload_checksum) = 64),
+    created_at                  TEXT NOT NULL,
+    UNIQUE(recommendation_id, cognitive_type, record_id)
+);
+
+CREATE TABLE IF NOT EXISTS decision_confirmations (
+    confirmation_id        TEXT PRIMARY KEY,
+    recommendation_id      TEXT NOT NULL REFERENCES decision_recommendations(recommendation_id),
+    recommendation_checksum TEXT NOT NULL CHECK(length(recommendation_checksum) = 64),
+    decision               TEXT NOT NULL CHECK(decision IN ('accept','reject','defer','revoke_before_action')),
+    actor_class            TEXT NOT NULL CHECK(actor_class = 'user'),
+    actor_identity_hash    TEXT NOT NULL CHECK(length(actor_identity_hash) = 64),
+    reason_code            TEXT NOT NULL,
+    expected_sequence      INTEGER NOT NULL CHECK(expected_sequence > 0),
+    idempotency_key        TEXT NOT NULL,
+    payload_json           TEXT NOT NULL,
+    payload_checksum       TEXT NOT NULL CHECK(length(payload_checksum) = 64),
+    created_at             TEXT NOT NULL,
+    UNIQUE(actor_identity_hash, idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS decision_actions (
+    action_id               TEXT PRIMARY KEY,
+    recommendation_id       TEXT NOT NULL REFERENCES decision_recommendations(recommendation_id),
+    action_state            TEXT NOT NULL CHECK(action_state IN ('planned','started','completed','abandoned','not_taken')),
+    source_class            TEXT NOT NULL CHECK(source_class IN ('user_attested','user_external_ref')),
+    external_ref_checksum   TEXT,
+    payload_json            TEXT NOT NULL,
+    payload_checksum        TEXT NOT NULL CHECK(length(payload_checksum) = 64),
+    created_at              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS decision_outcomes (
+    outcome_id              TEXT PRIMARY KEY,
+    recommendation_id       TEXT NOT NULL REFERENCES decision_recommendations(recommendation_id),
+    source_class            TEXT NOT NULL CHECK(source_class IN ('user_reported','evidence_measured')),
+    metric                  TEXT NOT NULL,
+    unit                    TEXT NOT NULL,
+    window_start            TEXT NOT NULL,
+    window_end              TEXT NOT NULL,
+    confidence              REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
+    uncertainty             TEXT NOT NULL,
+    payload_json            TEXT NOT NULL,
+    payload_checksum        TEXT NOT NULL CHECK(length(payload_checksum) = 64),
+    created_at              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS decision_effectiveness (
+    assessment_id           TEXT PRIMARY KEY,
+    recommendation_id       TEXT NOT NULL REFERENCES decision_recommendations(recommendation_id),
+    rule_id                 TEXT NOT NULL,
+    rule_version            TEXT NOT NULL,
+    verdict                 TEXT NOT NULL CHECK(verdict IN ('effective','ineffective','mixed','inconclusive')),
+    causal_claim            INTEGER NOT NULL CHECK(causal_claim = 0),
+    payload_json            TEXT NOT NULL,
+    payload_checksum        TEXT NOT NULL CHECK(length(payload_checksum) = 64),
+    created_at              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS decision_events (
+    event_id                 TEXT PRIMARY KEY,
+    recommendation_id        TEXT NOT NULL REFERENCES decision_recommendations(recommendation_id),
+    sequence                 INTEGER NOT NULL CHECK(sequence > 0),
+    event_type               TEXT NOT NULL CHECK(event_type IN ('recommendation_published','confirmation','action','outcome','assessment')),
+    typed_record_id          TEXT NOT NULL CHECK(length(typed_record_id) > 0),
+    previous_event_checksum  TEXT NOT NULL CHECK(length(previous_event_checksum) > 0),
+    payload_json             TEXT NOT NULL,
+    payload_checksum         TEXT NOT NULL UNIQUE CHECK(length(payload_checksum) = 64),
+    created_at               TEXT NOT NULL,
+    UNIQUE(recommendation_id, sequence),
+    CHECK((sequence = 1 AND event_type = 'recommendation_published' AND previous_event_checksum = 'GENESIS')
+       OR (sequence > 1 AND event_type <> 'recommendation_published' AND previous_event_checksum <> 'GENESIS'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_decision_runs_source
+    ON decision_runs(source_run_id, source_publication_sequence, snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_decision_recommendations_run
+    ON decision_recommendations(run_id, domain, recommendation_kind);
+CREATE INDEX IF NOT EXISTS idx_decision_support_source
+    ON decision_support_refs(source_run_id, cognitive_type, record_id);
+CREATE INDEX IF NOT EXISTS idx_decision_events_stream
+    ON decision_events(recommendation_id, sequence);
+
+CREATE TRIGGER IF NOT EXISTS trg_decision_runs_source_binding
+BEFORE INSERT ON decision_runs WHEN NOT EXISTS (
+    SELECT 1 FROM personal_state_runs r
+    JOIN personal_state_publications p ON p.run_id = r.run_id
+    WHERE r.run_id = NEW.source_run_id
+      AND r.output_manifest_checksum = NEW.source_run_checksum
+      AND p.publication_sequence = NEW.source_publication_sequence
+      AND r.snapshot_id = NEW.snapshot_id
+      AND r.snapshot_hash = NEW.snapshot_hash
+) BEGIN SELECT RAISE(ABORT, 'decision source run binding mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS trg_decision_recommendations_run_binding
+BEFORE INSERT ON decision_recommendations WHEN NOT EXISTS (
+    SELECT 1 FROM decision_runs r WHERE r.run_id = NEW.run_id
+      AND r.source_run_id = NEW.source_run_id
+      AND r.source_run_checksum = NEW.source_run_checksum
+      AND r.snapshot_id = NEW.snapshot_id AND r.snapshot_hash = NEW.snapshot_hash
+) BEGIN SELECT RAISE(ABORT, 'decision recommendation run binding mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS trg_decision_support_refs_run_binding
+BEFORE INSERT ON decision_support_refs WHEN NOT EXISTS (
+    SELECT 1 FROM decision_recommendations rec JOIN decision_runs r ON r.run_id = rec.run_id
+    WHERE rec.recommendation_id = NEW.recommendation_id
+      AND r.source_run_id = NEW.source_run_id
+      AND r.source_run_checksum = NEW.source_run_checksum
+      AND r.source_publication_sequence = NEW.source_publication_sequence
+      AND r.snapshot_id = NEW.snapshot_id AND r.snapshot_hash = NEW.snapshot_hash
+) BEGIN SELECT RAISE(ABORT, 'decision support run binding mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS trg_decision_events_genesis_first
+BEFORE INSERT ON decision_events WHEN NEW.sequence > 1 AND NOT EXISTS (
+    SELECT 1 FROM decision_events e WHERE e.recommendation_id = NEW.recommendation_id
+      AND e.sequence = 1 AND e.event_type = 'recommendation_published'
+) BEGIN SELECT RAISE(ABORT, 'decision event genesis missing'); END;
+
+CREATE TRIGGER IF NOT EXISTS trg_decision_runs_immutable_update BEFORE UPDATE ON decision_runs BEGIN SELECT RAISE(ABORT, 'decision runs are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_runs_immutable_delete BEFORE DELETE ON decision_runs BEGIN SELECT RAISE(ABORT, 'decision runs are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_recommendations_immutable_update BEFORE UPDATE ON decision_recommendations BEGIN SELECT RAISE(ABORT, 'decision recommendations are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_recommendations_immutable_delete BEFORE DELETE ON decision_recommendations BEGIN SELECT RAISE(ABORT, 'decision recommendations are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_support_refs_immutable_update BEFORE UPDATE ON decision_support_refs BEGIN SELECT RAISE(ABORT, 'decision support refs are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_support_refs_immutable_delete BEFORE DELETE ON decision_support_refs BEGIN SELECT RAISE(ABORT, 'decision support refs are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_confirmations_immutable_update BEFORE UPDATE ON decision_confirmations BEGIN SELECT RAISE(ABORT, 'decision confirmations are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_confirmations_immutable_delete BEFORE DELETE ON decision_confirmations BEGIN SELECT RAISE(ABORT, 'decision confirmations are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_actions_immutable_update BEFORE UPDATE ON decision_actions BEGIN SELECT RAISE(ABORT, 'decision actions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_actions_immutable_delete BEFORE DELETE ON decision_actions BEGIN SELECT RAISE(ABORT, 'decision actions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_outcomes_immutable_update BEFORE UPDATE ON decision_outcomes BEGIN SELECT RAISE(ABORT, 'decision outcomes are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_outcomes_immutable_delete BEFORE DELETE ON decision_outcomes BEGIN SELECT RAISE(ABORT, 'decision outcomes are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_effectiveness_immutable_update BEFORE UPDATE ON decision_effectiveness BEGIN SELECT RAISE(ABORT, 'decision effectiveness is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_effectiveness_immutable_delete BEFORE DELETE ON decision_effectiveness BEGIN SELECT RAISE(ABORT, 'decision effectiveness is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_events_immutable_update BEFORE UPDATE ON decision_events BEGIN SELECT RAISE(ABORT, 'decision events are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_decision_events_immutable_delete BEFORE DELETE ON decision_events BEGIN SELECT RAISE(ABORT, 'decision events are immutable'); END;
 """
 
 
@@ -919,6 +1113,10 @@ def inspect(db_path: Path = UNIFIED_DB) -> dict:
         "personal_state_runs", "personal_state_publications", "personal_state_assertions",
         "personal_state_evidence", "personal_state_changes",
         "personal_state_risks",
+        # Phase 26 immutable decision-feedback authority
+        "decision_runs", "decision_recommendations", "decision_support_refs",
+        "decision_confirmations", "decision_actions", "decision_outcomes",
+        "decision_effectiveness", "decision_events",
         # Phase 24 governed lifecycle
         "knowledge_lifecycle_manifests", "knowledge_lifecycle_actions",
         "knowledge_lifecycle_events", "knowledge_unit_corrections",
