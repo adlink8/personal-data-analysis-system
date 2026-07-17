@@ -12,7 +12,7 @@ critical_gap_count: 5
 
 The evaluation system is structurally complete and now enforces its declared v1 policy fail-closed, but the product-quality claim is not proven. Promotion must remain blocked.
 
-Latest live run: `var/reports/analysis/evaluations/48ecbf5e8f6618a6/summary.json` (scorer v2).
+Latest live run: `var/reports/analysis/evaluations/6d7233db5da0414c/summary.json` (scorer v2, policy v2).
 
 ## Coverage score
 
@@ -22,7 +22,7 @@ Latest live run: `var/reports/analysis/evaluations/48ecbf5e8f6618a6/summary.json
 | Retrieval modes/statistics | 17/20 | All five modes live on 22 real gold cases; paired bootstrap present; L2-only exact collection audit 764/764 |
 | Extraction/lineage | 9/10 | 768 full + 47 pilot = 815 reconciled; DB unchanged |
 | Answer evaluation | 9/15 | Deterministic answer path now uses real ephemeral contexts; no calibrated judge |
-| Policy gate | 15/15 | All declared hard/quality gates, including private-gold coverage, enforce fail-closed |
+| Policy gate | 15/15 | Policy v2 preserves v1 thresholds, requires all five modes, and applies safety vetoes only to publishable candidate modes |
 | Privacy/artifacts | 9/10 | Reports contain IDs/metrics; human packet remains under private runtime |
 | Human calibration/UAT | 5/15 | Grounded packet prepared; real cross-turn gold, labels, judge calibration and rollback sign-off pending |
 | **Total** | **74/100** | **NEEDS WORK** |
@@ -71,3 +71,4 @@ Latest live run: `var/reports/analysis/evaluations/48ecbf5e8f6618a6/summary.json
 - L2-only now runs as a genuine fifth mode; its current R@5 is 18.18% on the limited 22-case real-gold set.
 - Scorer v2 replaces lexical `API/secret` matching with canonical evidence provenance. The 11 previously implicated units all came from evidence-eligible sessions; secret leakage is now correctly 0 across all modes.
 - Private abstention dev set contains 29 independently labeled canary positives and 29 paired absent-nonce hard negatives. No score threshold passed both FP<=10% and positive retention>=80%; observed positive retention was 6.9%–55.2%, so no threshold was deployed.
+- Policy v2 keeps raw/L1 as diagnostic baselines and scopes hard safety vetoes to L2-only, L1+L2, and Hybrid. The final gate still FAILS on genuine candidate issues: L2-only/Hybrid privacy, all candidate modes' no-answer FP, dataset coverage, cross-turn, and grounded-human evidence.
