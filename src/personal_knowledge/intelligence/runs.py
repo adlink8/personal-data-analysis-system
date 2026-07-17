@@ -562,12 +562,16 @@ def publish_run(
         assert_foreign_key_integrity(con)
         con.execute("BEGIN IMMEDIATE")
         existing = con.execute(
-            "SELECT output_manifest_checksum FROM personal_state_runs WHERE run_id=?",
+            "SELECT r.output_manifest_checksum,p.publication_sequence "
+            "FROM personal_state_runs r LEFT JOIN personal_state_publications p "
+            "ON p.run_id=r.run_id WHERE r.run_id=?",
             (run.run_id,),
         ).fetchone()
         if existing is not None:
             if str(existing["output_manifest_checksum"]) != run.output_manifest_checksum:
                 raise PersonalStateValidationError("existing_run_checksum_mismatch", run.run_id)
+            if existing["publication_sequence"] is None:
+                raise PersonalStateValidationError("publication_sequence_missing", run.run_id)
             con.commit()
             return {**result, "existing": True}
         con.execute(
@@ -586,25 +590,16 @@ def publish_run(
                 _now(),
             ),
         )
+        con.execute(
+            "INSERT INTO personal_state_publications (run_id,created_at) VALUES (?,?)",
+            (run.run_id, _now()),
+        )
         inserted = 0
         for assertion in run.assertions:
-            payload = {
-                "assertion_id": assertion.assertion_id,
-                "assertion_kind": assertion.assertion_kind,
-                "provenance_class": assertion.provenance_class,
-                "subject": assertion.subject,
-                "domain": assertion.domain,
-                "scope": assertion.scope,
-                "predicate": assertion.predicate,
-                "value": assertion.value,
-                "valid_from": assertion.valid_from,
-                "valid_to": assertion.valid_to,
-                "observed_at": assertion.observed_at,
-                "confidence": assertion.confidence,
-                "uncertainty": assertion.uncertainty,
-                "lifecycle": assertion.lifecycle,
-                "evidence": [item for item in assertion.evidence],
-            }
+            # Persist exactly the canonical payload bound by payload_checksum.
+            # Read hydration can therefore verify both the normalized columns
+            # and the stored payload without consulting mutable source bodies.
+            payload = _assertion_payload(assertion, snapshot=run.snapshot)
             con.execute(
                 "INSERT INTO personal_state_assertions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (

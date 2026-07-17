@@ -445,6 +445,12 @@ CREATE TABLE IF NOT EXISTS personal_state_runs (
     UNIQUE(snapshot_id, snapshot_hash, producer_version, input_manifest_checksum)
 );
 
+CREATE TABLE IF NOT EXISTS personal_state_publications (
+    publication_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id               TEXT NOT NULL UNIQUE REFERENCES personal_state_runs(run_id),
+    created_at           TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS personal_state_assertions (
     assertion_id       TEXT PRIMARY KEY,
     run_id             TEXT NOT NULL REFERENCES personal_state_runs(run_id),
@@ -523,6 +529,8 @@ CREATE TABLE IF NOT EXISTS personal_state_risks (
 
 CREATE INDEX IF NOT EXISTS idx_personal_state_runs_snapshot
     ON personal_state_runs(snapshot_id, producer_version, created_at);
+CREATE INDEX IF NOT EXISTS idx_personal_state_publications_run
+    ON personal_state_publications(run_id, publication_sequence);
 CREATE INDEX IF NOT EXISTS idx_personal_state_assertions_run
     ON personal_state_assertions(run_id, assertion_kind, subject, domain);
 CREATE INDEX IF NOT EXISTS idx_personal_state_evidence_assertion
@@ -547,6 +555,14 @@ END;
 CREATE TRIGGER IF NOT EXISTS trg_personal_state_runs_immutable_delete
 BEFORE DELETE ON personal_state_runs BEGIN
     SELECT RAISE(ABORT, 'personal state runs are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_publications_immutable_update
+BEFORE UPDATE ON personal_state_publications BEGIN
+    SELECT RAISE(ABORT, 'personal state publications are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_personal_state_publications_immutable_delete
+BEFORE DELETE ON personal_state_publications BEGIN
+    SELECT RAISE(ABORT, 'personal state publications are immutable');
 END;
 CREATE TRIGGER IF NOT EXISTS trg_personal_state_assertions_immutable_update
 BEFORE UPDATE ON personal_state_assertions BEGIN
@@ -900,7 +916,7 @@ def inspect(db_path: Path = UNIFIED_DB) -> dict:
         "serving_snapshots", "serving_snapshot_members", "serving_authority",
         "serving_snapshot_events",
         # Phase 25 immutable personal-state analysis
-        "personal_state_runs", "personal_state_assertions",
+        "personal_state_runs", "personal_state_publications", "personal_state_assertions",
         "personal_state_evidence", "personal_state_changes",
         "personal_state_risks",
         # Phase 24 governed lifecycle

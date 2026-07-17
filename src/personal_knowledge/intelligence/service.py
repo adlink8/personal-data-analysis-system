@@ -17,6 +17,8 @@ from .explanations import (
     explain_state,
 )
 from .schema import (
+    EVIDENCE_TYPES,
+    PRIVACY_CLASSES,
     SCHEMA_VERSION,
     PersonalStateRun,
     SnapshotBinding,
@@ -25,6 +27,7 @@ from .schema import (
     canonical_json,
     checksum,
 )
+from .runs import _ROLE_BY_EVIDENCE_TYPE, _assertion_payload
 from .state_projection import StateKey, project_current_state
 
 
@@ -186,6 +189,7 @@ class IntelligenceService:
             window_start=start,
             limit=limit,
             resolver=self.resolver,
+            evidence_catalog=self._evidence_catalog(context),
         )
         items = [_json_value(item) for item in summary.items]
         return self._success("changes.recent", context, self._result_status(items), {
@@ -250,7 +254,9 @@ class IntelligenceService:
             selected_row = None
             if run_id:
                 selected_row = con.execute(
-                    "SELECT * FROM personal_state_runs WHERE run_id=? AND status='committed'",
+                    "SELECT p.publication_sequence,r.* FROM personal_state_runs r "
+                    "JOIN personal_state_publications p ON p.run_id=r.run_id "
+                    "WHERE r.run_id=? AND r.status='committed'",
                     (run_id,),
                 ).fetchone()
                 if selected_row is None:
@@ -275,18 +281,21 @@ class IntelligenceService:
                 raise IntelligenceServiceError("snapshot_not_validated", snapshot_id)
             if selected_row is None:
                 selected_row = con.execute(
-                    "SELECT * FROM personal_state_runs WHERE snapshot_id=? AND status='committed' "
-                    "ORDER BY created_at DESC,run_id DESC LIMIT 1",
+                    "SELECT p.publication_sequence,r.* FROM personal_state_runs r "
+                    "JOIN personal_state_publications p ON p.run_id=r.run_id "
+                    "WHERE r.snapshot_id=? AND r.status='committed' "
+                    "ORDER BY p.publication_sequence DESC LIMIT 1",
                     (snapshot_id,),
                 ).fetchone()
             if selected_row is None:
                 raise IntelligenceServiceError("run_missing", snapshot_id)
-            selected_created = str(selected_row["created_at"])
+            selected_order = int(selected_row["publication_sequence"])
             rows = con.execute(
-                "SELECT * FROM personal_state_runs WHERE snapshot_id=? AND status='committed' "
-                "AND (created_at < ? OR (created_at = ? AND run_id <= ?)) "
-                "ORDER BY created_at,run_id",
-                (snapshot_id, selected_created, selected_created, str(selected_row["run_id"])),
+                "SELECT p.publication_sequence,r.* FROM personal_state_runs r "
+                "JOIN personal_state_publications p ON p.run_id=r.run_id "
+                "WHERE r.snapshot_id=? AND r.status='committed' "
+                "AND p.publication_sequence <= ? ORDER BY p.publication_sequence",
+                (snapshot_id, selected_order),
             ).fetchall()
             runs = tuple(self._hydrate_run(con, row) for row in rows)
             selected = next(
@@ -330,18 +339,47 @@ class IntelligenceService:
                 "ORDER BY evidence_type,evidence_ref,artifact_version_id",
                 (assertion["assertion_id"],),
             ).fetchall()
-            evidence = tuple(
-                ValidatedEvidence(
+            evidence_items: list[ValidatedEvidence] = []
+            for item in evidence_rows:
+                evidence_type = str(item["evidence_type"])
+                serving_role = str(item["serving_role"])
+                version_id = str(item["artifact_version_id"])
+                privacy_class = str(item["privacy_class"])
+                member = snapshot.members.get(serving_role)
+                if evidence_type not in EVIDENCE_TYPES or _ROLE_BY_EVIDENCE_TYPE.get(
+                    evidence_type
+                ) != serving_role:
+                    raise IntelligenceServiceError(
+                        "evidence_role_mismatch", str(item["evidence_ref"])
+                    )
+                if (
+                    str(item["snapshot_id"]) != snapshot.snapshot_id
+                    or str(item["snapshot_hash"]) != snapshot.snapshot_hash
+                    or member is None
+                    or str(member.get("artifact_version_id") or "") != version_id
+                ):
+                    raise IntelligenceServiceError(
+                        "evidence_snapshot_mismatch", str(item["evidence_ref"])
+                    )
+                if (
+                    str(item["eligibility"]) != "eligible"
+                    or privacy_class not in PRIVACY_CLASSES
+                    or privacy_class != str(member.get("privacy_class") or "")
+                    or not str(item["evidence_checksum"])
+                ):
+                    raise IntelligenceServiceError(
+                        "evidence_integrity_mismatch", str(item["evidence_ref"])
+                    )
+                evidence_items.append(ValidatedEvidence(
                     ref=str(item["evidence_ref"]),
-                    artifact_type=str(item["evidence_type"]),
-                    serving_role=str(item["serving_role"]),
-                    artifact_version_id=str(item["artifact_version_id"]),
+                    artifact_type=evidence_type,
+                    serving_role=serving_role,
+                    artifact_version_id=version_id,
                     evidence_checksum=str(item["evidence_checksum"]),
-                    privacy_class=str(item["privacy_class"]),
-                )
-                for item in evidence_rows
-            )
-            assertions.append(ValidatedAssertion(
+                    privacy_class=privacy_class,
+                ))
+            evidence = tuple(evidence_items)
+            hydrated = ValidatedAssertion(
                 assertion_id=str(assertion["assertion_id"]),
                 assertion_kind=str(assertion["assertion_kind"]),
                 provenance_class=str(assertion["provenance_class"]),
@@ -358,11 +396,36 @@ class IntelligenceService:
                 lifecycle=str(assertion["lifecycle"]),
                 evidence=evidence,
                 payload_checksum=str(assertion["payload_checksum"]),
-            ))
+            )
+            try:
+                stored_payload = json.loads(str(assertion["payload_json"]))
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise IntelligenceServiceError(
+                    "assertion_payload_invalid", hydrated.assertion_id
+                ) from exc
+            expected_payload = _assertion_payload(hydrated, snapshot=snapshot)
+            if canonical_json(stored_payload) != canonical_json(expected_payload):
+                raise IntelligenceServiceError(
+                    "assertion_payload_mismatch", hydrated.assertion_id
+                )
+            if checksum(expected_payload) != hydrated.payload_checksum:
+                raise IntelligenceServiceError(
+                    "assertion_payload_checksum_mismatch", hydrated.assertion_id
+                )
+            assertions.append(hydrated)
+        manifest_assertions = input_manifest.get("assertions")
+        if not isinstance(manifest_assertions, list) or canonical_json(
+            manifest_assertions
+        ) != canonical_json(assertions):
+            raise IntelligenceServiceError("assertion_input_manifest_mismatch", str(row["run_id"]))
         if tuple(output_manifest.get("assertion_ids") or ()) != tuple(
             item.assertion_id for item in assertions
         ):
             raise IntelligenceServiceError("assertion_manifest_mismatch", str(row["run_id"]))
+        if int(output_manifest.get("assertion_count", -1)) != len(assertions) or int(
+            output_manifest.get("evidence_count", -1)
+        ) != sum(len(item.evidence) for item in assertions):
+            raise IntelligenceServiceError("output_manifest_count_mismatch", str(row["run_id"]))
         return PersonalStateRun(
             run_id=str(row["run_id"]),
             registry_id=str(row["registry_id"]),
@@ -374,6 +437,22 @@ class IntelligenceService:
             output_manifest_checksum=str(row["output_manifest_checksum"]),
             assertions=tuple(assertions),
         )
+
+    @staticmethod
+    def _evidence_catalog(context: Mapping[str, Any]) -> dict[str, ValidatedEvidence]:
+        catalog: dict[str, ValidatedEvidence] = {}
+        conflicts: set[str] = set()
+        for run in context["runs"]:
+            for assertion in run.assertions:
+                for item in assertion.evidence:
+                    existing = catalog.get(item.ref)
+                    if existing is not None and existing != item:
+                        conflicts.add(item.ref)
+                    else:
+                        catalog[item.ref] = item
+        for ref in conflicts:
+            catalog.pop(ref, None)
+        return catalog
 
     @staticmethod
     def _validate_limit(limit: int) -> int:

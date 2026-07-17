@@ -44,7 +44,7 @@ _FINGERPRINT_GROUPS = {
     ),
     "watermarks": ("source_watermarks", "knowledge_source_watermark"),
     "analysis": (
-        "personal_state_runs", "personal_state_assertions", "personal_state_evidence",
+        "personal_state_runs", "personal_state_publications", "personal_state_assertions", "personal_state_evidence",
         "personal_state_changes", "personal_state_risks",
     ),
 }
@@ -264,6 +264,8 @@ def run_acceptance(
     before = _fingerprints(path, pointer_path)
     service = IntelligenceService(path)
     current = service.invoke("state.current", limit=limit)
+    intelligence_ok = True
+    intelligence_error: dict[str, Any] | None = None
     if current.get("ok"):
         snapshot = dict(current["snapshot"])
         samples = list(current.get("data", {}).get("items", ()))[:limit]
@@ -284,15 +286,17 @@ def run_acceptance(
             return IntelligenceService._error("acceptance", "snapshot_missing", "active")
         snapshot = {"snapshot_id": str(row[0]), "snapshot_hash": str(row[1])}
         samples = []
-        analysis_tables_ready = all(
-            item["exists"] for item in before["groups"]["analysis"]
-        )
+        analysis_table_flags = [item["exists"] for item in before["groups"]["analysis"]]
+        analysis_tables_ready = all(analysis_table_flags)
         error_code = str(current.get("error", {}).get("code") or "no_committed_run")
-        candidate_reason = (
-            "analysis_schema_unapplied"
-            if error_code == "invalid_intelligence_state" and not analysis_tables_ready
-            else error_code
+        schema_unapplied = error_code == "invalid_intelligence_state" and not any(
+            analysis_table_flags
         )
+        expected_empty = schema_unapplied or (error_code == "run_missing" and analysis_tables_ready)
+        candidate_reason = "analysis_schema_unapplied" if schema_unapplied else error_code
+        if not expected_empty:
+            intelligence_ok = False
+            intelligence_error = dict(current.get("error") or {"code": error_code, "detail": ""})
         run_context = {"run_id": None, "run_checksum": None, "producer_version": None}
 
     dependency = _phase24_dependency_status(path)
@@ -315,13 +319,19 @@ def run_acceptance(
     after = _fingerprints(path, pointer_path)
     unchanged = before == after
     reason_codes = [candidate_reason, *dependency["reason_codes"]]
+    if not intelligence_ok:
+        reason_codes.append("intelligence_integrity_gate_failed")
     if not unchanged:
         reason_codes.append("fingerprint_changed")
     return {
         "schema_version": ACCEPTANCE_SCHEMA_VERSION,
         "operation": "acceptance",
-        "ok": unchanged,
-        "status": "release_blocked" if dependency["release_blocked"] else "pass",
+        "ok": unchanged and intelligence_ok,
+        "status": (
+            "release_blocked"
+            if dependency["release_blocked"] or not intelligence_ok or not unchanged
+            else "pass"
+        ),
         "dry_run": True,
         "metadata_only": True,
         "snapshot": snapshot,
@@ -331,7 +341,7 @@ def run_acceptance(
             **run_plan,
         },
         "candidate": {
-            "computed": True,
+            "computed": intelligence_ok,
             "bounded": True,
             "limit": limit,
             "count": len(samples),
@@ -348,6 +358,10 @@ def run_acceptance(
         "private_bodies": 0,
         "network_calls": 0,
         "paid_calls": 0,
+        "intelligence_gate": {
+            "ok": intelligence_ok,
+            "error": intelligence_error,
+        },
         "phase24": dependency,
     }
 
