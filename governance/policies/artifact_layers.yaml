@@ -1,0 +1,19 @@
+version: 1
+layers:
+  D: canonical or source data authority
+  S: semantic interpretation derived from D
+  R: rebuildable retrieval projection derived from D or S
+  A: analysis, evaluation, or intelligence output
+artifacts:
+  - {id: d.canonical_conversation, layer: D, kind: sqlite_store, authority_role: canonical_conversation, producer: application.conversation, consumers: [s.turn_summary, s.knowledge_unit], privacy: R4, evidence_parent: d.agentsview_snapshot, lifecycle: versioned, version_source: content_checksum}
+  - {id: d.canonical_message, layer: D, kind: sqlite_view, authority_role: canonical_message, producer: application.conversation, consumers: [s.turn_summary, s.knowledge_unit], privacy: R4, evidence_parent: d.canonical_conversation, lifecycle: versioned, version_source: canonical_conversation_version}
+  - {id: d.google_normalized, layer: D, kind: sqlite_store, authority_role: google_normalized, producer: application.google, consumers: [s.google_assertion], privacy: R4, evidence_parent: d.google_raw, lifecycle: versioned, version_source: content_checksum}
+  - {id: s.turn_summary, layer: S, kind: sqlite_table, authority_role: turn_summary, producer: application.conversation, consumers: [r.turn_vector, s.knowledge_unit], privacy: R4, evidence_parent: d.canonical_message, lifecycle: versioned, version_source: build_id}
+  - {id: s.google_assertion, layer: S, kind: sqlite_table, authority_role: google_assertion, producer: application.google, consumers: [a.personal_change], privacy: R4, evidence_parent: d.google_normalized, lifecycle: governed, version_source: build_id}
+  - {id: s.knowledge_unit, layer: S, kind: sqlite_table, authority_role: canonical_knowledge, producer: application.knowledge, consumers: [r.knowledge_index, a.knowledge_evaluation], privacy: R4, evidence_parent: d.canonical_message, lifecycle: governed, version_source: canonical_build_id}
+  - {id: r.turn_vector, layer: R, kind: chroma_collection, authority_role: turn_retrieval, producer: application.conversation, consumers: [r.layered_search], privacy: R4, evidence_parent: s.turn_summary, lifecycle: rebuildable, version_source: collection_checksum}
+  - {id: r.knowledge_index, layer: R, kind: chroma_collection, authority_role: knowledge_retrieval, producer: application.knowledge, consumers: [r.layered_search, a.knowledge_evaluation], privacy: R4, evidence_parent: s.knowledge_unit, lifecycle: rebuildable, version_source: collection_checksum}
+  - {id: r.layered_search, layer: R, kind: service_contract, authority_role: product_retrieval, producer: retrieval, consumers: [services, a.knowledge_evaluation], privacy: R4, evidence_parent: r.knowledge_index, lifecycle: versioned, version_source: serving_snapshot_id}
+  - {id: a.knowledge_evaluation, layer: A, kind: evaluation_run, authority_role: knowledge_evaluation, producer: evaluation, consumers: [serving_snapshot], privacy: R3, evidence_parent: r.knowledge_index, lifecycle: immutable, version_source: run_manifest_hash}
+  - {id: a.personal_change, layer: A, kind: analysis_run, authority_role: personal_change_analysis, producer: intelligence, consumers: [services], privacy: R4, evidence_parent: s.knowledge_unit, lifecycle: immutable, version_source: run_manifest_hash}
+required_serving_roles: [canonical_conversation, canonical_message, turn_summary, google_normalized, google_assertion, canonical_knowledge, turn_retrieval, knowledge_retrieval, product_retrieval, knowledge_evaluation]
