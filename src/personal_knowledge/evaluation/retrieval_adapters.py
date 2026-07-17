@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 import sys
 import time
@@ -20,6 +21,14 @@ L2_RUN_IDS_DEFAULT = (
     "205bff9560b915508f343aebc0fe4b0b",
     "2a63b7e98fd3454c1aae3deedcdf038d",
 )
+
+
+def l2_eval_collection_name(source_collection: str, lineage_ids: set[str]) -> str:
+    """Deterministic name binding an evaluation collection to source + lineage."""
+    digest = hashlib.sha256(
+        (source_collection + "\n" + "\n".join(sorted(lineage_ids))).encode("utf-8")
+    ).hexdigest()[:12]
+    return f"knowledge_units_eval_l2_{digest}"
 
 
 @dataclass
@@ -139,6 +148,56 @@ def load_l2_unit_ids(
             )
     con.close()
     return ids
+
+
+def collection_ids(collection, *, batch_size: int = 500) -> set[str]:
+    """Read all IDs from a Chroma collection without returning document text."""
+    total = collection.count()
+    ids: set[str] = set()
+    for offset in range(0, total, batch_size):
+        raw = collection.get(
+            limit=min(batch_size, total - offset),
+            offset=offset,
+            include=["metadatas"],
+        )
+        ids.update(str(unit_id) for unit_id in (raw.get("ids") or []))
+    return ids
+
+
+def audit_l2_collection(collection_name: str, expected_ids: set[str]) -> dict[str, Any]:
+    """Verify that a declared L2-only collection contains exactly the lineage IDs."""
+    audit: dict[str, Any] = {
+        "collection": collection_name,
+        "expected": len(expected_ids),
+        "actual": 0,
+        "missing": len(expected_ids),
+        "orphan": 0,
+        "ok": False,
+    }
+    if not collection_name or not expected_ids:
+        audit["error"] = "collection name or expected lineage set is empty"
+        return audit
+    from personal_knowledge.core.chroma_client import ChromaClient
+
+    try:
+        client = ChromaClient()
+        names = {str(c.get("name")) for c in client.list_collections()}
+        if collection_name not in names:
+            audit["error"] = "declared L2-only collection does not exist"
+            return audit
+        actual_ids = collection_ids(client.get_or_create_collection(collection_name))
+    except Exception as exc:
+        audit["error"] = str(exc)[:200]
+        return audit
+    audit.update(
+        {
+            "actual": len(actual_ids),
+            "missing": len(expected_ids - actual_ids),
+            "orphan": len(actual_ids - expected_ids),
+            "ok": actual_ids == expected_ids,
+        }
+    )
+    return audit
 
 
 def _chroma_query(

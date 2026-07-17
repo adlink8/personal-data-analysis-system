@@ -20,8 +20,10 @@ targets:
   l1_collection: knowledge_units_run_76c6259e_20260712062418
   # Empty means resolve the current active pointer at run time.
   l1_l2_collection:
-  l2_only_collection:
-  l2_only_purified: false
+  # Exact 764-ID evaluation-only collection copied from the current Active;
+  # runtime audit must match the configured lineage IDs before this mode runs.
+  l2_only_collection: knowledge_units_eval_l2_894985b38fe5
+  l2_only_purified: true
   l2_run_ids:
     - 205bff9560b915508f343aebc0fe4b0b
     - 2a63b7e98fd3454c1aae3deedcdf038d

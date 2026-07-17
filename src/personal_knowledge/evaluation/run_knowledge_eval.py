@@ -43,6 +43,8 @@ from personal_knowledge.evaluation.knowledge_eval_metrics import (  # noqa: E402
     score_case,
 )
 from personal_knowledge.evaluation.retrieval_adapters import (  # noqa: E402
+    audit_l2_collection,
+    l2_eval_collection_name,
     load_l2_unit_ids,
     resolve_targets,
     run_adapter,
@@ -207,16 +209,41 @@ def stage_retrieval(
     raw = targets_cfg.get("raw_collection") or "personal_events"
     l2_runs = targets_cfg.get("l2_run_ids")
     l2_ids = load_l2_unit_ids(UNIFIED_DB, l2_runs)
+    l2_collection = targets_cfg.get("l2_only_collection") or ""
+    l2_audit = (
+        audit_l2_collection(l2_collection, l2_ids)
+        if l2_collection
+        else {
+            "collection": "",
+            "expected": len(l2_ids),
+            "actual": 0,
+            "missing": len(l2_ids),
+            "orphan": 0,
+            "ok": False,
+            "error": "L2-only collection is not configured",
+        }
+    )
+    expected_l2_collection = l2_eval_collection_name(l1l2, l2_ids) if l2_ids else ""
+    l2_audit["source_collection"] = l1l2
+    l2_audit["expected_collection"] = expected_l2_collection
+    l2_audit["source_binding_ok"] = l2_collection == expected_l2_collection
+    if not l2_audit["source_binding_ok"]:
+        l2_audit["ok"] = False
+        l2_audit["error"] = "L2-only collection is not bound to the evaluated L1+L2 source"
     # L2-only: blocked unless we can filter — collection is shared; mark blocked
     # when purify not reliable for canonical-only index
     l2_blocked_reason = ""
-    pure_l2 = bool(targets_cfg.get("l2_only_purified")) and bool(l2_ids)
+    pure_l2 = (
+        bool(targets_cfg.get("l2_only_purified"))
+        and bool(l2_ids)
+        and bool(l2_audit.get("ok"))
+    )
 
     targets = resolve_targets(
         l1_collection=l1,
         l1_l2_collection=l1l2,
         raw_collection=raw,
-        l2_only_collection=targets_cfg.get("l2_only_collection") or l1l2,
+        l2_only_collection=l2_collection or l1l2,
         l2_lineage_runs=l2_runs,
         top_k=top_k,
         l2_filter_ids=l2_ids if pure_l2 else None,
@@ -224,7 +251,14 @@ def stage_retrieval(
         or (
             ""
             if pure_l2
-            else "L2-only not purified on shared canonical index; set targets.l2_only_purified=true with lineage"
+            else "L2-only collection failed exact lineage audit: "
+            + str(
+                l2_audit.get("error")
+                or {
+                    "missing": l2_audit.get("missing"),
+                    "orphan": l2_audit.get("orphan"),
+                }
+            )
         ),
     )
 
@@ -278,6 +312,7 @@ def stage_retrieval(
                 "cross_turn_l1_baseline": compare_modes(cross_turn, baseline="l1").get("comparisons", {})
             },
             "targets": [t.to_dict() for t in targets],
+            "l2_collection_audit": l2_audit,
             "offline": True,
         }
 
@@ -364,6 +399,7 @@ def stage_retrieval(
     dump_json(run_dir / "retrieval.json", {
         "modes": {k: v for k, v in mode_aggs.items()},
         "comparisons": comparisons.get("comparisons") or {},
+        "l2_collection_audit": l2_audit,
         "blocked_modes": blocked_modes,
     })
     return {
@@ -375,6 +411,7 @@ def stage_retrieval(
             "cross_turn_l1_baseline": compare_modes(cross_turn, baseline="l1").get("comparisons", {})
         },
         "targets": [t.to_dict() for t in targets],
+        "l2_collection_audit": l2_audit,
         "blocked_modes": blocked_modes,
         "offline": False,
     }
@@ -536,6 +573,7 @@ def run_eval(
             "comparisons": retrieval.get("comparisons"),
             "scenario_comparisons": retrieval.get("scenario_comparisons"),
             "blocked_modes": retrieval.get("blocked_modes"),
+            "l2_collection_audit": retrieval.get("l2_collection_audit"),
         }
     except Exception as e:
         traceback.print_exc()
@@ -585,6 +623,11 @@ def run_eval(
             else None,
             "extraction_quality": (stages.get("extraction") or {}).get("extraction_quality")
             if isinstance(stages.get("extraction"), dict)
+            else None,
+            "l2_collection_audit": (stages.get("retrieval") or {}).get(
+                "l2_collection_audit"
+            )
+            if isinstance(stages.get("retrieval"), dict)
             else None,
         },
         "candidate_collection": (cfg.get("targets") or {}).get("candidate_collection")

@@ -134,6 +134,8 @@ def test_eval_config_tracks_relocated_private_suite_and_runtime_active() -> None
     targets = cfg["targets"]
     assert targets.get("l1_l2_collection") is None
     assert targets.get("candidate_collection") is None
+    assert targets.get("l2_only_collection") == "knowledge_units_eval_l2_894985b38fe5"
+    assert targets.get("l2_only_purified") is True
     assert SYN.exists() and HOLDOUT.exists()
     assert OUT_DIR == _ROOT / "var" / "runtime" / "private_evals"
 
