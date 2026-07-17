@@ -296,7 +296,7 @@ Plans:
 **Goal:** 建立单一可审计 serving authority：用 D/S/R/A 注册表描述所有消费层，以不可变 serving snapshot 绑定 SQLite、Chroma、Conversation、Turn、Google、KU 版本和 watermarks，并提供统一证据下钻与 fail-closed doctor。
 **Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04, FOUND-05
 **Depends on:** Phase 22
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 **Success criteria:**
 - 任何读取路径先解析一个 serving snapshot，返回 snapshot/version；检测到 SQLite/Chroma/水位分裂时 fail closed。
