@@ -334,13 +334,13 @@ Plans:
 **Goal:** 建立证据支持的个人状态与变化模型，可靠总结近期变化，并从历史解释目标、约束、项目和偏好的当前状态。
 **Requirements**: INTEL-01, INTEL-02
 **Depends on:** Phase 24
-**Status:** Planned (release remains blocked on Phase 24 human/quality gates)
-**Plans:** 2/4 plans executed
+**Status:** In Progress (release remains blocked on Phase 24 human/quality gates)
+**Plans:** 3/4 plans executed
 
 Plans:
 - [x] 25-01: Immutable personal-state schema and snapshot-bound run contract
 - [x] 25-02: Typed goals, constraints, observations and current-state projection
-- [ ] 25-03: Evidence-backed changes, conflicts, trends, risks and explanations
+- [x] 25-03: Evidence-backed changes, conflicts, trends, risks and explanations
 - [ ] 25-04: Shared read interfaces and metadata-only acceptance
 
 ### Phase 26: Decision Action Feedback Loop — separate facts, observations, inferences, recommendations and confirmations; track recommendation acceptance, actions, outcomes and effectiveness
