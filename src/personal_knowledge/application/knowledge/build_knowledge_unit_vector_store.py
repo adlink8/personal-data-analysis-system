@@ -78,7 +78,7 @@ def load_eligible_units(db_path: Path) -> list[dict]:
         "  JOIN canonical_unit_members cum ON u.unit_id=cum.member_unit_id "
         "  WHERE cum.canonical_unit_id=c.canonical_unit_id LIMIT 1), '') as source_message_ref "
         "FROM canonical_knowledge_units c "
-        "WHERE c.status='current'"
+        "WHERE c.status='current' AND c.lifecycle='current'"
     ).fetchall()
     con.close()
     return [dict(r) for r in rows]

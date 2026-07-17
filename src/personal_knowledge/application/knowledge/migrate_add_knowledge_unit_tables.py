@@ -31,6 +31,7 @@ _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
 from personal_knowledge.core.sqlite import connect_rw  # noqa: E402
+from personal_knowledge.application.knowledge.lifecycle_events import LIFECYCLE_SCHEMA_SQL  # noqa: E402
 
 INVENTORY_REGISTRY_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS knowledge_inventory_registry (
@@ -734,6 +735,9 @@ def inspect(db_path: Path = UNIFIED_DB) -> dict:
         "artifact_registry_entries", "artifact_versions", "source_watermarks",
         "serving_snapshots", "serving_snapshot_members", "serving_authority",
         "serving_snapshot_events",
+        # Phase 24 governed lifecycle
+        "knowledge_lifecycle_manifests", "knowledge_lifecycle_actions",
+        "knowledge_lifecycle_events", "knowledge_unit_corrections",
     ]
     return {
         "db_exists": True,
@@ -809,6 +813,7 @@ def migrate(db_path: Path = UNIFIED_DB, write: bool = False) -> dict:
     con = connect_rw(db_path)
     try:
         con.executescript(SCHEMA_SQL)
+        con.executescript(LIFECYCLE_SCHEMA_SQL)
         con.commit()
     finally:
         con.close()

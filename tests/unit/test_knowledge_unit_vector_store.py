@@ -23,6 +23,10 @@ def _setup_db_with_units(db: Path, n_units: int = 3) -> str:
         "('run1','extraction','2026-01-01','cs','h','v1','v1','m',NULL,NULL,NULL,NULL,'validated',NULL,NULL)"
     )
     con.execute(
+        "INSERT INTO canonical_knowledge_units VALUES "
+        "('cu_old','x','preference','q','a',0.9,'superseded','current',1,'run1','single',NULL,'2026-01-01')"
+    )
+    con.execute(
         "INSERT INTO knowledge_inventory VALUES ('inv1','2026-01-01','canon','cs',3,3,'dh','2026-01','2026-02','{}')"
     )
     for i in range(n_units):
@@ -106,6 +110,7 @@ def test_load_eligible_units_only_current(tmp_path: Path) -> None:
     # 不含 rejected
     unit_ids = [u["unit_id"] for u in units]
     assert "cu_rej" not in unit_ids
+    assert "cu_old" not in unit_ids
 
 
 def test_get_current_run_id(tmp_path: Path) -> None:

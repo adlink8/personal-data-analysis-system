@@ -23,7 +23,9 @@ from typing import Iterable
 from personal_knowledge.core.project_paths import UNIFIED_DB
 
 # Growth-line lifecycles (retrieval default is current-only; history is explicit).
-GROWTH_LINE_LIFECYCLES = ("current", "superseded", "deprecated", "conflict")
+GROWTH_LINE_LIFECYCLES = (
+    "current", "superseded", "deprecated", "conflict", "corrected", "historical"
+)
 
 DEFAULT_ANSWER_SNIPPET = 160
 
@@ -41,6 +43,7 @@ class HistoryRow:
     version: int | None = None
     status: str | None = None
     question: str | None = None
+    lifecycle_events: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -128,8 +131,24 @@ def list_history_for_subject(
             sql += f" LIMIT {int(limit)}"
 
         rows = con.execute(sql, params).fetchall()
+        has_events = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='knowledge_lifecycle_events'"
+        ).fetchone() is not None
         out: list[HistoryRow] = []
         for r in rows:
+            events: list[dict] = []
+            if has_events:
+                events = [
+                    dict(event)
+                    for event in con.execute(
+                        "SELECT event_id,manifest_id,event_type,lifecycle_before,lifecycle_after,"
+                        "version_before,version_after,supersedes_before,supersedes_after,reason,"
+                        "reviewer_id_hash,actor_id,rollback_of_event_id,created_at "
+                        "FROM knowledge_lifecycle_events WHERE unit_id=? "
+                        "ORDER BY created_at,CASE WHEN rollback_of_event_id IS NULL THEN 0 ELSE 1 END,event_id",
+                        (r["canonical_unit_id"],),
+                    ).fetchall()
+                ]
             out.append(
                 HistoryRow(
                     unit_id=r["canonical_unit_id"],
@@ -143,6 +162,7 @@ def list_history_for_subject(
                     version=r["version"],
                     status=r["status"],
                     question=_snippet(r["question"], 120) or None,
+                    lifecycle_events=events,
                 )
             )
         report.rows = [asdict(x) for x in out]

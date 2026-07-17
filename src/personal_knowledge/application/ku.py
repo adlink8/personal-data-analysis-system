@@ -36,6 +36,7 @@ underlying modules with explicit human intent).
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -341,6 +342,42 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit JSON only (no human table)",
     )
+
+    life_prop = sub.add_parser("lifecycle-propose", help="Build bounded metadata-safe lifecycle review manifest")
+    life_prop.add_argument("--subject", default="")
+    life_prop.add_argument("--max-subjects", type=int, default=20)
+    life_prop.add_argument("--artifact", type=Path, required=True)
+    life_prop.add_argument("--db", type=Path, default=None)
+
+    life_reg = sub.add_parser("lifecycle-register", help="Register exact human-reviewed lifecycle manifest")
+    life_reg.add_argument("--manifest", type=Path, required=True)
+    life_reg.add_argument("--write", action="store_true")
+    life_reg.add_argument("--i-know", action="store_true")
+    life_reg.add_argument("--db", type=Path, default=None)
+
+    life_finalize = sub.add_parser("lifecycle-finalize", help="Bind human decisions to exact proposal and emit reviewed manifest")
+    life_finalize.add_argument("--proposal", type=Path, required=True)
+    life_finalize.add_argument("--review", type=Path, required=True)
+    life_finalize.add_argument("--artifact", type=Path, required=True)
+    life_finalize.add_argument("--db", type=Path, default=None)
+
+    life_apply = sub.add_parser("lifecycle-apply", help="Atomically apply registered reviewed lifecycle manifest")
+    life_apply.add_argument("--manifest", type=Path, required=True)
+    life_apply.add_argument("--actor", required=True)
+    life_apply.add_argument("--write", action="store_true")
+    life_apply.add_argument("--i-know", action="store_true")
+    life_apply.add_argument("--db", type=Path, default=None)
+
+    life_rollback = sub.add_parser("lifecycle-rollback", help="Reverse one applied manifest with linked events")
+    life_rollback.add_argument("--manifest-id", required=True)
+    life_rollback.add_argument("--actor", required=True)
+    life_rollback.add_argument("--write", action="store_true")
+    life_rollback.add_argument("--i-know", action="store_true")
+    life_rollback.add_argument("--db", type=Path, default=None)
+
+    life_status = sub.add_parser("lifecycle-status", help="Read-only lifecycle ledger adoption status")
+    life_status.add_argument("--strict", action="store_true")
+    life_status.add_argument("--db", type=Path, default=None)
 
     # --- doctor (read-only product health; never promote / write) ---
     doc = sub.add_parser(
@@ -668,6 +705,12 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    if args.write:
+        print(
+            "[error] direct heuristic writes are retired; use lifecycle-propose -> human review -> lifecycle-register -> lifecycle-apply",
+            file=sys.stderr,
+        )
+        return 2
 
     from personal_knowledge.application.knowledge.reconcile_knowledge_lifecycle import (
         main as reconcile_main,
@@ -690,6 +733,53 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
     if args.artifact is not None:
         argv.extend(["--artifact", str(args.artifact)])
     return int(reconcile_main(argv) or 0)
+
+
+def _cmd_lifecycle(args: argparse.Namespace) -> int:
+    from personal_knowledge.application.knowledge.lifecycle_events import (
+        LifecycleError,
+        apply_manifest,
+        finalize_review,
+        lifecycle_status,
+        load_manifest,
+        propose_reconcile_manifest,
+        register_manifest,
+        rollback_manifest,
+    )
+    from personal_knowledge.core.project_paths import UNIFIED_DB
+
+    db_path = args.db or UNIFIED_DB
+    try:
+        if args.command == "lifecycle-propose":
+            manifest = propose_reconcile_manifest(
+                db_path, subject=args.subject or None,
+                max_subjects=args.max_subjects, artifact=args.artifact,
+            )
+            result = {"ok": True, "manifest_id": manifest["manifest_id"], "manifest_checksum": manifest["manifest_checksum"], "action_count": len(manifest["actions"]), "artifact": str(args.artifact), "write": False}
+        elif args.command == "lifecycle-register":
+            if args.write and not args.i_know:
+                raise LifecycleError("--write requires --i-know")
+            result = register_manifest(db_path, load_manifest(args.manifest), write=bool(args.write))
+        elif args.command == "lifecycle-finalize":
+            reviewed = finalize_review(args.proposal, args.review, args.artifact)
+            result = {"ok": True, "manifest_id": reviewed["manifest_id"], "manifest_checksum": reviewed["manifest_checksum"], "approved": len(reviewed["actions"]), "rejected": len((reviewed.get("review_receipt") or {}).get("rejected_unit_ids") or []), "artifact": str(args.artifact)}
+        elif args.command == "lifecycle-apply":
+            if not (args.write and args.i_know):
+                raise LifecycleError("lifecycle apply requires --write --i-know")
+            result = apply_manifest(db_path, load_manifest(args.manifest), actor_id=args.actor)
+        elif args.command == "lifecycle-rollback":
+            if not (args.write and args.i_know):
+                raise LifecycleError("lifecycle rollback requires --write --i-know")
+            result = rollback_manifest(db_path, args.manifest_id, actor_id=args.actor)
+        else:
+            result = lifecycle_status(db_path)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        if args.command == "lifecycle-status" and args.strict and not result.get("ok"):
+            return 1
+        return 0
+    except (LifecycleError, FileNotFoundError, json.JSONDecodeError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
+        return 2
 
 
 def _cmd_history(args: argparse.Namespace) -> int:
@@ -835,6 +925,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_watermark(args)
     if args.command == "reconcile":
         return _cmd_reconcile(args)
+    if args.command.startswith("lifecycle-"):
+        return _cmd_lifecycle(args)
     if args.command == "history":
         return _cmd_history(args)
     if args.command == "doctor":
