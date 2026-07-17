@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
 status: executing
-last_updated: "2026-07-17T20:15:00+08:00"
-last_activity: 2026-07-17 -- Phase 17 synthetic-shell contamination removed; authoritative live eval remains fail-closed
+last_updated: "2026-07-17T20:30:00+08:00"
+last_activity: 2026-07-17 -- Phase 17 five-mode eval live; exact L2-only collection added; gate remains fail-closed
 progress:
   total_phases: 24
   completed_phases: 22
@@ -69,7 +69,7 @@ Next optional: `reconcile --write --i-know` after dry-run; Phase 17 human gold; 
 3. 2026-08-13: domains facade removal (inventory owned; mass rewrite deferred)
 4. Selective `reconcile --write --i-know` after dry-run review (optional)
 
-Phase 17 evaluation evidence: `17-EVAL-REVIEW.md` scores coverage **71/100 NEEDS WORK**. Latest live run has 178 rows but only 22 real scoreable gold cases and 0 real cross-turn gold; 150 synthetic shells are excluded from retrieval metrics. On the 22 cases L1+L2 R@5 is 59.09%, but the gate correctly FAILS on dataset coverage, privacy/no-answer, cross-turn and human-grounded requirements. Active is unchanged. A 50-row private grounded review packet is ready under `var/runtime/private_evals/`.
+Phase 17 evaluation evidence: `17-EVAL-REVIEW.md` scores coverage **74/100 NEEDS WORK**. Latest five-mode run `dc71b5d38813ce66` has 178 rows but only 22 real scoreable gold cases and 0 real cross-turn gold; 150 synthetic shells are excluded from retrieval metrics. L1+L2 R@5 is 59.09%; exact L2-only (764/764) R@5 is 18.18%. The gate correctly FAILS on dataset coverage, privacy/no-answer, cross-turn and human-grounded requirements. Active is unchanged. A 50-row private grounded review packet is ready under `var/runtime/private_evals/`.
 
 ## Verification snapshot
 

@@ -22,9 +22,9 @@ python -m personal_knowledge.evaluation.run_knowledge_eval --config assets/evals
 | Active checksum proxy before | record | recorded in immutable summary | PASS |
 | Dataset audit | private gold >=30; real cross-turn gold >=30 | FAIL: 178 rows include 150 synthetic shells; real scoreable gold=22; real cross-turn gold=0; 20/20 real refs resolve | PASS (correct fail-closed) |
 | L2 lineage | 768+47=815 explained | `ok=True`, DB unchanged | PASS |
-| Five modes | raw/l1/l2_only/l1_l2/hybrid (l2_only may block) | four live on 22 real gold cases; L2-only explicitly blocked pending purified collection | PARTIAL |
-| Answer eval | present or skip reason | present for four live modes; real context kept ephemeral | PASS |
-| HTML report | under `var/reports/analysis/evaluations/` | `ee36a1f178c17020/report.html` | PASS |
+| Five modes | raw/l1/l2_only/l1_l2/hybrid | all five live; L2-only exact collection audit 764/764 and R@5=18.18% on 22 real gold cases | PASS |
+| Answer eval | present or skip reason | present for all five live modes; real context kept ephemeral | PASS |
+| HTML report | under `var/reports/analysis/evaluations/` | `dc71b5d38813ce66/report.html` | PASS |
 | Gate verdict | PASS or FAIL with reasons | FAIL with explicit policy checks | PASS (correct fail) |
 | Active after | **unchanged** on dry-run / FAIL | unchanged | PASS |
 | Promote refuse without PASS | `--require-eval-pass` | contract tests pass; no promotion attempted | PASS |
@@ -36,3 +36,4 @@ python -m personal_knowledge.evaluation.run_knowledge_eval --config assets/evals
 - Judge calibration (`judge_calibration_v1.jsonl`) must reach κ/ρ ≥ 0.7 before judge enters gate.
 - Grounded review packet prepared at `var/runtime/private_evals/grounded_l2_review_v1.jsonl` (50 rows; private; labels pending).
 - Latest full live run is intentionally FAIL; rollback UAT must wait for a genuine PASS candidate.
+- L2-only collection `knowledge_units_eval_l2_894985b38fe5` is evaluation-only, exact 764/764, and did not change Active.
