@@ -44,10 +44,12 @@ from personal_knowledge.evaluation.knowledge_eval_metrics import (  # noqa: E402
 )
 from personal_knowledge.evaluation.retrieval_adapters import (  # noqa: E402
     audit_l2_collection,
+    capture_serving_binding,
     l2_eval_collection_name,
     load_l2_unit_ids,
     resolve_targets,
     run_adapter,
+    validate_eval_binding,
 )
 
 EVAL_ROOT = ANALYSIS_DIR / "evaluations"
@@ -239,6 +241,7 @@ def stage_retrieval(
     run_dir: Path,
     *,
     offline: bool = False,
+    serving_binding: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     targets_cfg = cfg.get("targets") or {}
     top_k = int(cfg.get("top_k") or 5)
@@ -269,6 +272,16 @@ def stage_retrieval(
     if not l2_audit["source_binding_ok"]:
         l2_audit["ok"] = False
         l2_audit["error"] = "L2-only collection is not bound to the evaluated L1+L2 source"
+    binding_check = validate_eval_binding(
+        serving_binding or capture_serving_binding(),
+        targets_cfg,
+        l2_audit=l2_audit,
+    )
+    if not binding_check["ok"]:
+        raise ContractError(
+            "evaluation snapshot binding failed: "
+            + ";".join(binding_check["errors"])
+        )
     # L2-only: blocked unless we can filter — collection is shared; mark blocked
     # when purify not reliable for canonical-only index
     l2_blocked_reason = ""
@@ -336,6 +349,7 @@ def stage_retrieval(
                 ),
                 "blocked": t.blocked,
                 "target": t.to_dict(),
+                "serving_snapshot": binding_check,
             }
         comparisons = compare_modes(mode_scores, baseline="raw")
         cross_turn = {
@@ -353,6 +367,7 @@ def stage_retrieval(
             "targets": [t.to_dict() for t in targets],
             "l2_collection_audit": l2_audit,
             "offline": True,
+            "serving_snapshot": binding_check,
         }
 
     for t in targets:
@@ -383,6 +398,7 @@ def stage_retrieval(
                 "blocked": True,
                 "blocked_reason": t.blocked_reason,
                 "target": t.to_dict(),
+                "serving_snapshot": binding_check,
             }
             continue
 
@@ -429,6 +445,7 @@ def stage_retrieval(
             ),
             "blocked": False,
             "target": t.to_dict(),
+            "serving_snapshot": binding_check,
         }
 
     comparisons = compare_modes(mode_scores, baseline="raw")
@@ -441,6 +458,7 @@ def stage_retrieval(
         "comparisons": comparisons.get("comparisons") or {},
         "l2_collection_audit": l2_audit,
         "blocked_modes": blocked_modes,
+        "serving_snapshot": binding_check,
     })
     return {
         "modes": mode_aggs,
@@ -454,6 +472,7 @@ def stage_retrieval(
         "l2_collection_audit": l2_audit,
         "blocked_modes": blocked_modes,
         "offline": False,
+        "serving_snapshot": binding_check,
     }
 
 
@@ -552,6 +571,7 @@ def run_eval(
             f"config scorer_version={declared_scorer!r} does not match runtime "
             f"{SCORER_VERSION!r}"
         )
+    serving_before = capture_serving_binding()
     cases_path = resolve_cases_path(cfg)
     cases = load_cases_jsonl(cases_path)
     ds_ck = cases_checksum(cases)
@@ -561,6 +581,8 @@ def run_eval(
         "offline": offline,
         "retrieval_only": retrieval_only,
         "full": full,
+        "serving_snapshot_id": serving_before.get("snapshot_id"),
+        "serving_manifest_hash": serving_before.get("manifest_hash"),
     }
     cfg_ck = config_checksum(cfg_for_hash)
     top_k = int(cfg.get("top_k") or 5)
@@ -575,6 +597,9 @@ def run_eval(
 
     stages: dict[str, Any] = {}
     errors: list[str] = []
+    initial_binding = validate_eval_binding(serving_before, cfg.get("targets") or {})
+    if not initial_binding["ok"]:
+        errors.append("serving_binding_before: " + ";".join(initial_binding["errors"]))
 
     # 1 dataset audit
     try:
@@ -613,13 +638,16 @@ def run_eval(
 
     # 3 retrieval
     try:
-        retrieval = stage_retrieval(cases, cfg, run_dir, offline=offline)
+        retrieval = stage_retrieval(
+            cases, cfg, run_dir, offline=offline, serving_binding=serving_before
+        )
         stages["retrieval"] = {
             "modes": {k: v for k, v in retrieval["modes"].items()},
             "comparisons": retrieval.get("comparisons"),
             "scenario_comparisons": retrieval.get("scenario_comparisons"),
             "blocked_modes": retrieval.get("blocked_modes"),
             "l2_collection_audit": retrieval.get("l2_collection_audit"),
+            "serving_snapshot": retrieval.get("serving_snapshot"),
         }
     except Exception as e:
         traceback.print_exc()
@@ -682,6 +710,7 @@ def run_eval(
         "candidate_checksum": (cfg.get("targets") or {}).get("candidate_checksum") or "",
         "active_collection": active_before,
         "active_checksum_before": checksum_before,
+        "serving_snapshot_before": serving_before,
         "errors": errors,
         "dry_run": dry_run,
         "offline": offline,
@@ -700,7 +729,7 @@ def run_eval(
                 scorer_version=SCORER_VERSION,
                 top_k=top_k,
                 modes=modes,
-                notes="phase17",
+                notes="phase24_snapshot_bound",
             )
             for t in retrieval.get("targets") or []:
                 try:
@@ -770,13 +799,33 @@ def run_eval(
 
     checksum_after = _active_checksum_proxy()
     active_after = _read_active()
+    serving_after = capture_serving_binding()
     summary["active_collection_after"] = active_after
     summary["active_checksum_after"] = checksum_after
     summary["active_unchanged"] = (
-        active_before == active_after and checksum_before == checksum_after
+        active_before == active_after
+        and checksum_before == checksum_after
+        and serving_before == serving_after
     )
+    summary["serving_snapshot_after"] = serving_after
+    if serving_before != serving_after:
+        errors.append("serving_snapshot_changed_during_evaluation")
     summary["errors"] = errors
     dump_json(run_dir / "summary.json", summary)
+    dump_json(
+        run_dir / "run_manifest.json",
+        {
+            "run_id": run_id,
+            "dataset_checksum": ds_ck,
+            "config_checksum": cfg_ck,
+            "scorer_version": SCORER_VERSION,
+            "targets": retrieval.get("targets") or [],
+            "serving_snapshot_before": serving_before,
+            "serving_snapshot_after": serving_after,
+            "active_unchanged": summary["active_unchanged"],
+            "errors": errors,
+        },
+    )
 
     return summary
 

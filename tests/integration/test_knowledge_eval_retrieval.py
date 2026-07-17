@@ -24,7 +24,40 @@ from personal_knowledge.evaluation.knowledge_eval_metrics import (  # noqa: E402
     primary_rank,
     score_case,
 )
-from personal_knowledge.evaluation.retrieval_adapters import load_l2_unit_ids, resolve_targets  # noqa: E402
+from personal_knowledge.evaluation.retrieval_adapters import (  # noqa: E402
+    load_l2_unit_ids,
+    resolve_targets,
+    validate_eval_binding,
+)
+
+
+def _binding(collection: str = "active_ku") -> dict:
+    roles = {
+        role: {"location_ref": collection if role == "knowledge_retrieval" else role, "version": "v1", "checksum": "c1"}
+        for role in (
+            "canonical_knowledge", "canonical_message", "knowledge_retrieval",
+            "turn_retrieval", "google_normalized",
+        )
+    }
+    return {"ok": True, "snapshot_id": "ss_test", "manifest_hash": "h1", "members": roles}
+
+
+def test_eval_binding_accepts_one_snapshot_and_rejects_mixed_collection() -> None:
+    good = validate_eval_binding(_binding(), {"l1_l2_collection": "active_ku"})
+    mixed = validate_eval_binding(_binding(), {"l1_l2_collection": "other_ku"})
+    assert good["ok"] is True
+    assert mixed["ok"] is False
+    assert "l1_l2_collection_not_in_snapshot" in mixed["errors"]
+
+
+def test_eval_binding_rejects_l2_from_other_source() -> None:
+    result = validate_eval_binding(
+        _binding(),
+        {"l1_l2_collection": "active_ku"},
+        l2_audit={"source_collection": "old_ku", "source_binding_ok": True},
+    )
+    assert result["ok"] is False
+    assert "l2_source_not_in_snapshot" in result["errors"]
 
 
 def test_adapter_targets_no_hardcode_required() -> None:

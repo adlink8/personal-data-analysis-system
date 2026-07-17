@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 import sys
 import time
@@ -16,11 +17,93 @@ if str(_SCRIPTS) not in sys.path:
 
 from personal_knowledge.evaluation.eval_contracts import EvalCase, EvalTarget  # noqa: E402
 from personal_knowledge.evaluation.knowledge_eval_metrics import RankedHit  # noqa: E402
+from personal_knowledge.retrieval.relevance import annotate_candidate_support  # noqa: E402
+from personal_knowledge.application.serving.snapshots import (  # noqa: E402
+    get_active_snapshot,
+    manifest_hash,
+)
+from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
 
 L2_RUN_IDS_DEFAULT = (
     "205bff9560b915508f343aebc0fe4b0b",
     "2a63b7e98fd3454c1aae3deedcdf038d",
 )
+
+
+_EVAL_EVIDENCE_ROLES = {
+    "canonical_knowledge",
+    "canonical_message",
+    "knowledge_retrieval",
+    "turn_retrieval",
+    "google_normalized",
+}
+
+
+def capture_serving_binding(db_path: Path = UNIFIED_DB) -> dict[str, Any]:
+    """Capture a JSON-safe immutable view of the active serving authority."""
+    active = get_active_snapshot(db_path)
+    if not active:
+        return {"ok": False, "error": "active_snapshot_missing", "members": {}}
+    members = {
+        role: {
+            key: row.get(key)
+            for key in (
+                "artifact_version_id", "version", "checksum", "location_kind",
+                "location_ref", "watermark_id",
+            )
+        }
+        for role, row in sorted((active.get("members") or {}).items())
+    }
+    try:
+        manifest = json.loads(str(active.get("manifest_json") or "{}"))
+        computed = manifest_hash(manifest)
+    except Exception:
+        computed = ""
+    stored = str(active.get("manifest_hash") or "")
+    return {
+        "ok": bool(stored and computed == stored),
+        "snapshot_id": str(active.get("snapshot_id") or ""),
+        "manifest_hash": stored,
+        "computed_manifest_hash": computed,
+        "members": members,
+    }
+
+
+def validate_eval_binding(
+    binding: dict[str, Any],
+    targets: dict[str, Any],
+    *,
+    l2_audit: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Fail closed when an evaluation mixes serving authorities or sources."""
+    errors: list[str] = []
+    if not binding.get("ok"):
+        errors.append(str(binding.get("error") or "snapshot_manifest_hash_mismatch"))
+    members = binding.get("members") or {}
+    missing = sorted(_EVAL_EVIDENCE_ROLES - set(members))
+    if missing:
+        errors.append("snapshot_missing_roles:" + ",".join(missing))
+    active_collection = str((members.get("knowledge_retrieval") or {}).get("location_ref") or "")
+    configured = str(targets.get("l1_l2_collection") or active_collection)
+    candidate = str(targets.get("candidate_collection") or configured)
+    if not active_collection:
+        errors.append("snapshot_knowledge_collection_missing")
+    if configured != active_collection:
+        errors.append("l1_l2_collection_not_in_snapshot")
+    if candidate != active_collection:
+        errors.append("candidate_collection_not_in_snapshot")
+    if l2_audit is not None:
+        if str(l2_audit.get("source_collection") or "") != active_collection:
+            errors.append("l2_source_not_in_snapshot")
+        if not l2_audit.get("source_binding_ok"):
+            errors.append("l2_collection_source_binding_failed")
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "snapshot_id": binding.get("snapshot_id"),
+        "manifest_hash": binding.get("manifest_hash"),
+        "active_collection": active_collection,
+    }
 
 
 def l2_eval_collection_name(source_collection: str, lineage_ids: set[str]) -> str:
@@ -247,6 +330,8 @@ def _chroma_query(
     docs = (kr.get("documents") or [[]])[0]
     dists = (kr.get("distances") or [[]])[0]
     ranked: list[RankedHit] = []
+    from personal_knowledge.retrieval.evidence import EvidenceResolver
+    evidence_resolver = EvidenceResolver()
     for uid, meta, doc, dist in zip(ids, metas, docs, dists):
         meta = meta or {}
         if id_allow is not None and uid not in id_allow:
@@ -258,6 +343,21 @@ def _chroma_query(
         if id_deny_prefix and str(uid).startswith(id_deny_prefix):
             continue
         score = 1.0 / (1.0 + float(dist or 0.0))
+        support_candidate = {
+            **dict(meta),
+            "unit_id": str(uid),
+            "snippet": str(doc or "")[:300],
+            "answer": str(doc or "")[:300],
+        }
+        decision = annotate_candidate_support(
+            query,
+            support_candidate,
+            resolve=lambda ref: evidence_resolver.resolve(
+                ref, artifact_type="canonical_message", include_content=True
+            ),
+        )
+        if decision.state == "unsupported":
+            continue
         ranked.append(
             RankedHit(
                 id=str(uid),
@@ -266,7 +366,7 @@ def _chroma_query(
                 subject=str(meta.get("subject") or ""),
                 snippet=str(doc or "")[:300],
                 layer="knowledge_unit",
-                meta=dict(meta),
+                meta=support_candidate,
             )
         )
         if len(ranked) >= top_k:

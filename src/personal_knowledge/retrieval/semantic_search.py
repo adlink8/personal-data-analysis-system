@@ -37,6 +37,7 @@ from personal_knowledge.retrieval._db_utils import (  # noqa: E402
 from personal_knowledge.retrieval.google_assertions import get_google_structure_status  # noqa: E402
 from personal_knowledge.retrieval.merge_cluster import _merge_layer_ready, _dedup_event_ids  # noqa: E402
 from personal_knowledge.retrieval.serving import ServingSnapshotResolver, member_version  # noqa: E402
+from personal_knowledge.retrieval.relevance import annotate_candidate_support  # noqa: E402
 
 def search_semantic(
     query: str,
@@ -606,6 +607,25 @@ def search_knowledge_units(
         return _pack(route="fallback_raw", results=[], reason="embedding failed")
 
     client = ChromaClient(port=_KU_PORT)
+    from personal_knowledge.retrieval.evidence import EvidenceResolver  # noqa: E402
+    support_resolver = EvidenceResolver(
+        unified_db=_C.UNIFIED_DB,
+        conversation_db=_C.AGENT_CONVERSATIONS_DB,
+        google_db=_C.GOOGLE_DB,
+    )
+
+    def _resolve_support_ref(item: dict, ref: str) -> dict:
+        unit = str(item.get("retrieval_unit") or "")
+        source_name = str(item.get("source") or "").lower()
+        if ref.startswith("cm|"):
+            artifact_type = "canonical_message"
+        elif source_name == "google" or ref.startswith("g|"):
+            artifact_type = "google_signal"
+        elif unit in {"dialogue", "turn"}:
+            artifact_type = "turn"
+        else:
+            artifact_type = "knowledge_unit"
+        return support_resolver.resolve(ref, artifact_type=artifact_type, include_content=True)
 
     # --- Phase 1: 知识层检索（top-KU_SLOTS） ---
     ku_results: list[dict] = []
@@ -645,6 +665,14 @@ def search_knowledge_units(
                     }
                     if include_evidence:
                         item["evidence_quote"] = ""
+                    decision = annotate_candidate_support(
+                        query,
+                        item,
+                        resolve=lambda ref: _resolve_support_ref(item, ref),
+                    )
+                    if decision.state == "unsupported":
+                        layer["abstained"] = int(layer.get("abstained") or 0) + 1
+                        continue
                     ku_results.append(item)
                     if len(ku_results) >= _KU_SLOTS:
                         break
@@ -685,6 +713,13 @@ def search_knowledge_units(
         return top_k - len(ku_results) - len(fallback_results)
 
     def _append_unique(item: dict) -> bool:
+        decision = annotate_candidate_support(
+            query,
+            item,
+            resolve=lambda ref: _resolve_support_ref(item, ref),
+        )
+        if decision.state == "unsupported":
+            return False
         uid = str(item.get("unit_id") or item.get("event_id") or "")
         if uid and uid in seen_ids:
             return False

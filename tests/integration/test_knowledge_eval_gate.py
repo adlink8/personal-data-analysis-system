@@ -134,6 +134,9 @@ def test_full_entrypoint_offline_dry_run(tmp_path: Path) -> None:
     assert before == after
     assert summary.get("active_unchanged") is True
     assert (tmp_path / "run" / "summary.json").exists()
+    assert (tmp_path / "run" / "run_manifest.json").exists()
+    manifest = json.loads((tmp_path / "run" / "run_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["serving_snapshot_before"] == manifest["serving_snapshot_after"]
     # missing candidate / structural gate may FAIL — non-zero path tested via gate verdict
     assert "run_id" in summary
 

@@ -94,14 +94,38 @@ class EvidenceResolver:
         key = "canonical_unit_id" if table.startswith("canonical") else "unit_id"
         row = con.execute(f"SELECT * FROM {table} WHERE {key}=?", (ref,)).fetchone()
         refs: list[str] = []
-        if row and _table(con, "knowledge_unit_evidence"):
-            refs = [str(x[0]) for x in con.execute("SELECT evidence_ref FROM knowledge_unit_evidence WHERE unit_id=?", (ref,)).fetchall()]
+        if (
+            row
+            and table.startswith("canonical")
+            and _table(con, "canonical_unit_members")
+            and _table(con, "knowledge_units")
+        ):
+            refs = [
+                str(x[0])
+                for x in con.execute(
+                    "SELECT u.source_message_ref FROM knowledge_units u "
+                    "JOIN canonical_unit_members m ON m.member_unit_id=u.unit_id "
+                    "WHERE m.canonical_unit_id=? AND COALESCE(u.source_message_ref,'')<>'' "
+                    "ORDER BY m.id",
+                    (ref,),
+                ).fetchall()
+            ]
+        elif row and _table(con, "knowledge_unit_evidence"):
+            refs = [
+                str(x[0])
+                for x in con.execute(
+                    "SELECT evidence_ref FROM knowledge_unit_evidence WHERE unit_id=?",
+                    (ref,),
+                ).fetchall()
+            ]
         data = dict(row) if row else None
         con.close()
         if not data:
             return self._result(ref, "knowledge_unit", "missing")
         content = data.pop("answer", None)
         data.pop("evidence_quote", None)
+        if refs and not data.get("source_message_ref"):
+            data["source_message_ref"] = refs[0]
         return self._result(ref, "knowledge_unit", "ok", eligible=True, evidence_refs=refs, metadata=data, content=content if include else None)
 
     def _turn(self, ref: str, include: bool) -> dict[str, Any]:
