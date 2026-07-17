@@ -16,6 +16,7 @@ from personal_knowledge.intelligence.decision.state_machine import (
     project_history,
     record_action,
     record_confirmation,
+    record_outcome,
 )
 from personal_knowledge.intelligence.runs import plan_run as plan_state_run
 from personal_knowledge.intelligence.runs import publish_run as publish_state_run
@@ -237,3 +238,87 @@ def test_missing_genesis_and_checksum_chain_tamper_fail_closed(tmp_path: Path) -
     con.commit(); con.close()
     with pytest.raises(DecisionStateError, match="event_chain_mismatch"):
         project_history(db2, rec2.recommendation_id)
+
+
+def _complete(db: Path, rec: Any) -> None:
+    _confirm(db, rec)
+    _action(db, rec)
+    _action(db, rec, action_state="started", expected_sequence=3,
+            idempotency_key="action-started", reason_code="user_started")
+    _action(db, rec, action_state="completed", expected_sequence=4,
+            idempotency_key="action-completed", reason_code="user_completed")
+
+
+def _outcome(db: Path, rec: Any, **changes: Any) -> Any:
+    con = sqlite3.connect(db)
+    action_id, action_checksum = con.execute(
+        "SELECT action_id,payload_checksum FROM decision_actions WHERE action_state='completed'"
+    ).fetchone()
+    con.close()
+    args = dict(
+        recommendation_id=rec.recommendation_id,
+        recommendation_checksum=rec.payload_checksum,
+        action_id=action_id,
+        action_checksum=action_checksum,
+        source_class="user_reported",
+        actor_class="user",
+        actor_identity_hash="1" * 64,
+        measurement_definition="weekly completed focus blocks",
+        metric="focus_blocks",
+        baseline_value=2.0,
+        target_value=4.0,
+        observed_value=5.0,
+        unit="count/week",
+        direction="increase",
+        window_start="2026-07-18T01:00:00Z",
+        window_end="2026-07-25T01:00:00Z",
+        adherence_status="adhered",
+        evidence_refs=("observation:a.personal_change:obs1:" + "c" * 64,),
+        confidence=.8,
+        uncertainty=(),
+        confounders=(),
+        concurrent_actions=(),
+        expected_sequence=5,
+        idempotency_key="outcome-1",
+        occurred_at="2026-07-25T01:01:00Z",
+    )
+    args.update(changes)
+    return record_outcome(db, **args)
+
+
+def test_outcome_extends_completed_action_with_idempotent_checksum_chain(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path)
+    _complete(db, rec)
+    first = _outcome(db, rec)
+    assert first.sequence == 6
+    assert _outcome(db, rec) == first
+    state = project_history(db, rec.recommendation_id)
+    assert state.events[-1].event_type == "outcome"
+    with pytest.raises(DecisionStateError, match="idempotency_conflict"):
+        _outcome(db, rec, observed_value=6.0)
+
+
+def test_outcome_rejects_invalid_action_binding_sequence_and_cross_snapshot_ref(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path)
+    _complete(db, rec)
+    for changes, code in (
+        ({"action_checksum": "0" * 64}, "action_checksum_mismatch"),
+        ({"expected_sequence": 4}, "stale_expected_sequence"),
+        ({"evidence_refs": ("observation:a.personal_change:obs1:" + "c" * 64 + ":other",)}, "typed_evidence_ref_invalid"),
+    ):
+        with pytest.raises(DecisionStateError, match=code):
+            _outcome(db, rec, **changes)
+
+
+def test_concurrent_outcome_writers_allow_one_sequence_owner(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path)
+    _complete(db, rec)
+    def writer(key: str) -> str:
+        try:
+            _outcome(db, rec, idempotency_key=key)
+            return "written"
+        except DecisionStateError as exc:
+            return exc.code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(writer, ("outcome-a", "outcome-b")))
+    assert sorted(results) == ["stale_expected_sequence", "written"]

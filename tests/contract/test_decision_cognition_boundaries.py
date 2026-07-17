@@ -89,3 +89,13 @@ def test_decision_write_modules_have_no_external_executor_surface() -> None:
     source = recommendations.__loader__.get_source(recommendations.__name__) + state_machine.__loader__.get_source(state_machine.__name__)
     for forbidden in ("import requests", "import httpx", "import subprocess", "def dispatch(", "def execute("):
         assert forbidden not in source
+
+
+def test_effectiveness_is_always_an_observational_inference() -> None:
+    from personal_knowledge.intelligence.decision import effectiveness
+
+    source = effectiveness.__loader__.get_source(effectiveness.__name__)
+    assert 'causal_claim=False' in source
+    assert 'cognitive_type="inference"' in source
+    for forbidden in ("counterfactual_effect", "causal_claim=True", "UPDATE decision_effectiveness"):
+        assert forbidden not in source
