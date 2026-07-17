@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "personal-knowledge-review-v1",
+  "title": "Private human review labels",
+  "type": "object",
+  "required": ["packet_id", "source_checksum", "reviewer_id", "reviewed_at"],
+  "properties": {
+    "packet_id": {"type": "string", "minLength": 8},
+    "source_checksum": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "reviewer_id": {"type": "string", "minLength": 3},
+    "reviewed_at": {"type": "string", "format": "date-time"},
+    "labels": {"type": "array"},
+    "ratings": {"type": "array"}
+  },
+  "additionalProperties": false
+}
