@@ -6,6 +6,7 @@ var/**
 # analysis reports are runtime-generated; only a marker README is versioned
 !var/reports/
 var/reports/**
+!var/reports/README.md
 !var/reports/analysis/
 var/reports/analysis/**
 !var/reports/analysis/README.md

@@ -1,5 +1,32 @@
 # data/ — Phase 20 private data roots
 
+## Responsibility
+
+Private raw, staging, canonical, and import data owned by the data platform.
+
+## Boundaries
+
+Data is not source code or a generated report tree. Private content is excluded
+from Git and must not be read by metadata-only governance scans.
+
+## Entry points
+
+Use `personal_knowledge.core.project_paths`, `pk-sync`, and the documented
+application pipelines; do not hard-code physical paths.
+
+## I/O and privacy
+
+Privacy class: R3/R4 private data. Never commit message bodies, credentials,
+SQLite contents, or raw exports. AgentsView live remains external and read-only.
+
+## Tests
+
+Path, privacy, and physical-layout contracts live under `tests/governance/`.
+
+## Ownership
+
+Owner: data-platform. Status: private-data.
+
 | Path | Content |
 |------|---------|
 | `raw/google/` | Google Takeout-style raw exports |

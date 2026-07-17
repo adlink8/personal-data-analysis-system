@@ -36,6 +36,13 @@ pk-ku canary --help
 Legacy imports via `domains.*` / `retrieval.evaluate_*` re-exports still work for
 compat callers; **new code must import `evaluation.*`**.
 
+## I/O and privacy
+
+Evaluation consumes frozen local datasets and candidate artifacts. Reports must
+store metrics, stable IDs, and redacted evidence only; private message bodies and
+credentials must not leave the local governed workspace. Evaluation never
+promotes an index by itself.
+
 ## Tests
 
 ```powershell

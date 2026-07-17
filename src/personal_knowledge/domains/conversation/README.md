@@ -21,11 +21,21 @@ moved in Phase 21. Remaining modules are re-export facades to
 | Eval / compare / eval-set | `personal_knowledge.evaluation.conversation` |
 | LLM client + retry | `personal_knowledge.core.llm` |
 
+## Entry points
+
+Compatibility imports only; product callers use `pk-sync` or canonical
+`application.conversation` modules.
+
+## I/O and privacy
+
+Facades add no I/O. Canonical conversation code enforces local-only private data
+and read-only AgentsView access.
+
 ## Tests
 
 Conversation normalization and contract tests under `tests/`.
 
 ## Ownership
 
-Owner: conversation (compat). Status: re-export only.
+Owner: conversation. Status: supported compatibility re-export only.
 Last layout review: 2026-07-16 (Phase 22; facade debt clear).

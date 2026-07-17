@@ -46,6 +46,12 @@ python -m personal_knowledge.application.knowledge.refresh_knowledge_units --hel
 # PK_ALLOW_LEGACY_PIPELINE=1 python -m personal_knowledge.application.run_pipeline --legacy-integrated --dry-run
 ```
 
+## I/O and privacy
+
+Application pipelines read and write only through governed project paths. Raw
+private bodies stay local; publication requires evidence, privacy, evaluation,
+and explicit write gates. AgentsView live is always read-only.
+
 ## Tests
 
 Dry-run, idempotency, failure and lifecycle tests under `tests/`.
