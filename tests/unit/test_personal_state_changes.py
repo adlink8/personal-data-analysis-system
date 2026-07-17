@@ -6,8 +6,12 @@ import pytest
 
 from personal_knowledge.intelligence.changes import (
     ChangeError,
+    INFERENCE_PROVENANCE,
+    TrendSample,
     change_set_checksum,
     compare_projections,
+    derive_risk,
+    derive_trend,
 )
 from personal_knowledge.intelligence.schema import ValidatedEvidence, checksum
 from personal_knowledge.intelligence.state_projection import (
@@ -180,3 +184,98 @@ def test_out_of_order_projection_or_cross_snapshot_fails_closed() -> None:
         compare_projections(empty_later, empty_earlier)
     with pytest.raises(ChangeError, match="incompatible_snapshot"):
         compare_projections(empty_earlier, replace(empty_later, snapshot_hash="different"))
+
+
+def _samples(
+    values: tuple[float, ...],
+    *,
+    key: StateKey = replace(KEY, assertion_kind="constraint"),
+    unit: str = "minutes",
+    eligible: bool = True,
+    confidence: float = 0.9,
+) -> tuple[TrendSample, ...]:
+    return tuple(
+        TrendSample(
+            assertion_id=f"obs-{index}",
+            key=key,
+            value=value,
+            unit=unit,
+            observed_at=f"2026-0{index}-01T00:00:00Z",
+            evidence_refs=(f"msg:obs-{index}",),
+            evidence_eligible=eligible,
+            confidence=confidence,
+        )
+        for index, value in enumerate(values, 1)
+    )
+
+
+def test_trend_requires_three_comparable_ordered_observations() -> None:
+    two = derive_trend(_samples((10.0, 12.0)))
+    three = derive_trend(_samples((10.0, 12.0, 15.0)))
+
+    assert two.result_status == "uncertain"
+    assert two.uncertainty == ("insufficient_samples",)
+    assert three.result_status == "derived"
+    assert three.provenance_class == INFERENCE_PROVENANCE
+    assert (three.sample_count, three.direction, three.magnitude) == (3, "up", 5.0)
+    assert three.magnitude_method == "endpoint_delta"
+    assert three.window_start == "2026-01-01T00:00:00Z"
+    assert three.window_end == "2026-03-01T00:00:00Z"
+
+
+def test_trend_replay_is_order_independent_and_rule_versioned() -> None:
+    samples = _samples((15.0, 12.0, 10.0))
+    first = derive_trend(samples)
+    second = derive_trend(reversed(samples))
+    assert first == second
+    assert first.rule_id == "ordered_numeric_trend"
+    assert first.rule_version == "1"
+    assert first.assertion_ids == ("obs-1", "obs-2", "obs-3")
+
+
+@pytest.mark.parametrize(
+    ("samples", "reason"),
+    [
+        (_samples((1.0, 2.0, 3.0), unit=""), "missing_or_incompatible_unit"),
+        (_samples((1.0, 2.0, 3.0), eligible=False), "evidence_ineligible"),
+        (_samples((1.0, 2.0, 3.0), confidence=0.4), "weak_support"),
+    ],
+)
+def test_trend_privacy_unit_and_weak_support_vetoes_are_explicit(samples, reason) -> None:
+    result = derive_trend(samples)
+    assert result.result_status == "uncertain"
+    assert result.direction is None
+    assert reason in result.uncertainty
+
+
+def test_same_timestamp_conflicts_cannot_create_confident_trend() -> None:
+    rows = list(_samples((1.0, 2.0, 3.0)))
+    rows[1] = replace(rows[1], observed_at=rows[0].observed_at)
+    result = derive_trend(rows)
+    assert result.result_status == "uncertain"
+    assert "conflicting_inputs" in result.uncertainty
+
+
+def test_risk_is_named_inference_only_and_non_prescriptive() -> None:
+    trend = derive_trend(_samples((10.0, 12.0, 15.0)))
+    risk = derive_risk(trend, rule_id="increasing_constraint_pressure")
+    assert risk.result_status == "derived"
+    assert risk.inference_type == "risk"
+    assert risk.provenance_class == "inference"
+    assert risk.rule_version == "1"
+    assert risk.severity == "elevated"
+    assert not hasattr(risk, "recommendation")
+    assert not hasattr(risk, "action")
+
+
+def test_unmatched_or_uncertain_trend_cannot_create_confident_risk() -> None:
+    falling = derive_trend(_samples((15.0, 12.0, 10.0)))
+    unmatched = derive_risk(falling, rule_id="increasing_constraint_pressure")
+    uncertain = derive_risk(
+        derive_trend(_samples((1.0, 2.0))),
+        rule_id="increasing_constraint_pressure",
+    )
+    assert unmatched.result_status == "uncertain"
+    assert "rule_not_matched" in unmatched.uncertainty
+    assert uncertain.result_status == "uncertain"
+    assert "upstream_trend_uncertain" in uncertain.uncertainty

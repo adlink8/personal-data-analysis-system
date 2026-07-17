@@ -5,6 +5,8 @@ import pytest
 from dataclasses import replace
 
 from personal_knowledge.intelligence.schema import SnapshotBinding, canonical_json
+from personal_knowledge.intelligence.changes import TrendSample, derive_risk, derive_trend
+from personal_knowledge.intelligence.state_projection import StateKey
 from personal_knowledge.intelligence.state_projection import (
     ProjectionError,
     normalize_candidates,
@@ -229,3 +231,48 @@ def test_projection_planning_delegates_to_atomic_run_api(
     assert captured["producer_version"] == "projection-v1"
     assert captured["resolver"] == "resolver-marker"
     assert len(captured["assertions"]) == 1
+
+
+def test_trend_and_risk_outputs_can_never_claim_fact_provenance() -> None:
+    key = StateKey("constraint", "user", "health", "weekly", "load")
+    samples = tuple(
+        TrendSample(
+            assertion_id=f"a{index}",
+            key=key,
+            value=float(index),
+            unit="count",
+            observed_at=f"2026-0{index}-01T00:00:00Z",
+            evidence_refs=(f"cm|{index}",),
+            evidence_eligible=True,
+            confidence=0.9,
+        )
+        for index in range(1, 4)
+    )
+    trend = derive_trend(samples)
+    risk = derive_risk(trend, rule_id="increasing_constraint_pressure")
+    assert trend.provenance_class == "inference"
+    assert risk.provenance_class == "inference"
+    assert "fact" not in canonical_json((trend, risk))
+
+
+def test_ineligible_evidence_vetoes_trend_and_downstream_risk() -> None:
+    key = StateKey("constraint", "user", "health", "weekly", "load")
+    samples = tuple(
+        TrendSample(
+            assertion_id=f"a{index}",
+            key=key,
+            value=float(index),
+            unit="count",
+            observed_at=f"2026-0{index}-01T00:00:00Z",
+            evidence_refs=(f"cm|{index}",),
+            evidence_eligible=index != 2,
+            confidence=0.9,
+        )
+        for index in range(1, 4)
+    )
+    trend = derive_trend(samples)
+    risk = derive_risk(trend, rule_id="increasing_constraint_pressure")
+    assert trend.result_status == "uncertain"
+    assert "evidence_ineligible" in trend.uncertainty
+    assert risk.result_status == "uncertain"
+    assert risk.severity is None

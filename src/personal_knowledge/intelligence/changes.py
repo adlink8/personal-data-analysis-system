@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+import math
+from types import MappingProxyType
+from typing import Any, Iterable
 
 from .schema import canonical_json, checksum
 from .state_projection import FormationStep, ProjectedState, StateKey, StateProjection
@@ -19,6 +21,43 @@ BASE_CHANGE_RULE_ID = "typed_state_delta"
 BASE_CHANGE_RULE_VERSION = "1"
 BASE_CHANGE_TYPES = frozenset(
     {"created", "updated", "reaffirmed", "stale", "conflict", "resolved"}
+)
+INFERENCE_PROVENANCE = "inference"
+
+
+@dataclass(frozen=True)
+class RuleSpec:
+    rule_id: str
+    version: str
+    inference_type: str
+    minimum_samples: int
+    description: str
+
+
+RULE_REGISTRY = MappingProxyType(
+    {
+        "ordered_numeric_trend": RuleSpec(
+            rule_id="ordered_numeric_trend",
+            version="1",
+            inference_type="trend",
+            minimum_samples=3,
+            description="Endpoint direction over at least three ordered comparable observations.",
+        ),
+        "increasing_constraint_pressure": RuleSpec(
+            rule_id="increasing_constraint_pressure",
+            version="1",
+            inference_type="risk",
+            minimum_samples=3,
+            description="An increasing constraint observation trend is an elevated non-prescriptive risk.",
+        ),
+        "decreasing_goal_signal": RuleSpec(
+            rule_id="decreasing_goal_signal",
+            version="1",
+            inference_type="risk",
+            minimum_samples=3,
+            description="A decreasing goal observation trend is an elevated non-prescriptive risk.",
+        ),
+    }
 )
 
 
@@ -57,6 +96,42 @@ class ChangeSet:
     after_as_of: str
     records: tuple[ChangeRecord, ...]
     manifest_checksum: str
+
+
+@dataclass(frozen=True)
+class TrendSample:
+    assertion_id: str
+    key: StateKey
+    value: float
+    unit: str
+    observed_at: str
+    evidence_refs: tuple[str, ...]
+    evidence_eligible: bool
+    confidence: float
+    uncertainty: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class InferenceRecord:
+    inference_id: str
+    inference_type: str
+    result_status: str
+    key: StateKey
+    provenance_class: str
+    rule_id: str
+    rule_version: str
+    assertion_ids: tuple[str, ...]
+    evidence_refs: tuple[str, ...]
+    sample_count: int
+    window_start: str | None
+    window_end: str | None
+    direction: str | None
+    magnitude: float | None
+    magnitude_method: str | None
+    unit: str | None
+    severity: str | None
+    confidence: float
+    uncertainty: tuple[str, ...]
 
 
 def _parse_time(value: str, field: str) -> datetime:
@@ -309,3 +384,173 @@ def change_set_checksum(value: ChangeSet) -> str:
             "records": value.records,
         }
     )
+
+
+def _inference_record(**fields: Any) -> InferenceRecord:
+    identity = {
+        "algorithm_version": CHANGE_ALGORITHM_VERSION,
+        **fields,
+    }
+    return InferenceRecord(
+        inference_id=f"psi_{checksum(identity)[:24]}",
+        **fields,
+    )
+
+
+def _uncertain_inference(
+    *,
+    inference_type: str,
+    key: StateKey,
+    rule: RuleSpec,
+    samples: tuple[TrendSample, ...],
+    reasons: Iterable[str],
+) -> InferenceRecord:
+    times = tuple(sample.observed_at for sample in samples)
+    return _inference_record(
+        inference_type=inference_type,
+        result_status="uncertain",
+        key=key,
+        provenance_class=INFERENCE_PROVENANCE,
+        rule_id=rule.rule_id,
+        rule_version=rule.version,
+        assertion_ids=tuple(sorted(sample.assertion_id for sample in samples)),
+        evidence_refs=tuple(sorted({ref for sample in samples for ref in sample.evidence_refs})),
+        sample_count=len(samples),
+        window_start=min(times, key=lambda value: _parse_time(value, "observed_at")) if times else None,
+        window_end=max(times, key=lambda value: _parse_time(value, "observed_at")) if times else None,
+        direction=None,
+        magnitude=None,
+        magnitude_method=None,
+        unit=None,
+        severity=None,
+        confidence=0.0,
+        uncertainty=tuple(sorted(set(reasons))),
+    )
+
+
+def derive_trend(
+    samples: Iterable[TrendSample],
+    *,
+    rule_id: str = "ordered_numeric_trend",
+) -> InferenceRecord:
+    """Apply the versioned numeric trend rule without promoting it to fact."""
+    rule = RULE_REGISTRY.get(rule_id)
+    if rule is None or rule.inference_type != "trend":
+        raise ChangeError("unknown_trend_rule", rule_id)
+    rows = tuple(
+        sorted(
+            samples,
+            key=lambda row: (
+                _parse_time(row.observed_at, "observed_at"),
+                row.assertion_id,
+            ),
+        )
+    )
+    if not rows:
+        raise ChangeError("trend_samples_required")
+    key = rows[0].key
+    reasons: list[str] = []
+    if any(row.key != key for row in rows):
+        reasons.append("incompatible_state_key")
+    if len({row.assertion_id for row in rows}) != len(rows):
+        reasons.append("duplicate_assertion")
+    if len(rows) < rule.minimum_samples:
+        reasons.append("insufficient_samples")
+    units = {row.unit.strip() for row in rows if row.unit.strip()}
+    if len(units) != 1 or any(not row.unit.strip() for row in rows):
+        reasons.append("missing_or_incompatible_unit")
+    if any(not row.evidence_eligible or not row.evidence_refs for row in rows):
+        reasons.append("evidence_ineligible")
+    if any(not 0.0 <= row.confidence <= 1.0 for row in rows):
+        reasons.append("invalid_confidence")
+    elif min(row.confidence for row in rows) < 0.6:
+        reasons.append("weak_support")
+    values_by_time: dict[str, set[float]] = {}
+    for row in rows:
+        values_by_time.setdefault(row.observed_at, set()).add(float(row.value))
+    if any(not math.isfinite(float(row.value)) for row in rows):
+        reasons.append("invalid_numeric_value")
+    if any(len(values) > 1 for values in values_by_time.values()):
+        reasons.append("conflicting_inputs")
+    if reasons:
+        return _uncertain_inference(
+            inference_type="trend",
+            key=key,
+            rule=rule,
+            samples=rows,
+            reasons=(*reasons, *(reason for row in rows for reason in row.uncertainty)),
+        )
+
+    magnitude = float(rows[-1].value) - float(rows[0].value)
+    direction = "up" if magnitude > 0 else "down" if magnitude < 0 else "stable"
+    fields = {
+        "inference_type": "trend",
+        "result_status": "derived",
+        "key": key,
+        "provenance_class": INFERENCE_PROVENANCE,
+        "rule_id": rule.rule_id,
+        "rule_version": rule.version,
+        "assertion_ids": tuple(row.assertion_id for row in rows),
+        "evidence_refs": tuple(sorted({ref for row in rows for ref in row.evidence_refs})),
+        "sample_count": len(rows),
+        "window_start": rows[0].observed_at,
+        "window_end": rows[-1].observed_at,
+        "direction": direction,
+        "magnitude": magnitude,
+        "magnitude_method": "endpoint_delta",
+        "unit": rows[0].unit,
+        "severity": None,
+        "confidence": min(row.confidence for row in rows),
+        "uncertainty": tuple(sorted({reason for row in rows for reason in row.uncertainty})),
+    }
+    return _inference_record(**fields)
+
+
+def derive_risk(
+    trend: InferenceRecord,
+    *,
+    rule_id: str,
+) -> InferenceRecord:
+    """Apply a named non-prescriptive risk rule to one derived trend."""
+    rule = RULE_REGISTRY.get(rule_id)
+    if rule is None or rule.inference_type != "risk":
+        raise ChangeError("unknown_risk_rule", rule_id)
+    reasons: list[str] = []
+    expected_direction = {
+        "increasing_constraint_pressure": ("constraint", "up"),
+        "decreasing_goal_signal": ("goal", "down"),
+    }[rule_id]
+    if trend.inference_type != "trend" or trend.provenance_class != INFERENCE_PROVENANCE:
+        reasons.append("invalid_trend_input")
+    if trend.result_status != "derived":
+        reasons.append("upstream_trend_uncertain")
+    if trend.sample_count < rule.minimum_samples:
+        reasons.append("insufficient_samples")
+    if not trend.evidence_refs:
+        reasons.append("evidence_ineligible")
+    if (trend.key.assertion_kind, trend.direction) != expected_direction:
+        reasons.append("rule_not_matched")
+    if trend.confidence < 0.6:
+        reasons.append("weak_support")
+    result_status = "uncertain" if reasons else "derived"
+    fields = {
+        "inference_type": "risk",
+        "result_status": result_status,
+        "key": trend.key,
+        "provenance_class": INFERENCE_PROVENANCE,
+        "rule_id": rule.rule_id,
+        "rule_version": rule.version,
+        "assertion_ids": trend.assertion_ids,
+        "evidence_refs": trend.evidence_refs,
+        "sample_count": trend.sample_count,
+        "window_start": trend.window_start,
+        "window_end": trend.window_end,
+        "direction": trend.direction if not reasons else None,
+        "magnitude": trend.magnitude if not reasons else None,
+        "magnitude_method": trend.magnitude_method if not reasons else None,
+        "unit": trend.unit if not reasons else None,
+        "severity": "elevated" if not reasons else None,
+        "confidence": trend.confidence if not reasons else 0.0,
+        "uncertainty": tuple(sorted(set((*trend.uncertainty, *reasons)))),
+    }
+    return _inference_record(**fields)
