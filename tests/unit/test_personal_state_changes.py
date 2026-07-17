@@ -237,7 +237,7 @@ def test_trend_requires_three_comparable_ordered_observations() -> None:
     three = derive_trend(_samples((10.0, 12.0, 15.0)))
 
     assert two.result_status == "uncertain"
-    assert two.uncertainty == ("insufficient_samples",)
+    assert "insufficient_samples" in two.uncertainty
     assert three.result_status == "derived"
     assert three.provenance_class == INFERENCE_PROVENANCE
     assert (three.sample_count, three.direction, three.magnitude) == (3, "up", 5.0)
@@ -277,6 +277,15 @@ def test_same_timestamp_conflicts_cannot_create_confident_trend() -> None:
     result = derive_trend(rows)
     assert result.result_status == "uncertain"
     assert "conflicting_inputs" in result.uncertainty
+    assert "insufficient_ordered_samples" in result.uncertainty
+
+
+def test_invalid_numeric_values_are_explicitly_uncertain_not_runtime_errors() -> None:
+    rows = list(_samples((1.0, 2.0, 3.0)))
+    rows[1] = replace(rows[1], value="not-a-number")
+    result = derive_trend(rows)
+    assert result.result_status == "uncertain"
+    assert "invalid_numeric_value" in result.uncertainty
 
 
 def test_risk_is_named_inference_only_and_non_prescriptive() -> None:

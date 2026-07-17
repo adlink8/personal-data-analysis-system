@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import math
 from types import MappingProxyType
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .schema import canonical_json, checksum
 from .state_projection import FormationStep, ProjectedState, StateKey, StateProjection
@@ -283,7 +283,7 @@ def _value_type(value: Any) -> str:
         return "string"
     if isinstance(value, (tuple, list)):
         return "array"
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return "object"
     raise ChangeError("unsupported_value_type", type(value).__name__)
 
@@ -488,13 +488,22 @@ def derive_trend(
         reasons.append("invalid_confidence")
     elif min(row.confidence for row in rows) < 0.6:
         reasons.append("weak_support")
+    numeric_values_are_valid = all(
+        not isinstance(row.value, bool)
+        and isinstance(row.value, (int, float))
+        and math.isfinite(float(row.value))
+        for row in rows
+    )
     values_by_time: dict[str, set[float]] = {}
-    for row in rows:
-        values_by_time.setdefault(row.observed_at, set()).add(float(row.value))
-    if any(not math.isfinite(float(row.value)) for row in rows):
+    if numeric_values_are_valid:
+        for row in rows:
+            values_by_time.setdefault(row.observed_at, set()).add(float(row.value))
+    else:
         reasons.append("invalid_numeric_value")
     if any(len(values) > 1 for values in values_by_time.values()):
         reasons.append("conflicting_inputs")
+    if len({row.observed_at for row in rows}) < rule.minimum_samples:
+        reasons.append("insufficient_ordered_samples")
     if reasons:
         return _uncertain_inference(
             inference_type="trend",
