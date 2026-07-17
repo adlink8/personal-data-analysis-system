@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+from personal_knowledge.application.knowledge.lifecycle_events import ensure_lifecycle_schema
 from personal_knowledge.intelligence.decision.runs import (
     DecisionValidationError,
     plan_run,
@@ -34,10 +35,12 @@ class StubResolver:
 
 
 def _database(tmp_path: Path) -> tuple[Path, str]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     db_path = tmp_path / "decision-feedback.sqlite"
     con = sqlite3.connect(db_path)
     con.execute("PRAGMA foreign_keys=ON")
     con.executescript(SCHEMA_SQL)
+    ensure_lifecycle_schema(con)
     for row in (
         ("a.personal_change", "A", "personal_change_analysis", "R4", "a-hash", "now"),
         ("a.decision_feedback", "A", "decision_feedback", "R4", "d-hash", "now"),
@@ -142,6 +145,7 @@ def test_cross_snapshot_unpublished_stale_and_tampered_inputs_fail_without_rows(
     with pytest.raises(DecisionValidationError, match="source_run_checksum_mismatch"):
         plan_run(db_path, [replace(draft, support=(replace(draft.support[0], source_run_checksum="0" * 64),))], policy_id="p", policy_version="v1", input_manifest={})
     con = sqlite3.connect(db_path)
+    con.execute("DROP TRIGGER trg_personal_state_publications_immutable_delete")
     con.execute("DELETE FROM personal_state_publications WHERE run_id=?", (source_run_id,))
     con.commit(); con.close()
     with pytest.raises(DecisionValidationError, match="source_run_unpublished"):
@@ -160,3 +164,35 @@ def test_missing_or_tampered_genesis_and_manifest_are_rejected_on_replay(tmp_pat
     with pytest.raises(DecisionValidationError, match="genesis_missing"):
         publish_run(db_path, run, write=True)
 
+
+def test_tampered_persisted_recommendation_and_run_manifest_fail_closed(tmp_path: Path) -> None:
+    db_path, source_run_id = _database(tmp_path)
+    run = plan_run(db_path, [_draft(db_path, source_run_id)], policy_id="p", policy_version="v1", input_manifest={})
+    publish_run(db_path, run, write=True)
+    con = sqlite3.connect(db_path)
+    con.execute("DROP TRIGGER trg_decision_recommendations_immutable_update")
+    con.execute("UPDATE decision_recommendations SET payload_json='{}'")
+    con.commit(); con.close()
+    with pytest.raises(DecisionValidationError, match="recommendation_checksum_mismatch"):
+        publish_run(db_path, run, write=True)
+
+    other_db, other_source = _database(tmp_path / "other")
+    other = plan_run(other_db, [_draft(other_db, other_source)], policy_id="p", policy_version="v1", input_manifest={})
+    publish_run(other_db, other, write=True)
+    con = sqlite3.connect(other_db)
+    con.execute("DROP TRIGGER trg_decision_runs_immutable_update")
+    con.execute("UPDATE decision_runs SET output_manifest_json='{}'")
+    con.commit(); con.close()
+    with pytest.raises(DecisionValidationError, match="existing_run_checksum_mismatch"):
+        publish_run(other_db, other, write=True)
+
+
+def test_policy_change_creates_new_immutable_run_on_same_phase25_source(tmp_path: Path) -> None:
+    db_path, source_run_id = _database(tmp_path)
+    draft = _draft(db_path, source_run_id)
+    first = plan_run(db_path, [draft], policy_id="p", policy_version="v1", input_manifest={})
+    second = plan_run(db_path, [draft], policy_id="p", policy_version="v2", input_manifest={})
+    assert first.run_id != second.run_id
+    publish_run(db_path, first, write=True)
+    publish_run(db_path, second, write=True)
+    assert _counts(db_path)["decision_runs"] == 2

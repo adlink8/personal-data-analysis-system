@@ -24,7 +24,7 @@ def _reference(cognitive_type: str = "fact") -> CognitionReference:
         source_publication_sequence=1,
         snapshot_id="ss_fixture",
         snapshot_hash="snapshot-hash",
-        provenance_class="fact",
+        provenance_class=cognitive_type,
         evidence_status="eligible",
         uncertainty="",
         record_checksum="b" * 64,
@@ -67,4 +67,3 @@ def test_recommendation_is_canonical_and_forbids_truth_or_execution_authority() 
     assert canonical_json(draft) == canonical_json(draft)
     for forbidden in ("fact", "knowledge_unit", "approved", "executed"):
         assert forbidden not in draft.__dataclass_fields__
-
