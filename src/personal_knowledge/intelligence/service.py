@@ -260,6 +260,12 @@ class IntelligenceService:
                     (run_id,),
                 ).fetchone()
                 if selected_row is None:
+                    orphaned = con.execute(
+                        "SELECT 1 FROM personal_state_runs WHERE run_id=? AND status='committed'",
+                        (run_id,),
+                    ).fetchone()
+                    if orphaned is not None:
+                        raise IntelligenceServiceError("publication_sequence_missing", run_id)
                     raise IntelligenceServiceError("run_missing", run_id)
                 if snapshot_id and str(selected_row["snapshot_id"]) != snapshot_id:
                     raise IntelligenceServiceError("cross_snapshot_run", run_id)
@@ -279,6 +285,17 @@ class IntelligenceService:
                 raise IntelligenceServiceError("snapshot_missing", snapshot_id)
             if str(snapshot_row["status"]) != "validated":
                 raise IntelligenceServiceError("snapshot_not_validated", snapshot_id)
+            orphaned = con.execute(
+                "SELECT r.run_id FROM personal_state_runs r "
+                "LEFT JOIN personal_state_publications p ON p.run_id=r.run_id "
+                "WHERE r.snapshot_id=? AND r.status='committed' "
+                "AND p.publication_sequence IS NULL LIMIT 1",
+                (snapshot_id,),
+            ).fetchone()
+            if orphaned is not None:
+                raise IntelligenceServiceError(
+                    "publication_sequence_missing", str(orphaned["run_id"])
+                )
             if selected_row is None:
                 selected_row = con.execute(
                     "SELECT p.publication_sequence,r.* FROM personal_state_runs r "
@@ -288,6 +305,15 @@ class IntelligenceService:
                     (snapshot_id,),
                 ).fetchone()
             if selected_row is None:
+                orphaned = con.execute(
+                    "SELECT run_id FROM personal_state_runs "
+                    "WHERE snapshot_id=? AND status='committed' LIMIT 1",
+                    (snapshot_id,),
+                ).fetchone()
+                if orphaned is not None:
+                    raise IntelligenceServiceError(
+                        "publication_sequence_missing", str(orphaned["run_id"])
+                    )
                 raise IntelligenceServiceError("run_missing", snapshot_id)
             selected_order = int(selected_row["publication_sequence"])
             rows = con.execute(

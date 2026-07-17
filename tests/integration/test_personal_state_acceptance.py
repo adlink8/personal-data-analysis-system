@@ -116,3 +116,16 @@ def test_acceptance_blocks_corrupted_assertion_state(tmp_path) -> None:
     assert result["candidate"]["computed"] is False
     assert result["intelligence_gate"]["ok"] is False
     assert result["intelligence_gate"]["error"]["code"] == "assertion_payload_mismatch"
+
+
+def test_acceptance_blocks_committed_run_without_publication_sequence(tmp_path) -> None:
+    db_path, _, _, second = _service(tmp_path)
+    con = sqlite3.connect(db_path)
+    con.execute("DROP TRIGGER trg_personal_state_publications_immutable_delete")
+    con.execute("DELETE FROM personal_state_publications WHERE run_id=?", (second.run_id,))
+    con.commit()
+    con.close()
+    result = run_acceptance(db_path, pointer_path=tmp_path / "missing.txt")
+    assert result["ok"] is False
+    assert result["candidate"]["computed"] is False
+    assert result["intelligence_gate"]["error"]["code"] == "publication_sequence_missing"
