@@ -132,6 +132,7 @@ def test_contract_load_holdout_schema() -> None:
 def test_eval_config_tracks_relocated_private_suite_and_runtime_active() -> None:
     cfg = load_config(_ROOT / "assets" / "evals" / "knowledge_units" / "eval_v1.yaml")
     assert cfg["scorer_version"] == SCORER_VERSION
+    assert cfg["policy_path"].endswith("eval_policy_v2.yaml")
     assert resolve_cases_path(cfg) == _ROOT / "var" / "runtime" / "private_evals" / "comprehensive_v1.private.jsonl"
     targets = cfg["targets"]
     assert targets.get("l1_l2_collection") is None

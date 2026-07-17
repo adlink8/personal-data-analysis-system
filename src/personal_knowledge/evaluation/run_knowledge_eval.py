@@ -742,16 +742,17 @@ def run_eval(
         try:
             from personal_knowledge.evaluation.gate_knowledge_candidate import evaluate_gate, load_policy
 
-            policy = load_policy(DEFAULT_POLICY) if DEFAULT_POLICY.exists() else {
-                "version": "v1",
-                "require_answer_eval": not retrieval_only,
-                "hard_gates": {},
-                "quality_gates": {
-                    "ku_vs_raw_recall5_pp": {"min_delta_pp": 10},
-                    "frozen_regression_pp": {"max_drop_pp": 2},
-                },
-                "required_modes": ["raw", "l1", "l1_l2", "hybrid"],
-            }
+            policy_value = cfg.get("policy_path")
+            policy_path = (
+                ROOT / policy_value
+                if policy_value and not Path(policy_value).is_absolute()
+                else Path(policy_value)
+                if policy_value
+                else DEFAULT_POLICY
+            )
+            if not policy_path.exists():
+                raise FileNotFoundError(f"evaluation policy not found: {policy_path}")
+            policy = load_policy(policy_path)
             gate_result = evaluate_gate(
                 summary,
                 policy,

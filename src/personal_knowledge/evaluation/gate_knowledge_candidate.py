@@ -78,8 +78,13 @@ def evaluate_gate(
         payload = modes.get(mode) or {}
         return payload.get("aggregate") or payload
 
-    # Hard: privacy/secret
+    # Hard safety gates apply to publishable candidate modes. Raw and L1 may
+    # remain as diagnostic baselines without allowing their legacy behavior to
+    # veto an otherwise safe candidate.
+    candidate_safety_modes = set(policy.get("candidate_safety_modes") or modes)
     for mode, payload in modes.items():
+        if mode not in candidate_safety_modes:
+            continue
         a = payload.get("aggregate") or payload
         ph = int(a.get("privacy_hit") or 0)
         sh = int(a.get("secret_hit") or 0)

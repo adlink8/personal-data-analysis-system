@@ -32,4 +32,4 @@ embed_model: bge-small-zh-v1.5
 answer:
   model: deterministic_extractive_v1
   prompt_version: answer_eval_v1
-policy_path: assets/evals/knowledge_units/eval_policy_v1.yaml
+policy_path: assets/evals/knowledge_units/eval_policy_v2.yaml

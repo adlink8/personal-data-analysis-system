@@ -72,6 +72,19 @@ def test_fail_closed_missing_answer_and_privacy() -> None:
     assert any("privacy" in r.lower() or "secret" in r.lower() for r in g2["reasons"])
 
 
+def test_candidate_safety_scope_does_not_charge_legacy_baseline() -> None:
+    policy = {**POLICY, "candidate_safety_modes": ["l1_l2", "hybrid"]}
+    baseline_hit = _summary_base()
+    baseline_hit["modes"]["raw"]["aggregate"]["privacy_hit"] = 1
+    baseline_gate = evaluate_gate(baseline_hit, policy, require_answer=False)
+    assert not any(reason.startswith("raw: privacy") for reason in baseline_gate["reasons"])
+
+    candidate_hit = _summary_base()
+    candidate_hit["modes"]["hybrid"]["aggregate"]["privacy_hit"] = 1
+    candidate_gate = evaluate_gate(candidate_hit, policy, require_answer=False)
+    assert any(reason.startswith("hybrid: privacy") for reason in candidate_gate["reasons"])
+
+
 def test_fail_closed_checksum_mismatch() -> None:
     g = evaluate_gate(
         _summary_base(),
