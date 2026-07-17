@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
 status: executing
-last_updated: "2026-07-17T19:30:00+08:00"
-last_activity: 2026-07-17 -- governance audit P0 remediation verified; Phase 22 roadmap close-out
+last_updated: "2026-07-17T20:30:00+08:00"
+last_activity: 2026-07-17 -- Phase 17 live eval re-audited; policy gate hardened; human review packet prepared
 progress:
   total_phases: 24
   completed_phases: 22
@@ -49,7 +49,7 @@ progress:
 ## Current Position
 
 **Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
-Readiness: `.planning/PRODUCT-READINESS.md` (**~87** weighted; daily product-grade approach)  
+Readiness: `.planning/PRODUCT-READINESS.md` (**~86** weighted; operationally usable, quality sign-off open)
 Active: `knowledge_units_ir_4cd8af4ad_20260716020508`; watermark matches source.  
 Next optional: `reconcile --write --i-know` after dry-run; Phase 17 human gold; facade retire 2026-08-13.
 
@@ -68,6 +68,8 @@ Next optional: `reconcile --write --i-know` after dry-run; Phase 17 human gold; 
 2. ~~Canary → promote → watermark~~ **DONE 2026-07-16** (active=ir_4cd8af; wm advanced)
 3. 2026-08-13: domains facade removal (inventory owned; mass rewrite deferred)
 4. Selective `reconcile --write --i-know` after dry-run review (optional)
+
+Phase 17 evaluation evidence: `17-EVAL-REVIEW.md` scores coverage **73/100 NEEDS WORK**. Latest live run uses 178 private cases and current Active; 20/20 real gold refs resolve, but the gate correctly FAILS on quality/privacy/no-answer/cross-turn/human-grounded requirements. A 50-row private grounded review packet is ready under `var/runtime/private_evals/`.
 
 ## Verification snapshot
 

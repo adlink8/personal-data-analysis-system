@@ -1,6 +1,6 @@
 # Product readiness scorecard
 
-**Updated:** 2026-07-16 (post Phase 22 plans 01–04)  
+**Updated:** 2026-07-17 (post Phase 22 and Phase 17 eval re-audit)
 **Product definition (local personal knowledge):** privacy-safe, evidence-backed, CLI/MCP operable daily without code edits; promote/rollback safe; growth history retained without hard delete.
 
 Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80 and no open P0.
@@ -17,7 +17,7 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 | **4. Retrieval layered** | 82 | yes | KU→dialogue→Google; fallback_policy=layered |
 | **5. Publish / active safety** | **90** | yes | Fail-closed promote; **active=`knowledge_units_ir_4cd8af4ad_20260716020508`** (2026-07-16); watermark matches source |
 | **6. Lifecycle / growth line** | **78** | **no** | **22-01** `pk-ku reconcile` (dry-run default, never DELETE); **22-02** `pk-ku history`; write still operator-gated |
-| **7. Eval / canary** | **88** | yes | LLM labels + human triage; **strict PASS**; Phase 17 gold still open |
+| **7. Eval / canary** | **72** | **no** | Operational canary strict PASS, but comprehensive live eval `ee36a1f178c17020` correctly FAILS; Phase 17 human gold/judge/UAT open |
 | **8. Ops / docs** | 90 | yes | Runbooks + AGENTS; **`pk-ku doctor`** (DBs, active pointer, watermark info, ports warn-only) |
 | **9. Governance / tests** | 90 | yes | Doctor unit tests + reconcile/history CLI tests; pytest path green |
 | **10. Facade / debt** | **88** | yes | **application → domains real imports = 0** (2026-07-16 rewrite); domains package remains as re-export shims until optional 2026-08-13 package delete |
@@ -26,10 +26,10 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 
 | Metric | Value |
 |--------|------:|
-| Simple average | **~88** |
-| Weighted (product daily = 2×, lifecycle 1.5×, publish 1.5×) | **~89** |
-| P0 open | **0** on daily publish path |
-| **Product-grade daily?** | **Yes (~89)**; Phase 17 human gold + optional domains package delete remain polish |
+| Simple average | **~86** |
+| Weighted (product daily = 2×, lifecycle 1.5×, publish 1.5×) | **~86** |
+| P0 open | **0** on the currently active publish path; future promotion remains fail-closed |
+| **Product-grade daily?** | **Operationally usable, not quality-signed**; Phase 17 full evaluation is below the declared bar |
 
 ### Score deltas vs pre-22 (~72 weighted)
 
@@ -77,7 +77,7 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 
 | If we complete… | Expected overall |
 |-----------------|-----------------:|
-| Now (post 22 + promote close-out) | **~87** weighted |
+| Now (post 22 + Phase 17 re-audit) | **~86** weighted |
 | + Phase 17 human checkpoints | **~90** |
 | + facade retire (import 0) | **~91–93** |
 

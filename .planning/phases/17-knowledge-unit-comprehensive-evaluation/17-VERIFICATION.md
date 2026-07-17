@@ -1,7 +1,7 @@
 ---
 phase: 17
 status: code_complete_human_residuals
-verified: 2026-07-13
+verified: 2026-07-17
 ---
 
 # Phase 17 Verification
@@ -31,3 +31,12 @@ python integration/scripts/evaluation/run_knowledge_eval.py --full --render --ga
 - Operator-labeled cross-turn gold
 - Judge calibration artifact
 - Signed `17-UAT.md` promote/rollback
+
+## 2026-07-17 re-audit
+
+- Live full run `ee36a1f178c17020` used the relocated 178-case private suite and current Active collection.
+- Dataset audit PASS: 20/20 real gold evidence refs resolve; no split leakage.
+- Active pointer/checksum proxy remained unchanged.
+- Gate correctly FAILS: +8.90pp primary delta is below +10pp; cross-turn delta is 0; no-answer FP is 90.625%; privacy/secret hits remain; grounded human labels are absent.
+- Policy implementation now checks citation, no-answer, reconcile, MRR, cross-turn, latency and grounded-human thresholds rather than merely declaring them in YAML.
+- See `17-EVAL-REVIEW.md` for scored coverage and remediation order.
