@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -45,3 +46,33 @@ def test_unknown_and_explicit_wrong_type_do_not_fall_through(tmp_path: Path) -> 
     assert r.resolve("cm|missing")["status"] == "missing"
     assert r.resolve("cm|ok", artifact_type="google_signal")["status"] == "missing"
     assert r.resolve("x", artifact_type="not-real")["status"] == "unknown_type"
+
+
+def test_turn_resolves_composite_id_from_authoritative_json(tmp_path: Path) -> None:
+    turns = tmp_path / "turns.json"
+    turns.write_text(
+        json.dumps(
+            [{
+                "session_id": "session-1",
+                "turn_summaries": [{
+                    "turn_id": "7",
+                    "narrative": "用户讨论 Python 柱状图",
+                    "source_refs": ["cm|1"],
+                }],
+            }],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    resolver = EvidenceResolver(
+        unified_db=tmp_path / "missing.sqlite",
+        conversation_db=tmp_path / "missing-conversation.sqlite",
+        google_db=tmp_path / "missing-google.sqlite",
+        turns_artifact=turns,
+    )
+    result = resolver.resolve(
+        "session-1#7", artifact_type="turn", include_content=True
+    )
+    assert result["status"] == "ok"
+    assert result["content"] == "用户讨论 Python 柱状图"
+    assert result["metadata"]["session_id"] == "session-1"

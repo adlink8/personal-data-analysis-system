@@ -52,6 +52,30 @@ def test_unresolved_legacy_candidate_is_uncertain_not_falsely_supported() -> Non
     assert "evidence_reference_absent" in decision.reason_codes
 
 
+def test_resolved_but_ungrounded_candidate_is_unsupported() -> None:
+    decision = decide_evidence_support(
+        "完全不同的主题", _candidate(), resolve=lambda ref: {"status": "ok"}
+    )
+    assert decision.state == "unsupported"
+    assert decision.reason_codes == ("query_candidate_ungrounded",)
+
+    generic = decide_evidence_support(
+        "no private content",
+        _candidate(answer="object has no attribute"),
+        resolve=lambda ref: {"status": "ok"},
+    )
+    assert generic.state == "unsupported"
+
+
+def test_sensitive_value_request_is_vetoed_before_retrieval() -> None:
+    for query in ("用户护照号码是多少", "部署密钥是什么", "银行卡和支付账户明细"):
+        decision = decide_evidence_support(
+            query, _candidate(), resolve=lambda ref: {"status": "ok"}
+        )
+        assert decision.state == "unsupported"
+        assert decision.reason_codes == ("sensitive_value_request",)
+
+
 def test_expected_labels_cannot_change_runtime_decision() -> None:
     resolver = lambda ref: {"status": "ok", "eligible": True}
     a = decide_evidence_support("语言偏好", _candidate(expected_abstain=True), resolve=resolver)

@@ -801,6 +801,7 @@ def search_knowledge_units(
                     )
                     item["collection"] = CONVERSATION_TURNS_COLLECTION
                     item["retrieval_unit"] = "dialogue"
+                    item["evidence_ref"] = str(item.get("event_id") or "")
                     _append_unique(item)
                     if _remaining() <= 0:
                         break
@@ -834,6 +835,8 @@ def search_knowledge_units(
                         collection="personal_events",
                         rank_reason="non_dialogue_raw personal_events",
                     )
+                    if str(item.get("source") or "").lower() == "google":
+                        item["evidence_ref"] = str(item.get("event_id") or "")
                     _append_unique(item)
                     if _remaining() <= 0:
                         break

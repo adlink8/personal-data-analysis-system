@@ -7,6 +7,7 @@ render → gate. Active pointer is never modified.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import traceback
@@ -62,9 +63,28 @@ DEFAULT_POLICY = (
 )
 REGISTRY_DB = DB_DIR / "evaluation_registry.sqlite"
 
+_EVAL_IMPLEMENTATION_FILES = (
+    ROOT / "src" / "personal_knowledge" / "evaluation" / "run_knowledge_eval.py",
+    ROOT / "src" / "personal_knowledge" / "evaluation" / "retrieval_adapters.py",
+    ROOT / "src" / "personal_knowledge" / "evaluation" / "gate_knowledge_candidate.py",
+    ROOT / "src" / "personal_knowledge" / "evaluation" / "answer_eval.py",
+    ROOT / "src" / "personal_knowledge" / "retrieval" / "relevance.py",
+    ROOT / "src" / "personal_knowledge" / "retrieval" / "semantic_search.py",
+    ROOT / "src" / "personal_knowledge" / "retrieval" / "evidence.py",
+)
+
 
 def _utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def implementation_binding(files: tuple[Path, ...] | None = None) -> dict[str, str]:
+    """Bind an evaluation run ID to the exact executable evaluation logic."""
+    binding: dict[str, str] = {}
+    for path in files or _EVAL_IMPLEMENTATION_FILES:
+        key = path.name if files is not None else path.relative_to(ROOT).as_posix()
+        binding[key] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return binding
 
 
 def _read_active() -> str:
@@ -618,6 +638,7 @@ def run_eval(
         "full": full,
         "serving_snapshot_id": serving_before.get("snapshot_id"),
         "serving_manifest_hash": serving_before.get("manifest_hash"),
+        "implementation_binding": implementation_binding(),
     }
     cfg_ck = config_checksum(cfg_for_hash)
     top_k = int(cfg.get("top_k") or 5)
@@ -719,6 +740,7 @@ def run_eval(
         "dataset_checksum": ds_ck,
         "config_checksum": cfg_ck,
         "scorer_version": SCORER_VERSION,
+        "implementation_binding": cfg_for_hash["_runtime"]["implementation_binding"],
         "top_k": top_k,
         "modes": retrieval.get("modes") or {},
         "comparisons": retrieval.get("comparisons") or {},
@@ -791,9 +813,11 @@ def run_eval(
     except Exception as e:
         errors.append(f"registry: {e}")
 
-    # latest pointer
-    EVAL_ROOT.mkdir(parents=True, exist_ok=True)
-    (EVAL_ROOT / "latest.txt").write_text(run_dir.name, encoding="utf-8")
+    # A caller-owned output directory (tests, sandbox, forensic replay) must
+    # never mutate the global latest-run pointer.
+    if out_dir is None:
+        EVAL_ROOT.mkdir(parents=True, exist_ok=True)
+        (EVAL_ROOT / "latest.txt").write_text(run_dir.name, encoding="utf-8")
 
     # render
     if render or full:
@@ -861,6 +885,7 @@ def run_eval(
             "dataset_checksum": ds_ck,
             "config_checksum": cfg_ck,
             "scorer_version": SCORER_VERSION,
+            "implementation_binding": cfg_for_hash["_runtime"]["implementation_binding"],
             "targets": retrieval.get("targets") or [],
             "serving_snapshot_before": serving_before,
             "serving_snapshot_after": serving_after,

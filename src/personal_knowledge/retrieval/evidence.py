@@ -6,7 +6,9 @@ from pathlib import Path
 import sqlite3
 from typing import Any
 
-from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB, GOOGLE_DB, UNIFIED_DB
+from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB, ANALYSIS_DIR, GOOGLE_DB, UNIFIED_DB
+
+DEFAULT_TURNS_ARTIFACT = ANALYSIS_DIR / "ai_context" / "conversation_summaries.json"
 
 
 def _ro(path: Path) -> sqlite3.Connection | None:
@@ -27,10 +29,12 @@ def _table(con: sqlite3.Connection, table: str) -> bool:
 
 
 class EvidenceResolver:
-    def __init__(self, *, unified_db: Path = UNIFIED_DB, conversation_db: Path = AGENT_CONVERSATIONS_DB, google_db: Path = GOOGLE_DB):
+    def __init__(self, *, unified_db: Path = UNIFIED_DB, conversation_db: Path = AGENT_CONVERSATIONS_DB, google_db: Path = GOOGLE_DB, turns_artifact: Path = DEFAULT_TURNS_ARTIFACT):
         self.unified_db = unified_db
         self.conversation_db = conversation_db
         self.google_db = google_db
+        self.turns_artifact = turns_artifact
+        self._turn_index_cache: dict[str, dict[str, Any]] | None = None
 
     @staticmethod
     def _result(ref: str, artifact_type: str, status: str, **kwargs: Any) -> dict[str, Any]:
@@ -130,18 +134,43 @@ class EvidenceResolver:
 
     def _turn(self, ref: str, include: bool) -> dict[str, Any]:
         con = _ro(self.unified_db)
-        if con is None or not _table(con, "conversation_turns_summary"):
-            if con: con.close()
-            return self._result(ref, "turn", "missing")
-        cols = _columns(con, "conversation_turns_summary")
-        key = "turn_id" if "turn_id" in cols else "id"
-        row = con.execute(f"SELECT * FROM conversation_turns_summary WHERE {key}=?", (ref,)).fetchone()
-        data = dict(row) if row else None
-        con.close()
+        data = None
+        if con is not None and _table(con, "conversation_turns_summary"):
+            cols = _columns(con, "conversation_turns_summary")
+            key = "turn_id" if "turn_id" in cols else "id"
+            row = con.execute(f"SELECT * FROM conversation_turns_summary WHERE {key}=?", (ref,)).fetchone()
+            data = dict(row) if row else None
+        if con is not None:
+            con.close()
+        if data is None:
+            data = self._turn_index().get(ref)
         if not data:
             return self._result(ref, "turn", "missing")
+        data = dict(data)
         content = data.pop("narrative", data.pop("content", None))
         return self._result(ref, "turn", "ok", eligible=True, metadata=data, content=content if include else None)
+
+    def _turn_index(self) -> dict[str, dict[str, Any]]:
+        if self._turn_index_cache is not None:
+            return self._turn_index_cache
+        index: dict[str, dict[str, Any]] = {}
+        if self.turns_artifact.exists():
+            payload = json.loads(self.turns_artifact.read_text(encoding="utf-8"))
+            sessions = payload if isinstance(payload, list) else payload.get("sessions", [])
+            for session in sessions:
+                session_id = str(session.get("session_id") or "")
+                if not session_id:
+                    continue
+                for turn in session.get("turn_summaries") or []:
+                    turn_id = str(turn.get("turn_id") or "")
+                    if not turn_id:
+                        continue
+                    index[f"{session_id}#{turn_id}"] = {
+                        **dict(turn),
+                        "session_id": session_id,
+                    }
+        self._turn_index_cache = index
+        return index
 
     def _google(self, ref: str, include: bool) -> dict[str, Any]:
         con = _ro(self.google_db)

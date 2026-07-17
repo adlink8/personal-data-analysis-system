@@ -410,6 +410,9 @@ def run_adapter(
             top_k=target.top_k,
             fallback_policy=target.fallback_policy or "layered",
             collection_override=target.collection or None,
+            # A candidate override is not the active serving authority. Never
+            # let unbound legacy raw padding contaminate candidate evidence.
+            allow_legacy_pad=False,
         )
         latency = (time.perf_counter() - t0) * 1000
         hits = result.get("results") or result.get("hits") or []

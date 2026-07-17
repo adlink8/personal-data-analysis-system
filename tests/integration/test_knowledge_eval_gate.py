@@ -15,6 +15,7 @@ if str(_SCRIPTS) not in sys.path:
 
 from personal_knowledge.evaluation.gate_knowledge_candidate import evaluate_gate  # noqa: E402
 from personal_knowledge.evaluation.run_knowledge_eval import run_eval  # noqa: E402
+from personal_knowledge.evaluation.run_knowledge_eval import implementation_binding  # noqa: E402
 
 
 POLICY = {
@@ -57,6 +58,15 @@ def test_policy_versioned_gates() -> None:
     assert "policy_version" in g
     assert g["active_collection_before"] == g["active_collection_after"]
     assert "checks" in g and g["checks"]
+
+
+def test_implementation_binding_changes_when_runtime_logic_changes(tmp_path: Path) -> None:
+    source = tmp_path / "runtime.py"
+    source.write_text("VERSION = 1\n", encoding="utf-8")
+    before = implementation_binding((source,))
+    source.write_text("VERSION = 2\n", encoding="utf-8")
+    after = implementation_binding((source,))
+    assert before != after
 
 
 def test_fail_closed_missing_answer_and_privacy() -> None:
@@ -121,6 +131,9 @@ def test_full_entrypoint_offline_dry_run(tmp_path: Path) -> None:
     from personal_knowledge.domains.knowledge.promote_knowledge_index import read_active
 
     before = read_active()
+    from personal_knowledge.evaluation.run_knowledge_eval import EVAL_ROOT
+    latest = EVAL_ROOT / "latest.txt"
+    latest_before = latest.read_text(encoding="utf-8") if latest.exists() else None
     summary = run_eval(
         cfg,
         full=True,
@@ -132,6 +145,7 @@ def test_full_entrypoint_offline_dry_run(tmp_path: Path) -> None:
     )
     after = read_active()
     assert before == after
+    assert (latest.read_text(encoding="utf-8") if latest.exists() else None) == latest_before
     assert summary.get("active_unchanged") is True
     assert (tmp_path / "run" / "summary.json").exists()
     assert (tmp_path / "run" / "run_manifest.json").exists()

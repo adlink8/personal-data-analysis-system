@@ -13,6 +13,16 @@ from typing import Any, Callable, Iterable, Mapping
 
 _BLOCKED_LIFECYCLES = {"deprecated", "superseded", "conflict", "retracted", "deleted"}
 _BLOCKED_PRIVACY = {"secret", "blocked", "excluded", "system", "private_secret"}
+_GENERIC_TOKENS = {
+    "用户", "个人", "信息", "内容", "数据", "查询", "问题", "答案", "什么", "多少",
+    "query", "case", "content", "private", "answer", "data", "user",
+    "no", "the", "has", "what", "with", "from", "about",
+}
+_SENSITIVE_VALUE_REQUEST_RE = re.compile(
+    r"(?:护照(?:号码|号)?|身份证(?:号码|号)?|银行卡|信用卡|支付账户(?:明细)?|"
+    r"部署密钥|私钥|助记词|密码|口令|api[ _-]?key|access[ _-]?token|secret)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -30,15 +40,15 @@ class EvidenceSupportDecision:
 
 
 def _tokens(value: str) -> set[str]:
-    normalized = re.sub(r"\s+", "", str(value or "").lower())
+    normalized = str(value or "").lower()
     latin = set(re.findall(r"[a-z0-9_]{2,}", normalized))
-    cjk_runs = re.findall(r"[\u3400-\u9fff]+", normalized)
+    cjk_runs = re.findall(r"[\u3400-\u9fff]+", re.sub(r"\s+", "", normalized))
     cjk = {
         run[index : index + 2]
         for run in cjk_runs
         for index in range(max(0, len(run) - 1))
     }
-    return latin | cjk
+    return (latin | cjk) - _GENERIC_TOKENS
 
 
 def _refs(candidate: Mapping[str, Any]) -> tuple[str, ...]:
@@ -83,6 +93,12 @@ def decide_evidence_support(
         or ""
     ).lower()
     refs = _refs(candidate)
+
+    if _SENSITIVE_VALUE_REQUEST_RE.search(query):
+        return EvidenceSupportDecision(
+            "unsupported", ("sensitive_value_request",), refs,
+            {"query_safety_veto": True},
+        )
 
     if lifecycle in _BLOCKED_LIFECYCLES:
         return EvidenceSupportDecision(
@@ -137,6 +153,11 @@ def decide_evidence_support(
     if refs and any(status == "ok" for status in statuses) and overlap:
         return EvidenceSupportDecision(
             "supported", ("eligible_evidence", "query_candidate_grounded"), refs,
+            {"evidence_statuses": statuses, "query_overlap": overlap, "required_literals": required_literals},
+        )
+    if refs and any(status == "ok" for status in statuses) and not overlap:
+        return EvidenceSupportDecision(
+            "unsupported", ("query_candidate_ungrounded",), refs,
             {"evidence_statuses": statuses, "query_overlap": overlap, "required_literals": required_literals},
         )
 

@@ -268,8 +268,14 @@ def test_layered_tags_dialogue_vs_event(monkeypatch: pytest.MonkeyPatch) -> None
     import types
     import personal_knowledge.retrieval.unified_search as us
     import personal_knowledge.retrieval.semantic_search as ss
+    from personal_knowledge.retrieval.evidence import EvidenceResolver
 
     monkeypatch.setattr(ss, "_read_knowledge_active_collection", lambda: "")
+    monkeypatch.setattr(
+        EvidenceResolver,
+        "resolve",
+        lambda self, ref, **kwargs: {"ref": ref, "status": "ok", "content": "reviewed evidence"},
+    )
     # Prefer turns path in this unit test (canonical empty)
     monkeypatch.setattr(ss, "_search_dialogue_canonical_messages", lambda *a, **k: [])
 
@@ -346,7 +352,7 @@ def test_layered_tags_dialogue_vs_event(monkeypatch: pytest.MonkeyPatch) -> None
     )
 
     result = us.search_knowledge_units(
-        "test layered",
+        "discussed search about",
         top_k=5,
         fallback_policy="layered",
         allow_legacy_pad=False,
