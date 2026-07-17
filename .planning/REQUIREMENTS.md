@@ -11,7 +11,7 @@
 - [x] **FOUND-02**: SQLite canonical current、Chroma collection、source watermarks 和评测证据由不可变 serving snapshot 绑定；发布/回滚只原子切换一个 serving authority
 - [ ] **FOUND-03**: KU、Turn、Canonical Message、Google signal 具有统一只读证据查询契约，高层结果可下钻且跨层 fallback 返回同一 snapshot/version 信息
 - [ ] **FOUND-04**: Canonical Conversation、Turn、Google 和 KU 各自具有可审计版本与 watermark，产品同步可 dry-run、幂等执行并检测漂移
-- [ ] **FOUND-05**: doctor/governance 自动阻断未注册产物、分裂 serving 状态、失效证据、watermark 倒退和版本混用
+- [x] **FOUND-05**: doctor/governance 自动阻断未注册产物、分裂 serving 状态、失效证据、watermark 倒退和版本混用
 - [ ] **QUAL-01**: 当前 active/candidate 在冻结协议上完成五路检索、最终回答、人工 Gold/Judge 校准和 UAT，所有阻断门有不可变证据
 - [ ] **QUAL-02**: 无答案、隐私、secret、引用和时效门禁达到发布阈值；证据不足时可靠 abstain，失败不修改 active snapshot
 - [ ] **LIFE-01**: 真实高价值主题采用 current/superseded/conflict/corrected/historical 生命周期，默认检索 current-only，历史查询解释变化
