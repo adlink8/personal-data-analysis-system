@@ -361,6 +361,14 @@ def compare_projections(
         if classified is None:
             continue
         change_type, uncertainty = classified
+        # Comparing an identical projection boundary is a no-op, not a
+        # reaffirmation.  A real reaffirmation must introduce a distinct
+        # evidence-backed assertion with the same typed value.
+        if (
+            change_type == "reaffirmed"
+            and _assertion_ids(before_state) == _assertion_ids(after_state)
+        ):
+            continue
         records.append(
             _record(
                 change_type,
