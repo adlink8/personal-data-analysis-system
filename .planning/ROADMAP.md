@@ -315,10 +315,19 @@ Plans:
 **Goal:** 用当前 serving snapshot 关闭 v1.1 评测和质量签收，并让真实生命周期数据进入 current-only 产品检索、历史解释和可回滚发布链。
 **Requirements**: QUAL-01, QUAL-02, LIFE-01, LIFE-02
 **Depends on:** Phase 23
-**Plans:** 0 plans
+**Plans:** 0/4 plans executed
+
+**Success criteria:**
+- 五路检索与回答评测绑定同一 serving snapshot，真实 Gold/cross-turn/grounded/judge 证据达到 v2 门槛。
+- 隐私、secret、引用、无答案与时效门禁真实 PASS；失败和 dry-run 不修改 active authority。
+- 真实 reviewed 生命周期采用 current/superseded/conflict/corrected/historical，产品默认 current-only，历史可解释。
+- correction、supersede、conflict、promote、rollback 均有不可变事件；UAT 完成回滚与前向恢复。
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 24 to break down)
+- [ ] 24-01: Evidence-aware relevance and snapshot-bound evaluation
+- [ ] 24-02: Private human Gold, groundedness and judge calibration workflow
+- [ ] 24-03: Governed lifecycle events, corrections and real-cohort adoption
+- [ ] 24-04: Full evaluation PASS, promotion/rollback UAT and sign-off
 
 ### Phase 25: Personal State and Change Intelligence — model goals, constraints, observations and changes; generate evidence-backed recent change summaries and explain current state from history
 

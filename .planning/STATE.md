@@ -2,7 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
-status: planning
+status: executing
 last_updated: "2026-07-17T14:18:55.316Z"
 progress:
   total_phases: 29
@@ -50,9 +50,9 @@ progress:
 
 ## Current Position
 
-Phase: 23 (Composite SSOT Snapshot Integrity) — COMPLETE
-Plan: 4 of 4 complete
-Next: Phase 24 (Evaluation Closure and Lifecycle Adoption) — ready for planning
+Phase: 24 (Evaluation Closure and Lifecycle Adoption) — EXECUTING
+Plan: 1 of 4
+Previous: Phase 23 / Target A complete
 **Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
 Readiness: `.planning/PRODUCT-READINESS.md` (**~86** weighted; operationally usable, quality sign-off open)
 Active: `knowledge_units_ir_4cd8af4ad_20260716020508`; watermark matches source.  
