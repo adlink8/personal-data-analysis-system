@@ -30,6 +30,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
+from personal_knowledge.core.sqlite import connect_rw  # noqa: E402
 
 INVENTORY_REGISTRY_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS knowledge_inventory_registry (
@@ -328,6 +329,104 @@ CREATE TABLE IF NOT EXISTS knowledge_source_watermark (
     value       TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
+
+-- === Phase 23: typed artifact versions + composite serving authority ===
+CREATE TABLE IF NOT EXISTS artifact_registry_entries (
+    registry_id     TEXT PRIMARY KEY,
+    layer           TEXT NOT NULL CHECK(layer IN ('D','S','R','A')),
+    authority_role  TEXT NOT NULL UNIQUE,
+    privacy_class   TEXT NOT NULL CHECK(privacy_class IN ('R1','R2','R3','R4')),
+    definition_hash TEXT NOT NULL CHECK(length(definition_hash) > 0),
+    registered_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS artifact_versions (
+    artifact_version_id TEXT PRIMARY KEY,
+    registry_id         TEXT NOT NULL REFERENCES artifact_registry_entries(registry_id),
+    version             TEXT NOT NULL,
+    checksum            TEXT NOT NULL CHECK(length(checksum) > 0),
+    location_kind       TEXT NOT NULL,
+    location_ref        TEXT NOT NULL,
+    lifecycle           TEXT NOT NULL CHECK(lifecycle IN ('draft','validated','published','superseded','rolled_back')),
+    privacy_class       TEXT NOT NULL CHECK(privacy_class IN ('R1','R2','R3','R4')),
+    producer_run_id     TEXT,
+    evidence_version_id TEXT REFERENCES artifact_versions(artifact_version_id),
+    metadata_json       TEXT NOT NULL DEFAULT '{{}}',
+    created_at          TEXT NOT NULL,
+    UNIQUE(registry_id, version, checksum)
+);
+
+CREATE TABLE IF NOT EXISTS source_watermarks (
+    watermark_id        TEXT PRIMARY KEY,
+    registry_id         TEXT NOT NULL REFERENCES artifact_registry_entries(registry_id),
+    source_key          TEXT NOT NULL,
+    value               TEXT NOT NULL,
+    artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(artifact_version_id),
+    recorded_at         TEXT NOT NULL,
+    UNIQUE(registry_id, source_key, value)
+);
+
+CREATE TABLE IF NOT EXISTS serving_snapshots (
+    snapshot_id      TEXT PRIMARY KEY,
+    manifest_json    TEXT NOT NULL,
+    manifest_hash    TEXT NOT NULL UNIQUE CHECK(length(manifest_hash) > 0),
+    status           TEXT NOT NULL CHECK(status IN ('draft','validated','retired')),
+    eval_gate_ref    TEXT,
+    created_at       TEXT NOT NULL,
+    validated_at     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS serving_snapshot_members (
+    snapshot_id         TEXT NOT NULL REFERENCES serving_snapshots(snapshot_id),
+    serving_role        TEXT NOT NULL,
+    artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(artifact_version_id),
+    watermark_id        TEXT REFERENCES source_watermarks(watermark_id),
+    PRIMARY KEY(snapshot_id, serving_role),
+    UNIQUE(snapshot_id, artifact_version_id)
+);
+
+CREATE TABLE IF NOT EXISTS serving_authority (
+    singleton_id       INTEGER PRIMARY KEY CHECK(singleton_id = 1),
+    active_snapshot_id TEXT REFERENCES serving_snapshots(snapshot_id),
+    activated_at       TEXT,
+    activation_event_id TEXT
+);
+INSERT OR IGNORE INTO serving_authority(singleton_id) VALUES (1);
+
+CREATE TABLE IF NOT EXISTS serving_snapshot_events (
+    event_id        TEXT PRIMARY KEY,
+    snapshot_id     TEXT REFERENCES serving_snapshots(snapshot_id),
+    action          TEXT NOT NULL CHECK(action IN ('prepare','validate','activate','rollback','refuse','projection_drift','projection_repair')),
+    previous_snapshot_id TEXT REFERENCES serving_snapshots(snapshot_id),
+    detail_json     TEXT NOT NULL DEFAULT '{{}}',
+    created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_artifact_versions_registry ON artifact_versions(registry_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_source_watermarks_registry ON source_watermarks(registry_id, source_key, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_snapshot_members_version ON serving_snapshot_members(artifact_version_id);
+CREATE INDEX IF NOT EXISTS idx_snapshot_events_snapshot ON serving_snapshot_events(snapshot_id, created_at);
+
+CREATE TRIGGER IF NOT EXISTS trg_artifact_versions_immutable_update
+BEFORE UPDATE ON artifact_versions BEGIN
+    SELECT RAISE(ABORT, 'artifact versions are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_artifact_versions_immutable_delete
+BEFORE DELETE ON artifact_versions BEGIN
+    SELECT RAISE(ABORT, 'artifact versions are immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_active_snapshot_member_insert
+BEFORE INSERT ON serving_snapshot_members
+WHEN NEW.snapshot_id = (SELECT active_snapshot_id FROM serving_authority WHERE singleton_id=1)
+BEGIN SELECT RAISE(ABORT, 'active snapshot members are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_active_snapshot_member_update
+BEFORE UPDATE ON serving_snapshot_members
+WHEN OLD.snapshot_id = (SELECT active_snapshot_id FROM serving_authority WHERE singleton_id=1)
+BEGIN SELECT RAISE(ABORT, 'active snapshot members are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_active_snapshot_member_delete
+BEFORE DELETE ON serving_snapshot_members
+WHEN OLD.snapshot_id = (SELECT active_snapshot_id FROM serving_authority WHERE singleton_id=1)
+BEGIN SELECT RAISE(ABORT, 'active snapshot members are immutable'); END;
 """
 
 
@@ -631,6 +730,10 @@ def inspect(db_path: Path = UNIFIED_DB) -> dict:
         "rag_runs", "rag_retrieval_items", "rag_feedback",
         # Plan 07
         "knowledge_delta_inventories", "knowledge_delta_items", "knowledge_source_watermark",
+        # Phase 23 composite serving authority
+        "artifact_registry_entries", "artifact_versions", "source_watermarks",
+        "serving_snapshots", "serving_snapshot_members", "serving_authority",
+        "serving_snapshot_events",
     ]
     return {
         "db_exists": True,
@@ -638,6 +741,43 @@ def inspect(db_path: Path = UNIFIED_DB) -> dict:
         "existing_tables": sorted(existing & set(new_tables)),
         "missing_tables": sorted(set(new_tables) - existing),
     }
+
+
+def plan_serving_bootstrap(db_path: Path = UNIFIED_DB) -> dict:
+    """Build a read-only draft description for the current KU serving state."""
+    before = db_path.stat().st_mtime_ns if db_path.exists() else None
+    if not db_path.exists():
+        return {"db_exists": False, "active": False, "missing_proofs": ["unified_db"]}
+    con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "knowledge_index_versions" not in tables:
+            return {"db_exists": True, "active": False, "missing_proofs": ["knowledge_index_versions"]}
+        rows = con.execute(
+            "SELECT version_id, build_id, collection_name, canonical_build_id, unit_count, checksum "
+            "FROM knowledge_index_versions WHERE status='active' ORDER BY activated_at DESC"
+        ).fetchall()
+        missing: list[str] = []
+        if len(rows) != 1:
+            missing.append("exactly_one_active_knowledge_index")
+        row = rows[0] if len(rows) == 1 else None
+        if row and not row[5]:
+            missing.append("active_collection_checksum")
+        return {
+            "db_exists": True,
+            "active": False,
+            "mode": "draft_only",
+            "knowledge_index": dict(zip(
+                ("version_id", "build_id", "collection_name", "canonical_build_id", "unit_count", "checksum"),
+                row,
+            )) if row else None,
+            "missing_proofs": missing,
+        }
+    finally:
+        con.close()
+        after = db_path.stat().st_mtime_ns if db_path.exists() else None
+        if before != after:
+            raise RuntimeError("read-only bootstrap planning modified the database")
 
 
 def migrate(db_path: Path = UNIFIED_DB, write: bool = False) -> dict:
@@ -666,7 +806,7 @@ def migrate(db_path: Path = UNIFIED_DB, write: bool = False) -> dict:
         return {"dry_run": True, "would_create": info["missing_tables"],
                 "already_exist": info["existing_tables"]}
 
-    con = sqlite3.connect(str(db_path))
+    con = connect_rw(db_path)
     try:
         con.executescript(SCHEMA_SQL)
         con.commit()
