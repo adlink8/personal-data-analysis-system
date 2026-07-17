@@ -38,6 +38,22 @@ def test_prepare_dry_run_and_validation_refusal_do_not_activate(tmp_path: Path) 
     dry = prepare_snapshot(db, {"knowledge_retrieval": _member("cand")})
     assert dry["written"] is False
     assert get_active_snapshot(db) is None
+
+
+def test_failed_gate_and_evidence_integrity_refuse_snapshot(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    written = prepare_snapshot(db, {"knowledge_retrieval": _member("cand")}, eval_gate_ref="gate-fail", write=True)
+    refused = validate_snapshot(
+        db,
+        written["snapshot_id"],
+        collection_inspector=_inspect,
+        require_gate=True,
+        gate_validator=lambda _: False,
+        integrity_validator=lambda _: {"ok": False, "errors": ["evidence_integrity_failed"]},
+    )
+    assert refused["ok"] is False
+    assert {"eval_gate_not_passed", "evidence_integrity_failed"} <= set(refused["errors"])
+    assert get_active_snapshot(db) is None
     written = prepare_snapshot(db, {"knowledge_retrieval": _member("cand")}, write=True)
     bad = validate_snapshot(db, written["snapshot_id"], collection_inspector=lambda _: {"exists": True, "checksum": "wrong", "count": 2})
     assert bad["ok"] is False

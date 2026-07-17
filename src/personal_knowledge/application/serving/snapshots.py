@@ -129,6 +129,9 @@ def validate_snapshot(
     *,
     collection_inspector: Callable[[str], Mapping[str, Any]] | None = None,
     required_roles: set[str] | None = None,
+    require_gate: bool = False,
+    gate_validator: Callable[[str], bool] | None = None,
+    integrity_validator: Callable[[str], Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     con = connect_rw(db_path, timeout=60)
     try:
@@ -137,6 +140,9 @@ def validate_snapshot(
         errors: list[str] = []
         if snap is None:
             return {"ok": False, "snapshot_id": snapshot_id, "errors": ["snapshot_not_found"]}
+        gate_ref = str(snap["eval_gate_ref"] or "")
+        if require_gate and (not gate_ref or gate_validator is None or not gate_validator(gate_ref)):
+            errors.append("eval_gate_not_passed")
         roles = {str(row["serving_role"]) for row in members}
         missing = sorted((required_roles or set()) - roles)
         if missing:
@@ -154,6 +160,23 @@ def validate_snapshot(
                 expected_count = json.loads(row["metadata_json"] or "{}").get("unit_count")
                 if expected_count is not None and int(actual.get("count", -1)) != int(expected_count):
                     errors.append(f"collection_count:{row['serving_role']}")
+            if row["watermark_id"]:
+                current = con.execute(
+                    "SELECT w.recorded_at FROM serving_authority a "
+                    "JOIN serving_snapshot_members am ON am.snapshot_id=a.active_snapshot_id AND am.serving_role=? "
+                    "JOIN source_watermarks w ON w.watermark_id=am.watermark_id WHERE a.singleton_id=1",
+                    (row["serving_role"],),
+                ).fetchone()
+                candidate = con.execute(
+                    "SELECT recorded_at FROM source_watermarks WHERE watermark_id=?",
+                    (row["watermark_id"],),
+                ).fetchone()
+                if current and candidate and str(candidate[0]) < str(current[0]):
+                    errors.append(f"watermark_regression:{row['serving_role']}")
+        if integrity_validator is not None:
+            integrity = integrity_validator(snapshot_id)
+            if not integrity.get("ok"):
+                errors.extend(str(x) for x in (integrity.get("errors") or ["evidence_integrity_failed"]))
         con.execute("BEGIN IMMEDIATE")
         if errors:
             _event(con, "refuse", snapshot_id, {"errors": errors})

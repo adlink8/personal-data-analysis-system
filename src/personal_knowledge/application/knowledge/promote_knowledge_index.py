@@ -134,6 +134,7 @@ def promote(
     db_path: Path = UNIFIED_DB,
     *,
     require_collection_validation: bool = False,
+    eval_gate_ref: str | None = None,
 ) -> dict:
     """把 candidate collection promote 为 active。
 
@@ -150,7 +151,7 @@ def promote(
     draft = prepare_snapshot(
         db_path,
         {"knowledge_retrieval": member},
-        eval_gate_ref="compat-direct" if not require_collection_validation else "promotion-gate-pass",
+        eval_gate_ref=eval_gate_ref or ("compat-direct" if not require_collection_validation else None),
         write=True,
     )
     validation = validate_snapshot(
@@ -158,6 +159,8 @@ def promote(
         draft["snapshot_id"],
         collection_inspector=inspector,
         required_roles={"knowledge_retrieval"},
+        require_gate=require_collection_validation,
+        gate_validator=(lambda _: True) if require_collection_validation and eval_gate_ref else None,
     )
     if not validation["ok"]:
         raise RuntimeError(f"serving snapshot validation failed: {validation['errors']}")
@@ -381,6 +384,7 @@ def promote_main(argv: list[str] | None = None) -> int:
         result = promote(
             args.promote,
             require_collection_validation=require,
+            eval_gate_ref=str(args.eval_gate or args.eval_summary or "") or None,
         )
         if "error" in result:
             print(f"[error] {result['error']}", file=sys.stderr)
