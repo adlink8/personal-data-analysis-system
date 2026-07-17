@@ -348,12 +348,12 @@ Plans:
 **Goal:** 建立事实/观察/推断/建议/确认的认知边界，以及建议→用户决定→行动→结果→有效性评估的可审计闭环。
 **Requirements**: DEC-01, DEC-02
 **Depends on:** Phase 25
-**Status:** Planned — 4 plans in 4 serial waves
+**Status:** In progress — 1/4 plans complete
 **Plans:** 4 plans
 
 Plans:
 **Wave 1**
-- [ ] 26-01: Independent decision-feedback authority and cognitive boundary
+- [x] 26-01: Independent decision-feedback authority and cognitive boundary
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 26-02: Recommendation, confirmation and action state machine
