@@ -19,6 +19,7 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from personal_knowledge.core.sqlite import assert_foreign_key_integrity, connect_rw
 
@@ -83,54 +84,109 @@ def _compute_collection_checksum(collection_name: str, port: int = 8001) -> str:
         return ""
 
 
-def promote(collection: str, db_path: Path = UNIFIED_DB) -> dict:
+def _snapshot_member_for_collection(
+    collection: str,
+    db_path: Path,
+    *,
+    require_collection_validation: bool,
+) -> tuple[dict, Callable[[str], dict]]:
+    con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        row = con.execute(
+            "SELECT version_id, build_id, canonical_build_id, unit_count, checksum "
+            "FROM knowledge_index_versions WHERE collection_name=? ORDER BY created_at DESC LIMIT 1",
+            (collection,),
+        ).fetchone()
+    finally:
+        con.close()
+    if row is None and require_collection_validation:
+        raise RuntimeError(f"knowledge index version not found: {collection}")
+    checksum = _compute_collection_checksum(collection)
+    if require_collection_validation and not checksum:
+        raise RuntimeError(f"collection checksum unavailable: {collection}")
+    stored = str((row or (None, None, None, 0, None))[4] or "")
+    if require_collection_validation and stored and stored != checksum:
+        raise RuntimeError(f"collection checksum mismatch: stored={stored} actual={checksum}")
+    effective = checksum or stored or hashlib.sha256(f"unverified:{collection}".encode()).hexdigest()
+    count = int((row or (None, None, None, 0, None))[3] or 0)
+    member = {
+        "version": str((row or (collection,))[0] or collection),
+        "checksum": effective,
+        "location_kind": "chroma_collection",
+        "location_ref": collection,
+        "producer_run_id": (row or (None, None))[1],
+        "metadata": {
+            "unit_count": count,
+            "canonical_build_id": (row or (None, None, None))[2],
+            "collection_verified": bool(checksum),
+        },
+    }
+    inspector = lambda name: {  # noqa: E731 - small bound validator adapter
+        "exists": name == collection,
+        "checksum": effective,
+        "count": count,
+    }
+    return member, inspector
+
+
+def promote(
+    collection: str,
+    db_path: Path = UNIFIED_DB,
+    *,
+    require_collection_validation: bool = False,
+) -> dict:
     """把 candidate collection promote 为 active。
 
     同时更新 knowledge_index_versions 表的 status 和 checksum。
     """
+    from personal_knowledge.application.serving.snapshots import (
+        activate_snapshot, prepare_snapshot, validate_snapshot,
+    )
+
     previous = read_active()
+    member, inspector = _snapshot_member_for_collection(
+        collection, db_path, require_collection_validation=require_collection_validation
+    )
+    draft = prepare_snapshot(
+        db_path,
+        {"knowledge_retrieval": member},
+        eval_gate_ref="compat-direct" if not require_collection_validation else "promotion-gate-pass",
+        write=True,
+    )
+    validation = validate_snapshot(
+        db_path,
+        draft["snapshot_id"],
+        collection_inspector=inspector,
+        required_roles={"knowledge_retrieval"},
+    )
+    if not validation["ok"]:
+        raise RuntimeError(f"serving snapshot validation failed: {validation['errors']}")
 
-    # 计算 collection 的 ID-set checksum（用于精确 rollback reconcile）
-    checksum = _compute_collection_checksum(collection)
-
-    # 更新 DB
-    con = connect_rw(db_path)
-    try:
-        assert_foreign_key_integrity(con)
-        # 旧 active → rolled_back（保留其 checksum 供 rollback reconcile 用）
+    def _update_versions(con: sqlite3.Connection) -> None:
         if previous:
-            # 如果旧 active 还没有 checksum，现在补算
-            old_ck = con.execute(
-                "SELECT checksum FROM knowledge_index_versions WHERE collection_name=? AND status='active'",
+            con.execute(
+                "UPDATE knowledge_index_versions SET status='rolled_back' WHERE collection_name=? AND status='active'",
                 (previous,),
-            ).fetchone()
-            if not old_ck or not old_ck[0]:
-                old_checksum = _compute_collection_checksum(previous)
-                con.execute(
-                    "UPDATE knowledge_index_versions SET status='rolled_back', checksum=? "
-                    "WHERE collection_name=? AND status='active'",
-                    (old_checksum, previous),
-                )
-            else:
-                con.execute(
-                    "UPDATE knowledge_index_versions SET status='rolled_back' "
-                    "WHERE collection_name=? AND status='active'",
-                    (previous,),
-                )
-        # 新 collection → active + checksum
+            )
         con.execute(
-            "UPDATE knowledge_index_versions SET status='active', "
-            "activated_at=?, checksum=? WHERE collection_name=?",
-            (_utc_now(), checksum, collection),
+            "UPDATE knowledge_index_versions SET status='active', activated_at=?, checksum=? WHERE collection_name=?",
+            (_utc_now(), member["checksum"], collection),
         )
-        con.commit()
-    finally:
-        con.close()
 
-    _write_active(collection)
-    _log("promote", collection, {"previous": previous, "checksum": checksum})
-
-    return {"promoted": collection, "previous": previous, "checksum": checksum}
+    activated = activate_snapshot(
+        db_path,
+        draft["snapshot_id"],
+        pointer_path=ACTIVE_POINTER,
+        before_commit=_update_versions,
+    )
+    _log("promote", collection, {"previous": previous, "checksum": member["checksum"], "snapshot_id": draft["snapshot_id"]})
+    return {
+        "promoted": collection,
+        "previous": previous,
+        "checksum": member["checksum"],
+        "snapshot_id": draft["snapshot_id"],
+        "projection_ok": activated["projection_ok"],
+    }
 
 
 def rollback_to_previous(db_path: Path = UNIFIED_DB) -> dict:
@@ -152,24 +208,31 @@ def rollback_to_previous(db_path: Path = UNIFIED_DB) -> dict:
     if not previous:
         return {"error": "no previous collection found in log"}
 
-    # 更新 DB
-    con = connect_rw(db_path)
-    try:
-        con.execute(
-            "UPDATE knowledge_index_versions SET status='rolled_back' "
-            "WHERE collection_name=? AND status='active'",
+    from personal_knowledge.application.serving.snapshots import rollback_snapshot
+    con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+    target = con.execute(
+        "SELECT s.snapshot_id FROM serving_snapshots s JOIN serving_snapshot_members m ON m.snapshot_id=s.snapshot_id JOIN artifact_versions v ON v.artifact_version_id=m.artifact_version_id WHERE m.serving_role='knowledge_retrieval' AND v.location_ref=? AND s.status='validated' ORDER BY s.validated_at DESC LIMIT 1",
+        (previous,),
+    ).fetchone()
+    con.close()
+    if not target:
+        return {"error": f"no validated serving snapshot found for {previous}"}
+
+    def _update_versions(write_con: sqlite3.Connection) -> None:
+        write_con.execute(
+            "UPDATE knowledge_index_versions SET status='rolled_back' WHERE collection_name=? AND status='active'",
             (current,),
         )
-        con.execute(
-            "UPDATE knowledge_index_versions SET status='active', "
-            "activated_at=? WHERE collection_name=?",
+        write_con.execute(
+            "UPDATE knowledge_index_versions SET status='active', activated_at=? WHERE collection_name=?",
             (_utc_now(), previous),
         )
-        con.commit()
-    finally:
-        con.close()
 
-    _write_active(previous)
+    rolled = rollback_snapshot(
+        db_path, str(target[0]), pointer_path=ACTIVE_POINTER, before_commit=_update_versions
+    )
+    if not rolled.get("ok"):
+        return {"error": rolled.get("error", "snapshot rollback failed")}
     _log("rollback", previous, {"rolled_back_from": current})
 
     return {"rolled_back_to": previous, "rolled_back_from": current}
@@ -315,7 +378,10 @@ def promote_main(argv: list[str] | None = None) -> int:
                 {"error": gate_check.get("error"), "gate": gate_check.get("gate")},
             )
             return 1
-        result = promote(args.promote)
+        result = promote(
+            args.promote,
+            require_collection_validation=require,
+        )
         if "error" in result:
             print(f"[error] {result['error']}", file=sys.stderr)
             return 1
