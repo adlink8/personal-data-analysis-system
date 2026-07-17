@@ -146,7 +146,7 @@ def evaluate_rule(
         costs_constraints=input_value.costs_constraints,
         assumptions=input_value.assumptions,
         contraindications=input_value.contraindications,
-        confidence=min(ref.evidence_status == "eligible" for ref in input_value.support),
+        confidence=1.0,
         uncertainty=input_value.uncertainty,
         expires_at=expires_at,
         support=input_value.support,

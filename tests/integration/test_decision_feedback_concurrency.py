@@ -29,6 +29,7 @@ class Resolver:
 
 
 def _published(tmp_path: Path, *, expires_at: str = "2026-08-01T00:00:00Z") -> tuple[Path, Any]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     db = tmp_path / "decision-state.sqlite"
     con = sqlite3.connect(db)
     con.execute("PRAGMA foreign_keys=ON")
@@ -121,6 +122,34 @@ def test_revoke_is_only_valid_after_accept_and_before_action(tmp_path: Path) -> 
         _action(db, rec, expected_sequence=3)
 
 
+def test_complete_action_lifecycle_is_sequence_ordered_even_at_same_second(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path)
+    stamp = "2026-07-18T01:00:00Z"
+    _confirm(db, rec, occurred_at=stamp)
+    _action(db, rec, occurred_at=stamp)
+    _action(db, rec, action_state="started", expected_sequence=3,
+            idempotency_key="action-started", reason_code="user_started", occurred_at=stamp)
+    _action(db, rec, action_state="completed", expected_sequence=4,
+            idempotency_key="action-completed", reason_code="user_completed", occurred_at=stamp)
+    state = project_history(db, rec.recommendation_id)
+    assert state.action_state == "completed"
+    assert [event.sequence for event in state.events] == [1, 2, 3, 4, 5]
+    assert all(
+        current.previous_event_checksum == previous.payload_checksum
+        for previous, current in zip(state.events, state.events[1:])
+    )
+
+
+@pytest.mark.parametrize("terminal", ["abandoned", "not_taken"])
+def test_planned_action_can_end_without_claiming_execution(tmp_path: Path, terminal: str) -> None:
+    db, rec = _published(tmp_path)
+    _confirm(db, rec)
+    _action(db, rec)
+    _action(db, rec, action_state=terminal, expected_sequence=3,
+            idempotency_key=f"action-{terminal}", reason_code=f"user_{terminal}")
+    assert project_history(db, rec.recommendation_id).action_state == terminal
+
+
 def test_expiry_actor_checksum_and_executable_payload_fail_closed(tmp_path: Path) -> None:
     db, rec = _published(tmp_path, expires_at="2026-07-18T00:30:00Z")
     for changes, code in (({"occurred_at": "2026-07-18T01:00:00Z"}, "recommendation_expired"),
@@ -169,6 +198,18 @@ def test_injected_insert_failures_roll_back_both_rows(tmp_path: Path, failure: s
     con.close()
 
 
+@pytest.mark.parametrize("failure", ["after_typed_record", "after_event"])
+def test_injected_action_failures_roll_back_typed_row_and_event(tmp_path: Path, failure: str) -> None:
+    db, rec = _published(tmp_path)
+    _confirm(db, rec)
+    with pytest.raises(RuntimeError, match="injected decision state failure"):
+        _action(db, rec, inject_failure_at=failure)
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT COUNT(*) FROM decision_actions").fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM decision_events").fetchone()[0] == 2
+    con.close()
+
+
 def test_missing_tampered_or_out_of_order_genesis_fails_closed(tmp_path: Path) -> None:
     db, rec = _published(tmp_path)
     con = sqlite3.connect(db)
@@ -178,3 +219,21 @@ def test_missing_tampered_or_out_of_order_genesis_fails_closed(tmp_path: Path) -
     with pytest.raises(DecisionStateError, match="event_checksum_mismatch"):
         project_history(db, rec.recommendation_id)
 
+
+def test_missing_genesis_and_checksum_chain_tamper_fail_closed(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path)
+    con = sqlite3.connect(db)
+    con.execute("DROP TRIGGER trg_decision_events_immutable_delete")
+    con.execute("DELETE FROM decision_events WHERE sequence=1")
+    con.commit(); con.close()
+    with pytest.raises(DecisionStateError, match="genesis_missing"):
+        project_history(db, rec.recommendation_id)
+
+    db2, rec2 = _published(tmp_path / "chain")
+    _confirm(db2, rec2)
+    con = sqlite3.connect(db2)
+    con.execute("DROP TRIGGER trg_decision_events_immutable_update")
+    con.execute("UPDATE decision_events SET previous_event_checksum=? WHERE sequence=2", ("0" * 64,))
+    con.commit(); con.close()
+    with pytest.raises(DecisionStateError, match="event_chain_mismatch"):
+        project_history(db2, rec2.recommendation_id)

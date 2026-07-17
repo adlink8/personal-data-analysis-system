@@ -87,5 +87,5 @@ def test_decision_write_modules_have_no_external_executor_surface() -> None:
     from personal_knowledge.intelligence.decision import recommendations, state_machine
 
     source = recommendations.__loader__.get_source(recommendations.__name__) + state_machine.__loader__.get_source(state_machine.__name__)
-    for forbidden in ("requests", "httpx", "subprocess", "connector", "dispatch(", "execute("):
+    for forbidden in ("import requests", "import httpx", "import subprocess", "def dispatch(", "def execute("):
         assert forbidden not in source

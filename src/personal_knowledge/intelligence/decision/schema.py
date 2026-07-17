@@ -161,8 +161,39 @@ class DecisionRun:
     genesis_events: tuple[RecommendationGenesis, ...]
 
 
+@dataclass(frozen=True)
+class DecisionEvent:
+    event_id: str
+    recommendation_id: str
+    sequence: int
+    event_type: str
+    typed_record_id: str
+    previous_event_checksum: str
+    payload: Mapping[str, Any]
+    payload_checksum: str
+
+
+@dataclass(frozen=True)
+class DecisionState:
+    recommendation_id: str
+    recommendation_checksum: str
+    confirmation_state: str
+    action_state: str | None
+    events: tuple[DecisionEvent, ...]
+
+
+@dataclass(frozen=True)
+class DecisionReceipt:
+    record_id: str
+    event_id: str
+    recommendation_id: str
+    sequence: int
+    payload_checksum: str
+
+
 __all__ = [
     "COGNITIVE_TYPES", "GENESIS_SENTINEL", "REFERENCE_TYPES", "SCHEMA_VERSION",
-    "CognitionReference", "DecisionRun", "DecisionSchemaError", "Recommendation",
-    "RecommendationDraft", "RecommendationGenesis", "canonical_json", "checksum",
+    "CognitionReference", "DecisionEvent", "DecisionReceipt", "DecisionRun",
+    "DecisionSchemaError", "DecisionState", "Recommendation", "RecommendationDraft",
+    "RecommendationGenesis", "canonical_json", "checksum",
 ]

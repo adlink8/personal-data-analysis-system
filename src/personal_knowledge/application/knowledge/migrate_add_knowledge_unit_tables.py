@@ -686,18 +686,25 @@ CREATE TABLE IF NOT EXISTS decision_confirmations (
     payload_json           TEXT NOT NULL,
     payload_checksum       TEXT NOT NULL CHECK(length(payload_checksum) = 64),
     created_at             TEXT NOT NULL,
-    UNIQUE(actor_identity_hash, idempotency_key)
+    UNIQUE(recommendation_id, actor_identity_hash, idempotency_key)
 );
 
 CREATE TABLE IF NOT EXISTS decision_actions (
     action_id               TEXT PRIMARY KEY,
     recommendation_id       TEXT NOT NULL REFERENCES decision_recommendations(recommendation_id),
+    recommendation_checksum TEXT NOT NULL CHECK(length(recommendation_checksum) = 64),
     action_state            TEXT NOT NULL CHECK(action_state IN ('planned','started','completed','abandoned','not_taken')),
     source_class            TEXT NOT NULL CHECK(source_class IN ('user_attested','user_external_ref')),
+    actor_class             TEXT NOT NULL CHECK(actor_class = 'user'),
+    actor_identity_hash     TEXT NOT NULL CHECK(length(actor_identity_hash) = 64),
+    reason_code             TEXT NOT NULL,
+    expected_sequence       INTEGER NOT NULL CHECK(expected_sequence > 0),
+    idempotency_key         TEXT NOT NULL,
     external_ref_checksum   TEXT,
     payload_json            TEXT NOT NULL,
     payload_checksum        TEXT NOT NULL CHECK(length(payload_checksum) = 64),
-    created_at              TEXT NOT NULL
+    created_at              TEXT NOT NULL,
+    UNIQUE(recommendation_id, actor_identity_hash, idempotency_key)
 );
 
 CREATE TABLE IF NOT EXISTS decision_outcomes (
