@@ -116,14 +116,27 @@ def load_l2_unit_ids(
         return set()
     runs = list(run_ids or L2_RUN_IDS_DEFAULT)
     con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
-    ids: set[str] = set()
+    member_ids: set[str] = set()
     for rid in runs:
         for row in con.execute(
             "SELECT unit_id FROM knowledge_units WHERE unit_id LIKE 'l2|%' AND run_id=?",
             (rid,),
         ):
-            ids.add(row[0])
-    # also include canonical ids that have only l2 members? keep unit_ids for filter
+            member_ids.add(row[0])
+    ids: set[str] = set()
+    if member_ids:
+        members = sorted(member_ids)
+        for offset in range(0, len(members), 500):
+            batch = members[offset : offset + 500]
+            placeholders = ",".join("?" for _ in batch)
+            ids.update(
+                str(row[0])
+                for row in con.execute(
+                    "SELECT DISTINCT canonical_unit_id FROM canonical_unit_members "
+                    f"WHERE member_unit_id IN ({placeholders})",
+                    batch,
+                )
+            )
     con.close()
     return ids
 

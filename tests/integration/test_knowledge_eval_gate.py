@@ -122,3 +122,47 @@ def test_full_entrypoint_offline_dry_run(tmp_path: Path) -> None:
     assert (tmp_path / "run" / "summary.json").exists()
     # missing candidate / structural gate may FAIL — non-zero path tested via gate verdict
     assert "run_id" in summary
+
+
+def test_full_policy_fails_closed_on_unimplemented_human_and_quality_evidence() -> None:
+    policy_path = _ROOT / "assets" / "evals" / "knowledge_units" / "eval_policy_v1.yaml"
+    from personal_knowledge.evaluation.gate_knowledge_candidate import load_policy
+
+    s = _summary_base()
+    for payload in s["modes"].values():
+        payload["aggregate"].update(
+            {"no_answer_fp_rate": 0.0, "mrr_at_5": 0.6, "p95_latency_ms": 10.0}
+        )
+    s["comparisons"]["l1_l2"]["bootstrap_mrr"] = {
+        "ci_low": 0.0,
+        "insufficient_evidence": False,
+    }
+    s["scenario_comparisons"] = {
+        "cross_turn_l1_baseline": {
+            "l1_l2": {
+                "delta": 0.2,
+                "bootstrap": {"n": 30, "ci_low": 0.01},
+            }
+        }
+    }
+    s["stage_details"] = {
+        "lineage": {
+            "ok": True,
+            "l2_member_links": 815,
+            "discrepancy": {"total_l2_status_current": 815},
+        },
+        "extraction_quality": {"metrics": {"human": []}},
+    }
+    for mode in ("raw", "l1", "l1_l2", "hybrid"):
+        s["answer"]["modes"][mode] = {
+            "aggregate": {"citation_precision": 1.0}
+        }
+
+    gate = evaluate_gate(s, load_policy(policy_path), require_answer=True)
+    assert gate["passed"] is False
+    assert any("grounded L2 human precision" in reason for reason in gate["reasons"])
+    names = {check["name"] for check in gate["checks"]}
+    assert "reconcile_integrity" in names
+    assert "mrr_at_5_non_inferior" in names
+    assert "cross_turn_l2_vs_l1" in names
+    assert "p95_latency_vs_l1_baseline" in names

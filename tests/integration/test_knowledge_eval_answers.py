@@ -17,6 +17,9 @@ from personal_knowledge.evaluation.answer_eval import (  # noqa: E402
     build_prompt,
 )
 from personal_knowledge.evaluation.knowledge_eval_metrics import RankedHit  # noqa: E402
+from personal_knowledge.evaluation.knowledge_eval_metrics import score_case  # noqa: E402
+from personal_knowledge.evaluation.run_knowledge_eval import stage_answer  # noqa: E402
+from personal_knowledge.evaluation.eval_contracts import EvalCase  # noqa: E402
 
 
 def test_deterministic_answer_replay() -> None:
@@ -59,3 +62,24 @@ def test_deterministic_prompt_stable() -> None:
     p2 = build_prompt("q", ctx)
     assert p1 == p2
     assert cache_key(p1, "m", "v") == cache_key(p2, "m", "v")
+
+
+def test_answer_stage_uses_ephemeral_ranked_content_without_persisting_it(tmp_path: Path) -> None:
+    case = EvalCase(
+        id="q1",
+        split="synthetic",
+        query="shell?",
+        gold_unit_ids=["u1"],
+    )
+    hit = RankedHit(id="u1", snippet="用户偏好 PowerShell。", subject="shell")
+    retrieval = {
+        "mode_scores": {"l1_l2": [score_case("q1", "l1_l2", [hit], gold_unit_ids=["u1"])]},
+        "mode_ranked": {"l1_l2": [[hit]]},
+        "modes": {"l1_l2": {"aggregate": {}}},
+    }
+    result = stage_answer([case], retrieval, tmp_path, enabled=True)
+    agg = result["modes"]["l1_l2"]["aggregate"]
+    assert agg["citation_precision"] == 1.0
+    assert agg["rule_correctness"] == 1.0
+    persisted = (tmp_path / "answer.json").read_text(encoding="utf-8")
+    assert "用户偏好 PowerShell" not in persisted

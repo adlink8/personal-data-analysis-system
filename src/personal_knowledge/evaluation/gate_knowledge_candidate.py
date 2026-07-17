@@ -78,6 +78,21 @@ def evaluate_gate(
         if ph > 0 or sh > 0:
             reasons.append(f"{mode}: privacy/secret hit > 0")
 
+        max_fp = hard.get("no_answer_fp_max")
+        fp_rate = a.get("no_answer_fp_rate")
+        if max_fp is not None:
+            ok = fp_rate is not None and float(fp_rate) <= float(max_fp)
+            checks.append(
+                {
+                    "name": f"no_answer_fp:{mode}",
+                    "passed": ok,
+                    "value": fp_rate,
+                    "threshold": max_fp,
+                }
+            )
+            if not ok:
+                reasons.append(f"{mode}: no-answer FP {fp_rate} exceeds {max_fp}")
+
     # Hard: all primary modes present for full claim
     required_modes = policy.get("required_modes") or [
         "raw",
@@ -98,6 +113,52 @@ def evaluate_gate(
         checks.append({"name": "answer_eval_present", "passed": ok, "value": bool(answer)})
         if not ok:
             reasons.append("answer eval missing (fail-closed)")
+        else:
+            answer_modes = answer.get("modes") or {}
+            min_citation = hard.get("citation_precision_min")
+            if min_citation is not None:
+                for mode in required_modes:
+                    payload = answer_modes.get(mode) or {}
+                    if payload.get("blocked"):
+                        continue
+                    value = (payload.get("aggregate") or {}).get("citation_precision")
+                    passed_citation = value is not None and float(value) >= float(min_citation)
+                    checks.append(
+                        {
+                            "name": f"citation_precision:{mode}",
+                            "passed": passed_citation,
+                            "value": value,
+                            "threshold": min_citation,
+                        }
+                    )
+                    if not passed_citation:
+                        reasons.append(
+                            f"{mode}: citation precision {value} below {min_citation}"
+                        )
+
+    # Lineage/reconcile must be clean before any publish decision.
+    if "reconcile_missing" in hard or "reconcile_orphan" in hard:
+        lineage = (summary.get("stage_details") or {}).get("lineage") or {}
+        discrepancy = lineage.get("discrepancy") or {}
+        total = int(discrepancy.get("total_l2_status_current") or 0)
+        links = int(lineage.get("l2_member_links") or 0)
+        missing = max(total - links, 0)
+        orphan = max(links - total, 0)
+        lineage_ok = bool(lineage.get("ok"))
+        missing_limit = int(hard.get("reconcile_missing") or 0)
+        orphan_limit = int(hard.get("reconcile_orphan") or 0)
+        reconcile_ok = lineage_ok and missing <= missing_limit and orphan <= orphan_limit
+        checks.append(
+            {
+                "name": "reconcile_integrity",
+                "passed": reconcile_ok,
+                "value": {"missing": missing, "orphan": orphan, "lineage_ok": lineage_ok},
+            }
+        )
+        if not reconcile_ok:
+            reasons.append(
+                f"reconcile failed: lineage_ok={lineage_ok} missing={missing} orphan={orphan}"
+            )
 
     # Scorer errors
     if summary.get("scorer_error"):
@@ -175,6 +236,103 @@ def evaluate_gate(
             reasons.append(
                 f"pure-KU regression L1→L1+L2 drop {drop_pp:.1f}pp > {max_reg_pp}pp "
                 f"(Hybrid must not mask this)"
+            )
+
+    # Ranking non-inferiority uses the paired MRR bootstrap declared by AI-SPEC.
+    mrr_policy = quality.get("mrr_at_5_non_inferior_pp") or {}
+    if mrr_policy:
+        mrr_boot = primary.get("bootstrap_mrr") or {}
+        ci_low = mrr_boot.get("ci_low")
+        max_drop_pp = float(mrr_policy.get("max_drop_pp", 2))
+        ok = (
+            ci_low is not None
+            and not mrr_boot.get("insufficient_evidence")
+            and float(ci_low) * 100 >= -max_drop_pp
+        )
+        checks.append(
+            {
+                "name": "mrr_at_5_non_inferior",
+                "passed": ok,
+                "value": {"ci_low_pp": None if ci_low is None else float(ci_low) * 100},
+                "threshold": -max_drop_pp,
+            }
+        )
+        if not ok:
+            reasons.append(f"MRR@5 non-inferiority failed: ci_low={ci_low}")
+
+    # Cross-turn contribution is evaluated against L1, never against Raw.
+    cross_policy = quality.get("cross_turn_l2_vs_l1_pp") or {}
+    if cross_policy:
+        cross = (
+            (summary.get("scenario_comparisons") or {})
+            .get("cross_turn_l1_baseline", {})
+            .get("l1_l2", {})
+        )
+        boot = cross.get("bootstrap") or {}
+        delta = cross.get("delta")
+        n = int(boot.get("n") or 0)
+        min_cases = int(cross_policy.get("min_cases", 30))
+        min_delta = float(cross_policy.get("min_delta_pp", 10))
+        ci_low = boot.get("ci_low")
+        ok = (
+            delta is not None
+            and float(delta) * 100 >= min_delta
+            and n >= min_cases
+            and ci_low is not None
+            and float(ci_low) > 0
+        )
+        checks.append(
+            {
+                "name": "cross_turn_l2_vs_l1",
+                "passed": ok,
+                "value": {"delta_pp": None if delta is None else float(delta) * 100, "n": n, "ci_low": ci_low},
+            }
+        )
+        if not ok:
+            reasons.append(
+                f"cross-turn L2 claim failed: delta={delta} n={n} ci_low={ci_low}"
+            )
+
+    latency_policy = quality.get("p95_latency_vs_active") or {}
+    if latency_policy:
+        baseline_latency = l1.get("p95_latency_ms")
+        candidate_latency = l1l2.get("p95_latency_ms")
+        max_ratio = float(latency_policy.get("max_increase_ratio", 0.25))
+        ratio = None
+        if baseline_latency is not None and float(baseline_latency) > 0 and candidate_latency is not None:
+            ratio = (float(candidate_latency) - float(baseline_latency)) / float(baseline_latency)
+        ok = ratio is not None and ratio <= max_ratio
+        checks.append(
+            {
+                "name": "p95_latency_vs_l1_baseline",
+                "passed": ok,
+                "value": ratio,
+                "threshold": max_ratio,
+            }
+        )
+        if not ok:
+            reasons.append(f"p95 latency comparison failed: increase_ratio={ratio}")
+
+    grounded_policy = quality.get("grounded_l2_human_precision") or {}
+    if grounded_policy:
+        extraction = (summary.get("stage_details") or {}).get("extraction_quality") or {}
+        human = ((extraction.get("metrics") or {}).get("human") or [])
+        metric = next((m for m in human if m.get("name") == "grounded_precision_human"), {})
+        value = metric.get("value")
+        denominator = int(metric.get("denominator") or 0)
+        min_value = float(grounded_policy.get("min", 0.90))
+        min_sample = int(grounded_policy.get("min_sample", 50))
+        ok = value is not None and float(value) >= min_value and denominator >= min_sample
+        checks.append(
+            {
+                "name": "grounded_l2_human_precision",
+                "passed": ok,
+                "value": {"precision": value, "sample": denominator},
+            }
+        )
+        if not ok:
+            reasons.append(
+                f"grounded L2 human precision unavailable/below gate: precision={value} sample={denominator}"
             )
 
     # Hybrid must not be used as pure-KU score

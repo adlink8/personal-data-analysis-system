@@ -19,6 +19,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from personal_knowledge.core.project_paths import (  # noqa: E402
+    AGENT_CONVERSATIONS_DB,
     ANALYSIS_DIR,
     DB_DIR,
     ROOT,
@@ -38,6 +39,7 @@ from personal_knowledge.evaluation.knowledge_eval_metrics import (  # noqa: E402
     SCORER_VERSION,
     aggregate_scores,
     compare_modes,
+    per_scenario,
     score_case,
 )
 from personal_knowledge.evaluation.retrieval_adapters import (  # noqa: E402
@@ -112,7 +114,36 @@ def resolve_cases_path(cfg: dict[str, Any]) -> Path:
 
 
 def stage_dataset_audit(cases, run_dir: Path) -> dict[str, Any]:
-    audit = audit_dataset(cases)
+    import sqlite3
+
+    resolvable_refs: set[str] = set()
+    if AGENT_CONVERSATIONS_DB.exists():
+        con = sqlite3.connect(
+            f"file:{AGENT_CONVERSATIONS_DB.as_posix()}?mode=ro", uri=True
+        )
+        resolvable_refs = {
+            str(row[0])
+            for row in con.execute(
+                "SELECT canonical_message_id FROM canonical_messages"
+            )
+        }
+        con.close()
+    audit = audit_dataset(
+        cases,
+        require_gold_resolvable=True,
+        resolvable_refs=resolvable_refs,
+    )
+    real_refs = {
+        ref
+        for case in cases
+        for ref in case.gold_evidence_refs
+        if not ref.startswith("syn-")
+    }
+    audit["gold_evidence_refs"] = len(real_refs)
+    audit["gold_evidence_refs_resolved"] = len(real_refs & resolvable_refs)
+    audit["gold_resolvable_rate"] = (
+        len(real_refs & resolvable_refs) / len(real_refs) if real_refs else None
+    )
     dump_json(run_dir / "dataset_audit.json", audit)
     return audit
 
@@ -166,6 +197,7 @@ def stage_retrieval(
     )
 
     mode_scores: dict[str, list] = {}
+    mode_ranked: dict[str, list[list[Any]]] = {}
     mode_aggs: dict[str, Any] = {}
     blocked_modes: list[str] = []
 
@@ -173,7 +205,9 @@ def stage_retrieval(
         # Fixture path: empty rankings for structure only
         for t in targets:
             scores = []
+            ranked_by_case: list[list[Any]] = []
             for c in cases:
+                ranked_by_case.append([])
                 scores.append(
                     score_case(
                         c.id,
@@ -188,25 +222,39 @@ def stage_retrieval(
                     )
                 )
             mode_scores[t.mode] = scores
+            mode_ranked[t.mode] = ranked_by_case
             mode_aggs[t.mode] = {
                 "aggregate": aggregate_scores(scores),
+                "per_scenario": per_scenario(
+                    scores, {c.id: c.scenario or c.suite_tag or c.group for c in cases}
+                ),
                 "blocked": t.blocked,
                 "target": t.to_dict(),
             }
         comparisons = compare_modes(mode_scores, baseline="raw")
+        cross_turn = {
+            mode: [s for s in scores if next((c.requires_cross_turn for c in cases if c.id == s.query_id), False)]
+            for mode, scores in mode_scores.items()
+        }
         return {
             "modes": mode_aggs,
             "comparisons": comparisons.get("comparisons") or {},
             "mode_scores": mode_scores,
+            "mode_ranked": mode_ranked,
+            "scenario_comparisons": {
+                "cross_turn_l1_baseline": compare_modes(cross_turn, baseline="l1").get("comparisons", {})
+            },
             "targets": [t.to_dict() for t in targets],
             "offline": True,
         }
 
     for t in targets:
         scores = []
+        ranked_by_case: list[list[Any]] = []
         if t.blocked:
             blocked_modes.append(t.mode)
             for c in cases:
+                ranked_by_case.append([])
                 sc = score_case(
                     c.id,
                     t.mode,
@@ -218,8 +266,12 @@ def stage_retrieval(
                 sc.notes = t.blocked_reason
                 scores.append(sc)
             mode_scores[t.mode] = scores
+            mode_ranked[t.mode] = ranked_by_case
             mode_aggs[t.mode] = {
                 "aggregate": aggregate_scores(scores),
+                "per_scenario": per_scenario(
+                    scores, {c.id: c.scenario or c.suite_tag or c.group for c in cases}
+                ),
                 "blocked": True,
                 "blocked_reason": t.blocked_reason,
                 "target": t.to_dict(),
@@ -253,18 +305,27 @@ def stage_retrieval(
                 first_layer=ar.first_layer,
             )
             scores.append(sc)
+            ranked_by_case.append(list(ar.ranked))
         mode_scores[t.mode] = scores
+        mode_ranked[t.mode] = ranked_by_case
         # per-case jsonl
         with (run_dir / f"cases_{t.mode}.jsonl").open("w", encoding="utf-8") as f:
             for s in scores:
                 f.write(json.dumps(s.to_dict(), ensure_ascii=False) + "\n")
         mode_aggs[t.mode] = {
             "aggregate": aggregate_scores(scores),
+            "per_scenario": per_scenario(
+                scores, {c.id: c.scenario or c.suite_tag or c.group for c in cases}
+            ),
             "blocked": False,
             "target": t.to_dict(),
         }
 
     comparisons = compare_modes(mode_scores, baseline="raw")
+    cross_turn = {
+        mode: [s for s in scores if next((c.requires_cross_turn for c in cases if c.id == s.query_id), False)]
+        for mode, scores in mode_scores.items()
+    }
     dump_json(run_dir / "retrieval.json", {
         "modes": {k: v for k, v in mode_aggs.items()},
         "comparisons": comparisons.get("comparisons") or {},
@@ -274,6 +335,10 @@ def stage_retrieval(
         "modes": mode_aggs,
         "comparisons": comparisons.get("comparisons") or {},
         "mode_scores": mode_scores,
+        "mode_ranked": mode_ranked,
+        "scenario_comparisons": {
+            "cross_turn_l1_baseline": compare_modes(cross_turn, baseline="l1").get("comparisons", {})
+        },
         "targets": [t.to_dict() for t in targets],
         "blocked_modes": blocked_modes,
         "offline": False,
@@ -298,14 +363,16 @@ def stage_answer(
     from personal_knowledge.evaluation.knowledge_eval_metrics import RankedHit
 
     mode_scores = retrieval.get("mode_scores") or {}
+    mode_ranked = retrieval.get("mode_ranked") or {}
     out_modes: dict[str, Any] = {}
     for mode, scores in mode_scores.items():
         if (retrieval.get("modes") or {}).get(mode, {}).get("blocked"):
             out_modes[mode] = {"blocked": True}
             continue
         ans_scores = []
-        for c, sc in zip(cases, scores):
-            ranked = [
+        ranked_by_case = mode_ranked.get(mode) or []
+        for index, (c, sc) in enumerate(zip(cases, scores)):
+            ranked = list(ranked_by_case[index]) if index < len(ranked_by_case) else [
                 RankedHit(id=i, snippet="", subject="") for i in (sc.ranked_ids or [])
             ]
             # In offline/synthetic without live retrieval, ranked empty
@@ -319,7 +386,7 @@ def stage_answer(
             ascore = score_answer(
                 ar,
                 ranked_ids=sc.ranked_ids or [],
-                gold_refs=c.gold_evidence_refs,
+                gold_refs=[*c.gold_evidence_refs, *c.gold_unit_ids],
                 expected_abstain=c.expected_abstain,
                 forbid_substrings=c.forbid_subject_substrings,
             )
@@ -415,6 +482,7 @@ def run_eval(
         stages["retrieval"] = {
             "modes": {k: v for k, v in retrieval["modes"].items()},
             "comparisons": retrieval.get("comparisons"),
+            "scenario_comparisons": retrieval.get("scenario_comparisons"),
             "blocked_modes": retrieval.get("blocked_modes"),
         }
     except Exception as e:
@@ -449,6 +517,7 @@ def run_eval(
         "top_k": top_k,
         "modes": retrieval.get("modes") or {},
         "comparisons": retrieval.get("comparisons") or {},
+        "scenario_comparisons": retrieval.get("scenario_comparisons") or {},
         "answer": answer,
         "stages": {k: ("ok" if "error" not in str(v) else "error") for k, v in stages.items()},
         "stage_details": {
@@ -457,6 +526,12 @@ def run_eval(
             if isinstance(stages.get("extraction"), dict)
             else None,
             "lineage_ok": (stages.get("extraction") or {}).get("lineage", {}).get("ok")
+            if isinstance(stages.get("extraction"), dict)
+            else None,
+            "lineage": (stages.get("extraction") or {}).get("lineage")
+            if isinstance(stages.get("extraction"), dict)
+            else None,
+            "extraction_quality": (stages.get("extraction") or {}).get("extraction_quality")
             if isinstance(stages.get("extraction"), dict)
             else None,
         },

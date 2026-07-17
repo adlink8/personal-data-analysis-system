@@ -17,11 +17,12 @@ if str(_SCRIPTS) not in sys.path:
 from personal_knowledge.core.project_paths import ROOT  # noqa: E402
 from personal_knowledge.evaluation.eval_contracts import audit_dataset, load_cases_jsonl  # noqa: E402
 
-EVAL_DIR = ROOT / "integration" / "evals" / "knowledge_units"
-OUT_DIR = ROOT / "integration" / "runtime" / "private_evals"
-SYN = EVAL_DIR / "comprehensive_v1.synthetic.jsonl"
-FROZEN = EVAL_DIR / "frozen_test_queries.private.jsonl"
-HOLDOUT = EVAL_DIR / "holdout_15_02.synthetic.jsonl"
+ASSET_DIR = ROOT / "assets" / "evals" / "knowledge_units"
+PRIVATE_SOURCE_DIR = ROOT / "integration" / "evals" / "knowledge_units"
+OUT_DIR = ROOT / "var" / "runtime" / "private_evals"
+SYN = ASSET_DIR / "comprehensive_v1.synthetic.jsonl"
+FROZEN = PRIVATE_SOURCE_DIR / "frozen_test_queries.private.jsonl"
+HOLDOUT = ASSET_DIR / "holdout_15_02.synthetic.jsonl"
 
 
 def main(argv: list[str] | None = None) -> int:

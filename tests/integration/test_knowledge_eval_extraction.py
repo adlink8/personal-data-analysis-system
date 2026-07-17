@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from personal_knowledge.evaluation.extraction_quality_eval import (  # noqa: E40
     Metric,
     _has_privacy_leak,
     evaluate_extraction,
+    prepare_grounded_review,
 )
 from personal_knowledge.evaluation.reconcile_l2_lineage import reconcile  # noqa: E402
 
@@ -62,3 +64,27 @@ def test_extraction_quality_has_denominators() -> None:
         assert "numerator" in m and "denominator" in m
         assert "sample_ids" in m
     assert "privacy" in report["metrics"]
+
+
+def test_prepare_grounded_review_is_private_template(tmp_path: Path) -> None:
+    import sqlite3
+
+    db = tmp_path / "review.sqlite"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE knowledge_units (unit_id TEXT, run_id TEXT, unit_type TEXT, "
+        "subject TEXT, question TEXT, answer TEXT, confidence REAL, evidence_quote TEXT, "
+        "source_message_ref TEXT, source_session_id TEXT, status TEXT)"
+    )
+    con.execute(
+        "INSERT INTO knowledge_units VALUES "
+        "('l2|1','r','fact','s','q','answer',0.9,'evidence','cm|1','cs|1','current')"
+    )
+    con.commit()
+    con.close()
+    out = tmp_path / "private" / "labels.jsonl"
+    report = prepare_grounded_review(db, out, sample_size=1)
+    row = json.loads(out.read_text(encoding="utf-8"))
+    assert report["sample_size"] == 1
+    assert row["grounded"] is None
+    assert row["evidence_quote"] == "evidence"

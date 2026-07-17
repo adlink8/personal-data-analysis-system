@@ -28,4 +28,4 @@ Used for Phase 17 end-to-end answer evaluation. Freeze before judge enters gate.
 
 ## Artifact
 
-Calibration JSONL: `integration/runtime/private_evals/judge_calibration_v1.jsonl` (gitignored).
+Calibration JSONL: `var/runtime/private_evals/judge_calibration_v1.jsonl` (gitignored).

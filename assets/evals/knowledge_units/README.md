@@ -52,7 +52,7 @@ Phase 14 Wave 0 的评估数据集。用于 dev tuning、frozen-test A/B、merge
 - `comprehensive_v1.synthetic.jsonl` — Phase 17 CI 全场景壳（150 cases；无私人正文）
 - `eval_v1.yaml` / `eval_policy_v1.yaml` — 评测 manifest 与 promote gate 策略
 - `answer_rubric_v1.md` — 回答评分 rubric
-- 私有 full suite：`integration/runtime/private_evals/comprehensive_v1.private.jsonl`（gitignore）
+- 私有 full suite：`var/runtime/private_evals/comprehensive_v1.private.jsonl`（gitignore）
 
 ### Phase 17 单入口
 
@@ -63,7 +63,7 @@ python src/personal_knowledge/evaluation/reconcile_l2_lineage.py --check
 python -m pytest -q tests/test_knowledge_eval_*.py
 ```
 
-报告：`integration/analysis/evaluations/<run>/report.html`（禁止写 Desktop）
+报告：`var/reports/analysis/evaluations/<run>/report.html`（禁止写 Desktop）
 
 ### Holdout 15-02
 

@@ -166,7 +166,7 @@ dataset={run.get('dataset_checksum','')[:12]}… · scorer={run.get('scorer_vers
 <li>Hybrid gains must be read with layer attribution in JSON artifacts.</li>
 <li>Private query text is not embedded in this report.</li>
 </ul>
-<p class="muted">Artifact dir: project integration/analysis/evaluations only (not Desktop).</p>
+<p class="muted">Artifact dir: project var/reports/analysis/evaluations only (not Desktop).</p>
 </body></html>
 """
     out_path.parent.mkdir(parents=True, exist_ok=True)

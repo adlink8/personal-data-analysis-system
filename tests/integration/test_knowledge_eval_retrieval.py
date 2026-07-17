@@ -24,7 +24,7 @@ from personal_knowledge.evaluation.knowledge_eval_metrics import (  # noqa: E402
     primary_rank,
     score_case,
 )
-from personal_knowledge.evaluation.retrieval_adapters import resolve_targets  # noqa: E402
+from personal_knowledge.evaluation.retrieval_adapters import load_l2_unit_ids, resolve_targets  # noqa: E402
 
 
 def test_adapter_targets_no_hardcode_required() -> None:
@@ -154,3 +154,19 @@ def test_compare_modes_structure() -> None:
     out = compare_modes({"raw": mk("raw", False), "l1": mk("l1", True)}, baseline="raw")
     assert "l1" in out["comparisons"]
     assert out["comparisons"]["l1"]["delta"] is not None
+
+
+def test_l2_filter_resolves_canonical_ids(tmp_path: Path) -> None:
+    import sqlite3
+
+    db = tmp_path / "l2.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript(
+        "CREATE TABLE knowledge_units(unit_id TEXT, run_id TEXT);"
+        "CREATE TABLE canonical_unit_members(canonical_unit_id TEXT, member_unit_id TEXT);"
+        "INSERT INTO knowledge_units VALUES ('l2|member','run-l2');"
+        "INSERT INTO canonical_unit_members VALUES ('cu|canonical','l2|member');"
+    )
+    con.commit()
+    con.close()
+    assert load_l2_unit_ids(db, ["run-l2"]) == {"cu|canonical"}

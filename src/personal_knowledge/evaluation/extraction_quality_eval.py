@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sqlite3
@@ -245,6 +246,51 @@ def evaluate_extraction(
     return report
 
 
+def prepare_grounded_review(
+    db_path: Path,
+    out_path: Path,
+    *,
+    sample_size: int = 50,
+    seed: str = "phase17-grounded-v1",
+) -> dict[str, Any]:
+    """Write a deterministic private L2 review packet without mutating the DB."""
+    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    rows = _load_units(con, l2_only=True)
+    con.close()
+    ranked = sorted(
+        rows,
+        key=lambda row: hashlib.sha256(
+            f"{seed}|{row['unit_id']}".encode("utf-8")
+        ).hexdigest(),
+    )[:sample_size]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", encoding="utf-8") as handle:
+        for row in ranked:
+            handle.write(
+                json.dumps(
+                    {
+                        "unit_id": row["unit_id"],
+                        "subject": row["subject"],
+                        "question": row["question"],
+                        "answer": row["answer"],
+                        "evidence_quote": row["evidence_quote"],
+                        "source_message_ref": row["source_message_ref"],
+                        "grounded": None,
+                        "reviewer_notes": "",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    return {
+        "out": str(out_path).replace("\\", "/"),
+        "sample_size": len(ranked),
+        "available_l2": len(rows),
+        "seed": seed,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Extraction quality eval")
     p.add_argument("--db", type=Path, default=UNIFIED_DB)
@@ -256,11 +302,25 @@ def main(argv: list[str] | None = None) -> int:
         help="optional JSONL with unit_id,grounded bool",
     )
     p.add_argument(
+        "--prepare-human-template",
+        type=Path,
+        default=None,
+        help="write a private deterministic L2 grounded-review JSONL template",
+    )
+    p.add_argument(
         "--out",
         type=Path,
         default=AI_CONTEXT_DIR / "extraction_quality_v1.json",
     )
     args = p.parse_args(argv)
+
+    if args.prepare_human_template:
+        packet = prepare_grounded_review(
+            args.db,
+            args.prepare_human_template,
+            sample_size=max(50, args.sample_limit),
+        )
+        print(f"[extraction-quality] prepared human review: {packet}")
 
     labels = None
     if args.human_labels and args.human_labels.exists():

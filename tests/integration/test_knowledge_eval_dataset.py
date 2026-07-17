@@ -26,6 +26,8 @@ from personal_knowledge.evaluation.eval_contracts import (  # noqa: E402
     content_checksum,
     load_cases_jsonl,
 )
+from personal_knowledge.evaluation.run_knowledge_eval import load_config, resolve_cases_path  # noqa: E402
+from personal_knowledge.evaluation.build_private_suite import HOLDOUT, OUT_DIR, SYN  # noqa: E402
 
 
 def test_contract_roundtrip_eval_case() -> None:
@@ -119,3 +121,13 @@ def test_contract_load_holdout_schema() -> None:
     cases = load_cases_jsonl(path)
     assert len(cases) >= 8
     assert all(c.query for c in cases)
+
+
+def test_eval_config_tracks_relocated_private_suite_and_runtime_active() -> None:
+    cfg = load_config(_ROOT / "assets" / "evals" / "knowledge_units" / "eval_v1.yaml")
+    assert resolve_cases_path(cfg) == _ROOT / "var" / "runtime" / "private_evals" / "comprehensive_v1.private.jsonl"
+    targets = cfg["targets"]
+    assert targets.get("l1_l2_collection") is None
+    assert targets.get("candidate_collection") is None
+    assert SYN.exists() and HOLDOUT.exists()
+    assert OUT_DIR == _ROOT / "var" / "runtime" / "private_evals"
