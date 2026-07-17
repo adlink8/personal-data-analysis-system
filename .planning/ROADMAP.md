@@ -291,5 +291,61 @@ Plans:
 
 **Progress table note:** Phase 22 code/ops complete; Phase 17 human gold/judge/UAT remains open.
 
+### Phase 23: Composite SSOT Snapshot Integrity — close Target A with typed D/S/R/A registry, atomic SQLite-Chroma serving snapshots, authoritative evidence views, and versioned Turn/Google watermarks
+
+**Goal:** 建立单一可审计 serving authority：用 D/S/R/A 注册表描述所有消费层，以不可变 serving snapshot 绑定 SQLite、Chroma、Conversation、Turn、Google、KU 版本和 watermarks，并提供统一证据下钻与 fail-closed doctor。
+**Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04, FOUND-05
+**Depends on:** Phase 22
+**Plans:** 0 plans
+
+**Success criteria:**
+- 任何读取路径先解析一个 serving snapshot，返回 snapshot/version；检测到 SQLite/Chroma/水位分裂时 fail closed。
+- D/S/R/A registry 覆盖生产消费产物，未知、重复权威或不合法跨层依赖被治理门阻断。
+- KU/Turn/Canonical Message/Google signal 可通过统一契约下钻到证据，不返回隐私不合格正文。
+- `pk-sync` 和 `pk-ku doctor` 展示 Conversation、Turn、Google、KU 版本与 watermarks，并通过幂等/回滚/漂移测试。
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 23 to break down)
+
+### Phase 24: Evaluation Closure and Lifecycle Adoption — close Target B/C quality gates, evidence-aware abstention, real supersede/conflict/correction adoption, current-only retrieval, and rollback evidence
+
+**Goal:** 用当前 serving snapshot 关闭 v1.1 评测和质量签收，并让真实生命周期数据进入 current-only 产品检索、历史解释和可回滚发布链。
+**Requirements**: QUAL-01, QUAL-02, LIFE-01, LIFE-02
+**Depends on:** Phase 23
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 24 to break down)
+
+### Phase 25: Personal State and Change Intelligence — model goals, constraints, observations and changes; generate evidence-backed recent change summaries and explain current state from history
+
+**Goal:** 建立证据支持的个人状态与变化模型，可靠总结近期变化，并从历史解释目标、约束、项目和偏好的当前状态。
+**Requirements**: INTEL-01, INTEL-02
+**Depends on:** Phase 24
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 25 to break down)
+
+### Phase 26: Decision Action Feedback Loop — separate facts, observations, inferences, recommendations and confirmations; track recommendation acceptance, actions, outcomes and effectiveness
+
+**Goal:** 建立事实/观察/推断/建议/确认的认知边界，以及建议→用户决定→行动→结果→有效性评估的可审计闭环。
+**Requirements**: DEC-01, DEC-02
+**Depends on:** Phase 25
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 26 to break down)
+
+### Phase 27: Proactive Multi-domain Intelligence and Target D Acceptance — coordinate goals across domains, prioritize important changes without notification noise, provide trust corrections and complete Target D end-to-end verification
+
+**Goal:** 在隐私与信任控制下协调多领域目标，主动呈现真正重要的变化而不制造噪声，并通过完整 Target D 端到端验收。
+**Requirements**: PRO-01, PRO-02, TRUST-01, TD-01
+**Depends on:** Phase 26
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 27 to break down)
+
 ---
 *Roadmap migrated from `.gsd/phases/` on 2026-07-10. Updated 2026-07-17 for Phase 22 close-out and governance audit remediation.*

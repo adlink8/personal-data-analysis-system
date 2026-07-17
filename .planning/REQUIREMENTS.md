@@ -5,6 +5,26 @@
 
 ## Current Milestone Requirements
 
+### Target A-D Closure Program (Phases 23-27)
+
+- [ ] **FOUND-01**: 所有可消费的数据、语义、检索和分析产物都进入类型化 D/S/R/A 注册表，并声明权威来源、版本、隐私、生产者、消费者和生命周期
+- [ ] **FOUND-02**: SQLite canonical current、Chroma collection、source watermarks 和评测证据由不可变 serving snapshot 绑定；发布/回滚只原子切换一个 serving authority
+- [ ] **FOUND-03**: KU、Turn、Canonical Message、Google signal 具有统一只读证据查询契约，高层结果可下钻且跨层 fallback 返回同一 snapshot/version 信息
+- [ ] **FOUND-04**: Canonical Conversation、Turn、Google 和 KU 各自具有可审计版本与 watermark，产品同步可 dry-run、幂等执行并检测漂移
+- [ ] **FOUND-05**: doctor/governance 自动阻断未注册产物、分裂 serving 状态、失效证据、watermark 倒退和版本混用
+- [ ] **QUAL-01**: 当前 active/candidate 在冻结协议上完成五路检索、最终回答、人工 Gold/Judge 校准和 UAT，所有阻断门有不可变证据
+- [ ] **QUAL-02**: 无答案、隐私、secret、引用和时效门禁达到发布阈值；证据不足时可靠 abstain，失败不修改 active snapshot
+- [ ] **LIFE-01**: 真实高价值主题采用 current/superseded/conflict/corrected/historical 生命周期，默认检索 current-only，历史查询解释变化
+- [ ] **LIFE-02**: correction、supersede、conflict、promote 和 rollback 均保留治理事件与当前版本证据，不硬删除个人历史
+- [ ] **INTEL-01**: 系统以证据建模目标、约束、观察和状态变化，并生成可靠的近期变化摘要
+- [ ] **INTEL-02**: 系统能从版本化历史解释当前状态的形成路径，并标示冲突、趋势、风险与不确定性
+- [ ] **DEC-01**: 事实、观察、推断、建议和用户确认具有独立类型、证据与权限边界，建议不会冒充事实 KU
+- [ ] **DEC-02**: 建议、接受/拒绝、行动、结果和有效性形成可审计反馈闭环，并可按结果校准后续建议
+- [ ] **PRO-01**: 在隐私和权限范围内协调学习、职业、项目、健康、财务、关系、时间与精力等领域目标和约束
+- [ ] **PRO-02**: 主动提示只输出达到重要性阈值且有证据的新变化，支持去重、冷却、静默和噪声评估
+- [ ] **TRUST-01**: 用户可纠正、限制、撤销、限定作用域或改变任何认知/建议的生命周期，且操作可追溯可回滚
+- [ ] **TD-01**: 采集→变化检测→历史比较→冲突/趋势/风险→建议→确认/纠正→行动→结果→反馈的 Target D 端到端验收通过
+
 ### Milestone v1.1 — Knowledge Unit Evaluation & Quality
 
 - [ ] **EVAL-01**: 用户可以在同一冻结数据集、同一匹配规则和同一 top-k 下复跑 Raw、L1、L2-only、L1+L2 与 Hybrid 五路检索对比

@@ -3,14 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
 status: executing
-last_updated: "2026-07-17T21:15:00+08:00"
-last_activity: 2026-07-17 -- Phase 17 policy v2 final gate: candidate-scoped safety, verdict remains FAIL
+last_updated: "2026-07-17T13:24:46.798Z"
 progress:
-  total_phases: 24
-  completed_phases: 22
-  total_plans: 54
-  completed_plans: 54
-  percent: 78
+  total_phases: 29
+  completed_phases: 17
+  total_plans: 58
+  completed_plans: 49
+  percent: 59
 ---
 
 # Project State
@@ -81,3 +80,13 @@ python -m personal_knowledge.application.ku watermark   # read-only
 python -m pytest -q
 python -m personal_knowledge.governance.preflight
 ```
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 23 added: Target A composite SSOT snapshot integrity
+- Phase 24 added: Target B/C evaluation closure and lifecycle adoption
+- Phase 25 added: Target D personal state and change intelligence
+- Phase 26 added: Target D decision/action feedback loop
+- Phase 27 added: Target D proactive multi-domain acceptance
