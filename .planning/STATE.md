@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
-status: executing
-last_updated: "2026-07-17T13:44:15.676Z"
+status: planning
+last_updated: "2026-07-17T14:18:55.316Z"
 progress:
   total_phases: 29
-  completed_phases: 17
+  completed_phases: 18
   total_plans: 58
-  completed_plans: 52
-  percent: 59
+  completed_plans: 53
+  percent: 62
 ---
 
 # Project State
@@ -25,6 +25,7 @@ progress:
 | Dialogue SSOT | `data/canonical/agent/structured/db/agent_conversations.sqlite` |
 | Knowledge SSOT | `canonical_knowledge_units` + **active** Chroma collection |
 | Active KU (live) | **`knowledge_units_ir_4cd8af4ad_20260716020508`** (promoted 2026-07-16; previous 205bff for rollback) |
+| Active serving snapshot | **`ss_1590353394c948b908a5d675`** — 10/10 typed roles, Doctor critical_fail=0 |
 | Watermark | matches current source checksum |
 | Product CLI | `pk-sync`, `pk-ku` (inspect…promote, watermark, **reconcile**, **history**, **doctor**) |
 
@@ -37,18 +38,21 @@ progress:
 | **22-03** | Canary critical triage / label path | **done** (CLI + ops: strict PASS + promote) |
 | **22-04** | Facade inventory + doctor + readiness gates | **done** — `pk-ku doctor`, `22-FACADE-INVENTORY.md` |
 
-## Done (latest, 2026-07-16 product ops)
+## Done (latest, 2026-07-17 Target A)
 
 - pk-sync / pk-ku product packaging; incremental extract; publish additive; vector candidate
 - LLM canary labeling; promote default require-eval; full inventory `--start` soft-ban
 - **22-01/02:** lifecycle reconcile + growth-line history (never DELETE)
 - **22-04:** `pk-ku doctor` read-only health; facade inventory (16 import lines / 10 files)
 - Safe cleanup: bak-phase20 quarantined; readiness scorecard updated (~81 weighted)
+- **Phase 23:** typed D/S/R/A registry, immutable composite snapshot, evidence drilldown, source versions/watermarks, fail-closed Doctor/Preflight
+- Live Target A: snapshot `ss_1590353394c948b908a5d675`; 10/10 roles; `pk-sync status` drift=[]; full pytest and all 13 preflight gates pass
 
 ## Current Position
 
-Phase: 23 (Composite SSOT Snapshot Integrity) — EXECUTING
-Plan: 4 of 4
+Phase: 23 (Composite SSOT Snapshot Integrity) — COMPLETE
+Plan: 4 of 4 complete
+Next: Phase 24 (Evaluation Closure and Lifecycle Adoption) — ready for planning
 **Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
 Readiness: `.planning/PRODUCT-READINESS.md` (**~86** weighted; operationally usable, quality sign-off open)
 Active: `knowledge_units_ir_4cd8af4ad_20260716020508`; watermark matches source.  
@@ -61,7 +65,7 @@ Next optional: `reconcile --write --i-know` after dry-run; Phase 17 human gold; 
 - Scope: D/S/R/A layer separation, SQLite/Chroma composite SSOT, inventory/watermark/lifecycle integrity, evaluation evidence, repository and runtime drift.
 - Initial verdict: **gaps_found**. The audit found disabled SQLite FK enforcement, 18,859 FK violations, Delta Inventory FK mismatch, and unsafe incremental inspection/execution boundaries.
 - **2026-07-17 remediation:** unified Full/Delta Inventory registry migrated with verified backup; FK violations are 0; knowledge write connections enforce FK; doctor and publish/promote gates fail closed; inspect defaults to committed watermark; execution lists are no longer preview-truncated; governance preflight is 12/12 PASS.
-- No reconcile write, additional promotion, watermark advance, pointer change, data delete, or compat/archive retirement was performed during remediation.
+- No reconcile write, KU collection promotion, source-watermark advance, data delete, or compat/archive retirement was performed during remediation. Phase 23 registered the unchanged live collection as one validated composite serving authority.
 
 ## Remaining human / product checkpoints
 

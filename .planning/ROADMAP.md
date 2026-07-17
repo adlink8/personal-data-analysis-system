@@ -296,7 +296,7 @@ Plans:
 **Goal:** 建立单一可审计 serving authority：用 D/S/R/A 注册表描述所有消费层，以不可变 serving snapshot 绑定 SQLite、Chroma、Conversation、Turn、Google、KU 版本和 watermarks，并提供统一证据下钻与 fail-closed doctor。
 **Requirements**: FOUND-01, FOUND-02, FOUND-03, FOUND-04, FOUND-05
 **Depends on:** Phase 22
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 **Success criteria:**
 - 任何读取路径先解析一个 serving snapshot，返回 snapshot/version；检测到 SQLite/Chroma/水位分裂时 fail closed。
@@ -305,7 +305,10 @@ Plans:
 - `pk-sync` 和 `pk-ku doctor` 展示 Conversation、Turn、Google、KU 版本与 watermarks，并通过幂等/回滚/漂移测试。
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 23 to break down)
+- [x] 23-01: Typed D/S/R/A registry and immutable serving schema
+- [x] 23-02: Snapshot prepare/validate/activate/rollback lifecycle
+- [x] 23-03: Snapshot-aware retrieval and typed evidence drilldown
+- [x] 23-04: Product versions/watermarks, Doctor/Preflight and operations
 
 ### Phase 24: Evaluation Closure and Lifecycle Adoption — close Target B/C quality gates, evidence-aware abstention, real supersede/conflict/correction adoption, current-only retrieval, and rollback evidence
 
