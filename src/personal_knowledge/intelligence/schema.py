@@ -17,6 +17,7 @@ PROVENANCE_CLASSES = frozenset({"fact", "observation", "inference"})
 ASSERTION_LIFECYCLES = frozenset({"current", "stale", "conflict", "resolved", "expired"})
 EVIDENCE_TYPES = frozenset({"canonical_message", "knowledge_unit", "turn", "google_signal"})
 PRIVACY_CLASSES = frozenset({"R1", "R2", "R3", "R4"})
+RISK_SEVERITIES = frozenset({"low", "medium", "high"})
 
 
 def _json_value(value: Any) -> Any:
@@ -123,4 +124,3 @@ class PersonalStateRun:
     output_manifest: Mapping[str, Any]
     output_manifest_checksum: str
     assertions: tuple[ValidatedAssertion, ...]
-

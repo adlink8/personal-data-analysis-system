@@ -240,6 +240,7 @@ class FormationStep:
     evidence_refs: tuple[str, ...]
     uncertainty: tuple[str, ...]
     value_type: str = ""
+    evidence: tuple[ValidatedEvidence, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -310,6 +311,10 @@ def _key(assertion: ValidatedAssertion) -> StateKey:
 
 
 def _assertion_status(assertion: ValidatedAssertion, as_of: datetime) -> str:
+    # Bitemporal boundary: an assertion cannot be known before it was observed,
+    # even when its business-valid interval starts earlier.
+    if _parse_time(assertion.observed_at, "observed_at") > as_of:
+        return "future"
     if _parse_time(assertion.valid_from, "valid_from") > as_of:
         return "future"
     if assertion.valid_to and _parse_time(assertion.valid_to, "valid_to") < as_of:
@@ -359,6 +364,7 @@ def _formation_step(
         evidence_refs=tuple(sorted(item.ref for item in assertion.evidence)),
         uncertainty=tuple(uncertainty),
         value_type=_value_type(assertion.value),
+        evidence=assertion.evidence,
     )
 
 
@@ -390,6 +396,8 @@ def _history_matches(row: Mapping[str, Any], key: StateKey) -> bool:
 def _lifecycle_trace(
     history_rows: Iterable[Mapping[str, Any]],
     key: StateKey,
+    *,
+    as_of: datetime,
 ) -> tuple[tuple[LifecycleTrace, ...], bool]:
     matched = [row for row in history_rows if _history_matches(row, key)]
     accepted_rows = [
@@ -414,6 +422,9 @@ def _lifecycle_trace(
                 continue
             if str(event.get("status") or "").lower() in {"pending", "proposed"}:
                 continue
+            created_at = str(event.get("created_at") or "")
+            if not created_at or _parse_time(created_at, "created_at") > as_of:
+                continue
             traces.append(
                 LifecycleTrace(
                     event_id=str(event["event_id"]),
@@ -421,7 +432,7 @@ def _lifecycle_trace(
                     event_type=str(event.get("event_type") or ""),
                     lifecycle_before=str(event.get("lifecycle_before") or ""),
                     lifecycle_after=str(event.get("lifecycle_after") or ""),
-                    created_at=str(event.get("created_at") or ""),
+                    created_at=created_at,
                     reason_checksum=checksum(str(event.get("reason") or "")),
                 )
             )
@@ -481,22 +492,31 @@ def project_current_state(
                 item[0],
             ),
         )
+        # Formation/history/explanation share the same knowledge boundary:
+        # exclude assertions not observed or not yet valid at as_of.
+        bounded = [
+            item for item in ordered
+            if _parse_time(item[1].observed_at, "observed_at") <= as_of_dt
+            and _parse_time(item[1].valid_from, "valid_from") <= as_of_dt
+        ]
         formation = tuple(
             _formation_step(run_id, assertion, as_of=as_of_dt)
-            for run_id, assertion in ordered
+            for run_id, assertion in bounded
         )
-        lifecycle_path, missing_predecessor = _lifecycle_trace(history, key)
+        lifecycle_path, missing_predecessor = _lifecycle_trace(
+            history, key, as_of=as_of_dt
+        )
         uncertainty: list[str] = []
         if missing_predecessor:
             uncertainty.append("missing_predecessor")
         active = [
             item
-            for item in ordered
+            for item in bounded
             if _assertion_status(item[1], as_of_dt) == "candidate"
         ]
         relevant = [
             item
-            for item in ordered
+            for item in bounded
             if _assertion_status(item[1], as_of_dt) != "future"
         ]
         latest_moment = (
@@ -545,7 +565,7 @@ def project_current_state(
                 if selected.confidence < 0.6:
                     status = "uncertain"
                     uncertainty.append("low_confidence")
-        elif ordered:
+        elif bounded:
             statuses = {step.status for step in formation}
             if statuses <= {"expired", "future"} and "expired" in statuses:
                 status = "expired"

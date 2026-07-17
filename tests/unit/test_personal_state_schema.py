@@ -9,6 +9,7 @@ import pytest
 from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import (
     SCHEMA_SQL,
 )
+from personal_knowledge.intelligence.schema import canonical_json
 
 
 _DIGEST = hashlib.sha256(b"fixture").hexdigest()
@@ -131,6 +132,7 @@ def test_personal_state_schema_is_idempotent_and_fk_clean(tmp_path: Path) -> Non
     }
     assert {
         "personal_state_runs",
+        "personal_state_publications",
         "personal_state_assertions",
         "personal_state_evidence",
         "personal_state_changes",
@@ -285,4 +287,35 @@ def test_committed_personal_state_rows_reject_updates_and_deletes(tmp_path: Path
     for statement, message in mutations:
         with pytest.raises(sqlite3.IntegrityError, match=message):
             con.execute(statement)
+    con.close()
+
+
+def test_derived_risk_severity_persists_without_translation(tmp_path: Path) -> None:
+    from personal_knowledge.intelligence.changes import TrendSample, derive_risk, derive_trend
+    from personal_knowledge.intelligence.state_projection import StateKey
+
+    con = _database(tmp_path)
+    _seed_snapshot(con)
+    _insert_run(con, "run1", "ss1", "snapshot-hash-1")
+    _insert_assertion(con, "a1", "run1", kind="constraint")
+    key = StateKey("constraint", "subject", "work", "personal", "complete_target")
+    trend = derive_trend(tuple(
+        TrendSample(
+            assertion_id=f"a{i}", key=key, value=float(i), unit="count",
+            observed_at=f"2026-0{i}-01T00:00:00Z", evidence_refs=(f"ku{i}",),
+            evidence_eligible=True, confidence=0.9,
+        )
+        for i in range(1, 4)
+    ))
+    risk = derive_risk(trend, rule_id="increasing_constraint_pressure")
+    payload = {"inference_id": risk.inference_id, "severity": risk.severity}
+    digest = hashlib.sha256(canonical_json(payload).encode()).hexdigest()
+    con.execute(
+        "INSERT INTO personal_state_risks VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("r-derived", "run1", "a1", risk.rule_id, risk.rule_version,
+         risk.severity, risk.confidence, "", canonical_json(payload), digest, "now"),
+    )
+    assert con.execute(
+        "SELECT severity FROM personal_state_risks WHERE risk_id='r-derived'"
+    ).fetchone()[0] == "medium"
     con.close()

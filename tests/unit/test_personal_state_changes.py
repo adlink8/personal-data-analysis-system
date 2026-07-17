@@ -295,7 +295,7 @@ def test_risk_is_named_inference_only_and_non_prescriptive() -> None:
     assert risk.inference_type == "risk"
     assert risk.provenance_class == "inference"
     assert risk.rule_version == "1"
-    assert risk.severity == "elevated"
+    assert risk.severity == "medium"
     assert not hasattr(risk, "recommendation")
     assert not hasattr(risk, "action")
 

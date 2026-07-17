@@ -16,7 +16,7 @@ from personal_knowledge.intelligence.explanations import (
     build_recent_changes,
     explain_state,
 )
-from personal_knowledge.intelligence.schema import canonical_json, checksum
+from personal_knowledge.intelligence.schema import ValidatedEvidence, canonical_json, checksum
 from personal_knowledge.intelligence.state_projection import LifecycleTrace
 from tests.unit.test_personal_state_changes import (
     KEY,
@@ -31,15 +31,17 @@ class Resolver:
         self.statuses = statuses or {}
         self.include_content: list[bool] = []
 
-    def resolve(self, ref, *, include_content=False):
+    def resolve(
+        self, ref, *, artifact_type=None, include_content=False, source_version=None
+    ):
         self.include_content.append(include_content)
         status = self.statuses.get(ref, "ok")
         return {
             "ref": ref,
-            "artifact_type": "canonical_message",
+            "artifact_type": artifact_type or "canonical_message",
             "status": status,
             "eligible": status == "ok",
-            "source_version": "av1",
+            "source_version": source_version or "av1",
             "content": "must never be copied",
         }
 
@@ -60,6 +62,18 @@ def _change_set():
 
 
 def _summary(limit=10, resolver=None, inferences=()):
+    refs = {
+        ref
+        for record in _change_set().records
+        for ref in record.evidence_refs
+    }
+    refs.update(ref for record in inferences for ref in record.evidence_refs)
+    catalog = {
+        ref: ValidatedEvidence(
+            ref, "canonical_message", "canonical_message", "av1", checksum(ref), "R2"
+        )
+        for ref in refs
+    }
     return build_recent_changes(
         _change_set(),
         run_id="psr-1",
@@ -69,6 +83,7 @@ def _summary(limit=10, resolver=None, inferences=()):
         limit=limit,
         resolver=resolver or Resolver(),
         inferences=inferences,
+        evidence_catalog=catalog,
     )
 
 
@@ -131,6 +146,22 @@ def test_ineligible_or_missing_evidence_abstains_without_copying_body() -> None:
     assert "evidence_unavailable_or_ineligible" in item.uncertainty
     assert all(not row.eligible for row in item.evidence if row.ref in {"msg:a2", "msg:a3"})
     assert "must never be copied" not in canonical_json(result)
+
+
+@pytest.mark.parametrize("mode", ["missing_eligibility", "version_drift"])
+def test_evidence_must_be_explicitly_eligible_and_version_bound(mode) -> None:
+    class DriftResolver(Resolver):
+        def resolve(self, ref, **kwargs):
+            result = super().resolve(ref, **kwargs)
+            if mode == "missing_eligibility":
+                result.pop("eligible")
+            else:
+                result["source_version"] = "different-version"
+            return result
+
+    item = _summary(limit=1, resolver=DriftResolver()).items[0]
+    assert item.abstained is True
+    assert all(row.eligible is False for row in item.evidence)
 
 
 def test_trend_and_risk_derivation_is_explained_without_prescriptive_fields() -> None:

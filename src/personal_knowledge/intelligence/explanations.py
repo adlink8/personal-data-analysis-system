@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .changes import (
     ChangeRecord,
@@ -11,7 +11,7 @@ from .changes import (
     InferenceRecord,
     change_set_checksum,
 )
-from .schema import checksum
+from .schema import ValidatedEvidence, checksum
 from .state_projection import FormationStep, LifecycleTrace, ProjectedState, StateKey
 
 
@@ -35,6 +35,10 @@ class EvidenceStatus:
     status: str
     eligible: bool
     source_version: str | None
+    serving_role: str | None = None
+    expected_version: str | None = None
+    privacy_class: str | None = None
+    evidence_checksum: str | None = None
 
 
 @dataclass(frozen=True)
@@ -133,34 +137,58 @@ def _validate_context(
 def _resolve_evidence(
     refs: Iterable[str],
     resolver: Any,
+    catalog: Mapping[str, ValidatedEvidence],
 ) -> tuple[tuple[EvidenceStatus, ...], bool]:
     rows: list[EvidenceStatus] = []
     for ref in sorted(set(str(item) for item in refs if str(item))):
+        expected = catalog.get(ref)
+        if expected is None:
+            rows.append(EvidenceStatus(ref, "unknown", "unbound", False, None))
+            continue
         try:
-            result = resolver.resolve(ref, include_content=False)
+            result = resolver.resolve(
+                ref,
+                artifact_type=expected.artifact_type,
+                include_content=False,
+                source_version=expected.artifact_version_id,
+            )
         except Exception:
             result = {"ref": ref, "artifact_type": "unknown", "status": "resolver_error", "eligible": False}
         status = str(result.get("status") or "missing")
-        eligible = bool(result.get("eligible", status == "ok")) and status == "ok"
+        actual_version = (
+            str(result["source_version"])
+            if result.get("source_version") is not None
+            else None
+        )
+        eligible = (
+            result.get("eligible") is True
+            and status == "ok"
+            and str(result.get("artifact_type") or "") == expected.artifact_type
+            and actual_version == expected.artifact_version_id
+        )
         rows.append(
             EvidenceStatus(
                 ref=ref,
                 artifact_type=str(result.get("artifact_type") or "unknown"),
                 status=status,
                 eligible=eligible,
-                source_version=(
-                    str(result["source_version"])
-                    if result.get("source_version") is not None
-                    else None
-                ),
+                source_version=actual_version,
+                serving_role=expected.serving_role,
+                expected_version=expected.artifact_version_id,
+                privacy_class=expected.privacy_class,
+                evidence_checksum=expected.evidence_checksum,
             )
         )
     ordered = tuple(rows)
     return ordered, bool(ordered) and all(row.eligible for row in ordered)
 
 
-def _change_explanation(record: ChangeRecord, resolver: Any) -> ExplanationRecord:
-    evidence, eligible = _resolve_evidence(record.evidence_refs, resolver)
+def _change_explanation(
+    record: ChangeRecord,
+    resolver: Any,
+    catalog: Mapping[str, ValidatedEvidence],
+) -> ExplanationRecord:
+    evidence, eligible = _resolve_evidence(record.evidence_refs, resolver, catalog)
     uncertainty = set(record.uncertainty)
     if not eligible:
         uncertainty.add("evidence_unavailable_or_ineligible")
@@ -197,8 +225,12 @@ def _change_explanation(record: ChangeRecord, resolver: Any) -> ExplanationRecor
     )
 
 
-def _inference_explanation(record: InferenceRecord, resolver: Any) -> ExplanationRecord:
-    evidence, eligible = _resolve_evidence(record.evidence_refs, resolver)
+def _inference_explanation(
+    record: InferenceRecord,
+    resolver: Any,
+    catalog: Mapping[str, ValidatedEvidence],
+) -> ExplanationRecord:
+    evidence, eligible = _resolve_evidence(record.evidence_refs, resolver, catalog)
     uncertainty = set(record.uncertainty)
     if not eligible:
         uncertainty.add("evidence_unavailable_or_ineligible")
@@ -245,6 +277,7 @@ def build_recent_changes(
     limit: int,
     resolver: Any,
     inferences: Iterable[InferenceRecord] = (),
+    evidence_catalog: Mapping[str, ValidatedEvidence] | None = None,
 ) -> RecentChangesSummary:
     """Build one deterministic, explicitly bounded recent-change summary."""
     _validate_context(
@@ -264,8 +297,9 @@ def build_recent_changes(
     if _parse_time(changes.after_as_of, "change_after_as_of") > end:
         raise ExplanationError("future_change_manifest")
 
-    items = [_change_explanation(row, resolver) for row in changes.records]
-    items.extend(_inference_explanation(row, resolver) for row in inferences)
+    catalog = evidence_catalog or {}
+    items = [_change_explanation(row, resolver, catalog) for row in changes.records]
+    items.extend(_inference_explanation(row, resolver, catalog) for row in inferences)
     bounded = [
         row
         for row in items
@@ -319,10 +353,14 @@ def explain_state(
         run_id=run_id,
         run_checksum=run_checksum,
     )
-    _parse_time(as_of, "as_of")
+    as_of_dt = _parse_time(as_of, "as_of")
     formation = tuple(
         sorted(
-            state.formation_path,
+            (
+                row for row in state.formation_path
+                if _parse_time(row.observed_at, "observed_at") <= as_of_dt
+                and _parse_time(row.valid_from, "valid_from") <= as_of_dt
+            ),
             key=lambda row: (
                 _parse_time(row.valid_from, "valid_from"),
                 _parse_time(row.observed_at, "observed_at"),
@@ -333,13 +371,28 @@ def explain_state(
     )
     lifecycle = tuple(
         sorted(
-            state.lifecycle_path,
+            (
+                row for row in state.lifecycle_path
+                if _parse_time(row.created_at, "created_at") <= as_of_dt
+            ),
             key=lambda row: (_parse_time(row.created_at, "created_at"), row.event_id),
         )
     )
-    refs = {item.ref for item in state.evidence}
-    refs.update(ref for step in formation for ref in step.evidence_refs)
-    evidence, eligible = _resolve_evidence(refs, resolver)
+    typed = [item for step in formation for item in step.evidence]
+    typed.extend(state.evidence)
+    catalog: dict[str, ValidatedEvidence] = {}
+    conflicts: set[str] = set()
+    for item in typed:
+        existing = catalog.get(item.ref)
+        if existing is not None and existing != item:
+            conflicts.add(item.ref)
+        else:
+            catalog[item.ref] = item
+    for ref in conflicts:
+        catalog.pop(ref, None)
+    refs = {ref for step in formation for ref in step.evidence_refs}
+    refs.update(item.ref for item in state.evidence)
+    evidence, eligible = _resolve_evidence(refs, resolver, catalog)
     uncertainty = set(state.uncertainty)
     if not eligible:
         uncertainty.add("evidence_unavailable_or_ineligible")

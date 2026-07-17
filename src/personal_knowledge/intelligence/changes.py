@@ -12,7 +12,7 @@ import math
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
-from .schema import canonical_json, checksum
+from .schema import RISK_SEVERITIES, canonical_json, checksum
 from .state_projection import FormationStep, ProjectedState, StateKey, StateProjection
 
 
@@ -48,14 +48,14 @@ RULE_REGISTRY = MappingProxyType(
             version="1",
             inference_type="risk",
             minimum_samples=3,
-            description="An increasing constraint observation trend is an elevated non-prescriptive risk.",
+            description="An increasing constraint observation trend is a medium non-prescriptive risk.",
         ),
         "decreasing_goal_signal": RuleSpec(
             rule_id="decreasing_goal_signal",
             version="1",
             inference_type="risk",
             minimum_samples=3,
-            description="A decreasing goal observation trend is an elevated non-prescriptive risk.",
+            description="A decreasing goal observation trend is a medium non-prescriptive risk.",
         ),
     }
 )
@@ -132,6 +132,10 @@ class InferenceRecord:
     severity: str | None
     confidence: float
     uncertainty: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if self.severity is not None and self.severity not in RISK_SEVERITIES:
+            raise ValueError(f"invalid risk severity: {self.severity}")
 
 
 def _parse_time(value: str, field: str) -> datetime:
@@ -589,7 +593,7 @@ def derive_risk(
         "magnitude": trend.magnitude if not reasons else None,
         "magnitude_method": trend.magnitude_method if not reasons else None,
         "unit": trend.unit if not reasons else None,
-        "severity": "elevated" if not reasons else None,
+        "severity": "medium" if not reasons else None,
         "confidence": trend.confidence if not reasons else 0.0,
         "uncertainty": tuple(sorted(set((*trend.uncertainty, *reasons)))),
     }
