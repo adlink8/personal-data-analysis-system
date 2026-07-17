@@ -47,11 +47,12 @@ progress:
 - Safe cleanup: bak-phase20 quarantined; readiness scorecard updated (~81 weighted)
 - **Phase 23:** typed D/S/R/A registry, immutable composite snapshot, evidence drilldown, source versions/watermarks, fail-closed Doctor/Preflight
 - Live Target A: snapshot `ss_1590353394c948b908a5d675`; 10/10 roles; `pk-sync status` drift=[]; full pytest and all 13 preflight gates pass
+- **Phase 24-01:** evidence-aware support/abstain and snapshot-bound evaluation complete; private dev FP=0, eligible-positive retention=100%, 26 invalid legacy positives routed to human Gold review
 
 ## Current Position
 
 Phase: 24 (Evaluation Closure and Lifecycle Adoption) — EXECUTING
-Plan: 1 of 4
+Plan: 2 of 4
 Previous: Phase 23 / Target A complete
 **Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
 Readiness: `.planning/PRODUCT-READINESS.md` (**~86** weighted; operationally usable, quality sign-off open)
