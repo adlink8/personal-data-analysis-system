@@ -30,3 +30,14 @@ def test_retirement_cohort_is_preview_only_and_requires_human_approval() -> None
     assert cohort["status"] == "pending-human-approval"
     assert "consumer count = 0" in cohort["preconditions"]
     assert "rollback manifest approved" in cohort["preconditions"]
+
+
+def test_baseline_only_down_accepts_reduced_surface_and_rejects_growth() -> None:
+    checker = _checker()
+    assert checker._baseline_errors(85, 86, "shim", only_down=True) == []
+    assert checker._baseline_errors(87, 86, "shim", only_down=True) == [
+        "shim budget increased: expected at most 86, found 87"
+    ]
+    assert checker._baseline_errors(85, 86, "shim", only_down=False) == [
+        "shim baseline drift: expected 86, found 85"
+    ]

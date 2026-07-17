@@ -14,6 +14,14 @@ MANIFEST = ROOT / "governance" / "manifests" / "entrypoints.yaml"
 TARGET = re.compile(r"Compatibility shim ->\s*([A-Za-z0-9_.]+)")
 
 
+def _baseline_errors(actual: int, expected: int, label: str, *, only_down: bool) -> list[str]:
+    if actual > expected:
+        return [f"{label} budget increased: expected at most {expected}, found {actual}"]
+    if not only_down and actual != expected:
+        return [f"{label} baseline drift: expected {expected}, found {actual}"]
+    return []
+
+
 def discover_shims() -> list[dict[str, object]]:
     result = []
     for path in sorted(SCRIPTS.glob("*.py")):
@@ -48,12 +56,13 @@ def main() -> int:
     tools_manifest = json.loads((ROOT / "governance/manifests/source/tools.json").read_text(encoding="utf-8"))
     tools = tools_manifest["entries"]
     errors = []
-    if len(shims) > manifest["shim_registry"]["expected_count"]:
-        errors.append(f"shim budget increased: {len(shims)}")
-    if len(shims) != manifest["shim_registry"]["expected_count"]:
-        errors.append(f"shim baseline drift: expected 86, found {len(shims)}")
-    if len(tools) != manifest["tool_registry"]["expected_count"]:
-        errors.append(f"tool baseline drift: expected 22, found {len(tools)}")
+    only_down = bool(manifest.get("baseline_only_down"))
+    errors.extend(_baseline_errors(
+        len(shims), int(manifest["shim_registry"]["expected_count"]), "shim", only_down=only_down
+    ))
+    errors.extend(_baseline_errors(
+        len(tools), int(manifest["tool_registry"]["expected_count"]), "tool", only_down=only_down
+    ))
     errors.extend(f"invalid target/parity: {s['path']}" for s in shims if not s["target_exists"] or not s["static_parity"])
     result = {"ok": not errors, "shim_count": len(shims), "tool_count": len(tools),
               "errors": errors, "resolved_shims": shims,

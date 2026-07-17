@@ -82,7 +82,7 @@ def test_expanded_provider_tokens() -> None:
 
 def test_private_key_block() -> None:
     pem = (
-        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "-----BEGIN RSA PRIVATE KEY-----\n"  # governance: synthetic-secret-fixture
         "MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF6PZGFw6\n"
         "-----END RSA PRIVATE KEY-----"
     )
