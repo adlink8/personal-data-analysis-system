@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
 status: executing
-last_updated: "2026-07-17T21:44:18Z"
+last_updated: "2026-07-17T22:08:24Z"
 progress:
   total_phases: 29
   completed_phases: 18
   total_plans: 65
-  completed_plans: 57
-  percent: 88
+  completed_plans: 58
+  percent: 89
 ---
 
 # Project State
@@ -48,14 +48,14 @@ progress:
 - **Phase 23:** typed D/S/R/A registry, immutable composite snapshot, evidence drilldown, source versions/watermarks, fail-closed Doctor/Preflight
 - Live Target A: snapshot `ss_1590353394c948b908a5d675`; 10/10 roles; `pk-sync status` drift=[]; full pytest and all 13 preflight gates pass
 - **Phase 24-01:** evidence-aware support/abstain and snapshot-bound evaluation complete; private dev FP=0, eligible-positive retention=100%, 26 invalid legacy positives routed to human Gold review
-- **Phase 25-01/02/03:** immutable snapshot-bound personal-state runs, typed current-state projection, deterministic changes/trends/risks and metadata-safe explanations complete
+- **Phase 25-01/02/03/04:** immutable snapshot-bound personal-state runs, typed current-state projection, deterministic changes/trends/risks, metadata-safe explanations, shared CLI/REST/MCP reads and zero-mutation metadata-only acceptance complete
 
 ## Current Position
 
-Phase: 25 (Personal State and Change Intelligence) — EXECUTING
-Plan: 4 of 4
+Phase: 25 (Personal State and Change Intelligence) — ALL 4 PLANS IMPLEMENTED; PHASE VERIFICATION PENDING
+Plan: 4 of 4 complete
 Previous: Phase 23 / Target A complete
-Parallel execution: Phase 25 Plans 25-01/02/03 are complete and Plan 25-04 is next; release remains dependent on Phase 24 human/quality gates.
+Parallel execution: Phase 25 Plans 25-01/02/03/04 are complete; phase-level review/verification is next, and release remains dependent on Phase 24 human/quality gates.
 **Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
 Readiness: `.planning/PRODUCT-READINESS.md` (**~86** weighted; operationally usable, quality sign-off open)
 Active: `knowledge_units_ir_4cd8af4ad_20260716020508`; watermark matches source.  
