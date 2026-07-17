@@ -82,3 +82,10 @@ def test_recommendation_and_confirmation_cannot_be_reclassified_as_phase25_truth
         with pytest.raises(DecisionSchemaError, match="invalid_cognitive_reference"):
             CognitionReference(cognitive_type=cognitive_type, **base)
 
+
+def test_decision_write_modules_have_no_external_executor_surface() -> None:
+    from personal_knowledge.intelligence.decision import recommendations, state_machine
+
+    source = recommendations.__loader__.get_source(recommendations.__name__) + state_machine.__loader__.get_source(state_machine.__name__)
+    for forbidden in ("requests", "httpx", "subprocess", "connector", "dispatch(", "execute("):
+        assert forbidden not in source

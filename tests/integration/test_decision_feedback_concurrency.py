@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import sqlite3
+from typing import Any
+
+import pytest
+
+from personal_knowledge.application.knowledge.lifecycle_events import ensure_lifecycle_schema
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+from personal_knowledge.intelligence.decision.runs import plan_run, publish_run, resolve_cognition_reference
+from personal_knowledge.intelligence.decision.schema import RecommendationDraft
+from personal_knowledge.intelligence.decision.state_machine import (
+    DecisionStateError,
+    project_history,
+    record_action,
+    record_confirmation,
+)
+from personal_knowledge.intelligence.runs import plan_run as plan_state_run
+from personal_knowledge.intelligence.runs import publish_run as publish_state_run
+from personal_knowledge.intelligence.schema import EvidenceReference, StateAssertion
+
+
+class Resolver:
+    def resolve(self, ref: str, **_: Any) -> dict[str, Any]:
+        return {"ref": ref, "artifact_type": "knowledge_unit", "status": "ok", "eligible": True,
+                "metadata": {"privacy_class": "R4"}, "evidence_refs": [], "content": None}
+
+
+def _published(tmp_path: Path, *, expires_at: str = "2026-08-01T00:00:00Z") -> tuple[Path, Any]:
+    db = tmp_path / "decision-state.sqlite"
+    con = sqlite3.connect(db)
+    con.execute("PRAGMA foreign_keys=ON")
+    con.executescript(SCHEMA_SQL)
+    ensure_lifecycle_schema(con)
+    for row in (("a.personal_change", "A", "personal_change_analysis", "R4", "a", "now"),
+                ("a.decision_feedback", "A", "decision_feedback", "R4", "d", "now"),
+                ("s.knowledge_unit", "S", "canonical_knowledge", "R4", "s", "now")):
+        con.execute("INSERT INTO artifact_registry_entries VALUES (?,?,?,?,?,?)", row)
+    con.execute("INSERT INTO artifact_versions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("av1", "s.knowledge_unit", "v1", "source", "sqlite_table", "canonical_knowledge_units",
+                 "validated", "R4", None, None, "{}", "now"))
+    con.execute("INSERT INTO serving_snapshots VALUES (?,?,?,?,?,?,?)",
+                ("ss1", "{}", "snapshot-hash", "validated", "gate", "now", "now"))
+    con.execute("INSERT INTO serving_snapshot_members VALUES (?,?,?,NULL)", ("ss1", "canonical_knowledge", "av1"))
+    con.execute("UPDATE serving_authority SET active_snapshot_id='ss1',activated_at='now' WHERE singleton_id=1")
+    con.commit(); con.close()
+    resolver = Resolver()
+    source = plan_state_run(db, [StateAssertion(
+        assertion_kind="goal", provenance_class="fact", subject="user", domain="work", scope="personal",
+        predicate="complete_target", value="D", valid_from="2026-07-18T00:00:00Z",
+        observed_at="2026-07-18T00:00:00Z", evidence=(EvidenceReference(
+            ref="ku1", artifact_type="knowledge_unit", serving_role="canonical_knowledge",
+            artifact_version_id="av1", privacy_class="R4"),))], producer_version="phase25-v1",
+        input_manifest={"source": "fixture"}, resolver=resolver)
+    publish_state_run(db, source, write=True, resolver=resolver)
+    ref = resolve_cognition_reference(db, source_run_id=source.run_id, record_id=None, cognitive_type="fact")
+    draft = RecommendationDraft(
+        subject="user", domain="work", scope="personal", recommendation_kind="next_step",
+        target="close_target_d", horizon="next_session", rationale_codes=("goal_gap",),
+        expected_benefit="complete target", costs_constraints=("human gates remain",),
+        assumptions=("source remains valid",), contraindications=(), confidence=.8,
+        uncertainty="release blocked", expires_at=expires_at, support=(ref,))
+    run = plan_run(db, [draft], policy_id="bounded-next-step", policy_version="v1", input_manifest={})
+    publish_run(db, run, write=True)
+    return db, run.recommendations[0]
+
+
+def _confirm(db: Path, rec: Any, **changes: Any) -> Any:
+    args = dict(recommendation_id=rec.recommendation_id, recommendation_checksum=rec.payload_checksum,
+                decision="accept", actor_class="user", actor_identity_hash="1" * 64,
+                reason_code="user_selected", expected_sequence=1, idempotency_key="confirm-1",
+                occurred_at="2026-07-18T01:00:00Z")
+    args.update(changes)
+    return record_confirmation(db, **args)
+
+
+def _action(db: Path, rec: Any, **changes: Any) -> Any:
+    args = dict(recommendation_id=rec.recommendation_id, recommendation_checksum=rec.payload_checksum,
+                action_state="planned", source_class="user_attested", actor_class="user",
+                actor_identity_hash="1" * 64, reason_code="user_planned", expected_sequence=2,
+                idempotency_key="action-1", occurred_at="2026-07-18T01:01:00Z")
+    args.update(changes)
+    return record_action(db, **args)
+
+
+def test_confirmation_and_action_extend_genesis_without_premise_or_execution_side_effects(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path)
+    before = sqlite3.connect(db).execute("SELECT COUNT(*) FROM personal_state_assertions").fetchone()[0]
+    confirmation = _confirm(db, rec)
+    assert confirmation.sequence == 2
+    assert project_history(db, rec.recommendation_id).confirmation_state == "accepted"
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT COUNT(*) FROM decision_actions").fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM personal_state_assertions").fetchone()[0] == before
+    con.close()
+    action = _action(db, rec)
+    state = project_history(db, rec.recommendation_id)
+    assert action.sequence == 3 and state.action_state == "planned"
+    assert [event.sequence for event in state.events] == [1, 2, 3]
+    assert state.events[1].previous_event_checksum == state.events[0].payload_checksum
+    assert state.events[2].previous_event_checksum == state.events[1].payload_checksum
+
+
+@pytest.mark.parametrize("decision", ["reject", "defer"])
+def test_decision_transitions_do_not_authorize_action(tmp_path: Path, decision: str) -> None:
+    db, rec = _published(tmp_path)
+    _confirm(db, rec, decision=decision)
+    with pytest.raises(DecisionStateError, match="illegal_action_transition"):
+        _action(db, rec)
+
+
+def test_revoke_is_only_valid_after_accept_and_before_action(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path)
+    _confirm(db, rec)
+    receipt = _confirm(db, rec, decision="revoke_before_action", expected_sequence=2, idempotency_key="revoke")
+    assert receipt.sequence == 3
+    assert project_history(db, rec.recommendation_id).confirmation_state == "revoked"
+    with pytest.raises(DecisionStateError, match="illegal_action_transition"):
+        _action(db, rec, expected_sequence=3)
+
+
+def test_expiry_actor_checksum_and_executable_payload_fail_closed(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path, expires_at="2026-07-18T00:30:00Z")
+    for changes, code in (({"occurred_at": "2026-07-18T01:00:00Z"}, "recommendation_expired"),
+                          ({"actor_class": "agent"}, "human_actor_required"),
+                          ({"recommendation_checksum": "0" * 64}, "recommendation_checksum_mismatch")):
+        with pytest.raises(DecisionStateError, match=code):
+            _confirm(db, rec, **changes)
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT COUNT(*) FROM decision_confirmations").fetchone()[0] == 0
+    con.close()
+
+    db2, rec2 = _published(tmp_path / "other")
+    _confirm(db2, rec2)
+    with pytest.raises(DecisionStateError, match="forbidden_action_field"):
+        _action(db2, rec2, metadata={"command": "run something"})
+
+
+def test_idempotency_replay_conflict_and_stale_two_writer_contention(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path)
+    first = _confirm(db, rec)
+    replay = _confirm(db, rec)
+    assert replay == first
+    with pytest.raises(DecisionStateError, match="idempotency_conflict"):
+        _confirm(db, rec, reason_code="changed")
+
+    db2, rec2 = _published(tmp_path / "race")
+    def writer(key: str) -> str:
+        try:
+            _confirm(db2, rec2, idempotency_key=key)
+            return "written"
+        except DecisionStateError as exc:
+            return exc.code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(writer, ("writer-a", "writer-b")))
+    assert sorted(results) == ["stale_expected_sequence", "written"]
+
+
+@pytest.mark.parametrize("failure", ["after_typed_record", "after_event"])
+def test_injected_insert_failures_roll_back_both_rows(tmp_path: Path, failure: str) -> None:
+    db, rec = _published(tmp_path)
+    with pytest.raises(RuntimeError, match="injected decision state failure"):
+        _confirm(db, rec, inject_failure_at=failure)
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT COUNT(*) FROM decision_confirmations").fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM decision_events").fetchone()[0] == 1
+    con.close()
+
+
+def test_missing_tampered_or_out_of_order_genesis_fails_closed(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path)
+    con = sqlite3.connect(db)
+    con.execute("DROP TRIGGER trg_decision_events_immutable_update")
+    con.execute("UPDATE decision_events SET payload_json='{}' WHERE sequence=1")
+    con.commit(); con.close()
+    with pytest.raises(DecisionStateError, match="event_checksum_mismatch"):
+        project_history(db, rec.recommendation_id)
+
