@@ -335,10 +335,10 @@ Plans:
 **Requirements**: INTEL-01, INTEL-02
 **Depends on:** Phase 24
 **Status:** Planned (release remains blocked on Phase 24 human/quality gates)
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
-- [ ] 25-01: Immutable personal-state schema and snapshot-bound run contract
+- [x] 25-01: Immutable personal-state schema and snapshot-bound run contract
 - [ ] 25-02: Typed goals, constraints, observations and current-state projection
 - [ ] 25-03: Evidence-backed changes, conflicts, trends, risks and explanations
 - [ ] 25-04: Shared read interfaces and metadata-only acceptance
