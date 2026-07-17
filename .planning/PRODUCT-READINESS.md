@@ -17,7 +17,7 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 | **4. Retrieval layered** | 82 | yes | KU→dialogue→Google; fallback_policy=layered |
 | **5. Publish / active safety** | **90** | yes | Fail-closed promote; **active=`knowledge_units_ir_4cd8af4ad_20260716020508`** (2026-07-16); watermark matches source |
 | **6. Lifecycle / growth line** | **78** | **no** | **22-01** `pk-ku reconcile` (dry-run default, never DELETE); **22-02** `pk-ku history`; write still operator-gated |
-| **7. Eval / canary** | **72** | **no** | Operational canary strict PASS, but comprehensive live eval `ee36a1f178c17020` correctly FAILS; Phase 17 human gold/judge/UAT open |
+| **7. Eval / canary** | **72** | **no** | Operational canary strict PASS, but comprehensive live eval correctly FAILS: only 22 real scoreable gold and 0 real cross-turn gold; Phase 17 human gold/judge/UAT open |
 | **8. Ops / docs** | 90 | yes | Runbooks + AGENTS; **`pk-ku doctor`** (DBs, active pointer, watermark info, ports warn-only) |
 | **9. Governance / tests** | 90 | yes | Doctor unit tests + reconcile/history CLI tests; pytest path green |
 | **10. Facade / debt** | **88** | yes | **application → domains real imports = 0** (2026-07-16 rewrite); domains package remains as re-export shims until optional 2026-08-13 package delete |
@@ -38,10 +38,9 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 | Lifecycle / growth line | 30 | **78** | reconcile + history (22-01/02) |
 | Daily product CLI | 88 | **92** | doctor + growth commands |
 | Ops / docs | 85 | **90** | doctor + inventory note |
-| Eval / canary | 70 | **72** | critical triage surface (22-03) |
-| Facade / debt | 60 | **68** | owned inventory; not retired |
+| Eval / canary | 70 | **72** | critical triage surface plus fail-closed comprehensive evaluation |
+| Facade / debt | 60 | **88** | application imports 0; owned compatibility shim remains |
 | Publish / active | 75 | **90** | promote+watermark closed 2026-07-16 |
-| Eval / canary | 72 | **88** | strict PASS after triage |
 
 ---
 

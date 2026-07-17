@@ -9,9 +9,9 @@ verified: 2026-07-17
 ## Automated
 
 ```text
-python -m pytest -q tests/test_knowledge_eval_*.py   # PASS
-python integration/scripts/evaluation/reconcile_l2_lineage.py --check  # ok=True 768+47=815
-python integration/scripts/evaluation/run_knowledge_eval.py --full --render --gate --dry-run --offline  # active_unchanged
+python -m pytest -q tests/integration/test_knowledge_eval_*.py
+python -m personal_knowledge.evaluation.reconcile_l2_lineage
+python -m personal_knowledge.evaluation.run_knowledge_eval --config assets/evals/knowledge_units/eval_v1.yaml --full --render --gate --dry-run
 ```
 
 ## Requirements map
@@ -35,8 +35,10 @@ python integration/scripts/evaluation/run_knowledge_eval.py --full --render --ga
 ## 2026-07-17 re-audit
 
 - Live full run `ee36a1f178c17020` used the relocated 178-case private suite and current Active collection.
-- Dataset audit PASS: 20/20 real gold evidence refs resolve; no split leakage.
+- Dataset audit correctly FAILS coverage: 22 real scoreable gold cases (<30), 0 real cross-turn gold (<30); 20/20 real evidence refs resolve and no split leakage.
 - Active pointer/checksum proxy remained unchanged.
-- Gate correctly FAILS: +8.90pp primary delta is below +10pp; cross-turn delta is 0; no-answer FP is 90.625%; privacy/secret hits remain; grounded human labels are absent.
+- Synthetic safety shells and unlabelled non-abstain cases are excluded from retrieval metrics; the authoritative denominator is 22, not 178 or 26.
+- On those 22 cases L1+L2 Recall@5 is 59.09% and the delta vs raw is +59.09pp (CI low +36.36pp), but this cannot authorize promotion while dataset coverage fails.
+- Gate correctly FAILS: cross-turn is N/A at real n=0; no-answer FP is 90.625%; privacy/secret hits remain; grounded human labels are absent.
 - Policy implementation now checks citation, no-answer, reconcile, MRR, cross-turn, latency and grounded-human thresholds rather than merely declaring them in YAML.
 - See `17-EVAL-REVIEW.md` for scored coverage and remediation order.
