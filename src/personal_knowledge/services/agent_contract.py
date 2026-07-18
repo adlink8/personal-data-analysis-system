@@ -34,6 +34,8 @@ def _category(code: str) -> str:
     value = code.lower()
     if value == "provider_outcome_unknown":
         return "unknown_outcome"
+    if any(term in value for term in ("database_missing", "service_unavailable", "runtime", "schema_not_applied", "confirmation_secret_unavailable")):
+        return "runtime"
     if any(term in value for term in ("not_found", "_missing", "missing_")):
         return "not_found"
     if any(term in value for term in ("idempotency", "conflict", "already_")):

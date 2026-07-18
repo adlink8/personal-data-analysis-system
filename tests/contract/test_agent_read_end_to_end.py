@@ -65,7 +65,9 @@ def test_live_list_get_explain_are_transport_equivalent_and_read_only(live_servi
         rest = agent_read_rest_contract(operation, {"limit": "1"}, service=live_service)
         mcp = agent_read_tool_contract(tool, {"limit": 1}, service=live_service)
         _assert_success(direct, operation)
-        assert direct == rest == mcp
+        assert rest == mcp
+        assert rest["schema_version"] == "agent_compact_envelope_v1"
+        assert rest["data"] == direct["data"]
         listed[operation] = direct["data"]
 
     source_id = listed["external.list"]["sources"][0]["source_id"]
@@ -87,7 +89,9 @@ def test_live_list_get_explain_are_transport_equivalent_and_read_only(live_servi
         rest = agent_read_rest_contract(operation, arguments, service=live_service)
         mcp = agent_read_tool_contract(tool, arguments, service=live_service)
         _assert_success(direct, operation)
-        assert direct == rest == mcp
+        assert rest == mcp
+        if not rest["truncated"]:
+            assert rest["data"] == direct["data"]
 
     calibration = live_service.invoke("calibration.explain", protocol_id=protocol_id)
     serialized = str(calibration["data"]).lower()

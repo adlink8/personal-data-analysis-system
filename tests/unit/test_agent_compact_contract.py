@@ -51,7 +51,7 @@ def test_large_and_sensitive_data_is_omitted_with_hard_budget() -> None:
         ("illegal_transition", "sequence", True, "prepare_fresh_preview"),
         ("domain_not_allowed", "risk", False, "reduce_scope"),
         ("event_chain_invalid", "integrity", False, "inspect_authority"),
-        ("database_missing", "not_found", False, "list_available"),
+        ("database_missing", "runtime", True, "check_runtime"),
         ("provider_outcome_unknown", "unknown_outcome", False, "manual_review"),
     ],
 )
@@ -61,4 +61,3 @@ def test_error_taxonomy_is_stable_and_recovery_is_allowlisted(code, category, re
     assert result["error"]["retryable"] is retryable
     assert action in result["error"]["recovery_actions"]
     assert "traceback" not in json.dumps(result).lower()
-
