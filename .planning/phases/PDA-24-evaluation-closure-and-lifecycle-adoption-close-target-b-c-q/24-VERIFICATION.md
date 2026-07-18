@@ -1,58 +1,61 @@
 ---
 phase: 24
-status: gaps_found
-verified_at: 2026-07-18T14:30:00+08:00
+status: passed
+verified_at: 2026-07-18T14:10:00+08:00
 requirements: [QUAL-01, QUAL-02, LIFE-01, LIFE-02]
-score: 1/4
+score: 4/4
 ---
 
 # Phase 24 Verification
 
 ## Verdict
 
-Phase 24 is not complete. The review-evidence contract is satisfied, but the
-real retrieval candidate misses the quality-improvement gate and no reviewed
-lifecycle action has been adopted in the live ledger. Active serving remains
-unchanged, as required on failure.
+Phase 24 is complete against real private Gold, a live governed lifecycle
+cohort, and a reversible composite-serving UAT. No quality threshold was
+relaxed and no private evidence body was committed.
 
 ## Requirement Evidence
 
 | Requirement | Status | Authoritative evidence |
 |---|---|---|
-| QUAL-01 | failed | `var/reports/analysis/evaluations/d54e53ea0a78031d/gate.json`: 223 cases, 67 real Gold and 45 real cross-turn cases are present, but overall gain is 2.99pp against 10pp required and lower CI is 0. |
-| QUAL-02 | passed | The same immutable run passes private evidence, citation, abstention, grounding and review-provenance checks; FAIL preserved active snapshot `ss_1590353394c948b908a5d675`. |
-| LIFE-01 | failed | Live lifecycle manifest/action/event counts are all zero; no real reviewed current/superseded/conflict/corrected cohort exists. |
-| LIFE-02 | failed | There is no live correction/supersede/conflict/restore event sequence and therefore no reversible lifecycle proof. |
+| QUAL-01 | passed | Immutable run `3a4b7f7b85e864b86031a79a0c017fa74c80e5b9908aa7fd73e765343fcc5d99`; gate checksum `7158f3121ddc4abd1c1eb507fdea95457d9174cf2152e1c9d8264281d03234f0`; 67 real Gold, 45 real cross-turn; Recall@5 gain 10.4478pp with CI low 4.4776pp; cross-turn gain 13.3333pp. |
+| QUAL-02 | passed | The same run passes review binding, privacy/secret=0, citation precision=1.0 for all five modes, L2-only/L1+L2 no-answer FP=0, hybrid FP=0.0625, grounded precision=0.92/50 and latency gate. Active remained unchanged during evaluation. |
+| LIFE-01 | passed | Live manifests `klm_8c419af9b7b8d01ff30a6741` and `klm_ab26406ea318c16851714412` apply evidence-backed supersede, correction, conflict and restore transitions. Current-only final index is 32,181/32,181 with zero missing/orphan/duplicate. |
+| LIFE-02 | passed | Ledger has 6 append-only events: supersede=2, rollback=1, correct=1, conflict=1, restore=1. Rollback UAT manifest `klm_1cc17ed362f7461a48f9b0ad` is retained as `rolled_back`; no hard delete occurred. |
 
-## Root-cause Evidence
+## Final Release Authority
 
-- All 170 Gold knowledge-unit IDs exist in the active index.
-- A self-semantic health sample retrieves 47/50 Gold units at rank 1.
-- Only 5/45 real cross-turn queries find any expected Gold unit in the first
-  500 active results.
-- `build_knowledge_unit_vector_store.py` embeds only canonical question and
-  answer text, while the real evaluation query often matches eligible member
-  evidence semantics. This explains why IDs are present but query-to-unit
-  alignment is weak.
-- The prior lifecycle review produced no eligible approved actions. Applying
-  it would fabricate adoption rather than close LIFE-01/LIFE-02.
+- Active composite snapshot: `ss_5d816a6bf3ebd0bce9463236`.
+- Snapshot manifest hash:
+  `1c3fbdf77d1b9f012634ce7daf705ce192e605c0954fb9df8f75ed11c11088f2`.
+- Active collection: `knowledge_units_ir_4cd8af4ad_20260718054940`.
+- Index version: `kiv_ir_4cd8af4ad_311e47bc1da1`.
+- Collection checksum:
+  `9bb4592f157ecf6f51ef0a1cc997127a483f93df04c4daedf7c9426675f7842c`.
+- Release gate: `var/reports/analysis/evaluations/3a4b7f7b85e864b8/gate.json`.
 
-## Gaps
+## Reversible UAT
 
-1. Build a privacy-safe evidence-aware candidate embedding without exposing
-   raw evidence in returned documents.
-2. Evaluate that candidate against the exact immutable private suite; do not
-   lower policy thresholds and do not activate on FAIL.
-3. Derive and review a bounded real lifecycle cohort with resolvable eligible
-   evidence, then apply only checksum-bound approved actions.
-4. Re-run the full gate and reversible promotion/refusal UAT against exact
-   snapshot and lifecycle evidence.
+1. Candidate activation event: `se_abeff31575df4e1ba672cb627537292a`.
+2. Prior snapshot rollback event: `se_26c70aa074554397adae70a8be72b265`.
+3. Forward restore event: `se_e658d7b509c14cc1a9371092ea27407d`.
+4. Doctor passed with 10/10 critical checks after candidate activation, after
+   historical rollback, and after forward restore.
+5. Real semantic query for `临时后端 8002 healthy 状态` returned corrected unit
+   `cu|62ae96a7623112bee1095dec08264272` at rank 1 with eligible evidence.
+
+## Verification Commands
+
+- `python -m pytest tests/integration -k "lifecycle or reconcile or history" -q` — 11 passed.
+- Snapshot/Doctor targeted suite — 26 passed.
+- `pk-ku lifecycle-status --strict` — PASS.
+- `pk-ku doctor --json --skip-ports` — PASS, zero critical failures.
+- `python -m personal_knowledge.evaluation.run_knowledge_eval ... --full --render --gate --dry-run` — PASS.
 
 ## Safety Invariants
 
-- Active snapshot and pointer must remain unchanged until a genuine PASS.
-- Private queries, answers and evidence bodies remain under `var/runtime` and
-  are never committed.
-- Lifecycle adoption is append-only and manifest-bound; no hard delete.
-- LLM review provenance is labeled as LLM, never as human.
-
+- Private Gold, review bodies and evidence remain under `var/runtime`.
+- Lifecycle and serving histories are append-only and checksum-bound.
+- The failed first release attempt was rolled back immediately; its refusal
+  evidence led to the snapshot-manifest contract fix and was not hidden.
+- LLM review provenance is labeled `llm` with model/run/prompt identifiers.
