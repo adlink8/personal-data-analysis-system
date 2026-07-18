@@ -45,6 +45,12 @@ const readOnlyAnnotations = {
   idempotentHint: true,
   openWorldHint: false
 };
+const guardedWriteAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false
+};
 
 const textContent = (text) => [{ type: "text", text }];
 
@@ -435,8 +441,54 @@ const agentReadToolDescriptors = agentReadToolSpecs.map(([name, title, descripti
   }
 }));
 
+const orchestrationOutputSchema = objectSchema({
+  ok: { type: "boolean" },
+  operation: { type: "string" },
+  state: { type: "string" },
+  session_id: { type: "string" },
+  sequence: { type: "integer" },
+  next_action: { type: "string" },
+  references: { type: "object" },
+  limitations: { type: "array", items: { type: "string" } },
+  data: { type: "object" },
+  error_code: { type: "string" },
+  error: { type: "string" }
+}, ["ok", "operation"]);
+
+const confirmedMutationSchema = strictObjectSchema({
+  preview: { type: "object" },
+  confirmation_token: { type: "string" },
+  idempotency_key: { type: "string" },
+  now: { type: "string" }
+}, ["preview", "confirmation_token", "idempotency_key", "now"]);
+
+const orchestrationToolSpecs = [
+  { name: "agent_session_prepare", title: "Prepare agent session", path: "/agent/session/prepare", method: "post", readOnly: true, inputSchema: strictObjectSchema({ goal: { type: "string" }, constraints: { type: "array", items: { type: "string" } }, weights: { type: "object" }, actor_identity_hash: { type: "string" }, domain: { type: "string", enum: ["project"] }, risk_budget: { type: "string", enum: ["low"] }, region: { type: "string" }, max_external_age_seconds: { type: "integer" }, now: { type: "string" } }, ["goal", "constraints", "weights", "actor_identity_hash"]) },
+  { name: "agent_session_confirm", title: "Confirm agent session", path: "/agent/session/confirm", method: "post", readOnly: false, inputSchema: confirmedMutationSchema },
+  { name: "agent_session_preview", title: "Preview agent transition", path: "/agent/session/preview", method: "post", readOnly: true, inputSchema: strictObjectSchema({ session_id: { type: "string" }, transition: { type: "string", enum: ["generate", "publish", "decide", "preregister", "action_start", "action_complete", "observe", "calibrate"] }, payload: { type: "object" }, actor_identity_hash: { type: "string" }, expected_sequence: { type: "integer" }, now: { type: "string" } }, ["session_id", "transition", "payload", "actor_identity_hash", "expected_sequence"]) },
+  ...["generate", "publish", "decide", "preregister", "action_start", "action_complete", "observe", "calibrate"].map((operation) => ({ name: `agent_session_${operation}`, title: `${operation} agent session`, path: `/agent/session/${operation.replaceAll("_", "-")}`, method: "post", readOnly: false, inputSchema: confirmedMutationSchema })),
+  { name: "agent_session_resume", title: "Resume agent session", path: "/agent/session/resume", method: "get", readOnly: true, inputSchema: strictObjectSchema({ session_id: { type: "string" }, now: { type: "string" } }, ["session_id"]) },
+  { name: "agent_session_explain", title: "Explain agent session", path: "/agent/session/explain", method: "get", readOnly: true, inputSchema: strictObjectSchema({ session_id: { type: "string" }, now: { type: "string" } }, ["session_id"]) }
+];
+
+const orchestrationToolDescriptors = orchestrationToolSpecs.map((spec) => ({
+  name: spec.name,
+  title: spec.title,
+  description: `${spec.title}; project/low-risk only, no automated external action or promotion.`,
+  inputSchema: spec.inputSchema,
+  outputSchema: orchestrationOutputSchema,
+  annotations: spec.readOnly ? readOnlyAnnotations : guardedWriteAnnotations,
+  securitySchemes: noAuth,
+  _meta: {
+    securitySchemes: noAuth,
+    "openai/toolInvocation/invoking": spec.title,
+    "openai/toolInvocation/invoked": `${spec.title} complete`
+  }
+}));
+
 const toolDescriptors = [
   ...agentReadToolDescriptors,
+  ...orchestrationToolDescriptors,
   {
     name: "search",
     title: "Search personal data",
@@ -1170,6 +1222,31 @@ async function callTool(name, args = {}, options = {}) {
 }
 
 async function callToolInner(name, args = {}, rest) {
+  const orchestrationSpec = orchestrationToolSpecs.find((spec) => spec.name === name);
+  if (orchestrationSpec) {
+    const data = orchestrationSpec.method === "get"
+      ? await rest.get(orchestrationSpec.path, args)
+      : await rest.post(orchestrationSpec.path, args);
+    const nextAction = data?.next_operation
+      ? `agent_session_${data.next_operation}`
+      : (name === "agent_session_prepare" ? "agent_session_confirm" : undefined);
+    const structuredContent = {
+      ok: true,
+      operation: name.slice("agent_session_".length),
+      state: data?.state,
+      session_id: data?.session_id,
+      sequence: data?.sequence,
+      next_action: nextAction,
+      references: data?.references || {},
+      limitations: ["project domain and low risk only", "explicit confirmation required", "no automated external action", "no automatic promotion"],
+      data
+    };
+    return {
+      structuredContent,
+      content: textContent(`${name} completed${data?.state ? ` in state ${data.state}` : ""}.`)
+    };
+  }
+
   const agentSpec = agentReadToolSpecs.find(([toolName]) => toolName === name);
   if (agentSpec) {
     const [, , , pathname, authority, operation] = agentSpec;
