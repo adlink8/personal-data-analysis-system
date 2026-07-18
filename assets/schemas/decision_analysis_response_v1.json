@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Decision Analysis Candidate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "binding_hash", "request_checksum", "domain", "status",
+    "options", "no_action_baseline", "assumptions", "uncertainty",
+    "missing_information", "stop_conditions", "abstain_reasons", "claims"
+  ],
+  "properties": {
+    "schema_version": {"const": "decision_analysis_candidate_v1"},
+    "binding_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "request_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "domain": {"const": "project"},
+    "status": {"enum": ["candidate", "abstain"]},
+    "options": {
+      "type": "array", "maxItems": 8,
+      "items": {"$ref": "#/$defs/option"}
+    },
+    "no_action_baseline": {"$ref": "#/$defs/baseline"},
+    "assumptions": {"$ref": "#/$defs/textList"},
+    "uncertainty": {"$ref": "#/$defs/textList"},
+    "missing_information": {"$ref": "#/$defs/textList"},
+    "stop_conditions": {"$ref": "#/$defs/textList"},
+    "abstain_reasons": {"$ref": "#/$defs/textList"},
+    "claims": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["claim_id", "claim_type", "statement", "evidence"],
+        "properties": {
+          "claim_id": {"type": "string", "minLength": 1, "maxLength": 256},
+          "claim_type": {"enum": ["factual", "inference"]},
+          "statement": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "evidence": {
+            "type": "array", "maxItems": 16,
+            "items": {"$ref": "#/$defs/evidenceReference"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "textList": {
+      "type": "array", "maxItems": 32,
+      "items": {"type": "string", "minLength": 1, "maxLength": 1000}
+    },
+    "tradeoffs": {
+      "type": "object", "additionalProperties": false,
+      "required": ["benefits", "costs", "risks", "opportunity_cost", "reversibility"],
+      "properties": {
+        "benefits": {"$ref": "#/$defs/textList"},
+        "costs": {"$ref": "#/$defs/textList"},
+        "risks": {"$ref": "#/$defs/textList"},
+        "opportunity_cost": {"$ref": "#/$defs/textList"},
+        "reversibility": {"enum": ["high", "medium", "low", "irreversible"]}
+      }
+    },
+    "option": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "option_id", "title", "benefits", "costs", "risks",
+        "opportunity_cost", "reversibility"
+      ],
+      "properties": {
+        "option_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "title": {"type": "string", "minLength": 1, "maxLength": 500},
+        "benefits": {"$ref": "#/$defs/textList"},
+        "costs": {"$ref": "#/$defs/textList"},
+        "risks": {"$ref": "#/$defs/textList"},
+        "opportunity_cost": {"$ref": "#/$defs/textList"},
+        "reversibility": {"enum": ["high", "medium", "low", "irreversible"]}
+      }
+    },
+    "baseline": {
+      "anyOf": [
+        {"$ref": "#/$defs/tradeoffs"},
+        {"type": "object", "maxProperties": 0}
+      ]
+    },
+    "evidenceReference": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "authority_id", "record_type", "record_id", "record_checksum",
+        "snapshot_id", "snapshot_hash"
+      ],
+      "properties": {
+        "authority_id": {"enum": ["a.personal_change", "s.external_fact"]},
+        "record_type": {"type": "string", "minLength": 1, "maxLength": 128},
+        "record_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "record_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "snapshot_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "snapshot_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}
