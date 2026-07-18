@@ -89,4 +89,3 @@ def test_rest_and_mcp_publish_no_decision_mutation_or_execution_surface() -> Non
     names = {name.lower() for name in CORE_TOOL_NAMES if name.startswith("decision_")}
     assert names
     assert all(not any(word in name for word in forbidden) for name in names)
-

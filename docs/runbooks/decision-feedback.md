@@ -47,4 +47,3 @@ temporary database, then inspect live metadata read-only. It never applies a sch
 publishes a recommendation, changes lifecycle/serving/pointers/watermarks, calls a
 network or paid provider, or performs an external action. Phase 24 human Gold/Judge,
 lifecycle review and final quality gates remain independently release-blocking.
-

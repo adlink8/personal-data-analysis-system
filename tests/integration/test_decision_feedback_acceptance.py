@@ -84,4 +84,3 @@ def test_corrupted_live_decision_chain_blocks_technical_status(tmp_path) -> None
     assert result["release_status"] == "release_blocked"
     assert result["live"]["decision_status"]["ok"] is False
     assert result["live"]["decision_status"]["reason"] == "event_checksum_mismatch"
-
