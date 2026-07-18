@@ -90,7 +90,7 @@ Plans:
 
 **Requirements:** PDI-08
 **Depends on:** Phase 30 outcome window
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 **Success criteria:**
 
@@ -102,7 +102,7 @@ Plans:
 Plans:
 
 - [x] 31-01: Immutable preregistration, cohort and evaluation protocol
-- [ ] 31-02: Leakage-proof personalized/generic pairing and non-causal verdict
+- [x] 31-02: Leakage-proof personalized/generic pairing and non-causal verdict
 - [ ] 31-03: Reversible calibration proposal and final product UAT
 
 ## Progress
@@ -112,7 +112,7 @@ Plans:
 | 28 | PDI-01..04 | 4/4 | Complete |
 | 29 | PDI-05..06 | 4/4 | Complete |
 | 30 | 3/3 | Complete    | 2026-07-18 |
-| 31 | 1/3 | In Progress|  |
+| 31 | 2/3 | In Progress|  |
 
 ---
 *Updated 2026-07-18 — Phase 29 complete; Phase 30 is next*
