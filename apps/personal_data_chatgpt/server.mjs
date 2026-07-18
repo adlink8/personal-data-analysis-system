@@ -383,7 +383,50 @@ const dataQualityOutputSchema = objectSchema({
   error: { type: "string" }
 }, ["ok"]);
 
+const agentReadOutputSchema = objectSchema({
+  ok: { type: "boolean" },
+  authority: { type: "string" },
+  operation: { type: "string" },
+  summary: { type: "string" },
+  ids: { type: "array", items: { type: "string" } },
+  limitations: { type: "array", items: { type: "string" } },
+  data: { type: "object" },
+  truncated: { type: "boolean" },
+  error: { type: "string" }
+}, ["ok", "authority", "operation"]);
+
+const agentReadToolSpecs = [
+  ["external_context_list", "External context list", "List verified external sources, active snapshot, and bounded public facts.", "/agent/external", "external", "list", objectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
+  ["external_context_get", "External context get", "Get one verified source, fact, or snapshot by stable id.", "/agent/external/item", "external", "get", objectSchema({ resource_type: { type: "string", enum: ["source", "fact", "snapshot"] }, resource_id: { type: "string" } }, ["resource_type"])],
+  ["external_context_explain", "External context explain", "Explain one external resource's lineage, limits, and safe drill-down.", "/agent/external/explain", "external", "explain", objectSchema({ resource_type: { type: "string", enum: ["source", "fact", "snapshot"] }, resource_id: { type: "string" } }, ["resource_type"])],
+  ["decision_analysis_list", "Decision analysis list", "List checksum-verified analysis runs without provider bodies.", "/agent/analysis", "analysis", "list", objectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
+  ["decision_analysis_get", "Decision analysis get", "Get one verified analysis candidate, claims, and typed evidence references.", "/agent/analysis/item", "analysis", "get", objectSchema({ run_id: { type: "string" } }, ["run_id"])],
+  ["decision_analysis_explain", "Decision analysis explain", "Explain evidence and non-authoritative limits for one analysis run.", "/agent/analysis/explain", "analysis", "explain", objectSchema({ run_id: { type: "string" } }, ["run_id"])],
+  ["project_pilot_list", "Project pilot list", "List low-risk project pilot cases; no external actions.", "/agent/pilot", "pilot", "list", objectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
+  ["project_pilot_get", "Project pilot get", "Get one pilot case, recommendation, and protocol.", "/agent/pilot/item", "pilot", "get", objectSchema({ case_id: { type: "string" } }, ["case_id"])],
+  ["project_pilot_explain", "Project pilot explain", "Explain one pilot history, controls, and observed outcome.", "/agent/pilot/explain", "pilot", "explain", objectSchema({ case_id: { type: "string" }, as_of: { type: "string" } }, ["case_id"])],
+  ["recommendation_calibration_list", "Calibration list", "List recommendation calibration protocols.", "/agent/calibration", "calibration", "list", objectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
+  ["recommendation_calibration_get", "Calibration get", "Get one calibration protocol, arms, measurements, verdict, and proposals.", "/agent/calibration/item", "calibration", "get", objectSchema({ protocol_id: { type: "string" } }, ["protocol_id"])],
+  ["recommendation_calibration_explain", "Calibration explain", "Explain calibration limitations; never claims causality or promotes policy.", "/agent/calibration/explain", "calibration", "explain", objectSchema({ protocol_id: { type: "string" } }, ["protocol_id"])]
+];
+
+const agentReadToolDescriptors = agentReadToolSpecs.map(([name, title, description, , , , inputSchema]) => ({
+  name,
+  title,
+  description,
+  inputSchema,
+  outputSchema: agentReadOutputSchema,
+  annotations: readOnlyAnnotations,
+  securitySchemes: noAuth,
+  _meta: {
+    securitySchemes: noAuth,
+    "openai/toolInvocation/invoking": `Reading ${title.toLowerCase()}`,
+    "openai/toolInvocation/invoked": `${title} ready`
+  }
+}));
+
 const toolDescriptors = [
+  ...agentReadToolDescriptors,
   {
     name: "search",
     title: "Search personal data",
@@ -1109,6 +1152,42 @@ async function callTool(name, args = {}, options = {}) {
 }
 
 async function callToolInner(name, args = {}, rest) {
+  const agentSpec = agentReadToolSpecs.find(([toolName]) => toolName === name);
+  if (agentSpec) {
+    const [, , , pathname, authority, operation] = agentSpec;
+    const query = { ...args };
+    if (query.limit !== undefined) query.limit = clampInt(query.limit, 10, 1, 20);
+    const data = await rest.get(pathname, query);
+    const ids = [];
+    const collect = (value) => {
+      if (Array.isArray(value)) return value.forEach(collect);
+      if (!value || typeof value !== "object") return;
+      for (const key of ["source_id", "snapshot_id", "fact_id", "run_id", "candidate_id", "case_id", "protocol_id"]) {
+        if (typeof value[key] === "string" && !ids.includes(value[key])) ids.push(value[key]);
+      }
+      for (const child of Object.values(value)) collect(child);
+    };
+    collect(data);
+    const encoded = JSON.stringify(data);
+    const includeData = operation !== "list" && encoded.length <= 48000;
+    const structuredContent = {
+      ok: true,
+      authority,
+      operation,
+      summary: `${authority} ${operation} returned ${ids.length} stable id(s).`,
+      ids: ids.slice(0, 100),
+      limitations: authority === "calibration"
+        ? ["causal_claim=false", "automatic promotion unavailable"]
+        : ["read-only verified metadata", "no external action"],
+      data: includeData ? data : undefined,
+      truncated: !includeData && operation !== "list"
+    };
+    return {
+      structuredContent,
+      content: textContent(structuredContent.summary)
+    };
+  }
+
   if (name === "search") {
       const query = String(args.query || "").trim();
       if (!query) throw new Error("query is required");
