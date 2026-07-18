@@ -3,16 +3,37 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+import hashlib
 import json
 from pathlib import Path
+import sqlite3
+import tempfile
 from typing import Any
 
-from personal_knowledge.core.project_paths import UNIFIED_DB
+from personal_knowledge.application.knowledge.lifecycle_events import ensure_lifecycle_schema
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+from personal_knowledge.core.project_paths import KNOWLEDGE_ACTIVE_POINTER, UNIFIED_DB
+from personal_knowledge.intelligence.cli import (
+    _FINGERPRINT_GROUPS,
+    _phase24_dependency_status,
+    _table_fingerprint,
+    run_acceptance as run_personal_state_acceptance,
+)
+from personal_knowledge.intelligence.runs import plan_run as plan_state_run
+from personal_knowledge.intelligence.runs import publish_run as publish_state_run
+from personal_knowledge.intelligence.schema import EvidenceReference, StateAssertion, checksum
 
+from .effectiveness import EffectivenessRule, assess_outcome, load_outcome
+from .runs import plan_run as plan_decision_run
+from .runs import publish_run as publish_decision_run
+from .runs import resolve_cognition_reference
+from .schema import RecommendationDraft
 from .service import DecisionFeedbackService, INTERFACE_SCHEMA_VERSION
 from .state_machine import (
     DecisionStateError,
+    project_history,
     record_action,
+    record_assessment,
     record_confirmation,
     record_outcome,
 )
@@ -83,6 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     acceptance = commands.add_parser("acceptance")
     acceptance.add_argument("--dry-run", action="store_true")
     acceptance.add_argument("--metadata-only", action="store_true")
+    acceptance.add_argument("--active-pointer", type=Path, default=KNOWLEDGE_ACTIVE_POINTER)
     _common(acceptance)
     return parser
 
@@ -130,7 +152,7 @@ def _invoke(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "acceptance":
         if not args.dry_run or not args.metadata_only:
             return _error("acceptance", "dry_run_metadata_only_required")
-        return _error("acceptance", "not_implemented")
+        return run_acceptance(args.db, pointer_path=args.active_pointer)
     blocked = _guard(args)
     if blocked:
         return blocked
@@ -175,6 +197,247 @@ def _invoke(args: argparse.Namespace) -> dict[str, Any]:
         return _error(args.command, "invalid_write_arguments", str(exc))
 
 
+class _SandboxResolver:
+    def resolve(self, ref: str, **_: Any) -> dict[str, Any]:
+        return {
+            "ref": ref,
+            "artifact_type": "knowledge_unit",
+            "status": "ok",
+            "eligible": True,
+            "metadata": {"privacy_class": "R4"},
+            "evidence_refs": [],
+            "content": None,
+        }
+
+
+def _sandbox_loop() -> dict[str, Any]:
+    """Exercise writes only in a disposable database and return checksums/counts."""
+    with tempfile.TemporaryDirectory(prefix="phase26-acceptance-") as temp:
+        db = Path(temp) / "decision.sqlite"
+        con = sqlite3.connect(db)
+        con.execute("PRAGMA foreign_keys=ON")
+        con.executescript(SCHEMA_SQL)
+        ensure_lifecycle_schema(con)
+        for row in (
+            ("a.personal_change", "A", "personal_change_analysis", "R4", "a", "now"),
+            ("a.decision_feedback", "A", "decision_feedback", "R4", "d", "now"),
+            ("s.knowledge_unit", "S", "canonical_knowledge", "R4", "s", "now"),
+        ):
+            con.execute("INSERT INTO artifact_registry_entries VALUES (?,?,?,?,?,?)", row)
+        con.execute(
+            "INSERT INTO artifact_versions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("av1", "s.knowledge_unit", "v1", "source", "sqlite_table", "canonical_knowledge_units",
+             "validated", "R4", None, None, "{}", "now"),
+        )
+        con.execute(
+            "INSERT INTO serving_snapshots VALUES (?,?,?,?,?,?,?)",
+            ("ss1", "{}", "snapshot-hash", "validated", "gate", "now", "now"),
+        )
+        con.execute(
+            "INSERT INTO serving_snapshot_members VALUES (?,?,?,NULL)",
+            ("ss1", "canonical_knowledge", "av1"),
+        )
+        con.execute(
+            "UPDATE serving_authority SET active_snapshot_id='ss1',activated_at='now' WHERE singleton_id=1"
+        )
+        con.commit(); con.close()
+
+        resolver = _SandboxResolver()
+        source = plan_state_run(
+            db,
+            [StateAssertion(
+                assertion_kind="goal", provenance_class="fact", subject="user",
+                domain="work", scope="personal", predicate="complete_target",
+                value="D", valid_from="2026-07-18T00:00:00Z",
+                observed_at="2026-07-18T00:00:00Z",
+                evidence=(EvidenceReference(
+                    ref="ku1", artifact_type="knowledge_unit",
+                    serving_role="canonical_knowledge", artifact_version_id="av1",
+                    privacy_class="R4",
+                ),),
+            )],
+            producer_version="phase25-v1",
+            input_manifest={"source": "phase26-acceptance"},
+            resolver=resolver,
+        )
+        publish_state_run(db, source, write=True, resolver=resolver)
+        ref = resolve_cognition_reference(
+            db, source_run_id=source.run_id, record_id=None, cognitive_type="fact"
+        )
+        drafts = tuple(
+            RecommendationDraft(
+                subject="user", domain="work", scope="personal",
+                recommendation_kind=kind, target=target, horizon="next_session",
+                rationale_codes=("goal_gap",), expected_benefit="bounded progress",
+                costs_constraints=("human gates remain",), assumptions=("source valid",),
+                contraindications=(), confidence=.8, uncertainty="observational only",
+                expires_at="2026-08-01T00:00:00Z", support=(ref,),
+            )
+            for kind, target in (("next_step", "close_target_d"), ("alternative", "pause"))
+        )
+        run = plan_decision_run(
+            db, drafts, policy_id="bounded-next-step", policy_version="v1",
+            input_manifest={"mode": "sandbox"},
+        )
+        publish_decision_run(db, run, write=True)
+        accepted, rejected = run.recommendations
+        actor = "1" * 64
+        record_confirmation(
+            db, recommendation_id=accepted.recommendation_id,
+            recommendation_checksum=accepted.payload_checksum, decision="accept",
+            actor_class="user", actor_identity_hash=actor, reason_code="selected",
+            expected_sequence=1, idempotency_key="confirm-accept",
+            occurred_at="2026-07-18T01:00:00Z",
+        )
+        for sequence, state in ((2, "planned"), (3, "started"), (4, "completed")):
+            record_action(
+                db, recommendation_id=accepted.recommendation_id,
+                recommendation_checksum=accepted.payload_checksum,
+                action_state=state, source_class="user_attested", actor_class="user",
+                actor_identity_hash=actor, reason_code=f"user_{state}",
+                expected_sequence=sequence, idempotency_key=f"action-{state}",
+                occurred_at="2026-07-18T01:01:00Z",
+            )
+        con = sqlite3.connect(db)
+        action_id, action_checksum = con.execute(
+            "SELECT action_id,payload_checksum FROM decision_actions WHERE action_state='completed'"
+        ).fetchone()
+        con.close()
+        evidence = ({
+            "cognitive_type": ref.cognitive_type, "authority_id": ref.authority_id,
+            "record_id": ref.record_id, "record_checksum": ref.record_checksum,
+            "source_run_id": ref.source_run_id, "snapshot_id": ref.snapshot_id,
+            "snapshot_hash": ref.snapshot_hash,
+        },)
+        outcome_receipt = record_outcome(
+            db, recommendation_id=accepted.recommendation_id,
+            recommendation_checksum=accepted.payload_checksum, action_id=action_id,
+            action_checksum=action_checksum, source_class="user_reported",
+            actor_class="user", actor_identity_hash=actor,
+            measurement_definition="bounded progress count", metric="progress",
+            baseline_value=1.0, target_value=2.0, observed_value=2.0, unit="count",
+            direction="increase", window_start="2026-07-18T01:00:00Z",
+            window_end="2026-07-25T01:00:00Z", adherence_status="adhered",
+            evidence_refs=evidence, confidence=.8, uncertainty=(), confounders=(),
+            concurrent_actions=(), expected_sequence=5, idempotency_key="outcome",
+            occurred_at="2026-07-25T01:01:00Z",
+        )
+        outcome = load_outcome(db, outcome_receipt.record_id)
+        assessment = assess_outcome(
+            outcome, EffectivenessRule("goal-attainment", "1", "progress", "count", "increase", 86400),
+            action_state="completed",
+        )
+        record_assessment(
+            db, assessment=assessment, expected_sequence=6,
+            idempotency_key="assessment", occurred_at="2026-07-25T01:02:00Z",
+        )
+        record_confirmation(
+            db, recommendation_id=rejected.recommendation_id,
+            recommendation_checksum=rejected.payload_checksum, decision="reject",
+            actor_class="user", actor_identity_hash=actor, reason_code="not_selected",
+            expected_sequence=1, idempotency_key="confirm-reject",
+            occurred_at="2026-07-18T01:00:00Z",
+        )
+        accepted_state = project_history(db, accepted.recommendation_id)
+        rejected_state = project_history(db, rejected.recommendation_id)
+        return {
+            "ok": (
+                [event.sequence for event in accepted_state.events] == list(range(1, 8))
+                and accepted_state.confirmation_state == "accepted"
+                and accepted_state.action_state == "completed"
+                and assessment.causal_claim is False
+                and rejected_state.confirmation_state == "rejected"
+                and rejected_state.action_state is None
+            ),
+            "decision_run_id": run.run_id,
+            "decision_run_checksum": run.run_checksum,
+            "accepted_history_length": len(accepted_state.events),
+            "rejected_history_length": len(rejected_state.events),
+            "assessment_verdict": assessment.verdict,
+            "causal_claim": assessment.causal_claim,
+            "external_actions": 0,
+        }
+
+
+_DECISION_TABLES = (
+    "decision_runs", "decision_recommendations", "decision_support_refs",
+    "decision_confirmations", "decision_actions", "decision_outcomes",
+    "decision_effectiveness", "decision_events",
+)
+
+
+def _live_fingerprints(db_path: Path, pointer_path: Path) -> dict[str, Any]:
+    con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        con.execute("PRAGMA query_only=ON")
+        groups = {
+            group: [_table_fingerprint(con, table) for table in tables]
+            for group, tables in {**_FINGERPRINT_GROUPS, "decision": _DECISION_TABLES}.items()
+        }
+    finally:
+        con.close()
+    pointer_checksum = hashlib.sha256(pointer_path.read_bytes()).hexdigest() if pointer_path.exists() else ""
+    value = {"groups": groups, "active_pointer": {"exists": pointer_path.exists(), "checksum": pointer_checksum}}
+    return {**value, "checksum": checksum(value)}
+
+
+def run_acceptance(
+    db_path: Path | str,
+    *,
+    pointer_path: Path = KNOWLEDGE_ACTIVE_POINTER,
+) -> dict[str, Any]:
+    """Sandbox the loop, then inspect live metadata with zero write-capable calls."""
+    path = Path(db_path)
+    if not path.exists():
+        return _error("acceptance", "database_missing", str(path))
+    before = _live_fingerprints(path, pointer_path)
+    sandbox = _sandbox_loop()
+    phase25 = run_personal_state_acceptance(path, pointer_path=pointer_path, limit=10)
+    decision_tables = before["groups"]["decision"]
+    decision_ready = all(item["exists"] for item in decision_tables)
+    decision_nonempty = any(item["row_count"] for item in decision_tables)
+    decision_gate: dict[str, Any] = {"ok": True, "reason": "decision_schema_unapplied", "count": 0}
+    if decision_ready:
+        listing = DecisionFeedbackService(path).invoke("recommendations.list", limit=10)
+        decision_gate = {
+            "ok": bool(listing.get("ok")),
+            "reason": "bounded_committed_decision_replay" if listing.get("ok") else str(listing.get("error", {}).get("code")),
+            "count": int(listing.get("data", {}).get("total_available") or 0),
+            "error": listing.get("error"),
+        }
+    source_reason = str(phase25.get("run_plan", {}).get("candidate_reason") or "source_analysis_unavailable")
+    if source_reason in {"analysis_schema_unapplied", "run_missing"}:
+        source_reason = "source_analysis_unavailable"
+    after = _live_fingerprints(path, pointer_path)
+    unchanged = before == after
+    phase24 = _phase24_dependency_status(path)
+    technical_ok = bool(sandbox["ok"] and phase25.get("ok") and decision_gate["ok"] and unchanged)
+    return {
+        "schema_version": "decision_feedback_acceptance_v1",
+        "operation": "acceptance",
+        "ok": technical_ok,
+        "technical_status": "passed" if technical_ok else "failed",
+        "release_status": "release_blocked" if phase24["release_blocked"] else "release_ready",
+        "dry_run": True,
+        "metadata_only": True,
+        "sandbox": sandbox,
+        "live": {
+            "source_status": source_reason,
+            "decision_status": decision_gate,
+            "decision_schema_applied": decision_ready,
+            "decision_rows_present": decision_nonempty,
+        },
+        "fingerprints": {"before": before, "after": after, "unchanged": unchanged},
+        "phase24": phase24,
+        "persisted_rows": 0,
+        "mutations": 0 if unchanged else 1,
+        "private_bodies": 0,
+        "external_actions": 0,
+        "network_calls": 0,
+        "paid_calls": 0,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     result = _invoke(args)
@@ -184,4 +447,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
