@@ -90,7 +90,7 @@
 | 32 | 3/3 | Complete    | 2026-07-18 |
 | 33 | 4/4 | Complete | 2026-07-19 |
 | 34 | UX-01..02 | 2/2 | Complete | 2026-07-19 |
-| 35 | LIVE-01..03 | 0/3 | Pending |
+| 35 | LIVE-01..03 | 1/3 | In Progress |
 
 ---
 *Updated 2026-07-18 — v1.3 roadmap defined*
