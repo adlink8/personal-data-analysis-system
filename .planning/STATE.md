@@ -2,23 +2,22 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: External Context & Low-risk Decision Intelligence Pilot
-status: milestone_complete
-last_updated: 2026-07-18T13:18:57.138Z
-last_activity: 2026-07-18
+status: Awaiting next milestone
+last_updated: "2026-07-18T13:29:07.246Z"
+last_activity: 2026-07-18 — Milestone v1.2 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 14
   completed_plans: 14
   percent: 100
-stopped_at: Milestone complete (Phase 31 was final phase)
 ---
 
 # Project State
 
 ## Milestone
 
-**v1.2 External Context & Low-risk Decision Intelligence Pilot:** Phases 28 and 29 are complete and accepted. Phase 29 published a real evidence-bound `gpt-5.4` candidate through the deterministic gates with zero Personal/External mutation and zero external action. Phase 30 is now unblocked; Phase 31 remains dependent on the Phase 30 outcome window.
+**v1.2 External Context & Low-risk Decision Intelligence Pilot:** shipped and archived. Phases 28–31 complete PDI-01..08: independent External Authority, evidence-bound `gpt-5.4` analysis, a real low-risk project decision/outcome chain, and preregistered personalized/generic calibration. Product boundaries pass; effectiveness remains honestly `INCONCLUSIVE` with `causal_claim=false`.
 
 ## Authoritative surfaces
 
@@ -62,10 +61,17 @@ stopped_at: Milestone complete (Phase 31 was final phase)
 
 ## Current Position
 
-Phase: 31 of 31 (recommendation calibration product uat)
-Plan: 3 of 3 complete
-Status: Milestone implementation complete; effectiveness verdict INCONCLUSIVE
-Last activity: 2026-07-18
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-18 — Milestone v1.2 completed and archived
+
+## Project Reference
+
+See: `.planning/PROJECT.md` (updated 2026-07-18)
+
+**Core value:** Local, evidence-bound and uncertainty-aware personal decision support.
+**Current focus:** Planning the next milestone; no active phase.
 
 ## Cross-cutting architecture/data governance audit
 
@@ -132,5 +138,4 @@ python -m personal_knowledge.governance.preflight
 
 ## Operator Next Steps
 
-- Execute Phase 30 plans 30-01 through 30-03 in order.
-- Keep external actions manual/user-owned and preserve the Phase 29 frozen binding.
+- Start the next milestone with /gsd-new-milestone
