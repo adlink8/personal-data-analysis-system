@@ -106,3 +106,15 @@ def test_frozen_live_request_is_strict_and_uses_only_bound_evidence() -> None:
     assert len(spec["personal_evidence"]) == 1 and len(spec["external_evidence"]) == 4
     assert all(item["snapshot_id"] == "exs_a7770b7d4e9e2727e359befc"
                for item in spec["external_evidence"])
+
+
+def test_live_confirmation_binds_schema_lineage(tmp_path: Path, monkeypatch) -> None:
+    spec = _spec(tmp_path)
+    baseline = confirmation_phrase(spec)
+    schema = tmp_path / "schema.json"
+    source = Path(__file__).resolve().parents[2] / "assets/schemas/decision_analysis_response_v1.json"
+    schema.write_bytes(source.read_bytes() + b"\n")
+    monkeypatch.setattr(
+        "personal_knowledge.intelligence.analysis.live_uat.DEFAULT_SCHEMA_PATH", schema,
+    )
+    assert confirmation_phrase(spec) != baseline

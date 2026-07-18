@@ -76,7 +76,7 @@
     "baseline": {
       "anyOf": [
         {"$ref": "#/$defs/tradeoffs"},
-        {"type": "object", "maxProperties": 0}
+        {"type": "object", "additionalProperties": false, "maxProperties": 0}
       ]
     },
     "evidenceReference": {

@@ -9,8 +9,9 @@ requirements: [PDI-05, PDI-06]
 
 ## Automated evidence
 
-On 2026-07-18 the focused Phase 29 suite passed `53/53` after adding guarded
-live-UAT, direct-runtime selection and redacted failure-classification contracts:
+On 2026-07-18 the focused Phase 29 suite passed `55/55` after adding guarded
+live-UAT, direct-runtime selection, redacted failure classification and
+structured-output closure/authorization-lineage contracts:
 
 ```powershell
 python -m pytest tests/integration/test_analysis_authority_schema.py tests/integration/test_analysis_candidates.py tests/contract/test_analysis_prompt_lineage.py tests/contract/test_analysis_evidence_gates.py tests/contract/test_analysis_live_uat.py tests/security/test_analysis_safety_gates.py tests/e2e/test_structured_llm_analysis.py -q
@@ -49,6 +50,16 @@ request checksum `b85f8fd1aea282e44bc43f47d1206e716745fa512678658a636ce3ecb55537
 one provider call, reason `codex_cli_failed`, no response/run/candidate and
 unchanged Analysis, Personal and External authorities. The attempt used the
 older PATH npm wrapper; no retry was made after correcting runtime selection.
+
+A third, separately authorized `gpt-5.4` attempt used direct
+`codex-cli 0.145.0` and still failed before response creation. It recorded
+binding hash `5b13104ee2d4b609a38e4d6749ad6fad61bca021dc2efaa541b7ebef11ed7f93`,
+request checksum `cc0d552c4909386553303e8a786ab6e88d33be8559d85219ba478ce01d515b06`,
+one call, zero retries, no response/run/candidate and unchanged source/analysis
+authorities. Offline inspection then found and fixed one open object branch in
+the structured-output Schema. The current Schema passes Draft 2020-12
+validation and a recursive all-objects-closed contract. Authorization now
+binds spec, Prompt, Schema, Policy and model checksums; no post-fix call has run.
 
 ## Verdict
 

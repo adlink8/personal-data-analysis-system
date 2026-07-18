@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+import json
 import shutil
 
 from personal_knowledge.intelligence.analysis.inputs import (
@@ -72,3 +73,19 @@ def test_prompt_schema_or_policy_drift_changes_request_identity(tmp_path: Path, 
     changed_policy = _build(monkeypatch, prompt_path=prompt, schema_path=schema, policy_path=policy)
     assert len({baseline.request_checksum, changed_prompt.request_checksum,
                 changed_schema.request_checksum, changed_policy.request_checksum}) == 4
+
+
+def test_frozen_response_schema_closes_every_object_node() -> None:
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    open_paths: list[str] = []
+    def walk(value, path: str) -> None:
+        if isinstance(value, dict):
+            if value.get("type") == "object" and value.get("additionalProperties") is not False:
+                open_paths.append(path)
+            for key, item in value.items():
+                walk(item, f"{path}/{key}")
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                walk(item, f"{path}/{index}")
+    walk(schema, "$")
+    assert open_paths == []

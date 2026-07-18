@@ -54,6 +54,27 @@ The user then explicitly authorized one `gpt-5.4` retry. Its exact receipt was:
 | Personal / External / Analysis changed | false / false / false |
 | External actions | 0 |
 
+The user next explicitly authorized one call through direct
+`codex-cli 0.145.0` with `gpt-5.4`. That attempt also failed before a model
+response:
+
+| Field | Value |
+|---|---|
+| Confirmation event | `uat-direct-gpt54-20260718T102008Z` |
+| Provider calls / retries | 1 / 0 |
+| Binding hash | `5b13104ee2d4b609a38e4d6749ad6fad61bca021dc2efaa541b7ebef11ed7f93` |
+| Request checksum | `cc0d552c4909386553303e8a786ab6e88d33be8559d85219ba478ce01d515b06` |
+| Result / reason | provider-boundary `abstain` / `codex_cli_failed` |
+| Response / run / candidate | none |
+| Personal / External / Analysis changed | false / false / false |
+| External actions | 0 |
+
+Offline schema-subset audit then found the empty no-action-baseline object was
+not closed with `additionalProperties:false`. This is a deterministic
+structured-output defect consistent with immediate pre-generation rejection.
+It is now fixed and protected by a recursive contract test. No call was made
+after that correction.
+
 Post-attempt diagnosis found no `gpt-5.6-luna` entry in the Codex CLI remote
 model catalog. The current user configuration names `gpt-5.6-sol`; therefore
 the failed Luna invocation is not accepted as the required successful real LLM
@@ -72,20 +93,23 @@ stable redacted reason codes without persisting raw prompts or diagnostics.
 - Request artifact: `29-LIVE-UAT-REQUEST.json`
 - Request-spec checksum:
   `3e6b617ce308588fec77f4a91fc02f6ab1a6984ce7844ed1a76f7fa4131af939`
-- Exact internal confirmation phrase:
-  `ONE_CHATGPT_CALL:gpt-5.4:3e6b617ce308588fec77f4a91fc02f6ab1a6984ce7844ed1a76f7fa4131af939`
+- Corrected Schema checksum:
+  `574e80bd7a5d8e45943ec1a94c2e41bc826bbf8d49f614fc2eb83aa2c227b05f`
+- Exact lineage-bound confirmation phrase:
+  `ONE_CHATGPT_CALL:gpt-5.4:3e0dcc32f21359e42ccf92c8ebc0a63d631f5e649b1fd6a8bc9afb5cf2bf757e`
 - Prepared prompt size: 7,152 bytes
 - Generation budget: temperature `0.0`, output tokens `3,000`, total tokens
   `7,000`, timeout `120s`, attempts `1`, provider calls `1` maximum.
 
 The guarded command additionally requires `--write`, a fresh UTC confirmation
-event and the exact phrase above. The authorized attempt is exhausted and must
-not be reissued under the same authorization.
+event and the exact phrase above. That phrase now binds the spec, Prompt,
+Schema, Policy and model checksums. All prior authorizations are exhausted and
+must not be reissued.
 
 ## Open scenarios
 
-1. Obtain a new explicit authorization before any call through the corrected
-   direct `codex-cli 0.145.0` runtime.
+1. Obtain a new explicit authorization for the lineage-bound request before
+   any further call through direct `codex-cli 0.145.0`.
 2. Review the resulting exact candidate or deterministic post-model abstention,
    evidence bindings, telemetry, privacy report and zero-side-effect proof.
 3. Record explicit user acceptance or rejection of that exact evidence.

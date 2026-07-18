@@ -14,8 +14,12 @@ from personal_knowledge.intelligence.decision.context_binding import (
 )
 
 from .executor import ExecutionReceipt, execute_analysis
-from .inputs import DEFAULT_POLICY_PATH, DEFAULT_SCHEMA_PATH, ConfirmationEvent
+from .inputs import (
+    DEFAULT_POLICY_PATH, DEFAULT_PROMPT_PATH, DEFAULT_SCHEMA_PATH,
+    ConfirmationEvent,
+)
 from .providers import CodexCliProvider, codex_cli_preflight
+from .runs import load_policy
 from .schema import EvidenceReference, canonical_json, checksum, from_exact_mapping
 
 
@@ -66,8 +70,19 @@ def load_live_spec(path: Path | str) -> dict[str, Any]:
     return raw
 
 
+def authorization_manifest(spec: Mapping[str, Any]) -> dict[str, str]:
+    _, policy_checksum = load_policy(DEFAULT_POLICY_PATH)
+    return {
+        "spec_checksum": checksum(spec),
+        "prompt_checksum": hashlib.sha256(DEFAULT_PROMPT_PATH.read_bytes()).hexdigest(),
+        "schema_checksum": hashlib.sha256(DEFAULT_SCHEMA_PATH.read_bytes()).hexdigest(),
+        "policy_checksum": policy_checksum,
+        "model": str(spec["model"]),
+    }
+
+
 def confirmation_phrase(spec: Mapping[str, Any]) -> str:
-    return f"ONE_CHATGPT_CALL:{spec['model']}:{checksum(spec)}"
+    return f"ONE_CHATGPT_CALL:{spec['model']}:{checksum(authorization_manifest(spec))}"
 
 
 def run_live_uat(
@@ -146,6 +161,7 @@ def run_live_uat(
         "ok": successful_live_output and source_unchanged,
         "spec_version": SPEC_VERSION,
         "spec_checksum": checksum(spec),
+        "authorization_checksum": checksum(authorization_manifest(spec)),
         "model": spec["model"],
         "binding_hash": binding.binding_hash,
         "confirmation_event_id": confirmation_event_id,
@@ -188,5 +204,6 @@ if __name__ == "__main__":
 
 __all__ = [
     "APPROVED_LIVE_MODELS", "LiveUatError", "SPEC_VERSION",
-    "confirmation_phrase", "load_live_spec", "main", "run_live_uat",
+    "authorization_manifest", "confirmation_phrase", "load_live_spec", "main",
+    "run_live_uat",
 ]
