@@ -145,3 +145,117 @@ def test_target_specificity_precedes_scope_specificity(tmp_path) -> None:
                                   as_of=AS_OF, scope="project:alpha", domains=("career",), policies=("importance-v1",))
     assert projection.eligible is True
     assert projection.winning_event_id is not None
+
+
+def test_same_target_stream_sequence_overrides_created_at_order(tmp_path) -> None:
+    db, target = _published_candidate(tmp_path)
+    append_control(
+        db,
+        replace(_command(target, "suppress", "first"), created_at="2026-07-18T12:00:00+08:00"),
+        write=True,
+    )
+    latest = append_control(
+        db,
+        replace(
+            _command(target, "snooze", "second", expected=1, expires_at="2026-07-18T08:00:00Z"),
+            created_at="2026-07-18T03:00:00Z",
+        ),
+        write=True,
+    ).event
+
+    projection = project_controls(db, targets=(target,), as_of="2026-07-18T06:00:00Z")
+
+    assert projection.winning_event_id == latest.event_id
+    assert projection.reason_codes == ("trust_veto", "snoozed_by_user")
+
+
+def test_cross_target_streams_compare_parsed_utc_instants(tmp_path) -> None:
+    db, _ = _published_candidate(tmp_path)
+    earlier_target = ControlTarget(
+        "a.proactive_intelligence", "policy", "policy-a", checksum({"policy": "policy-a"}),
+    )
+    later_target = ControlTarget(
+        "a.proactive_intelligence", "policy", "policy-b", checksum({"policy": "policy-b"}),
+    )
+    append_control(
+        db,
+        replace(_command(earlier_target, "suppress", "earlier"), created_at="2026-07-18T12:00:00+08:00"),
+        write=True,
+    )
+    later = append_control(
+        db,
+        replace(
+            _command(later_target, "snooze", "later", expires_at="2026-07-18T08:00:00Z"),
+            created_at="2026-07-18T05:00:00Z",
+        ),
+        write=True,
+    ).event
+
+    projection = project_controls(
+        db, targets=(earlier_target, later_target), as_of="2026-07-18T06:00:00Z",
+    )
+
+    assert projection.winning_event_id == later.event_id
+    assert projection.reason_codes == ("trust_veto", "snoozed_by_user")
+
+
+def test_cross_target_equal_instants_use_stable_target_tie_break(tmp_path) -> None:
+    db, _ = _published_candidate(tmp_path)
+    target_a = ControlTarget(
+        "a.proactive_intelligence", "policy", "policy-a", checksum({"policy": "policy-a"}),
+    )
+    target_b = ControlTarget(
+        "a.proactive_intelligence", "policy", "policy-b", checksum({"policy": "policy-b"}),
+    )
+    append_control(
+        db,
+        replace(_command(target_a, "suppress", "a"), created_at="2026-07-18T13:00:00+08:00"),
+        write=True,
+    )
+    winner = append_control(
+        db,
+        replace(
+            _command(target_b, "snooze", "b", expires_at="2026-07-18T08:00:00Z"),
+            created_at="2026-07-18T05:00:00Z",
+        ),
+        write=True,
+    ).event
+
+    forward = project_controls(db, targets=(target_a, target_b), as_of="2026-07-18T06:00:00Z")
+    reverse = project_controls(db, targets=(target_b, target_a), as_of="2026-07-18T06:00:00Z")
+
+    assert forward.winning_event_id == winner.event_id
+    assert reverse.winning_event_id == winner.event_id
+
+
+def test_cross_target_tie_break_is_stable_after_stream_sequence_selection(tmp_path) -> None:
+    db, _ = _published_candidate(tmp_path)
+    target_a = ControlTarget(
+        "a.proactive_intelligence", "policy", "policy-a", checksum({"policy": "policy-a"}),
+    )
+    target_b = ControlTarget(
+        "a.proactive_intelligence", "policy", "policy-b", checksum({"policy": "policy-b"}),
+    )
+    append_control(
+        db,
+        replace(_command(target_a, "suppress", "a1"), created_at="2026-07-18T04:00:00Z"),
+        write=True,
+    )
+    latest_a = append_control(
+        db,
+        replace(
+            _command(target_a, "snooze", "a2", expected=1, expires_at="2026-07-18T08:00:00Z"),
+            created_at="2026-07-18T05:00:00Z",
+        ),
+        write=True,
+    ).event
+    append_control(
+        db,
+        replace(_command(target_b, "suppress", "b1"), created_at="2026-07-18T03:00:00Z"),
+        write=True,
+    )
+
+    projection = project_controls(db, targets=(target_a, target_b), as_of="2026-07-18T06:00:00Z")
+
+    assert projection.winning_event_id == latest_a.event_id
+    assert projection.reason_codes == ("trust_veto", "snoozed_by_user")
