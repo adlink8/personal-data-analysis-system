@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Agent Productization
-status: passed
-last_updated: "2026-07-18T18:54:00Z"
-last_activity: 2026-07-19
+status: Awaiting next milestone
+last_updated: "2026-07-18T18:59:38.313Z"
+last_activity: 2026-07-18 — Milestone v1.3 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
@@ -61,17 +61,17 @@ progress:
 
 ## Current Position
 
-Phase: 35 (Runtime and Live E2E) — COMPLETE
-Plan: 3 of 3
-Status: LIVE-01..03 verified; independent milestone audit passed
-Last activity: 2026-07-19
+Phase: Milestone v1.3 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-18 — Milestone v1.3 completed and archived
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-18)
+See: `.planning/PROJECT.md` (updated 2026-07-19)
 
 **Core value:** Local, evidence-bound and uncertainty-aware personal decision support.
-**Current focus:** archive completed v1.3 milestone
+**Current focus:** no active milestone; await authorization for fresh requirements
 
 ## Cross-cutting architecture/data governance audit
 
@@ -138,5 +138,4 @@ python -m personal_knowledge.governance.preflight
 
 ## Operator Next Steps
 
-- Archive the independently passed v1.3 milestone and preserve the sanitized ingress receipt.
-- Define a fresh requirements set only when a next milestone is authorized.
+- Start the next milestone with /gsd-new-milestone

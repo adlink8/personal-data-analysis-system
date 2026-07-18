@@ -1,5 +1,32 @@
 # Milestones
 
+## v1.3 Agent Productization (Shipped: 2026-07-18)
+
+**Delivered:** A production-safe, compact and confirmation-gated ChatGPT/MCP Agent path over the real OpenAI tunnel, with checksum-verifying reads and exact replay.
+
+**Phases completed:** 4 phases, 12 plans, 9 tasks
+
+**Key accomplishments:**
+
+- A checksum-verifying AnalysisReadService and one bounded four-authority dispatch now expose External, Analysis, Pilot and Calibration metadata without provider bodies or writes.
+- Twelve additive REST routes and twelve focused stdio MCP tools now expose identical four-authority list/get/explain contracts.
+- All four verified decision-intelligence authorities are now callable from ChatGPT through focused, truthful read-only MCP tools.
+- A low-risk project session can now be previewed without writes, explicitly confirmed, resumed and advanced through a deterministic replay-safe state machine.
+- Confirmed generation now reserves durably before the provider call, replays completed results, and fails closed on uncertain outcomes without a duplicate call.
+- A confirmed session now traverses the real immutable Pilot authorities through calibration while retaining zero automated external actions and no automatic promotion.
+- Real Agent transports can now prepare, explicitly confirm, execute, resume and explain guarded sessions without exposing confirmation capabilities or duplicating provider effects.
+- REST and stdio Agent adapters now return one compact, budgeted success/error contract with stable evidence drill-down and safe recovery actions.
+- ChatGPT tools now preserve the shared compact contract and fixed evals prove safe tool selection and recovery behavior.
+- The Agent stack now has a production-audited foreground supervisor that starts dependencies in order, owns only its child PIDs and fails diagnostically.
+- The 44-tool ChatGPT MCP surface is now pinned by a reviewed canonical snapshot and matches a real localhost `/mcp` server.
+- The refreshed ChatGPT Web Data connector traversed the ready tunnel for read/explain and prepare/confirm/exact replay with unchanged authority fingerprints.
+
+**Stats:** 95 files changed, 10,568 insertions, 546 deletions; completed in one focused build window from `6763427` to `2b99e88`.
+
+**Audit:** passed — 13/13 requirements, 12/12 integrations, 4/4 flows. See [v1.3 audit](milestones/v1.3-MILESTONE-AUDIT.md).
+
+---
+
 ## v1.2 External Context & Low-risk Decision Intelligence Pilot (Shipped: 2026-07-18)
 
 **Phases completed:** 4 phases, 14 plans, 10 tasks

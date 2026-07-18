@@ -27,9 +27,9 @@
 
 LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执行权限。
 
-## Current Milestone: v1.3 Agent Productization — Accepted
+## Current State: v1.3 Agent Productization — Shipped
 
-**Goal:** 将已验证的 External、LLM Analysis、Project Pilot 和 Calibration 能力产品化为可由 ChatGPT/MCP Agent 真实调用、可读解释、受控确认和在线验收的统一决策流程。
+**Shipped:** 2026-07-18. 独立审计通过 13/13 requirements、12/12 integrations、4/4 flows。
 
 **Target features:**
 - External、Analysis、Pilot、Calibration 的共享只读 Service、REST 和 MCP 工具
@@ -39,6 +39,10 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 - 所有写入均需显式确认；保持零未授权外部动作和零自动策略 promotion
 
 **Previous:** v1.2 shipped 2026-07-18（Phases 28–31），完成 External Authority、真实 `gpt-5.4` 决策链和诚实 `INCONCLUSIVE` 校准。见 [v1.2 audit](milestones/v1.2-MILESTONE-AUDIT.md)。
+
+## Next Milestone Goals
+
+当前没有 active milestone。下一里程碑需先重新定义需求；候选方向仅保留为 future requirements：learning/career 低风险扩域、更强视觉比较，以及达到预注册样本量后的真实 calibration cohort。不会从这些候选自动创建或执行新范围。
 
 ## Current Reality — 2026-07-19
 
@@ -87,11 +91,8 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 - ✓ 显式确认、幂等、可恢复且 fail-closed 的低风险编排 — ORCH-01..04
 - ✓ 紧凑 Agent envelope、证据下钻和 typed recovery — UX-01..02
 - ✓ 生产安全一键运行与真实 readiness — LIVE-01
+- ✓ 真实 ChatGPT/tunnel ingress read/explain 与 confirmed exact replay — LIVE-02
 - ✓ 44-tool descriptor/contract 快照与 live 本地 MCP parity — LIVE-03
-
-### Active
-
-- [x] 取得一次经 ChatGPT/tunnel ingress 的 read/explain 与 confirmed replay receipt — LIVE-02
 
 ### Optional backlog (not Active)
 
@@ -164,4 +165,4 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 本文件在阶段转换和里程碑边界持续更新。每次阶段完成时核对需求、关键决策、范围和真实运行状态；每次里程碑结束时重新检查 Core Value、Out of Scope 与已验证能力。
 
 ---
-*Last updated: 2026-07-19 after v1.3 implementation completion*
+*Last updated: 2026-07-19 after v1.3 milestone*
