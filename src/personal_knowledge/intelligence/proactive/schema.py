@@ -76,6 +76,25 @@ class ResourceClaim:
     horizon_end: str
     capacity: float
     source: SupportReference
+    declared_by_user: bool = False
+
+
+@dataclass(frozen=True)
+class GoalSignal:
+    goal_id: str
+    domain: str
+    subject: str
+    scope: str
+    target: str
+    valid_from: str
+    valid_to: str | None
+    observed_at: str
+    confidence: float
+    uncertainty: str
+    support: SupportReference
+    resources: tuple[ResourceClaim, ...] = ()
+    sensitive: bool = False
+    unresolved_conflict: bool = False
 
 
 @dataclass(frozen=True)
