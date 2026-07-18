@@ -123,7 +123,11 @@ class OrchestrationService:
         actor = self._validate_actor(actor_identity_hash)
         clean_goal = str(goal or "").strip()
         clean_constraints = tuple(str(item).strip() for item in constraints if str(item).strip())
-        clean_weights = {str(key): float(value) for key, value in sorted(weights.items())}
+        clean_weights = {
+            str(key): (int(parsed) if parsed.is_integer() else parsed)
+            for key, value in sorted(weights.items())
+            for parsed in (float(value),)
+        }
         searchable = " ".join((clean_goal, *clean_constraints)).lower()
         if domain != "project":
             raise OrchestrationError("domain_not_allowed")

@@ -393,6 +393,10 @@ test("HTTP server serves health and /mcp", async () => {
     assert.equal(health.status, 200);
     assert.equal((await health.json()).status, "ok");
 
+    const metadata = await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource/mcp`);
+    assert.equal(metadata.status, 200);
+    assert.deepEqual((await metadata.json()).authorization_servers, []);
+
     const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

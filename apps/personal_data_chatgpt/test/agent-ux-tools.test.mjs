@@ -33,7 +33,27 @@ test("read and orchestration tools pass through the shared compact envelope", as
   const resumed = await callTool("agent_session_resume", { session_id: "ors_test" }, { fetchImpl: sessionFetch, restBaseUrl: "http://rest.test" });
   assert.deepEqual(resumed.structuredContent.ids, ["ors_test"]);
   assert.equal(resumed.structuredContent.data.state, "generated");
-  assert.match(resumed.structuredContent.data.session_id, /^\[PRIVACY:field-secret:fp:/);
+  assert.equal(resumed.structuredContent.data.session_id, "ors_test");
+});
+
+test("privacy guard preserves typed IDs and integrity hashes byte-for-byte", async () => {
+  const phoneShapedDigest = `a13800138000${"b".repeat(52)}`;
+  const compact = {
+    schema_version: "agent_compact_envelope_v1", operation: "session.prepare",
+    ok: true, status: "success", summary: "Prepared.", ids: [`ors_${phoneShapedDigest}`],
+    limitations: [], next_actions: [], evidence_links: [], truncated: false,
+    data: {
+      session_id: `ors_${phoneShapedDigest}`,
+      actor_identity_hash: phoneShapedDigest,
+      preview_checksum: phoneShapedDigest,
+      payload: { binding_hash: phoneShapedDigest, goal: "local validation only" }
+    },
+    budget: { limit_bytes: 16384, used_bytes: 500 }
+  };
+  const result = await callTool("agent_session_prepare", {}, {
+    fetchImpl: async () => response(compact), restBaseUrl: "http://rest.test"
+  });
+  assert.deepEqual(result.structuredContent, compact);
 });
 
 test("typed compact REST failures retain retryability and recovery actions", async () => {

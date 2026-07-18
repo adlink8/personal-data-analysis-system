@@ -254,6 +254,7 @@ _SENSITIVE_KEY_DENY = frozenset({
     "event_type", "content_type", "mime_type", "source_type",
     "relation_type", "assertion_type", "type", "status",
     "id", "event_id", "memory_id", "unit_id", "run_id",
+    "session_id",
     "query_hash", "content_hash", "checksum", "fingerprint",
 })
 
@@ -342,6 +343,18 @@ def _is_sensitive_field_key(key: str) -> bool:
     if any(low.endswith(sfx) for sfx in _SENSITIVE_KEY_SUFFIXES):
         return True
     return False
+
+
+def _is_integrity_field_key(key: str) -> bool:
+    """Return true for typed protocol values that must remain byte-exact."""
+    if not isinstance(key, str) or not key:
+        return False
+    low = key.strip().lower()
+    return (
+        low in _SENSITIVE_KEY_DENY
+        or low == "ids"
+        or low.endswith(("_id", "_hash", "_checksum", "_fingerprint"))
+    )
 
 
 def _should_accept_match(kind: str, secret: str) -> bool:
@@ -467,6 +480,10 @@ def guard_jsonable(obj: Any, *, mode: str | None = None) -> tuple[Any, PrivacyRe
 
     def _walk(node: Any, parent_key: str | None = None) -> Any:
         if isinstance(node, str):
+            # Stable IDs and integrity digests are signed protocol data. Free-text
+            # phone/PII regexes can otherwise corrupt a valid preview by chance.
+            if parent_key is not None and _is_integrity_field_key(parent_key):
+                return node
             # fields 作用域：敏感键下整串封存（非空且非已封存）
             if (
                 "fields" in scope

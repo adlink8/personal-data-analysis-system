@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import hashlib
+import json
 from pathlib import Path
 import sqlite3
 
@@ -12,7 +13,7 @@ from personal_knowledge.intelligence.decision.context_binding import (
     DecisionContextBinding, DecisionContextPolicy,
 )
 from personal_knowledge.intelligence.orchestration import (
-    OrchestrationError, OrchestrationService, apply_schema, inspect_schema,
+    OrchestrationError, OrchestrationService, Preview, apply_schema, inspect_schema,
 )
 
 
@@ -93,6 +94,18 @@ def test_prepare_is_pure_bounded_and_risk_gated(service: OrchestrationService):
             goal="Deploy the result", constraints=("bounded",), weights={"x": 1},
             actor_identity_hash=ACTOR, now=NOW,
         )
+
+
+def test_preview_checksum_survives_javascript_number_roundtrip(service: OrchestrationService):
+    preview = service.prepare(
+        goal="Choose a local validation approach", constraints=("bounded",),
+        weights={"safety": 1.0, "reversibility": 0.8},
+        actor_identity_hash=ACTOR, now=NOW,
+    )
+    wire = json.loads(json.dumps(preview.to_dict()).replace('"safety": 1.0', '"safety": 1'))
+    restored = Preview.from_dict(wire)
+    assert restored.preview_checksum == preview.preview_checksum
+    assert restored.payload["weights"]["safety"] == 1
 
 
 def test_confirmation_binds_preview_actor_operation_sequence_and_expiry(service: OrchestrationService):

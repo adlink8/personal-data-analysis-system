@@ -217,6 +217,7 @@ const SENSITIVE_KEY_DENY = new Set([
   "event_type", "content_type", "mime_type", "source_type",
   "relation_type", "assertion_type", "type", "status",
   "id", "event_id", "memory_id", "unit_id", "run_id",
+  "session_id",
   "query_hash", "content_hash", "checksum", "fingerprint"
 ]);
 
@@ -226,6 +227,17 @@ function isSensitiveFieldKey(key) {
   if (SENSITIVE_KEY_DENY.has(low)) return false;
   if (SENSITIVE_KEYS_EXACT.has(key) || SENSITIVE_KEYS_EXACT.has(low)) return true;
   return SENSITIVE_KEY_SUFFIXES.some((sfx) => low.endsWith(sfx));
+}
+
+function isIntegrityFieldKey(key) {
+  if (typeof key !== "string" || !key) return false;
+  const low = key.trim().toLowerCase();
+  return SENSITIVE_KEY_DENY.has(low)
+    || low === "ids"
+    || low.endsWith("_id")
+    || low.endsWith("_hash")
+    || low.endsWith("_checksum")
+    || low.endsWith("_fingerprint");
 }
 
 function privacyFingerprint(kind, secret) {
@@ -272,6 +284,9 @@ function guardText(text) {
 function guardJsonable(value, parentKey = null) {
   if (!PRIVACY_GUARD_ON) return value;
   if (typeof value === "string") {
+    // Typed identifiers and integrity digests are protocol data, not free text.
+    // Scanning them with phone/PII regexes can corrupt signed previews.
+    if (parentKey && isIntegrityFieldKey(parentKey)) return value;
     if (
       PRIVACY_SCOPE.has("fields")
       && parentKey
@@ -1770,6 +1785,20 @@ export function createAppServer(options = {}) {
 
       if (req.method === "GET" && url.pathname === "/health") {
         sendJson(res, 200, { ok: true, status: "ok", restBaseUrl });
+        return;
+      }
+
+      if (req.method === "GET" && (
+        url.pathname === "/.well-known/oauth-protected-resource/mcp"
+        || url.pathname === "/.well-known/oauth-protected-resource"
+      )) {
+        // The local MCP target is not an OAuth resource server. Authentication is
+        // terminated by the OpenAI Secure MCP Tunnel control plane.
+        sendJson(res, 200, {
+          resource: `${url.origin}/mcp`,
+          authorization_servers: [],
+          bearer_methods_supported: []
+        });
         return;
       }
 

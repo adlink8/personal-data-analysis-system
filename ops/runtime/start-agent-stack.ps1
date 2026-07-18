@@ -15,6 +15,7 @@ param(
   [ValidateRange(1, 65535)][int]$TunnelHealthPort = 8081,
   [ValidateRange(1, 10)][int]$MaxRestarts = 3,
   [ValidateRange(2, 300)][int]$StartTimeoutSeconds = 30,
+  [ValidateRange(2, 300)][int]$TunnelStartTimeoutSeconds = 90,
   [ValidateRange(1, 60)][int]$HealthIntervalSeconds = 5,
   [ValidateRange(0, 86400)][int]$RunForSeconds = 0,
   [switch]$SkipTunnel,
@@ -93,8 +94,10 @@ function New-ManagedProcess {
   $start.WorkingDirectory = $Spec.WorkDir
   $start.UseShellExecute = $false
   $start.CreateNoWindow = $true
-  $start.RedirectStandardOutput = $true
-  $start.RedirectStandardError = $true
+  # Inherit the supervisor's output handles. Redirecting without continuously
+  # draining both streams can deadlock a verbose child on a full pipe.
+  $start.RedirectStandardOutput = $false
+  $start.RedirectStandardError = $false
   foreach ($key in $Spec.Environment.Keys) { $start.Environment[$key] = [string]$Spec.Environment[$key] }
   $process = [Diagnostics.Process]::new()
   $process.StartInfo = $start
@@ -115,8 +118,8 @@ function Stop-OwnedProcess {
 }
 
 function Wait-Ready {
-  param($Entry)
-  $deadline = (Get-Date).AddSeconds($StartTimeoutSeconds)
+  param($Entry, [int]$TimeoutSeconds = $StartTimeoutSeconds)
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   while ((Get-Date) -lt $deadline) {
     if ($Entry.Process -and $Entry.Process.HasExited) { return $false }
     if (Test-Endpoint $Entry.HealthUrl) { return $true }
@@ -261,11 +264,14 @@ try {
   if (-not $SkipTunnel) {
     $tunnelEnvironment = @{ NO_PROXY=($loopbackHost + ',localhost') }
     if ($TunnelProxy) { $tunnelEnvironment.HTTPS_PROXY=$TunnelProxy; $tunnelEnvironment.HTTP_PROXY=$TunnelProxy }
-    $specs += @{ Key='tunnel'; FilePath=$tunnelExe; Arguments=@('run','--profile',$TunnelProfile); WorkDir=$TunnelDirectory; HealthUrl=$tunnelHealth; Port=$TunnelHealthPort; Environment=$tunnelEnvironment }
+    $specs += @{ Key='tunnel'; FilePath=$tunnelExe; Arguments=@('run','--profile',$TunnelProfile); WorkDir=$TunnelDirectory; HealthUrl=$tunnelHealth; Port=$TunnelHealthPort; Environment=$tunnelEnvironment; StartTimeoutSeconds=$TunnelStartTimeoutSeconds }
   }
 
   foreach ($spec in $specs) {
     $entry = [pscustomobject]@{ Key=$spec.Key; Spec=$spec; HealthUrl=$spec.HealthUrl; Process=$null; Adopted=$false; Restarts=0; Failures=0 }
+    # Register before starting so finally always owns and cleans up a process
+    # that times out during its first readiness window.
+    $entries += $entry
     if (Test-Endpoint $spec.HealthUrl) {
       $entry.Adopted = $true
       Write-StructuredLog 'OK' 'service_reused' $spec.Key $spec.HealthUrl
@@ -278,10 +284,10 @@ try {
       }
       if (-not $PSCmdlet.ShouldProcess($spec.Key, 'Start managed local service')) { throw "start_declined:$($spec.Key)" }
       $entry.Process = New-ManagedProcess $spec
-      if (-not (Wait-Ready $entry)) { throw "startup_readiness_failed:$($spec.Key)" }
+      $readinessTimeout = if ($spec.ContainsKey('StartTimeoutSeconds')) { [int]$spec.StartTimeoutSeconds } else { $StartTimeoutSeconds }
+      if (-not (Wait-Ready $entry $readinessTimeout)) { throw "startup_readiness_failed:$($spec.Key)" }
       Write-StructuredLog 'OK' 'service_ready' $spec.Key $spec.HealthUrl
     }
-    $entries += $entry
     Save-State $entries
   }
 

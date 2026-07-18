@@ -181,6 +181,26 @@ def test_jsonable_recursive_and_field_keys() -> None:
     assert sealed["memory_type"] == "preference"
 
 
+def test_jsonable_preserves_typed_ids_and_integrity_hashes() -> None:
+    phone_shaped_digest = "a13800138000" + ("b" * 52)
+    payload = {
+        "ids": ["ors_" + phone_shaped_digest],
+        "session_id": "ors_" + phone_shaped_digest,
+        "actor_identity_hash": phone_shaped_digest,
+        "preview_checksum": phone_shaped_digest,
+        "binding": {"external_snapshot_id": "exs_" + phone_shaped_digest},
+        "note": "call 13800138000",
+    }
+    sealed, meta = guard_jsonable(payload)
+    assert sealed["ids"] == payload["ids"]
+    assert sealed["session_id"] == payload["session_id"]
+    assert sealed["actor_identity_hash"] == payload["actor_identity_hash"]
+    assert sealed["preview_checksum"] == payload["preview_checksum"]
+    assert sealed["binding"] == payload["binding"]
+    assert sealed["note"] != payload["note"]
+    assert meta.hit_count == 1
+
+
 def test_scope_credentials_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PERSONAL_DATA_PRIVACY_SCOPE", "credentials")
     email = "bob@example.com"

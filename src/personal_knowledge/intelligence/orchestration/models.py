@@ -11,6 +11,17 @@ SCHEMA_VERSION = "decision_orchestration_v1"
 REGISTRY_ID = "a.decision_orchestration"
 
 
+def _transport_stable_json(value: Any) -> Any:
+    """Normalize JSON numbers whose spelling changes across Python and JS."""
+    if isinstance(value, Mapping):
+        return {str(key): _transport_stable_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_transport_stable_json(item) for item in value]
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 class OrchestrationError(ValueError):
     def __init__(self, code: str, detail: str = "") -> None:
         self.code = code
@@ -49,7 +60,7 @@ class Preview:
     ) -> "Preview":
         draft = cls(
             session_id, operation, actor_identity_hash, expected_sequence,
-            dict(payload), issued_at, "",
+            _transport_stable_json(payload), issued_at, "",
         )
         return cls(**{**draft.__dict__, "preview_checksum": checksum(draft.core())})
 
@@ -60,7 +71,7 @@ class Preview:
                 session_id=str(value["session_id"]), operation=str(value["operation"]),
                 actor_identity_hash=str(value["actor_identity_hash"]),
                 expected_sequence=int(value["expected_sequence"]),
-                payload=dict(value["payload"]), issued_at=str(value["issued_at"]),
+                payload=_transport_stable_json(value["payload"]), issued_at=str(value["issued_at"]),
                 preview_checksum=str(value["preview_checksum"]),
             )
         except (KeyError, TypeError, ValueError) as exc:

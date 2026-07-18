@@ -31,6 +31,16 @@ def test_parser_and_zero_write_check(tmp_path: Path) -> None:
     assert not (project / "ops").exists()
 
 
+def test_tunnel_has_bounded_extended_readiness_and_early_ownership() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "[int]$TunnelStartTimeoutSeconds = 90" in source
+    assert "$entries += $entry" in source
+    assert source.index("$entries += $entry") < source.index("$entry.Process = New-ManagedProcess $spec")
+    assert "Wait-Ready $entry $readinessTimeout" in source
+    assert "$start.RedirectStandardOutput = $false" in source
+    assert "$start.RedirectStandardError = $false" in source
+
+
 def test_missing_secret_and_profile_fail_before_runtime() -> None:
     env = os.environ.copy()
     env.pop("CONTROL_PLANE_API_KEY", None)
@@ -74,4 +84,3 @@ def test_unhealthy_port_owner_is_not_terminated(tmp_path: Path) -> None:
         listener.getsockname()
     finally:
         listener.close()
-
