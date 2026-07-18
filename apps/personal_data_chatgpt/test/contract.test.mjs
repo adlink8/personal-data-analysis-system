@@ -212,11 +212,23 @@ test("tool descriptors expose the read-only Apps SDK metadata", () => {
     "data_list_relations",
     "data_quality_report",
     "data_timeline",
+    "decision_analysis_explain",
+    "decision_analysis_get",
+    "decision_analysis_list",
+    "external_context_explain",
+    "external_context_get",
+    "external_context_list",
     "fetch",
     "get_google_assertion",
     "get_system_stats",
     "knowledge_status",
     "list_google_assertions",
+    "project_pilot_explain",
+    "project_pilot_get",
+    "project_pilot_list",
+    "recommendation_calibration_explain",
+    "recommendation_calibration_get",
+    "recommendation_calibration_list",
     "search",
     "show_data_browser",
     "show_memory_graph",
@@ -292,7 +304,7 @@ test("JSON-RPC lists and calls tools", async () => {
   assert.equal(init.result.serverInfo.name, "personal-data-chatgpt-app");
 
   const listed = await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
-  assert.equal(listed.result.tools.length, 19);
+  assert.equal(listed.result.tools.length, 31);
 
   const called = await handleRpc({
     jsonrpc: "2.0",
@@ -370,7 +382,7 @@ test("HTTP server serves health and /mcp", async () => {
     });
     const body = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(body.result.tools.length, 19);
+    assert.equal(body.result.tools.length, 31);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
