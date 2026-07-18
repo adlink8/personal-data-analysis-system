@@ -2,7 +2,7 @@
 document_type: corrected-product-vision-and-current-status
 project: Personal Knowledge / Decision Intelligence System
 date: 2026-07-18
-status: technical_real_loop_complete_awaiting_product_uat
+status: current_milestone_release_ready
 source_of_truth_inputs:
   - .planning/STATE.md
   - .planning/ROADMAP.md
@@ -16,7 +16,7 @@ related:
 
 # 基于长期个人数据与外部环境的个人决策智能系统
 
-> **2026-07-18 closure update:** Phase 24 质量与 lifecycle 短板已用真实数据关闭，Phase 25–27 Live schemas 和真实 State→Decision→Action→Outcome→Assessment→Proactive 链已运行。本文后文中“schema unapplied / rows=0 / Phase 24 blocked”为收口前历史证据。当前里程碑只待用户 Product UAT；External Context Authority 与真正 LLM Decision Analysis 仍属后续长期愿景。
+> **2026-07-18 closure update:** Phase 24 质量与 lifecycle 短板已用真实数据关闭，Phase 25–27 Live schemas 和真实 State→Decision→Action→Outcome→Assessment→Proactive 链已运行，用户 Product UAT 已通过，当前里程碑 release-ready。本文后文中“schema unapplied / rows=0 / Phase 24 blocked”为收口前历史证据。External Context Authority 与真正 LLM Decision Analysis 仍属后续长期愿景。
 
 ## 1. 目标纠正
 

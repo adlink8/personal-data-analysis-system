@@ -1,9 +1,11 @@
 ---
 phase: 27
-status: awaiting_user_acceptance
+status: passed
 technical_status: passed
 updated: 2026-07-18
 active_snapshot: ss_5d816a6bf3ebd0bce9463236
+accepted_by: user
+accepted_at: 2026-07-18T06:51:34Z
 ---
 
 # Phase 27 Product UAT
@@ -33,10 +35,9 @@ active_snapshot: ss_5d816a6bf3ebd0bce9463236
 - [x] Acceptance fingerprint is unchanged; external/network/paid actions are zero.
 - [x] Full repository regression passes: 900 collected, 898 passed, 2 skipped.
 - [x] Governance preflight passes all 13 gates.
-- [ ] User explicitly accepts the demonstrated product behavior.
+- [x] User explicitly accepts the demonstrated product behavior.
 
 ## User sign-off
 
-Reply `验收通过` to close the final product-UAT gate. Any concrete rejection
-should identify the failed behavior; it will be recorded as a UAT issue rather
-than being converted into a passing result.
+The user explicitly replied `验收通过` on 2026-07-18. The Product UAT gate is
+closed against the exact live evidence and Active snapshot listed above.

@@ -9,7 +9,7 @@ requirements:
   TRUST-01: passed
   TD-01: passed
 technical_status: passed
-release_status: awaiting_product_uat
+release_status: release_ready
 verification_scope: independent_technical
 ---
 
@@ -19,7 +19,7 @@ verification_scope: independent_technical
 
 **Phase 27 independent technical verification: PASSED (4/4 requirements).** PRO-01, PRO-02, TRUST-01 and TD-01 have direct implementation and positive/negative execution evidence. The independently reproduced TRUST-01 temporal-precedence defect is fixed and covered by mixed-offset, equal-instant, same-target sequence and cross-target regression cases.
 
-**Current product status: `awaiting_product_uat`.** The historical verification below remains the independent technical record; the live-adoption addendum supersedes its earlier Phase 24 blocker snapshot.
+**Current product status: `release_ready`.** The historical verification below remains the independent technical record; live adoption and explicit Product UAT are complete.
 
 ## Requirement results
 
@@ -128,5 +128,5 @@ The Phase 27 schema is applied and a real proactive run is committed:
 
 Phase 24 now reports all three checkpoints passed, strict review passed and
 strict lifecycle passed. Technical blockers are empty. The only remaining
-release blocker is `product_uat:missing`, which deliberately requires the
-user's explicit acceptance after reviewing the live demonstration.
+final release blocker was closed by the user's explicit acceptance after
+reviewing the live demonstration.

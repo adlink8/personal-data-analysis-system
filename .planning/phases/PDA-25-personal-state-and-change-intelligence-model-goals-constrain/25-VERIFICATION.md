@@ -6,7 +6,7 @@ score: "2/2"
 requirements:
   INTEL-01: passed
   INTEL-02: passed
-release_status: awaiting_product_uat
+release_status: release_ready
 verification_scope: technical
 ---
 
@@ -16,7 +16,7 @@ verification_scope: technical
 
 **Phase 25 technical verification: PASSED (2/2 requirements).** The implementation satisfies INTEL-01 and INTEL-02 through immutable, snapshot-bound, typed and privacy-safe analysis contracts. This verdict is independent of the plan summaries and was checked against the current implementation, negative-path tests and live metadata-only acceptance.
 
-**Current release status: `awaiting_product_uat`.** The original technical verification remains valid; the live-adoption addendum below supersedes its historical Phase 24 blocker snapshot.
+**Current release status: `release_ready`.** The original technical verification remains valid; live adoption and explicit Product UAT are complete.
 
 ## Requirement verification
 
@@ -75,5 +75,4 @@ applied and one real snapshot-bound run is committed and published:
 - three assertions and three eligible evidence references, with zero private bodies;
 - live acceptance reports `validated_committed_runs`.
 
-The only overall release blocker is explicit product UAT, not Phase 25 quality
-or schema adoption.
+Explicit Product UAT passed; Phase 25 has no remaining release blocker.

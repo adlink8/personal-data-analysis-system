@@ -48,7 +48,7 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 - 真实链路已覆盖状态、建议、用户确认、行动、结果、非因果效果评估、主动候选以及 suppress/restore。
 - `src/personal_knowledge/intelligence` 当前没有 LLM 调用；建议生成仍是确定性规则与 abstention。
 - 当前没有社会、行业、政策和市场等 External Context Authority；Google Activities 属于个人行为数据，不属于外部社会情报。
-- Technical Target D 和真实低风险数据链已通过；当前唯一发布门是用户显式 Product UAT。External Context 与 LLM 决策分析仍属后续 PDI 愿景。
+- Technical Target D、真实低风险数据链和用户显式 Product UAT 均已通过，当前里程碑 release-ready。External Context 与 LLM 决策分析仍属后续 PDI 愿景。
 
 ## Requirements
 

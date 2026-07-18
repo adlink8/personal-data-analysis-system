@@ -6,7 +6,7 @@ score: "2/2"
 requirements:
   DEC-01: passed
   DEC-02: passed
-release_status: awaiting_product_uat
+release_status: release_ready
 verification_scope: independent_technical
 ---
 
@@ -114,5 +114,5 @@ The decision schema is applied and one real decision run is committed:
   `inconclusive` with `insufficient_window` rather than overstating impact;
 - live acceptance reports `validated_committed_runs`.
 
-Phase 24 gates are now closed. The only overall release blocker is explicit
-product UAT.
+Phase 24 gates and explicit Product UAT are closed. Phase 26 has no remaining
+release blocker.

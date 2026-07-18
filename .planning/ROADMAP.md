@@ -390,7 +390,7 @@ Plans:
 ---
 ## Future Product Direction — Personal Decision Intelligence（candidate only）
 
-> These phases are not activated. Phase 24 quality/lifecycle gates are closed; the current release gate is explicit Product UAT. See [`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md).
+> These phases are not activated. Phase 24 quality/lifecycle gates and explicit Product UAT are closed; the current milestone is release-ready. See [`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md).
 
 ### Candidate Phase 28: External Context Authority
 

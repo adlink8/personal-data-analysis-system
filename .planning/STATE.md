@@ -2,22 +2,22 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
-status: awaiting_product_uat
-last_updated: 2026-07-18T06:45:00Z
+status: release_ready
+last_updated: 2026-07-18T06:51:34Z
 progress:
   total_phases: 29
   completed_phases: 21
   total_plans: 73
   completed_plans: 66
-  percent: 99
-stopped_at: Phase 24-27 real-data loop complete — awaiting explicit Product UAT
+  percent: 100
+stopped_at: Phase 24-27 real-data loop and explicit Product UAT complete
 ---
 
 # Project State
 
 ## Milestone
 
-**v1.1 product hardening:** Phase 24 strict review, retrieval quality, lifecycle adoption and reversible release UAT pass. Phase 25–27 technical contracts and one real snapshot-bound end-to-end run pass. The only current milestone gate is explicit Product UAT.
+**v1.1 product hardening:** Phase 24 strict review, retrieval quality, lifecycle adoption and reversible release UAT pass. Phase 25–27 technical contracts and one real snapshot-bound end-to-end run pass. The user explicitly accepted Product UAT; the milestone is release-ready.
 
 ## Authoritative surfaces
 
@@ -62,9 +62,9 @@ stopped_at: Phase 24-27 real-data loop complete — awaiting explicit Product UA
 ## Current Position
 
 Phase: 27
-Plan: 4 of 4 technically and live-data verified — awaiting user Product UAT
+Plan: 4 of 4 technically and live-data verified — Product UAT passed
 Previous: Phase 23 / Target A complete
-Parallel execution: Phases 24–27 are independently verified; automated acceptance has no technical blockers and reports only `product_uat:missing`.
+Parallel execution: Phases 24–27 are independently verified; automated acceptance and explicit Product UAT are complete.
 **Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
 Readiness: `.planning/PRODUCT-READINESS.md` (**~86** weighted; operationally usable, quality sign-off open)
 Active: `knowledge_units_ir_4cd8af4ad_20260718054940`; watermark matches source.
@@ -72,7 +72,7 @@ Next: user reviews `.planning/phases/PDA-27-*/27-UAT.md` and explicitly accepts 
 
 ## Cross-cutting architecture/data governance audit
 
-- **2026-07-18 live closure:** Phase 24 strict review, final retrieval gate and lifecycle adoption pass; Active snapshot is `ss_5d816a6bf3ebd0bce9463236`. Phase 25–27 schemas are applied with one validated committed real run per phase. Technical blockers are empty; only explicit Product UAT remains.
+- **2026-07-18 live closure:** Phase 24 strict review, final retrieval gate and lifecycle adoption pass; Active snapshot is `ss_5d816a6bf3ebd0bce9463236`. Phase 25–27 schemas are applied with one validated committed real run per phase. Technical blockers are empty and explicit Product UAT passed.
 
 - **Corrected product vision and current status:** [`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md) — final target is decision intelligence based on long-term personal data plus external environment, not a project-status Agent.
 - **Authoritative issue inventory:** [`ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md`](./ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md)
@@ -83,9 +83,9 @@ Next: user reviews `.planning/phases/PDA-27-*/27-UAT.md` and explicitly accepts 
 - **2026-07-17 remediation:** unified Full/Delta Inventory registry migrated with verified backup; FK violations are 0; knowledge write connections enforce FK; doctor and publish/promote gates fail closed; inspect defaults to committed watermark; execution lists are no longer preview-truncated; governance preflight is 12/12 PASS.
 - No reconcile write, KU collection promotion, source-watermark advance, data delete, or compat/archive retirement was performed during remediation. Phase 23 registered the unchanged live collection as one validated composite serving authority.
 
-## Remaining product checkpoints
+## Completed product checkpoints
 
-1. **Product UAT** — automated gates pass; explicit user acceptance remains intentionally non-automatable
+1. **Product UAT** — **PASSED 2026-07-18** by explicit user acceptance
 2. ~~Phase 24 retrieval quality~~ **DONE** — +10.4478pp, positive CI lower bound
 3. ~~Lifecycle adoption~~ **DONE** — 6 events, 2 applied manifests, reversible history
 4. 2026-08-13: domains facade removal (optional follow-up; outside current release gate)

@@ -7,16 +7,16 @@ from personal_knowledge.intelligence.proactive.cli import build_parser, run_acce
 def test_live_target_d_acceptance_is_metadata_only_and_two_verdict() -> None:
     result = run_acceptance(UNIFIED_DB, pointer_path=KNOWLEDGE_ACTIVE_POINTER)
     assert result["technical_status"] == "passed"
-    assert result["release_status"] == "release_blocked" and result["release_ready"] is False
+    assert result["release_status"] == "release_ready" and result["release_ready"] is True
     assert result["unchanged"] and result["before_fingerprint"] == result["after_fingerprint"]
     assert result["mutations"] == result["persisted_rows"] == result["private_bodies"] == 0
     assert result["external_actions"] == result["network_calls"] == result["paid_calls"] == 0
     assert set(result["domain_counts"]) == {"learning", "career", "project", "health", "finance", "relationship", "time", "energy"}
     assert result["phase24"]["human_review_strict"]["ok"] is True
     assert result["phase24"]["lifecycle_strict"]["ok"] is True
-    assert result["release_blockers"]["phase24"] == ["product_uat:missing"]
-    assert result["product_uat"]["status"] == "awaiting_user_acceptance"
-    assert result["product_uat"]["accepted"] is False
+    assert result["release_blockers"] == {"technical": [], "phase24": []}
+    assert result["product_uat"]["status"] == "passed"
+    assert result["product_uat"]["accepted"] is True
 
 
 def test_product_uat_requires_an_explicit_accepted_status(tmp_path) -> None:

@@ -2,7 +2,7 @@
 analysis_type: current-expected-target-gap
 project: Personal Decision Intelligence System
 analysis_date: 2026-07-18
-status: current_authoritative_awaiting_product_uat
+status: current_authoritative_release_ready
 supersedes: TARGET-GAP-ANALYSIS-2026-07-17.md
 vision_source: PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md
 method: GSD PROJECT/REQUIREMENTS/STATE/ROADMAP + Phase 24-27 verification + current source inspection
@@ -11,7 +11,7 @@ estimate_policy: percentages are planning estimates, not release metrics
 
 # 个人决策智能系统：最新预期目标差距分析
 
-> **Live closure update:** 本文后文的 Phase 24 失败、Live schema unapplied 和 persisted rows=0 是收口前的时点证据，已被 2026-07-18 的真实运行结果取代。当前 Phase 24 三个 checkpoint、strict review、strict lifecycle 均 PASS；Phase 25–27 均有 validated committed live run。当前里程碑只剩 `product_uat:missing`。PDI-T2 External Context 与 PDI-T3 LLM Decision Analysis 仍是后续产品差距，不属于本次 Phase 24–27 收口失败。
+> **Live closure update:** 本文后文的 Phase 24 失败、Live schema unapplied 和 persisted rows=0 是收口前的时点证据，已被 2026-07-18 的真实运行结果取代。Phase 24 三个 checkpoint、strict review、strict lifecycle、Phase 25–27 validated committed live runs 与用户 Product UAT 均 PASS，当前里程碑 release-ready。PDI-T2 External Context 与 PDI-T3 LLM Decision Analysis 仍是后续产品差距。
 
 ## 0. 收口后权威证据
 
@@ -23,7 +23,7 @@ estimate_policy: percentages are planning estimates, not release metrics
 - Phase 25: `psr_3a28363b9d1c6d9ab656fde5`
 - Phase 26: `dfr_e367f7689d64ad96a10311bd`
 - Phase 27: `pir_065c80888c81723abd43fc4a`
-- Automated acceptance: technical PASS, zero side effects, only Product UAT pending
+- Automated acceptance: release-ready, technical PASS, Product UAT PASS, zero side effects
 
 ---
 
