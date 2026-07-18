@@ -13,7 +13,7 @@
 
 - [x] **Phase 28: External Context Authority** — independent external facts, snapshots and dual-context binding
 - [x] **Phase 29: Structured LLM Decision Analysis Candidate** — evidence-bound analysis with deterministic risk gates
-- [ ] **Phase 30: Low-risk Project Decision Pilot** — real project-domain recommendation, decision, action and outcome
+- [x] **Phase 30: Low-risk Project Decision Pilot** — real project-domain recommendation, decision, action and outcome (completed 2026-07-18)
 - [ ] **Phase 31: Recommendation Calibration and Product UAT** — preregistered comparison, uncertainty and long-window acceptance
 
 ## Phase Details
@@ -69,7 +69,7 @@ Plans:
 
 **Requirements:** PDI-07
 **Depends on:** Phase 29
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 **Success criteria:**
 
@@ -82,7 +82,7 @@ Plans:
 
 - [x] 30-01: Frozen project case and admitted analysis recommendation bridge
 - [x] 30-02: User decision, manual action, control path and outcome window
-- [ ] 30-03: Correction/revoke/restore, snapshot recovery and real pilot UAT
+- [x] 30-03: Correction/revoke/restore, snapshot recovery and real pilot UAT
 
 ### Phase 31: Recommendation Calibration and Product UAT
 
@@ -111,7 +111,7 @@ Plans:
 |---|---|---:|---|
 | 28 | PDI-01..04 | 4/4 | Complete |
 | 29 | PDI-05..06 | 4/4 | Complete |
-| 30 | 2/3 | In Progress|  |
+| 30 | 3/3 | Complete   | 2026-07-18 |
 | 31 | PDI-08 | 0/3 | Not started |
 
 ---

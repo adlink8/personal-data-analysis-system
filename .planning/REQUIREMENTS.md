@@ -20,7 +20,7 @@
 
 ### Low-risk Pilot and Calibration
 
-- [ ] **PDI-07**: 用户可在 `project` 单一低风险域完成至少一条真实 Decision Case→Recommendation→Decision→Action→Outcome 链及一条真实 abstain/reject/defer 控制路径；生成前显式确认目标和风险预算，全程无自动外部执行。
+- [x] **PDI-07**: 用户可在 `project` 单一低风险域完成至少一条真实 Decision Case→Recommendation→Decision→Action→Outcome 链及一条真实 abstain/reject/defer 控制路径；生成前显式确认目标和风险预算，全程无自动外部执行。
 - [ ] **PDI-08**: 用户可在预注册观察窗和指标下比较个性化建议与不含个人历史的 generic LLM 建议，评估接受/执行/完成、时间成本偏差、副作用、遗憾、满意度和 abstention；证据不足时结论必须为 `INCONCLUSIVE`，不得声称因果或普遍增益。
 
 ## Future Requirements
