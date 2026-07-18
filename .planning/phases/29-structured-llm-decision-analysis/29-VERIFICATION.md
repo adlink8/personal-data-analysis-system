@@ -9,7 +9,7 @@ requirements: [PDI-05, PDI-06]
 
 ## Automated evidence
 
-On 2026-07-18 the focused Phase 29 suite passed `47/47`:
+On 2026-07-18 the focused Phase 29 suite passed `48/48`:
 
 ```powershell
 python -m pytest tests/integration/test_analysis_authority_schema.py tests/integration/test_analysis_candidates.py tests/contract/test_analysis_prompt_lineage.py tests/contract/test_analysis_evidence_gates.py tests/security/test_analysis_safety_gates.py tests/e2e/test_structured_llm_analysis.py -q
@@ -19,6 +19,12 @@ Governance preflight passed `13/13`, and `git diff --check` passed. Replay,
 strict parsing, evidence allowlists, deterministic safety gates, bounded usage,
 timeout/fault abstention and zero source-authority mutation are technically
 verified.
+
+The real read-only provider preflight for `gpt-5.5` also passed: ChatGPT login
+present, model catalog membership true, provider calls zero and identical
+Personal/External/Analysis authority fingerprints before and after. A negative
+preflight proves `gpt-5.6-luna` fails before generation and leaves the call
+budget untouched.
 
 ## Live authority binding
 

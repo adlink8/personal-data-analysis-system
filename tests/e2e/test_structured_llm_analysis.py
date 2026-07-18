@@ -14,7 +14,7 @@ from personal_knowledge.intelligence.analysis.inputs import ConfirmedAnalysisInp
 from personal_knowledge.intelligence.analysis.migrate import migrate
 from personal_knowledge.intelligence.analysis.providers import (
     CodexCliProvider, OpenAICompatibleProvider, ProviderError, ProviderRequest,
-    ProviderTimeout, ReplayProvider,
+    ProviderTimeout, ReplayProvider, codex_cli_preflight,
 )
 from personal_knowledge.intelligence.analysis.runs import load_policy
 from personal_knowledge.intelligence.analysis.schema import SCHEMA_VERSION, checksum
@@ -212,13 +212,47 @@ def test_codex_cli_provider_parses_jsonl_and_enforces_single_call(tmp_path: Path
         assert "--ephemeral" in command and "read-only" in command
         assert kwargs["input"] == "prompt"
         return subprocess.CompletedProcess(command, 0, stdout=events, stderr="")
+    def preflight_runner(command, **kwargs):
+        if command[1:3] == ["login", "status"]:
+            return subprocess.CompletedProcess(command, 0, stdout="Logged in using ChatGPT", stderr="")
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps([{"slug": "gpt-5.5"}]), stderr="",
+        )
     provider = CodexCliProvider(
-        model="gpt-5.6-luna", output_schema_path=schema,
+        model="gpt-5.5", output_schema_path=schema,
         working_directory=tmp_path, enabled=True, credential_present=True,
-        runner=runner,
+        runner=runner, preflight_runner=preflight_runner,
     )
     result = provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
     assert result.response_payload == payload
     assert result.telemetry.input_tokens == 123 and result.telemetry.output_tokens == 45
     with pytest.raises(ProviderError, match="provider_call_budget_exhausted"):
         provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
+
+
+def test_codex_cli_preflight_rejects_missing_model_without_generation(tmp_path: Path) -> None:
+    schema = tmp_path / "schema.json"
+    schema.write_text("{}", encoding="utf-8")
+    generated = False
+    def runner(command, **kwargs):
+        nonlocal generated
+        generated = True
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+    def preflight_runner(command, **kwargs):
+        if command[1:3] == ["login", "status"]:
+            return subprocess.CompletedProcess(command, 0, stdout="Logged in using ChatGPT", stderr="")
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps([{"slug": "gpt-5.5"}]), stderr="",
+        )
+    report = codex_cli_preflight(
+        "gpt-5.6-luna", runner=preflight_runner, command_path="codex",
+    )
+    assert not report["ok"] and report["findings"] == ("provider_model_unavailable",)
+    provider = CodexCliProvider(
+        model="gpt-5.6-luna", output_schema_path=schema,
+        working_directory=tmp_path, enabled=True, credential_present=True,
+        runner=runner, preflight_runner=preflight_runner,
+    )
+    with pytest.raises(ProviderError, match="provider_model_unavailable"):
+        provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
+    assert provider.calls == 0 and not generated

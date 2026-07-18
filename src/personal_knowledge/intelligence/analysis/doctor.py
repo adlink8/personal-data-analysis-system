@@ -10,6 +10,7 @@ from typing import Any
 
 from .inputs import DEFAULT_POLICY_PATH, DEFAULT_PROMPT_PATH, DEFAULT_SCHEMA_PATH
 from .migrate import inspect_schema
+from .providers import codex_cli_preflight
 from .runs import load_policy
 from .schema import SCHEMA_VERSION, canonical_json, checksum, stable_id
 
@@ -154,6 +155,7 @@ def doctor(
     policy_path: Path | str = DEFAULT_POLICY_PATH,
     prompt_path: Path | str = DEFAULT_PROMPT_PATH,
     schema_path: Path | str = DEFAULT_SCHEMA_PATH,
+    codex_model: str | None = None,
 ) -> dict[str, Any]:
     paths = {
         "personal": personal_db_path, "external": external_db_path, "analysis": analysis_db_path,
@@ -188,12 +190,16 @@ def doctor(
     unchanged = before == after
     if not unchanged:
         findings.append("doctor_mutated_authority")
+    provider_preflight = codex_cli_preflight(codex_model) if codex_model else None
+    if provider_preflight and not provider_preflight["ok"]:
+        findings.extend(provider_preflight["findings"])
     return {
         "ok": not findings, "status": "ready" if not findings else "blocked",
         "findings": sorted(set(findings)), "schema_state": schema_state,
         "lineage": lineage, "authority_fingerprints_before": before,
         "authority_fingerprints_after": after, "unchanged": unchanged,
-        "network_calls": 0, "provider_calls": 0,
+        "provider_preflight": provider_preflight,
+        "network_calls": 1 if provider_preflight else 0, "provider_calls": 0,
     }
 
 
@@ -202,10 +208,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--personal-db", required=True)
     parser.add_argument("--external-db", required=True)
     parser.add_argument("--analysis-db", required=True)
+    parser.add_argument("--codex-model")
     args = parser.parse_args(argv)
     report = doctor(
         personal_db_path=args.personal_db, external_db_path=args.external_db,
-        analysis_db_path=args.analysis_db,
+        analysis_db_path=args.analysis_db, codex_model=args.codex_model,
     )
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     return 0 if report["ok"] else 1

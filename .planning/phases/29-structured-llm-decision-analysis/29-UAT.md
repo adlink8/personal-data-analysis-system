@@ -42,10 +42,15 @@ model catalog. The current user configuration names `gpt-5.6-sol`; therefore
 the failed Luna invocation is not accepted as the required successful real LLM
 UAT. No second invocation is authorized by this record.
 
+The corrected read-only preflight now verifies login and catalog membership
+before generation. It reports `gpt-5.5` available, ChatGPT credential present,
+all three authority fingerprints unchanged and `provider_calls=0`. The same
+preflight rejects `gpt-5.6-luna` as `provider_model_unavailable` without
+consuming the one-call budget.
+
 ## Open scenarios
 
-1. Obtain explicit authorization for one corrected bounded call using an
-   actually available ChatGPT/Codex model.
+1. Obtain explicit authorization for one corrected bounded `gpt-5.5` call.
 2. Review the resulting exact candidate or deterministic post-model abstention,
    evidence bindings, telemetry, privacy report and zero-side-effect proof.
 3. Record explicit user acceptance or rejection of that exact evidence.

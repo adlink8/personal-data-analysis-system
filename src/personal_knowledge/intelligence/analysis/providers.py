@@ -179,6 +179,62 @@ class OpenAICompatibleProvider:
 CodexRunner = Callable[..., subprocess.CompletedProcess[str]]
 
 
+def codex_cli_preflight(
+    model: str,
+    *,
+    runner: CodexRunner = subprocess.run,
+    command_path: str | None = None,
+    timeout_seconds: float = 15.0,
+) -> dict[str, Any]:
+    """Check ChatGPT login and the public model catalog without generating."""
+    command = command_path or shutil.which("codex")
+    findings: list[str] = []
+    available_models: tuple[str, ...] = ()
+    credential_present = False
+    if not command:
+        findings.append("codex_cli_unavailable")
+    else:
+        try:
+            login = runner(
+                [command, "login", "status"], text=True, capture_output=True,
+                timeout=timeout_seconds, encoding="utf-8", errors="replace",
+            )
+            credential_present = login.returncode == 0
+            if not credential_present:
+                findings.append("provider_credential_missing")
+            catalog = runner(
+                [command, "debug", "models"], text=True, capture_output=True,
+                timeout=timeout_seconds, encoding="utf-8", errors="replace",
+            )
+            if catalog.returncode != 0:
+                findings.append("provider_model_catalog_unavailable")
+            else:
+                raw = json.loads(catalog.stdout)
+                items = raw.get("models", ()) if isinstance(raw, Mapping) else raw
+                if not isinstance(items, list):
+                    raise ValueError("model catalog must be a list")
+                available_models = tuple(sorted({
+                    str(item.get("slug") or item.get("id") or item.get("model"))
+                    for item in items if isinstance(item, Mapping)
+                    and (item.get("slug") or item.get("id") or item.get("model"))
+                }))
+                if model not in available_models:
+                    findings.append("provider_model_unavailable")
+        except (OSError, subprocess.TimeoutExpired):
+            findings.append("codex_cli_preflight_failed")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            findings.append("provider_model_catalog_invalid")
+    return {
+        "ok": not findings,
+        "model": model,
+        "credential_present": credential_present,
+        "model_available": model in available_models,
+        "available_models": available_models,
+        "findings": tuple(sorted(set(findings))),
+        "provider_calls": 0,
+    }
+
+
 class CodexCliProvider:
     """One-shot existing-ChatGPT boundary using Codex JSONL and a frozen schema."""
 
@@ -192,6 +248,7 @@ class CodexCliProvider:
         credential_present: bool = False,
         max_calls: int = 1,
         runner: CodexRunner = subprocess.run,
+        preflight_runner: CodexRunner = subprocess.run,
     ) -> None:
         self.model = model
         self.output_schema_path = Path(output_schema_path)
@@ -200,6 +257,7 @@ class CodexCliProvider:
         self.credential_present = credential_present
         self.max_calls = max_calls
         self.runner = runner
+        self.preflight_runner = preflight_runner
         self.calls = 0
 
     @staticmethod
@@ -250,6 +308,13 @@ class CodexCliProvider:
             raise ProviderError("provider_call_budget_exhausted")
         if not self.output_schema_path.is_file() or not self.working_directory.is_dir():
             raise ProviderError("provider_runtime_path_invalid")
+        preflight = codex_cli_preflight(
+            self.model, runner=self.preflight_runner,
+            command_path=shutil.which("codex") or "codex",
+            timeout_seconds=min(request.timeout_seconds, 15.0),
+        )
+        if not preflight["ok"]:
+            raise ProviderError(str(preflight["findings"][0]))
         self.calls += 1
         command = [
             shutil.which("codex") or "codex", "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
@@ -286,5 +351,6 @@ class CodexCliProvider:
 __all__ = [
     "AnalysisProvider", "OpenAICompatibleProvider", "ProviderError", "ProviderRequest",
     "CodexCliProvider", "ProviderResult", "ProviderTelemetry", "ProviderTimeout",
+    "codex_cli_preflight",
     "ReplayProvider",
 ]
