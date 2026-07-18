@@ -77,6 +77,7 @@ class ResourceClaim:
     capacity: float
     source: SupportReference
     declared_by_user: bool = False
+    resource_id: str = ""
 
 
 @dataclass(frozen=True)

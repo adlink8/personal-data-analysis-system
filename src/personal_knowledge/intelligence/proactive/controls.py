@@ -231,16 +231,17 @@ def _scope_matches(event: ControlEvent, *, scope: str, domains: frozenset[str], 
     return False
 
 
-def _specificity(target: ControlTarget, event: ControlEvent) -> int:
+def _specificity(target: ControlTarget, event: ControlEvent) -> tuple[int, int]:
     target_rank = {"global": 1, "domain": 2, "policy": 3}.get(target.record_type, 4)
     scope_rank = 1 if event.scope == "global" else 2 if event.scope.startswith("domain:") else 3 if event.scope.startswith("policy:") else 4
-    return max(target_rank, scope_rank)
+    return target_rank, scope_rank
 
 
 def _project(events: tuple[ControlEvent, ...], *, as_of: str, scope: str,
              domains: frozenset[str], policies: frozenset[str]) -> ControlProjection:
     instant = _time(as_of, "as_of")
-    restored = {event.rollback_of_event_id for event in events if event.operation == "restore"}
+    restored = {event.rollback_of_event_id for event in events
+                if event.operation == "restore" and _time(event.created_at, "created_at") <= instant}
     active = tuple(event for event in events if event.operation != "restore" and event.event_id not in restored
                    and _time(event.created_at, "created_at") <= instant
                    and (event.expires_at is None or instant < _time(event.expires_at, "expires_at"))

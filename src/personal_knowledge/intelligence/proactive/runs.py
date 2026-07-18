@@ -63,11 +63,15 @@ def _event_frontier(con: sqlite3.Connection, decision_run_id: str | None) -> str
 
 
 def _control_frontier(con: sqlite3.Connection) -> str:
+    return checksum({"control_events": _control_frontier_manifest(con)})
+
+
+def _control_frontier_manifest(con: sqlite3.Connection) -> list[tuple[Any, ...]]:
     rows = con.execute(
         "SELECT target_authority,target_type,target_id,sequence,payload_checksum "
         "FROM proactive_control_events ORDER BY target_authority,target_type,target_id,sequence"
     ).fetchall()
-    return checksum({"control_events": [tuple(row) for row in rows]})
+    return [tuple(row) for row in rows]
 
 
 def _source_context(con: sqlite3.Connection, source_run_id: str) -> sqlite3.Row:
@@ -168,7 +172,8 @@ def plan_run(
             raise ProactiveValidationError("decision_binding_partial")
         snapshot_id, snapshot_hash = str(source["snapshot_id"]), str(source["snapshot_hash"])
         event_frontier = _event_frontier(con, decision_run_id)
-        control_frontier = _control_frontier(con)
+        control_frontier_manifest = _control_frontier_manifest(con)
+        control_frontier = checksum({"control_events": control_frontier_manifest})
         normalized: list[CoordinationDraft] = []
         for draft in drafts:
             if draft.relation_type not in RELATION_TYPES or not draft.source_refs:
@@ -178,6 +183,13 @@ def plan_run(
                 raise ProactiveValidationError("coordination_invalid", draft.relation_type)
             for ref in draft.source_refs:
                 _validate_ref(con, ref, snapshot_id=snapshot_id, snapshot_hash=snapshot_hash,
+                              source_run_id=source_run_id, source_run_checksum=source_run_checksum,
+                              decision_run_id=decision_run_id, decision_run_checksum=decision_run_checksum)
+            decisive = {canonical_json(asdict(ref)) for ref in draft.source_refs}
+            for resource in draft.resource_manifest:
+                if not resource.resource_id.strip() or canonical_json(asdict(resource.source)) not in decisive:
+                    raise ProactiveValidationError("resource_support_missing", resource.resource_id)
+                _validate_ref(con, resource.source, snapshot_id=snapshot_id, snapshot_hash=snapshot_hash,
                               source_run_id=source_run_id, source_run_checksum=source_run_checksum,
                               decision_run_id=decision_run_id, decision_run_checksum=decision_run_checksum)
             validate_metadata_payload(asdict(draft), "coordination")
@@ -226,6 +238,7 @@ def plan_run(
         "decision_run_id": decision_run_id, "decision_run_checksum": decision_run_checksum,
         "decision_event_frontier_checksum": event_frontier, "snapshot_id": snapshot_id,
         "snapshot_hash": snapshot_hash, "control_frontier_checksum": control_frontier,
+        "control_frontier_manifest": control_frontier_manifest,
         "coordination_policy": coordination_policy, "ranking_policy": ranking_policy,
         "noise_policy": noise_policy, "request_input": input_manifest,
         "coordination_drafts": [asdict(item) for item in normalized],
@@ -332,6 +345,39 @@ def _validate_existing(con: sqlite3.Connection, run: ProactiveRun) -> None:
     actual = sorted((str(r[0]), canonical_json(json.loads(str(r[1]))), str(r[2])) for r in rows)
     if actual != expected:
         raise ProactiveValidationError("existing_candidate_tampered", run.run_id)
+    rows = con.execute(
+        "SELECT support_id,candidate_id,authority_id,record_type,record_id,record_checksum,"
+        "source_run_id,source_run_checksum,snapshot_id,snapshot_hash,payload_json,payload_checksum "
+        "FROM proactive_candidate_support WHERE candidate_id IN "
+        "(SELECT candidate_id FROM proactive_candidates WHERE run_id=?) ORDER BY support_id", (run.run_id,),
+    ).fetchall()
+    expected_support = []
+    for candidate in run.candidates:
+        for ref in candidate.support_refs:
+            payload = {"candidate_id": candidate.candidate_id, **asdict(ref)}
+            expected_support.append((
+                f"pcs_{checksum(payload)[:24]}", candidate.candidate_id, ref.authority_id,
+                ref.record_type, ref.record_id, ref.record_checksum, ref.source_run_id,
+                ref.source_run_checksum, ref.snapshot_id, ref.snapshot_hash,
+                canonical_json(payload), checksum(payload),
+            ))
+    actual_support = []
+    for support in rows:
+        try:
+            payload = json.loads(str(support[10]))
+        except json.JSONDecodeError as exc:
+            raise ProactiveValidationError("existing_support_tampered", run.run_id) from exc
+        actual_support.append((*tuple(str(value) for value in support[:10]), canonical_json(payload), str(support[11])))
+    if sorted(actual_support) != sorted(expected_support):
+        raise ProactiveValidationError("existing_support_tampered", run.run_id)
+    for candidate in run.candidates:
+        for ref in candidate.support_refs:
+            try:
+                _validate_ref(con, ref, snapshot_id=run.snapshot_id, snapshot_hash=run.snapshot_hash,
+                              source_run_id=run.source_run_id, source_run_checksum=run.source_run_checksum,
+                              decision_run_id=run.decision_run_id, decision_run_checksum=run.decision_run_checksum)
+            except ProactiveValidationError as exc:
+                raise ProactiveValidationError("existing_support_tampered", run.run_id) from exc
     rows = con.execute("SELECT evaluation_id,payload_json,payload_checksum FROM proactive_evaluations WHERE candidate_id IN (SELECT candidate_id FROM proactive_candidates WHERE run_id=?) ORDER BY evaluation_id", (run.run_id,)).fetchall()
     expected = sorted((i.evaluation_id, canonical_json(i.payload), i.payload_checksum) for i in run.evaluations)
     actual = sorted((str(r[0]), canonical_json(json.loads(str(r[1]))), str(r[2])) for r in rows)

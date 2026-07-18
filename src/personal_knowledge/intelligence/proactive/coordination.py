@@ -61,6 +61,13 @@ def _validate_goal(goal: GoalSignal, as_of: datetime) -> str | None:
     for resource in goal.resources:
         if resource.resource_type not in RESOURCE_TYPES or resource.amount < 0 or resource.capacity < 0:
             return "invalid_resource"
+        if not resource.resource_id.strip():
+            return "invalid_resource_identity"
+        if ((resource.source.snapshot_id, resource.source.snapshot_hash,
+             resource.source.source_run_id, resource.source.source_run_checksum)
+                != (goal.support.snapshot_id, goal.support.snapshot_hash,
+                    goal.support.source_run_id, goal.support.source_run_checksum)):
+            return "resource_source_mismatch"
         if resource.resource_type == "budget" and not resource.declared_by_user:
             return "undeclared_financial_resource"
     return None
@@ -91,6 +98,9 @@ def coordinate_goals(goals: Iterable[GoalSignal], *, as_of: str) -> Coordination
             for b in right.resources:
                 if a.resource_type != b.resource_type:
                     continue
+                if a.resource_id != b.resource_id:
+                    incompatible = True
+                    continue
                 if a.unit != b.unit:
                     incompatible = True
                     continue
@@ -100,6 +110,10 @@ def coordinate_goals(goals: Iterable[GoalSignal], *, as_of: str) -> Coordination
         domains = tuple(sorted({canonical_domain(left.domain), canonical_domain(right.domain)}, key=CANONICAL_DOMAINS.index))
         if over:
             resources = tuple(resource for pair in over for resource in pair)
+            source_refs = tuple(sorted(
+                {ref for ref in (left.support, right.support, *(resource.source for resource in resources))},
+                key=lambda ref: (ref.authority_id, ref.record_type, ref.record_id, ref.record_checksum),
+            ))
             items.append(CoordinationDraft(
                 relation_type="goal_conflict", subject=left.subject, scope=left.scope,
                 domains=domains, valid_from=max(left.valid_from, right.valid_from),
@@ -107,7 +121,7 @@ def coordinate_goals(goals: Iterable[GoalSignal], *, as_of: str) -> Coordination
                 observed_at=max(left.observed_at, right.observed_at), rule_id="bounded-resource-conflict",
                 rule_version=COORDINATION_RULES["goal_conflict"], confidence=min(left.confidence, right.confidence),
                 uncertainty="bounded resource demand exceeds declared capacity",
-                source_refs=(left.support, right.support), resource_manifest=resources,
+                source_refs=source_refs, resource_manifest=resources,
             ))
         elif left.target.strip() and left.target.strip().casefold() == right.target.strip().casefold() and left.domain != right.domain:
             items.append(CoordinationDraft(
@@ -120,7 +134,9 @@ def coordinate_goals(goals: Iterable[GoalSignal], *, as_of: str) -> Coordination
                 resource_manifest=tuple(resource for pair in shared for resource in pair),
             ))
         elif incompatible:
-            abstentions.append(_abstain(ids, "incompatible_resource_units"))
+            same_type_and_unit = any(a.resource_type == b.resource_type and a.unit == b.unit
+                                     for a in left.resources for b in right.resources)
+            abstentions.append(_abstain(ids, "resource_identity_mismatch" if same_type_and_unit else "incompatible_resource_units"))
         elif left.resources and right.resources and not shared:
             abstentions.append(_abstain(ids, "incompatible_resource_horizons"))
         else:

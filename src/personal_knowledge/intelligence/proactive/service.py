@@ -123,8 +123,23 @@ class ProactiveIntelligenceService:
             raise ProactiveServiceError("source_binding_invalid", str(run["source_run_id"]))
         if str(source[1]) != str(run["snapshot_id"]) or str(source[2]) != str(run["snapshot_hash"]):
             raise ProactiveServiceError("snapshot_binding_invalid", run_id)
-        if active_control_frontier(self.db_path) != str(run["control_frontier_checksum"]):
-            raise ProactiveServiceError("control_frontier_changed", run_id)
+        historical = manifests["input_manifest"].get("control_frontier_manifest")
+        if not isinstance(historical, list):
+            raise ProactiveServiceError("control_frontier_manifest_missing", run_id)
+        actual_historical = []
+        for item in historical:
+            if not isinstance(item, list) or len(item) != 5:
+                raise ProactiveServiceError("control_frontier_manifest_invalid", run_id)
+            row = con.execute(
+                "SELECT target_authority,target_type,target_id,sequence,payload_checksum "
+                "FROM proactive_control_events WHERE target_authority=? AND target_type=? AND target_id=? AND sequence=?",
+                tuple(item[:4]),
+            ).fetchone()
+            if row is None or tuple(row) != tuple(item):
+                raise ProactiveServiceError("control_frontier_history_tampered", run_id)
+            actual_historical.append(tuple(row))
+        if checksum({"control_events": actual_historical}) != str(run["control_frontier_checksum"]):
+            raise ProactiveServiceError("control_frontier_history_tampered", run_id)
         if run["decision_run_id"] is not None:
             decision = con.execute("SELECT run_checksum FROM decision_runs WHERE run_id=? AND status='committed'", (run["decision_run_id"],)).fetchone()
             if decision is None or str(decision[0]) != str(run["decision_run_checksum"]):
@@ -161,8 +176,14 @@ class ProactiveIntelligenceService:
         _payload(evaluation)
         return row, run, payload, evaluation
 
-    @staticmethod
-    def _metadata(row: sqlite3.Row, run: sqlite3.Row, payload: Mapping[str, Any], evaluation: sqlite3.Row) -> dict[str, Any]:
+    def _metadata(self, row: sqlite3.Row, run: sqlite3.Row, payload: Mapping[str, Any], evaluation: sqlite3.Row) -> dict[str, Any]:
+        domains = tuple(json.loads(str(row["domains_json"])))
+        targets = [ControlTarget("a.proactive_intelligence", "candidate", str(row["candidate_id"]), str(row["payload_checksum"])),
+                   ControlTarget("a.proactive_intelligence", "global", "proactive", checksum({"global": "proactive"})),
+                   ControlTarget("a.proactive_intelligence", "policy", str(row["policy_id"]), checksum({"policy": str(row["policy_id"])}))]
+        targets.extend(ControlTarget("a.proactive_intelligence", "domain", domain, checksum({"domain": domain})) for domain in domains)
+        overlay = project_controls(self.db_path, targets=tuple(targets), as_of="9999-12-31T23:59:59Z",
+                                   scope=str(row["scope"]), domains=domains, policies=(str(row["policy_id"]),))
         return {"candidate_id": str(row["candidate_id"]), "candidate_checksum": str(row["payload_checksum"]),
                 "run_id": str(run["run_id"]), "run_checksum": str(run["run_checksum"]),
                 "source_run_id": str(run["source_run_id"]), "source_run_checksum": str(run["source_run_checksum"]),
@@ -170,11 +191,14 @@ class ProactiveIntelligenceService:
                 "decision_run_id": run["decision_run_id"], "decision_run_checksum": run["decision_run_checksum"],
                 "decision_event_frontier_checksum": str(run["decision_event_frontier_checksum"]),
                 "control_frontier_checksum": str(run["control_frontier_checksum"]),
+                "current_control_frontier_checksum": active_control_frontier(self.db_path),
+                "current_control_eligible": overlay.eligible,
+                "current_control_reason_codes": list(overlay.reason_codes),
                 "snapshot_id": str(run["snapshot_id"]), "snapshot_hash": str(run["snapshot_hash"]),
                 "policy_id": str(row["policy_id"]), "policy_version": str(row["policy_version"]),
                 "candidate_class": str(row["candidate_class"]), "presentation_kind": str(row["presentation_kind"]),
                 "subject": str(row["subject"]), "scope": str(row["scope"]),
-                "domains": list(json.loads(str(row["domains_json"]))), "dedup_key": str(row["dedup_key"]),
+                "domains": list(domains), "dedup_key": str(row["dedup_key"]),
                 "valid_from": str(row["valid_from"]), "expires_at": str(row["expires_at"]),
                 "importance": dict(payload.get("importance") or {}), "uncertainty": str(row["uncertainty"]),
                 "reason_codes": list(payload.get("reason_codes") or ()), "evidence_status": "checksum_verified",
@@ -194,7 +218,9 @@ class ProactiveIntelligenceService:
             items = []
             for cid in ids:
                 row, run, payload, evaluation = self._candidate(con, cid)
-                if str(evaluation["result"]) == "eligible": items.append(self._metadata(row, run, payload, evaluation))
+                item = self._metadata(row, run, payload, evaluation)
+                if str(evaluation["result"]) == "eligible" and item["current_control_eligible"]:
+                    items.append(item)
             return self._success("inbox.list", {"items": items[:limit], "total_available": len(items), "limit": limit})
         finally: con.close()
 
