@@ -1,6 +1,6 @@
 ---
 phase: 17
-status: passed
+status: complete
 last_run: 2026-07-18
 ---
 

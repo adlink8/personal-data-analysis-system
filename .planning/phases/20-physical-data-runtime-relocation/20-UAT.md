@@ -1,3 +1,9 @@
+---
+phase: 20
+status: complete
+updated: 2026-07-18
+---
+
 # Phase 20 UAT — Data / Runtime Relocation
 
 ## Status

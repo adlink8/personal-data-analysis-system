@@ -2,7 +2,7 @@
 phase: 18
 plan: "04"
 checkpoint: archive-disposal-approval
-status: decisions_recorded
+status: complete
 generated: 2026-07-13
 ---
 

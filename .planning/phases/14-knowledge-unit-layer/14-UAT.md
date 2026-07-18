@@ -1,3 +1,9 @@
+---
+phase: 14
+status: complete
+updated: 2026-07-18
+---
+
 # Phase 14 UAT — KU-08 Incremental Path
 
 **Date:** 2026-07-12  

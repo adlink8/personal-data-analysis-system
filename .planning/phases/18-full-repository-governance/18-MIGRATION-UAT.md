@@ -2,7 +2,7 @@
 phase: 18
 plan: "06"
 checkpoint: exact-migration-manifest
-status: approved-empty-manifest
+status: complete
 generated: 2026-07-13
 ---
 
