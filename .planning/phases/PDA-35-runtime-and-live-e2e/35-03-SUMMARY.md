@@ -3,13 +3,13 @@ phase: 35-runtime-and-live-e2e
 plan: 03
 subsystem: live-agent-acceptance
 tags: [tunnel, mcp, replay, fingerprints, chatgpt]
-requirements-completed: [LIVE-02]
+requirements-partial: [LIVE-02]
 completed: 2026-07-19
 ---
 
 # Phase 35 Plan 03 Summary
 
-**A real tunnel-backed MCP Agent completed read/explain and explicitly confirmed exact replay while every non-orchestration authority remained byte-identical.**
+**The tunnel reached real readiness while a local HTTP MCP Agent completed read/explain and explicitly confirmed exact replay; tunnel-ingress proof remains open.**
 
 ## Results
 
@@ -27,4 +27,3 @@ completed: 2026-07-19
 - Focused Python/security suite: 67 passed.
 - ChatGPT MCP Node suite: 23 passed.
 - Live MCP: 44 tools and reviewed descriptor hash matched.
-

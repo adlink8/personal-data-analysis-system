@@ -4,7 +4,7 @@
 
 - ✅ **v1.1 Knowledge Unit Evaluation & Product Hardening** — Phases 01–27, shipped 2026-07-18 ([archive](milestones/v1.1-ROADMAP.md))
 - ✅ **v1.2 External Context & Low-risk Decision Intelligence Pilot** — Phases 28–31, shipped 2026-07-18 ([archive](milestones/v1.2-ROADMAP.md))
-- ✅ **v1.3 Agent Productization** — Phases 32–35, shipped 2026-07-19
+- 🚧 **v1.3 Agent Productization** — Phases 32–35; implementation complete, LIVE-02 ingress evidence gap
 
 ## v1.3 Goal
 
@@ -15,7 +15,7 @@
 - [x] **Phase 32: Unified Agent Read Surfaces** — shared service, REST and MCP reads for Phase 28–31 authorities (completed 2026-07-18)
 - [x] **Phase 33: Guarded Decision Orchestration** — confirmed, idempotent and abstaining low-risk session flow (completed 2026-07-19)
 - [x] **Phase 34: Agent-readable UX** — concise responses, typed errors and evidence drill-down (completed 2026-07-19)
-- [x] **Phase 35: Runtime and Live E2E** — one-command readiness and real tunnel-backed MCP Agent acceptance (completed 2026-07-19)
+- [ ] **Phase 35: Runtime and Live E2E** — runtime/local MCP verified; ChatGPT/tunnel ingress transcript pending
 
 ## Phase Details
 
@@ -58,7 +58,7 @@
 **Requirements:** UX-01, UX-02
 
 **Depends on:** Phase 33
-**Plans:** 2 planned
+**Plans:** 2/2 plans executed
 
 **Success criteria:**
 
@@ -87,10 +87,10 @@
 
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
-| 32 | 3/3 | Complete    | 2026-07-18 |
+| 32 | AGENT-01..04 | 3/3 | Complete | 2026-07-18 |
 | 33 | 4/4 | Complete | 2026-07-19 |
 | 34 | UX-01..02 | 2/2 | Complete | 2026-07-19 |
-| 35 | LIVE-01..03 | 3/3 | Complete | 2026-07-19 |
+| 35 | LIVE-01..03 | 3/3 | Gaps Found (LIVE-02 partial) | - |
 
 ---
-*Updated 2026-07-19 — v1.3 implementation complete; milestone audit pending*
+*Updated 2026-07-19 — v1.3 audit found one ChatGPT/tunnel ingress evidence gap*

@@ -1,11 +1,11 @@
 ---
 phase: 35-runtime-and-live-e2e
 verified: 2026-07-19T02:20:00Z
-status: passed
-score: 3/3 requirements verified
+status: gaps_found
+score: 2/3 requirements verified; 1 partial
 requirements:
   LIVE-01: passed
-  LIVE-02: passed_with_ui_visibility_boundary
+  LIVE-02: partial
   LIVE-03: passed
 technical_status: passed
 security_status: passed
@@ -27,7 +27,7 @@ security_status: passed
 | Requirement | Status | Evidence |
 |---|---|---|
 | LIVE-01 | SATISFIED | Run/Check/Probe/Stop/Status, bounded recovery and real tunnel readiness |
-| LIVE-02 | SATISFIED WITH UI VISIBILITY BOUNDARY | tunnel-backed real MCP Agent flow passed; prior user acceptance and current logged-in ChatGPT observed; new settings-page transcript unavailable because both DOM surfaces timed out |
+| LIVE-02 | PARTIAL | local HTTP MCP Agent flow and tunnel readiness passed separately; no receipt proves the tool request traversed tunnel ingress, and no new ChatGPT Plugins transcript was obtained |
 | LIVE-03 | SATISFIED | reviewed descriptor snapshot and live exact parity test |
 
 ## Automated evidence
@@ -44,5 +44,4 @@ The existing Chrome session was logged in and ChatGPT routed connector settings 
 
 ## Verdict
 
-Phase 35 is technically complete and production-ready within the milestone's local, low-risk and no-publication boundary.
-
+Phase 35 implementation is production-ready locally, but milestone acceptance has one blocking evidence gap: prove one read/explain and confirmed replay through ChatGPT or the tunnel ingress itself.

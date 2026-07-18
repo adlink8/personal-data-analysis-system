@@ -27,7 +27,7 @@
 
 LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执行权限。
 
-## Current Milestone: v1.3 Agent Productization — Implementation Complete
+## Current Milestone: v1.3 Agent Productization — Ingress Acceptance Gap
 
 **Goal:** 将已验证的 External、LLM Analysis、Project Pilot 和 Calibration 能力产品化为可由 ChatGPT/MCP Agent 真实调用、可读解释、受控确认和在线验收的统一决策流程。
 
@@ -45,7 +45,7 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 - Phase 32 已完成：External、Analysis、Pilot、Calibration 具备统一 checksum-verifying Service/REST/stdio MCP/ChatGPT HTTP MCP 的 list/get/explain 读面；52 项阶段与相邻回归测试通过，四个 live authority 数据库读取前后指纹一致。
 - Phase 33 已完成：低风险 project 会话具备 snapshot-bound prepare、逐步显式确认、at-most-once generation、immutable Pilot/Calibration bridges，以及 REST/stdio MCP/ChatGPT MCP 真实传输；40 项 Python/Node 阶段回归通过。
 - Phase 34 已完成：统一 16 KiB compact envelope、稳定 IDs/limits/next actions/evidence links 和 typed recovery contract。
-- Phase 35 已完成：生产审计通过的一键 REST/MCP/tunnel supervisor、44-tool descriptor 快照、真实 read/explain 与 confirmed exact replay；五权威库指纹不变，provider/external/promotion 均为零。ChatGPT 当前 Plugins 设置页保留人工可见性复核。
+- Phase 35 实现完成：生产审计通过的一键 REST/MCP/tunnel supervisor、44-tool descriptor 快照、本地真实 HTTP MCP read/explain 与 confirmed exact replay；五权威库指纹不变，provider/external/promotion 均为零。里程碑仍缺 ChatGPT/tunnel ingress 工具调用 receipt。
 - Phase 28–31 已完成：External Authority、双快照结构化 LLM 分析、project 真实决策链和成对校准均可校验重建。
 - Phase 29 通过现有 ChatGPT 登录完成一次真实 `gpt-5.4` 分析；Phase 31 严格执行两臂各一次调用、零重试、零费用。
 - Phase 30 有一条 11-event 真实 Recommendation→Decision→Action→Outcome 主链及一条 defer 控制链；系统外部动作数为零。
@@ -86,11 +86,12 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 - ✓ 四类决策权威的 checksum-verifying Agent read/explain 契约 — AGENT-01..04
 - ✓ 显式确认、幂等、可恢复且 fail-closed 的低风险编排 — ORCH-01..04
 - ✓ 紧凑 Agent envelope、证据下钻和 typed recovery — UX-01..02
-- ✓ 生产安全一键运行、44-tool 快照与真实 tunnel-backed MCP replay — LIVE-01..03
+- ✓ 生产安全一键运行与真实 readiness — LIVE-01
+- ✓ 44-tool descriptor/contract 快照与 live 本地 MCP parity — LIVE-03
 
 ### Active
 
-- 下一里程碑尚未定义；当前产品保持本地、低风险、无自动外部执行边界。
+- [ ] 取得一次经 ChatGPT/tunnel ingress 的 read/explain 与 confirmed replay receipt — LIVE-02
 
 ### Optional backlog (not Active)
 
