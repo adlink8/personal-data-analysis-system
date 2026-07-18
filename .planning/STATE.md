@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
-status: release_ready
-last_updated: 2026-07-18T06:51:34Z
+status: Awaiting next milestone
+last_updated: "2026-07-18T07:16:05.216Z"
+last_activity: 2026-07-18 — Milestone v1.1 completed and archived
 progress:
   total_phases: 29
-  completed_phases: 29
-  total_plans: 76
-  completed_plans: 76
-  percent: 100
-stopped_at: Phase 24-27 real-data loop and explicit Product UAT complete
+  completed_phases: 22
+  total_plans: 77
+  completed_plans: 72
+  percent: 76
 ---
 
 # Project State
@@ -61,14 +61,10 @@ stopped_at: Phase 24-27 real-data loop and explicit Product UAT complete
 
 ## Current Position
 
-Phase: 27
-Plan: 4 of 4 technically and live-data verified — Product UAT passed
-Previous: Phase 23 / Target A complete
-Parallel execution: Phases 24–27 are independently verified; automated acceptance and explicit Product UAT are complete.
-**Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
-Readiness: `.planning/PRODUCT-READINESS.md` (**~86** weighted; operationally usable, quality and Product UAT closed)
-Active: `knowledge_units_ir_4cd8af4ad_20260718054940`; watermark matches source.
-Next: activate a bounded Personal Decision Intelligence milestone, beginning with the independent External Context Authority.
+Phase: Milestone v1.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-18 — Milestone v1.1 completed and archived
 
 ## Cross-cutting architecture/data governance audit
 
@@ -132,3 +128,7 @@ python -m personal_knowledge.governance.preflight
 - Phase 25 added: Target D personal state and change intelligence
 - Phase 26 added: Target D decision/action feedback loop
 - Phase 27 added: Target D proactive multi-domain acceptance
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
