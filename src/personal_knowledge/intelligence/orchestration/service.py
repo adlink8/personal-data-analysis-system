@@ -27,7 +27,10 @@ TRANSITIONS = {
     "generate": ("confirmed", "generated"),
     "publish": ("generated", "published"),
     "decide": ("published", "decided"),
-    "observe": ("decided", "observed"),
+    "preregister": ("decided", "preregistered"),
+    "action_start": ("preregistered", "action_started"),
+    "action_complete": ("action_started", "action_completed"),
+    "observe": ("action_completed", "observed"),
     "calibrate": ("observed", "calibrated"),
 }
 FORBIDDEN_RISK_TERMS = frozenset({
@@ -98,7 +101,7 @@ class OrchestrationService:
     @staticmethod
     def _validate_actor(value: str) -> str:
         actor = str(value or "").strip()
-        if not actor or len(actor) > 256:
+        if len(actor) != 64 or any(char not in "0123456789abcdef" for char in actor):
             raise OrchestrationError("actor_identity_invalid")
         return actor
 
@@ -420,6 +423,51 @@ class OrchestrationService:
             raise
         finally:
             con.close()
+
+    def authorize_transition(
+        self, preview: Preview | Mapping[str, Any], *, confirmation_token: str,
+        idempotency_key: str, now: str | None = None,
+    ) -> dict[str, Any]:
+        """Validate every gate before a downstream idempotent authority write."""
+        item = preview if isinstance(preview, Preview) else Preview.from_dict(preview)
+        Preview.from_dict(item.to_dict())
+        timestamp = now or _now()
+        _, confirmation_digest = self._confirmation_claims(item, confirmation_token, now=timestamp)
+        key = self._validate_idempotency(idempotency_key)
+        if item.operation not in TRANSITIONS:
+            raise OrchestrationError("operation_unknown")
+        con = self._connect(readonly=True)
+        try:
+            consumed = con.execute(
+                "SELECT * FROM orchestration_confirmations WHERE confirmation_digest=?",
+                (confirmation_digest,),
+            ).fetchone()
+            event = con.execute(
+                "SELECT * FROM orchestration_events WHERE session_id=? AND idempotency_key=?",
+                (item.session_id, key),
+            ).fetchone()
+        finally:
+            con.close()
+        if consumed is not None:
+            event_payload = {} if event is None else json.loads(str(event["payload_json"]))
+            if (event is None or event["operation"] != item.operation
+                    or event["confirmation_digest"] != confirmation_digest
+                    or consumed["preview_checksum"] != item.preview_checksum
+                    or event_payload.get("request_checksum") != checksum(dict(item.payload))):
+                raise OrchestrationError("confirmation_consumed")
+            view = self.resume(item.session_id, now=timestamp)
+            return {"replay": True, "view": view, "event_id": str(event["event_id"])}
+        view = self.resume(item.session_id, now=timestamp)
+        source, _ = TRANSITIONS[item.operation]
+        if item.expected_sequence != view["sequence"]:
+            raise OrchestrationError("stale_expected_sequence")
+        if view["state"] != source:
+            raise OrchestrationError("illegal_transition")
+        if item.actor_identity_hash != view["manifest"]["actor_identity_hash"]:
+            raise OrchestrationError("actor_identity_mismatch")
+        if item.payload.get("binding_hash") != view["manifest"]["binding_hash"]:
+            raise OrchestrationError("preview_binding_drift")
+        return {"replay": False, "view": view}
 
     def get(self, session_id: str, *, now: str | None = None) -> dict[str, Any]:
         view = self.resume(session_id, now=now)
