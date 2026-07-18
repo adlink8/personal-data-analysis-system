@@ -86,6 +86,7 @@ from personal_knowledge.core.privacy_guard import guard_mcp_payload  # noqa: E40
 from personal_knowledge.core.runtime_config import semantic_api_url  # noqa: E402
 from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
 from personal_knowledge.intelligence.service import IntelligenceService  # noqa: E402
+from personal_knowledge.intelligence.decision.service import DecisionFeedbackService  # noqa: E402
 
 SEMANTIC_API_URL = semantic_api_url()
 
@@ -130,6 +131,11 @@ CORE_TOOL_NAMES = frozenset({
     "personal_state_history",
     "personal_changes_recent",
     "personal_state_explain",
+    "decision_recommendations_list",
+    "decision_recommendations_get",
+    "decision_recommendation_history",
+    "decision_recommendation_outcomes",
+    "decision_recommendation_effectiveness",
 })
 
 FULL_ONLY_TOOL_NAMES = frozenset({
@@ -563,6 +569,45 @@ ALL_TOOLS = [
             "required": ["assertion_kind", "subject", "domain", "scope", "predicate"],
         },
     ),
+    types.Tool(
+        name="decision_recommendations_list",
+        description="读取有界推荐元数据列表；不确认、不执行、不写入。",
+        inputSchema={"type": "object", "properties": {
+            "domain": {"type": "string"},
+            "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 100},
+        }},
+    ),
+    types.Tool(
+        name="decision_recommendations_get",
+        description="读取一条checksum验证后的推荐元数据。",
+        inputSchema={"type": "object", "properties": {
+            "recommendation_id": {"type": "string"},
+        }, "required": ["recommendation_id"]},
+    ),
+    types.Tool(
+        name="decision_recommendation_history",
+        description="读取genesis-rooted决策历史；仅元数据。",
+        inputSchema={"type": "object", "properties": {
+            "recommendation_id": {"type": "string"},
+            "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 100},
+        }, "required": ["recommendation_id"]},
+    ),
+    types.Tool(
+        name="decision_recommendation_outcomes",
+        description="读取非因果结果观察元数据。",
+        inputSchema={"type": "object", "properties": {
+            "recommendation_id": {"type": "string"},
+            "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 100},
+        }, "required": ["recommendation_id"]},
+    ),
+    types.Tool(
+        name="decision_recommendation_effectiveness",
+        description="读取观测性效果评估元数据；causal_claim恒为false。",
+        inputSchema={"type": "object", "properties": {
+            "recommendation_id": {"type": "string"},
+            "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 100},
+        }, "required": ["recommendation_id"]},
+    ),
 ]
 
 
@@ -800,6 +845,27 @@ def intelligence_tool_contract(
     )
 
 
+def decision_tool_contract(
+    name: str,
+    arguments: dict,
+    *,
+    db_path: Path | None = None,
+) -> dict:
+    """Thin read-only MCP adapter over the shared decision service."""
+    operation_by_tool = {
+        "decision_recommendations_list": "recommendations.list",
+        "decision_recommendations_get": "recommendations.get",
+        "decision_recommendation_history": "recommendations.history",
+        "decision_recommendation_outcomes": "recommendations.outcomes",
+        "decision_recommendation_effectiveness": "recommendations.effectiveness",
+    }
+    operation = operation_by_tool.get(name)
+    if operation is None:
+        return DecisionFeedbackService._error("unknown", "unknown_operation", name)
+    values = {key: value for key, value in arguments.items() if value not in {None, ""}}
+    return DecisionFeedbackService(db_path or UNIFIED_DB).invoke(operation, **values)
+
+
 # === MCP Server ===========================================================
 
 server = Server("personal-data")
@@ -1001,6 +1067,15 @@ async def handle_call_tool(
             "personal_state_explain",
         }:
             text = _json_contract(intelligence_tool_contract(name, arguments))
+
+        elif name in {
+            "decision_recommendations_list",
+            "decision_recommendations_get",
+            "decision_recommendation_history",
+            "decision_recommendation_outcomes",
+            "decision_recommendation_effectiveness",
+        }:
+            text = _json_contract(decision_tool_contract(name, arguments))
 
         else:
             text = f"未知工具: {name}"

@@ -80,6 +80,7 @@ import personal_knowledge.retrieval.unified_search as backend  # noqa: E402
 from personal_knowledge.core.privacy_guard import guard_jsonable, guard_text  # noqa: E402
 from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
 from personal_knowledge.intelligence.service import IntelligenceService  # noqa: E402
+from personal_knowledge.intelligence.decision.service import DecisionFeedbackService  # noqa: E402
 
 # AI 长期上下文文档路径(给 /profile 用)
 ROOT = _THIS_DIR.parents[1]
@@ -152,6 +153,24 @@ def intelligence_rest_contract(
     return IntelligenceService(db_path or UNIFIED_DB, resolver=resolver).invoke(
         operation, **values
     )
+
+
+def decision_rest_contract(
+    operation: str,
+    params: dict,
+    *,
+    db_path: Path | None = None,
+) -> dict:
+    """Thin read-only REST adapter over the shared decision service."""
+    values = {key: value for key, value in params.items() if value not in {None, ""}}
+    if "limit" in values:
+        try:
+            values["limit"] = int(values["limit"])
+        except (TypeError, ValueError):
+            return DecisionFeedbackService._error(
+                operation, "invalid_limit", str(values["limit"])
+            )
+    return DecisionFeedbackService(db_path or UNIFIED_DB).invoke(operation, **values)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -237,6 +256,28 @@ class Handler(BaseHTTPRequestHandler):
                         "predicate": qs.get("predicate"),
                     })
                 data = intelligence_rest_contract(intelligence_routes[path], params)
+                self._send(_contract(data), 200 if data.get("ok") else 400)
+                return
+
+            decision_routes = {
+                "/decision/recommendations": "recommendations.list",
+                "/decision/recommendation": "recommendations.get",
+                "/decision/recommendation/history": "recommendations.history",
+                "/decision/recommendation/outcomes": "recommendations.outcomes",
+                "/decision/recommendation/effectiveness": "recommendations.effectiveness",
+            }
+            if path in decision_routes:
+                params = {
+                    "recommendation_id": qs.get("recommendation_id"),
+                    "domain": qs.get("domain"),
+                    "limit": qs.get("limit", "50"),
+                }
+                if path == "/decision/recommendation":
+                    params.pop("limit")
+                    params.pop("domain")
+                elif path != "/decision/recommendations":
+                    params.pop("domain")
+                data = decision_rest_contract(decision_routes[path], params)
                 self._send(_contract(data), 200 if data.get("ok") else 400)
                 return
 
