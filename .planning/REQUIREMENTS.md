@@ -1,0 +1,62 @@
+# Requirements: v1.3 Agent Productization
+
+**Defined:** 2026-07-18
+
+**Core Value:** 让真实 ChatGPT/MCP Agent 在不突破个人主权、证据边界和零自动外部执行的前提下，可靠读取并推进低风险个人决策闭环。
+
+## Active Requirements
+
+### Unified Agent Surfaces
+
+- [ ] **AGENT-01**: Agent 可通过共享 REST/MCP 契约 list/get/explain External sources、facts 和 snapshots，并看到 lifecycle、freshness、provenance、checksum 与限制。
+- [ ] **AGENT-02**: Agent 可通过 checksum-verifying REST/MCP 契约 list/get/explain Analysis runs、candidates、claims 和 provider receipts，且默认不暴露不必要私密正文。
+- [ ] **AGENT-03**: Agent 可通过共享 REST/MCP 契约 list/get/explain Pilot cases、history、outcomes、controls 和 acceptance evidence。
+- [ ] **AGENT-04**: Agent 可通过共享 REST/MCP 契约 explain Calibration protocol、arms、measurements、verdict 和 proposals，并保留 `INCONCLUSIVE`/`causal_claim=false` 边界。
+
+### Guarded Decision Orchestration
+
+- [ ] **ORCH-01**: Agent 可 prepare 一个绑定精确 Personal/External snapshots、用户目标、约束、权重和风险预算的低风险 `project` 决策会话；prepare 不调用 provider、不写决策权威。
+- [ ] **ORCH-02**: generate、publish、decide、observe 或 calibrate 写入必须携带短期显式确认，确认绑定 exact preview checksum、expected sequence 与 idempotency key。
+- [ ] **ORCH-03**: 会话可安全 resume/replay；ChatGPT 或网络重试不得重复 provider 调用、事件或记录。
+- [ ] **ORCH-04**: 高风险、越域、证据不足、冲突、过期、确认漂移和非法状态转换必须以稳定 reason code abstain，且零副作用。
+
+### Agent-readable UX
+
+- [ ] **UX-01**: 每个工具默认返回紧凑模型摘要、稳定 ID、限制和下一步允许动作；完整证据通过显式 drill-down 获取。
+- [ ] **UX-02**: REST/MCP 使用共享 typed error contract，包含机器可读 code、safe message、retryability 和不越权的恢复提示。
+
+### Runtime and Live Acceptance
+
+- [ ] **LIVE-01**: 一个命令可启动并检查 REST、MCP 与 HTTPS tunnel，识别端口、代理、路径和进程故障，有限次自动恢复并报告真实 readiness。
+- [ ] **LIVE-02**: 真实 ChatGPT Developer Mode E2E 至少完成一次只读解释流和一次显式确认的低风险流程/replay，证明零未授权动作、零权威串写和零自动 promotion。
+- [ ] **LIVE-03**: MCP tool descriptor/contract snapshot 可验证工具名称、schema、annotations、响应边界和 ChatGPT connector 刷新兼容性。
+
+## Future Requirements
+
+- 通过 v1.3 后再评审 learning/career 领域扩展。
+- 需要更强视觉比较时再增加 ChatGPT widget/dashboard。
+- 真实 paired cohort 达到预注册样本后再评估个性化效果，不继承 v1.2 单样本结论。
+
+## Out of Scope
+
+| Excluded | Reason |
+|---|---|
+| 自动发送、购买、部署、申请或其他外部动作 | 用户保留最终执行权 |
+| 医疗、投资、重大财务或关系决策 | v1.3 仅限低风险 `project` 域 |
+| 自动 promotion 策略、prompt 或 threshold | proposal 必须独立评审 |
+| 通用爬虫、大规模外部采集 | 延续 allowlist 与 bounded cohort |
+| 公共发布/应用商店提交 | 本里程碑只验证本地真实 ChatGPT 接入 |
+
+## Traceability
+
+| Requirement | Phase | Status |
+|---|---|---|
+| AGENT-01..04 | Phase 32 | Pending |
+| ORCH-01..04 | Phase 33 | Pending |
+| UX-01..02 | Phase 34 | Pending |
+| LIVE-01..03 | Phase 35 | Pending |
+
+**Coverage:** 13/13 active requirements mapped; unmapped 0.
+
+---
+*Requirements defined: 2026-07-18*

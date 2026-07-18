@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-07-18T15:43:22.295Z"
 last_activity: 2026-07-18
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,7 +17,7 @@ progress:
 
 ## Milestone
 
-**v1.2 External Context & Low-risk Decision Intelligence Pilot:** shipped and archived. Phases 28–31 complete PDI-01..08: independent External Authority, evidence-bound `gpt-5.4` analysis, a real low-risk project decision/outcome chain, and preregistered personalized/generic calibration. Product boundaries pass; effectiveness remains honestly `INCONCLUSIVE` with `causal_claim=false`.
+**v1.3 Agent Productization:** active. Phases 32–35 expose v1.2 authorities to real REST/MCP/ChatGPT reads, add guarded decision orchestration, standardize Agent-readable UX, and prove live runtime E2E while retaining zero automatic external execution and zero automatic promotion.
 
 ## Authoritative surfaces
 
@@ -61,17 +61,17 @@ progress:
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 32 of 35 (Unified Agent Read Surfaces)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-18 — Milestone v1.3 started
+Status: Roadmap defined; preparing phase context and plans
+Last activity: 2026-07-18 — v1.3 requirements and roadmap defined
 
 ## Project Reference
 
 See: `.planning/PROJECT.md` (updated 2026-07-18)
 
 **Core value:** Local, evidence-bound and uncertainty-aware personal decision support.
-**Current focus:** Planning the next milestone; no active phase.
+**Current focus:** Phase 32 shared checksum-verifying read services and REST/MCP contracts for Phase 28–31.
 
 ## Cross-cutting architecture/data governance audit
 
@@ -138,4 +138,5 @@ python -m personal_knowledge.governance.preflight
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Discuss and plan Phase 32 Unified Agent Read Surfaces.
+- Execute Phase 32 service, REST/MCP and contract-test plans.
