@@ -42,6 +42,7 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 
 ## Current Reality — 2026-07-18
 
+- Phase 32 已完成：External、Analysis、Pilot、Calibration 具备统一 checksum-verifying Service/REST/stdio MCP/ChatGPT HTTP MCP 的 list/get/explain 读面；52 项阶段与相邻回归测试通过，四个 live authority 数据库读取前后指纹一致。
 - Phase 28–31 已完成：External Authority、双快照结构化 LLM 分析、project 真实决策链和成对校准均可校验重建。
 - Phase 29 通过现有 ChatGPT 登录完成一次真实 `gpt-5.4` 分析；Phase 31 严格执行两臂各一次调用、零重试、零费用。
 - Phase 30 有一条 11-event 真实 Recommendation→Decision→Action→Outcome 主链及一条 defer 控制链；系统外部动作数为零。
@@ -79,7 +80,7 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 
 ### Active (v1.3)
 
-- [ ] Phase 28–31 能力通过统一 REST/MCP 契约供 Agent 读取和下钻
+- [x] Phase 28–31 能力通过统一 REST/MCP 契约供 Agent 读取和下钻 — Phase 32
 - [ ] Agent 可在显式确认和幂等边界内推进真实低风险决策会话
 - [ ] Agent 输出为紧凑摘要，同时保留完整 evidence/checksum 审计入口
 - [ ] REST、MCP、Tunnel 可可靠启动并通过真实 ChatGPT 在线 E2E
@@ -152,4 +153,4 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 本文件在阶段转换和里程碑边界持续更新。每次阶段完成时核对需求、关键决策、范围和真实运行状态；每次里程碑结束时重新检查 Core Value、Out of Scope 与已验证能力。
 
 ---
-*Last updated: 2026-07-18 after v1.3 milestone activation*
+*Last updated: 2026-07-18 after Phase 32 completion*

@@ -12,7 +12,7 @@
 
 ## Phases
 
-- [ ] **Phase 32: Unified Agent Read Surfaces** — shared service, REST and MCP reads for Phase 28–31 authorities
+- [x] **Phase 32: Unified Agent Read Surfaces** — shared service, REST and MCP reads for Phase 28–31 authorities (completed 2026-07-18)
 - [ ] **Phase 33: Guarded Decision Orchestration** — confirmed, idempotent and abstaining low-risk session flow
 - [ ] **Phase 34: Agent-readable UX** — concise responses, typed errors and evidence drill-down
 - [ ] **Phase 35: Runtime and Live E2E** — one-command readiness and real ChatGPT Developer Mode acceptance
@@ -26,7 +26,7 @@
 **Requirements:** AGENT-01, AGENT-02, AGENT-03, AGENT-04
 
 **Depends on:** v1.2 immutable authorities
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 **Success criteria:**
 
@@ -87,7 +87,7 @@
 
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
-| 32 | 2/3 | In Progress|  |
+| 32 | 3/3 | Complete    | 2026-07-18 |
 | 33 | ORCH-01..04 | 0/4 | Pending |
 | 34 | UX-01..02 | 0/2 | Pending |
 | 35 | LIVE-01..03 | 0/3 | Pending |

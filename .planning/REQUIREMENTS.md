@@ -8,10 +8,10 @@
 
 ### Unified Agent Surfaces
 
-- [ ] **AGENT-01**: Agent 可通过共享 REST/MCP 契约 list/get/explain External sources、facts 和 snapshots，并看到 lifecycle、freshness、provenance、checksum 与限制。
-- [ ] **AGENT-02**: Agent 可通过 checksum-verifying REST/MCP 契约 list/get/explain Analysis runs、candidates、claims 和 provider receipts，且默认不暴露不必要私密正文。
-- [ ] **AGENT-03**: Agent 可通过共享 REST/MCP 契约 list/get/explain Pilot cases、history、outcomes、controls 和 acceptance evidence。
-- [ ] **AGENT-04**: Agent 可通过共享 REST/MCP 契约 explain Calibration protocol、arms、measurements、verdict 和 proposals，并保留 `INCONCLUSIVE`/`causal_claim=false` 边界。
+- [x] **AGENT-01**: Agent 可通过共享 REST/MCP 契约 list/get/explain External sources、facts 和 snapshots，并看到 lifecycle、freshness、provenance、checksum 与限制。
+- [x] **AGENT-02**: Agent 可通过 checksum-verifying REST/MCP 契约 list/get/explain Analysis runs、candidates、claims 和 provider receipts，且默认不暴露不必要私密正文。
+- [x] **AGENT-03**: Agent 可通过共享 REST/MCP 契约 list/get/explain Pilot cases、history、outcomes、controls 和 acceptance evidence。
+- [x] **AGENT-04**: Agent 可通过共享 REST/MCP 契约 explain Calibration protocol、arms、measurements、verdict 和 proposals，并保留 `INCONCLUSIVE`/`causal_claim=false` 边界。
 
 ### Guarded Decision Orchestration
 
