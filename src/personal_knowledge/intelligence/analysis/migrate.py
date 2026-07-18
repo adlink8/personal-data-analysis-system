@@ -31,16 +31,19 @@ CREATE TABLE IF NOT EXISTS analysis_candidates (
 );
 CREATE TABLE IF NOT EXISTS analysis_claims (
     claim_id TEXT PRIMARY KEY, candidate_id TEXT NOT NULL REFERENCES analysis_candidates(candidate_id),
+    claim_ordinal INTEGER NOT NULL CHECK(claim_ordinal>=0),
     claim_type TEXT NOT NULL CHECK(claim_type IN ('factual','inference')), statement TEXT NOT NULL,
-    claim_checksum TEXT NOT NULL UNIQUE CHECK(length(claim_checksum)=64), created_at TEXT NOT NULL
+    claim_checksum TEXT NOT NULL UNIQUE CHECK(length(claim_checksum)=64), created_at TEXT NOT NULL,
+    UNIQUE(candidate_id,claim_ordinal)
 );
 CREATE TABLE IF NOT EXISTS analysis_evidence_refs (
     evidence_ref_id TEXT PRIMARY KEY, claim_id TEXT NOT NULL REFERENCES analysis_claims(claim_id),
+    evidence_ordinal INTEGER NOT NULL CHECK(evidence_ordinal>=0),
     authority_id TEXT NOT NULL CHECK(authority_id IN ('a.personal_change','s.external_fact')),
     record_type TEXT NOT NULL, record_id TEXT NOT NULL, record_checksum TEXT NOT NULL CHECK(length(record_checksum)=64),
     snapshot_id TEXT NOT NULL, snapshot_hash TEXT NOT NULL CHECK(length(snapshot_hash)=64),
     payload_json TEXT NOT NULL, payload_checksum TEXT NOT NULL UNIQUE CHECK(length(payload_checksum)=64), created_at TEXT NOT NULL,
-    UNIQUE(claim_id,authority_id,record_id)
+    UNIQUE(claim_id,evidence_ordinal), UNIQUE(claim_id,authority_id,record_id)
 );
 CREATE TABLE IF NOT EXISTS analysis_provider_receipts (
     receipt_id TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE REFERENCES analysis_runs(run_id),

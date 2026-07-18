@@ -207,28 +207,30 @@ def _validate_existing(con: sqlite3.Connection, run: AnalysisRun) -> None:
         raise AnalysisRunError("existing_run_checksum_mismatch", "candidate")
 
     claim_rows = con.execute(
-        "SELECT * FROM analysis_claims WHERE candidate_id=? ORDER BY claim_id",
+        "SELECT * FROM analysis_claims WHERE candidate_id=? ORDER BY claim_ordinal",
         (run.candidate.candidate_id,),
     ).fetchall()
-    expected_claims = sorted(run.claims, key=lambda item: item.claim_id)
+    expected_claims = tuple(run.claims)
     if len(claim_rows) != len(expected_claims):
         raise AnalysisRunError("existing_run_row_count_mismatch", "claims")
-    for claim_row, claim in zip(claim_rows, expected_claims, strict=True):
+    for claim_ordinal, (claim_row, claim) in enumerate(zip(claim_rows, expected_claims, strict=True)):
         if any(str(claim_row[key]) != value for key, value in {
+            "claim_ordinal": str(claim_ordinal),
             "claim_id": claim.claim_id, "claim_type": claim.claim_type,
             "statement": claim.statement, "claim_checksum": claim.claim_checksum,
         }.items()):
             raise AnalysisRunError("existing_run_checksum_mismatch", f"claim:{claim.claim_id}")
         ref_rows = con.execute(
-            "SELECT * FROM analysis_evidence_refs WHERE claim_id=? ORDER BY authority_id,record_id",
+            "SELECT * FROM analysis_evidence_refs WHERE claim_id=? ORDER BY evidence_ordinal",
             (claim.claim_id,),
         ).fetchall()
-        expected_refs = sorted(claim.evidence, key=lambda item: (item.authority_id, item.record_id))
+        expected_refs = tuple(claim.evidence)
         if len(ref_rows) != len(expected_refs):
             raise AnalysisRunError("existing_run_row_count_mismatch", f"evidence:{claim.claim_id}")
-        for ref_row, ref in zip(ref_rows, expected_refs, strict=True):
+        for ordinal, (ref_row, ref) in enumerate(zip(ref_rows, expected_refs, strict=True)):
             payload = asdict(ref)
             expected_ref = {
+                "evidence_ordinal": str(ordinal),
                 "authority_id": ref.authority_id, "record_type": ref.record_type,
                 "record_id": ref.record_id, "record_checksum": ref.record_checksum,
                 "snapshot_id": ref.snapshot_id, "snapshot_hash": ref.snapshot_hash,
@@ -304,14 +306,15 @@ def publish_run(
              run.candidate.candidate_checksum, timestamp),
         )
         if fault_at == "after_candidate": raise RuntimeError("injected analysis failure after_candidate")
-        for claim in run.claims:
-            con.execute("INSERT INTO analysis_claims VALUES (?,?,?,?,?,?)",
-                        (claim.claim_id, run.candidate.candidate_id, claim.claim_type,
+        for claim_ordinal, claim in enumerate(run.claims):
+            con.execute("INSERT INTO analysis_claims VALUES (?,?,?,?,?,?,?)",
+                        (claim.claim_id, run.candidate.candidate_id, claim_ordinal, claim.claim_type,
                          claim.statement, claim.claim_checksum, timestamp))
-            for ref in claim.evidence:
+            for ordinal, ref in enumerate(claim.evidence):
                 payload = asdict(ref)
-                con.execute("INSERT INTO analysis_evidence_refs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                            (stable_id("aer", {"claim_id": claim.claim_id, **payload}), claim.claim_id,
+                con.execute("INSERT INTO analysis_evidence_refs VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (stable_id("aer", {"claim_id": claim.claim_id, "ordinal": ordinal, **payload}), claim.claim_id,
+                             ordinal,
                              ref.authority_id, ref.record_type, ref.record_id, ref.record_checksum,
                              ref.snapshot_id, ref.snapshot_hash, canonical_json(payload), checksum(payload), timestamp))
         if fault_at == "after_claims": raise RuntimeError("injected analysis failure after_claims")

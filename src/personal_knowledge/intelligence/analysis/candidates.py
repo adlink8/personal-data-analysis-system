@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import Any, Mapping
 
-from .schema import SCHEMA_VERSION, AnalysisSchemaError, CandidateDraft, from_exact_mapping, reject_forbidden
+from .schema import (
+    SCHEMA_VERSION, AnalysisClaim, AnalysisSchemaError, CandidateDraft,
+    EvidenceReference, checksum, from_exact_mapping, reject_forbidden,
+)
 
 
 class CandidateParseError(ValueError):
@@ -18,6 +22,7 @@ _FIELDS = {
     "schema_version", "binding_hash", "request_checksum", "domain", "status",
     "options", "no_action_baseline", "assumptions", "uncertainty",
     "missing_information", "stop_conditions", "abstain_reasons",
+    "claims",
 }
 _TRADEOFF_FIELDS = ("benefits", "costs", "risks", "opportunity_cost")
 
@@ -48,13 +53,13 @@ def _tradeoff(value: Any, name: str, *, option: bool) -> dict[str, Any]:
     return result
 
 
-def parse_candidate_response(
+def parse_candidate_package(
     value: str | bytes | Mapping[str, Any],
     *,
     expected_binding_hash: str,
     expected_request_checksum: str,
     max_options: int = 8,
-) -> CandidateDraft:
+) -> tuple[CandidateDraft, tuple[AnalysisClaim, ...]]:
     try:
         payload = json.loads(value) if isinstance(value, (str, bytes)) else dict(value)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
@@ -88,8 +93,38 @@ def parse_candidate_response(
     elif baseline not in ({}, None):
         baseline = _tradeoff(baseline, "no_action_baseline", option=False)
     abstain = _text_list(payload["abstain_reasons"], "abstain_reasons", required=status == "abstain")
+    raw_claims = payload["claims"]
+    if not isinstance(raw_claims, list) or len(raw_claims) > 64:
+        raise CandidateParseError("candidate_claims_invalid")
+    claims: list[AnalysisClaim] = []
+    for index, raw_claim in enumerate(raw_claims):
+        fields = {"claim_id", "claim_type", "statement", "evidence", "claim_checksum"}
+        if not isinstance(raw_claim, Mapping) or set(raw_claim) != fields:
+            raise CandidateParseError("candidate_claim_fields_invalid", str(index))
+        raw_evidence = raw_claim["evidence"]
+        if not isinstance(raw_evidence, list) or len(raw_evidence) > 16:
+            raise CandidateParseError("candidate_claim_evidence_invalid", str(index))
+        try:
+            evidence = tuple(from_exact_mapping(EvidenceReference, item) for item in raw_evidence)
+            core = {
+                "claim_id": raw_claim["claim_id"], "claim_type": raw_claim["claim_type"],
+                "statement": raw_claim["statement"],
+                "evidence": [asdict(item) for item in evidence],
+            }
+            claim = AnalysisClaim(
+                claim_id=str(raw_claim["claim_id"]), claim_type=str(raw_claim["claim_type"]),
+                statement=str(raw_claim["statement"]), evidence=evidence,
+                claim_checksum=str(raw_claim["claim_checksum"]),
+            )
+        except (AnalysisSchemaError, TypeError, ValueError) as exc:
+            raise CandidateParseError("candidate_claim_invalid", str(index)) from exc
+        if checksum(core) != claim.claim_checksum:
+            raise CandidateParseError("candidate_claim_checksum_mismatch", claim.claim_id)
+        claims.append(claim)
+    if len({item.claim_id for item in claims}) != len(claims):
+        raise CandidateParseError("candidate_claim_id_duplicate")
     try:
-        return CandidateDraft(
+        draft = CandidateDraft(
             domain=str(payload["domain"]), status=status, options=options,
             no_action_baseline=baseline or {},
             assumptions=_text_list(payload["assumptions"], "assumptions", required=status == "candidate"),
@@ -100,8 +135,26 @@ def parse_candidate_response(
         )
     except AnalysisSchemaError as exc:
         raise CandidateParseError(exc.code, exc.detail) from exc
+    return draft, tuple(claims)
+
+
+def parse_candidate_response(
+    value: str | bytes | Mapping[str, Any],
+    *,
+    expected_binding_hash: str,
+    expected_request_checksum: str,
+    max_options: int = 8,
+) -> CandidateDraft:
+    draft, _ = parse_candidate_package(
+        value, expected_binding_hash=expected_binding_hash,
+        expected_request_checksum=expected_request_checksum, max_options=max_options,
+    )
+    return draft
 
 
 parse_candidate = parse_candidate_response
 
-__all__ = ["CandidateParseError", "parse_candidate", "parse_candidate_response"]
+__all__ = [
+    "CandidateParseError", "parse_candidate", "parse_candidate_package",
+    "parse_candidate_response",
+]

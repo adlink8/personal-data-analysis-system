@@ -49,6 +49,7 @@ def _candidate(binding_hash: str, request_checksum: str) -> dict:
         "no_action_baseline": tradeoffs, "assumptions": ["traffic is representative"],
         "uncertainty": ["exact adoption"], "missing_information": ["latest capacity"],
         "stop_conditions": ["error budget exceeded"], "abstain_reasons": [],
+        "claims": [],
     }
 
 
@@ -103,6 +104,27 @@ def test_complete_candidate_and_no_action_baseline_parse_strictly(monkeypatch) -
     )
     assert draft.options[0]["option_id"] == "o1"
     assert draft.no_action_baseline["opportunity_cost"]
+
+
+def test_model_claims_require_exact_checksum_and_typed_evidence(monkeypatch) -> None:
+    request = _request(monkeypatch)
+    payload = _candidate(_binding().binding_hash, request.request_checksum)
+    evidence = request.request_manifest["evidence_allowlist"]["external"][0]
+    core = {"claim_id": "claim-1", "claim_type": "factual",
+            "statement": "The external release is current.", "evidence": [evidence]}
+    payload["claims"] = [{**core, "claim_checksum": checksum(core)}]
+    from personal_knowledge.intelligence.analysis.candidates import parse_candidate_package
+    _, claims = parse_candidate_package(
+        payload, expected_binding_hash=_binding().binding_hash,
+        expected_request_checksum=request.request_checksum,
+    )
+    assert claims[0].evidence[0].record_id == evidence["record_id"]
+    payload["claims"][0]["claim_checksum"] = "0" * 64
+    with pytest.raises(CandidateParseError, match="candidate_claim_checksum_mismatch"):
+        parse_candidate_package(
+            payload, expected_binding_hash=_binding().binding_hash,
+            expected_request_checksum=request.request_checksum,
+        )
 
 
 @pytest.mark.parametrize("mutation", ["missing_baseline_field", "extra_command", "empty_tradeoff", "wrong_request"])
