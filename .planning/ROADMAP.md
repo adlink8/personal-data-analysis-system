@@ -60,7 +60,7 @@ Plans:
 
 - [x] 29-01: Immutable analysis candidate authority and typed contracts
 - [x] 29-02: Confirmed dual-context inputs and structured candidate parser
-- [ ] 29-03: Claim evidence validation and deterministic safety gates
+- [x] 29-03: Claim evidence validation and deterministic safety gates
 - [ ] 29-04: Provider execution, replay, Doctor and real LLM UAT
 
 ### Phase 30: Low-risk Project Decision Pilot
@@ -98,7 +98,7 @@ Plans:
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
 | 28 | PDI-01..04 | 4/4 | Complete |
-| 29 | PDI-05..06 | 2/4 | Executing |
+| 29 | PDI-05..06 | 3/4 | Executing |
 | 30 | PDI-07 | 0/3 | Not started |
 | 31 | PDI-08 | 0/3 | Not started |
 

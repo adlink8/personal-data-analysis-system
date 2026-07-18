@@ -9,8 +9,8 @@ progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
-  percent: 75
+  completed_plans: 7
+  percent: 88
 ---
 
 # Project State
@@ -62,9 +62,9 @@ progress:
 ## Current Position
 
 Phase: 29 of 31 — Structured LLM Decision Analysis Candidate
-Plan: 2 of 4 complete
-Status: Phase 29 executing; 29-03 evidence resolver and deterministic safety gates are next
-Last activity: 2026-07-18 — 29-02 passed 32 adjacent tests after UTC and finite-weight hardening
+Plan: 3 of 4 complete
+Status: Phase 29 executing; 29-04 provider/replay/Doctor and authorized real LLM UAT are next
+Last activity: 2026-07-18 — 29-03 passed 47 adjacent tests after bounded-memory authority fingerprinting
 
 ## Cross-cutting architecture/data governance audit
 
