@@ -78,6 +78,12 @@ Plans:
 3. 真实观察窗结束后记录预计/实际时间和成本、完成度、质量、满意度、副作用、遗憾与 confounders。
 4. Correction/revoke/restore 与 snapshot rollback/forward-restore UAT 通过，零未授权 authority/KU 副作用。
 
+Plans:
+
+- [ ] 30-01: Frozen project case and admitted analysis recommendation bridge
+- [ ] 30-02: User decision, manual action, control path and outcome window
+- [ ] 30-03: Correction/revoke/restore, snapshot recovery and real pilot UAT
+
 ### Phase 31: Recommendation Calibration and Product UAT
 
 **Goal:** 用预注册真实 cohort 和观察窗口评估个性化建议相对 generic LLM 的增益，失败或样本不足时保持 FAIL/INCONCLUSIVE。
@@ -93,6 +99,12 @@ Plans:
 3. 校准仅产生新 candidate policy/prompt/threshold 版本并走评估/回滚；历史事件不可修改。
 4. 用户 UAT 验证解释、纠正、拒绝、撤销、隐私和无外部执行；无因果证据不得宣称因果。
 
+Plans:
+
+- [ ] 31-01: Immutable preregistration, cohort and evaluation protocol
+- [ ] 31-02: Leakage-proof personalized/generic pairing and non-causal verdict
+- [ ] 31-03: Reversible calibration proposal and final product UAT
+
 ## Progress
 
 | Phase | Requirements | Plans Complete | Status |
@@ -103,4 +115,4 @@ Plans:
 | 31 | PDI-08 | 0/3 | Not started |
 
 ---
-*Updated 2026-07-18 — v1.2 activated; Phase 28 first*
+*Updated 2026-07-18 — Phase 29 executing; Phases 30–31 planned*

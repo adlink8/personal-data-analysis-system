@@ -3,21 +3,21 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: External Context & Low-risk Decision Intelligence Pilot
 status: executing
-last_updated: "2026-07-18T08:15:00.000Z"
+last_updated: "2026-07-18T12:00:00.000Z"
 last_activity: 2026-07-18
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 8
+  total_plans: 14
   completed_plans: 7
-  percent: 88
+  percent: 50
 ---
 
 # Project State
 
 ## Milestone
 
-**v1.2 External Context & Low-risk Decision Intelligence Pilot:** Phase 28 is complete and user-accepted. Phase 29 structured LLM decision analysis is next. No live External authority was activated; the real two-source UAT used an isolated database.
+**v1.2 External Context & Low-risk Decision Intelligence Pilot:** Phase 28 is complete and user-accepted. Phase 29 replay, evidence and safety implementation is technically green; its first authorized live provider attempt abstained before generation because `gpt-5.6-luna` is not a Codex CLI model. Phases 30–31 now have executable plans but remain dependency-blocked on a successful Phase 29 live run and real user observation windows.
 
 ## Authoritative surfaces
 
@@ -63,8 +63,8 @@ progress:
 
 Phase: 29 of 31 — Structured LLM Decision Analysis Candidate
 Plan: 3 of 4 complete
-Status: Phase 29 executing; 29-04 provider/replay/Doctor and authorized real LLM UAT are next
-Last activity: 2026-07-18 — 29-03 passed 47 adjacent tests after bounded-memory authority fingerprinting
+Status: Phase 29 executing; 29-04 technical path passes, but corrected real LLM execution and exact user UAT remain open
+Last activity: 2026-07-18 — Phase 29 focused suite passed 47/47 and governance 13/13; one authorized Luna CLI attempt failed safely with zero authority writes; Phases 30–31 planned
 
 ## Cross-cutting architecture/data governance audit
 
