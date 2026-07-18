@@ -8,7 +8,7 @@
 
 ### External Context Authority
 
-- [ ] **PDI-01**: 用户可查看受控公共来源注册表及其 owner、类型、license/provenance、地区、发布时间、有效时间、采集时间、质量政策版本和内容校验和；系统不保存无必要的版权正文。
+- [x] **PDI-01**: 用户可查看受控公共来源注册表及其 owner、类型、license/provenance、地区、发布时间、有效时间、采集时间、质量政策版本和内容校验和；系统不保存无必要的版权正文。
 - [ ] **PDI-02**: 用户可导入、查询和解释 append-only canonical external fact/event/indicator，并看到 current、stale、superseded、conflict、invalid 生命周期与来源冲突。
 - [ ] **PDI-03**: 用户可 prepare、validate、activate、rollback 和 forward-restore 独立 External Snapshot/Watermark；失败与 dry-run 不改变 active external authority。
 - [ ] **PDI-04**: Decision Case 必须显式绑定 Personal Snapshot 与 External Snapshot 的 ID/hash；个人 KU 与外部事实物理、语义和权限隔离，漂移、过期、地区不符或未解决冲突时 fail closed。
@@ -44,7 +44,7 @@
 
 | Requirement | Phase | Status |
 |---|---|---|
-| PDI-01 | Phase 28 | Planned |
+| PDI-01 | Phase 28 | Complete — 28-01 |
 | PDI-02 | Phase 28 | Planned |
 | PDI-03 | Phase 28 | Planned |
 | PDI-04 | Phase 28 | Planned |

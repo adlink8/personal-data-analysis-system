@@ -102,7 +102,7 @@ def validate_registry(doc: dict[str, Any]) -> list[RegistryIssue]:
     for aid, raw in ids.items():
         parent = str(raw.get("evidence_parent") or "")
         # External raw source roots are intentionally not tracked as product artifacts.
-        if parent in {"d.agentsview_snapshot", "d.google_raw"}:
+        if parent in {"d.agentsview_snapshot", "d.google_raw", "d.external_public_source"}:
             continue
         target = ids.get(parent)
         if target is None:

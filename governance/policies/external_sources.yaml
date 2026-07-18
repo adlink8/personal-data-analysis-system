@@ -1,0 +1,33 @@
+version: 1
+scope: bounded_public_metadata
+sources:
+  - id: ext.python_releases
+    authority_role: python_release_metadata
+    owner: Python Software Foundation
+    source_type: official_release_index
+    topic: project/technology
+    license: PSF License Version 2
+    provenance: official project release metadata published by python.org
+    region: global
+    publication_time_policy: publisher timestamp, UTC-normalized when an offset exists
+    valid_time_policy: release effective time supplied by the publisher
+    observed_time_policy: local adapter observation timestamp in UTC
+    ingestion_time_policy: committed import timestamp in UTC
+    quality_policy_version: external-source-quality-v1
+    endpoint: https://www.python.org/downloads/
+    retention_policy: metadata and bounded structured facts only; no page or article body
+  - id: ext.nodejs_releases
+    authority_role: nodejs_release_metadata
+    owner: OpenJS Foundation
+    source_type: official_release_index
+    topic: project/technology
+    license: MIT License
+    provenance: official project release metadata published by nodejs.org
+    region: global
+    publication_time_policy: publisher release date, UTC-normalized
+    valid_time_policy: release effective date supplied by the publisher
+    observed_time_policy: local adapter observation timestamp in UTC
+    ingestion_time_policy: committed import timestamp in UTC
+    quality_policy_version: external-source-quality-v1
+    endpoint: https://nodejs.org/dist/index.json
+    retention_policy: metadata and bounded structured facts only; no page or article body

@@ -61,6 +61,7 @@ STAGE1_PROFILE_DIR = ANALYSIS_DIR / "stage1_profile"
 
 # 常用数据库路径
 UNIFIED_DB = DB_DIR / "personal_system.sqlite"
+EXTERNAL_CONTEXT_DB = VAR_DB / "external_context.sqlite"
 CONV_GRAPH_DB = DB_DIR / "conversation_graph.duckdb"
 
 # 可回收归档（历史模块软归档，不删除；见 _recycle/README.md）

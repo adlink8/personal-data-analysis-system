@@ -1,9 +1,9 @@
 ---
 phase: 28
 validation_strategy: nyquist
-status: planned
+status: active
 nyquist_compliant: false
-wave_0_complete: false
+wave_0_complete: true
 ---
 
 # Phase 28 Validation
