@@ -27,18 +27,18 @@
 
 LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执行权限。
 
-## Current State: v1.2 External Context & Low-risk Decision Intelligence Pilot
+## Current Milestone: v1.3 Agent Productization
 
-**Shipped:** 2026-07-18。已建立与个人事实隔离的 External Context Authority，并在低风险 `project` 域用受控 LLM 完成真实、证据绑定、可反馈的决策试点。
+**Goal:** 将已验证的 External、LLM Analysis、Project Pilot 和 Calibration 能力产品化为可由 ChatGPT/MCP Agent 真实调用、可读解释、受控确认和在线验收的统一决策流程。
 
-**Delivered features:**
-- 两个受控公共来源、一个 project/technology 主题的独立 External Authority
-- Personal + External 双快照 Decision Context 绑定与 fail-closed 漂移检查
-- 逐主张 evidence ID 的结构化 LLM Decision Analysis Candidate
-- 真实低风险 Recommendation→Decision→Action→Outcome 纵向链
-- 预注册 personalized/generic 对照、观察窗与严格 `INCONCLUSIVE` 边界
+**Target features:**
+- External、Analysis、Pilot、Calibration 的共享只读 Service、REST 和 MCP 工具
+- `prepare → confirm → generate → decide → observe → calibrate` 受控 Agent 会话编排
+- 紧凑的 Agent 响应、方案比较、限制说明和 evidence drill-down
+- REST/MCP/Tunnel 一键启动、健康恢复和真实 ChatGPT MCP E2E
+- 所有写入均需显式确认；保持零未授权外部动作和零自动策略 promotion
 
-**Previous:** v1.0 completed 2026-07-12（Phases 01–16；Phase 08 cancelled）。见 [MILESTONE-v1.0.md](MILESTONE-v1.0.md)。
+**Previous:** v1.2 shipped 2026-07-18（Phases 28–31），完成 External Authority、真实 `gpt-5.4` 决策链和诚实 `INCONCLUSIVE` 校准。见 [v1.2 audit](milestones/v1.2-MILESTONE-AUDIT.md)。
 
 ## Current Reality — 2026-07-18
 
@@ -76,6 +76,13 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 - ✓ 双快照证据绑定的结构化 LLM Decision Analysis Candidate — PDI-05..06
 - ✓ 低风险 project 真实主链、defer 控制链和非因果 outcome — PDI-07
 - ✓ 预注册 personalized/generic 对照与诚实 INCONCLUSIVE 边界 — PDI-08
+
+### Active (v1.3)
+
+- [ ] Phase 28–31 能力通过统一 REST/MCP 契约供 Agent 读取和下钻
+- [ ] Agent 可在显式确认和幂等边界内推进真实低风险决策会话
+- [ ] Agent 输出为紧凑摘要，同时保留完整 evidence/checksum 审计入口
+- [ ] REST、MCP、Tunnel 可可靠启动并通过真实 ChatGPT 在线 E2E
 
 ### Optional backlog (not Active)
 
@@ -145,4 +152,4 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 本文件在阶段转换和里程碑边界持续更新。每次阶段完成时核对需求、关键决策、范围和真实运行状态；每次里程碑结束时重新检查 Core Value、Out of Scope 与已验证能力。
 
 ---
-*Last updated: 2026-07-18 after v1.2 milestone completion*
+*Last updated: 2026-07-18 after v1.3 milestone activation*
