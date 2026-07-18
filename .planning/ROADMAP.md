@@ -111,7 +111,7 @@ Plans:
 |---|---|---:|---|
 | 28 | PDI-01..04 | 4/4 | Complete |
 | 29 | PDI-05..06 | 4/4 | Complete |
-| 30 | 3/3 | Complete   | 2026-07-18 |
+| 30 | 3/3 | Complete    | 2026-07-18 |
 | 31 | PDI-08 | 0/3 | Not started |
 
 ---
