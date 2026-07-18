@@ -10,7 +10,14 @@ updated: 2026-07-18
 **Accepted:** 2026-07-18  
 **User decision:** “验收通过”
 
-## Real bounded cohort
+> **Evidence scope:** This file records the isolated Phase 28 rehearsal cohort.
+> It proves bounded import and reversible authority behavior, but it is not the
+> live cross-phase lineage later consumed by Phases 29–31. The live lineage uses
+> External Snapshot `exs_a7770b7d4e9e2727e359befc` with checksum prefix
+> `612dbb3d` (four facts, authority sequence 1); that lineage is reconstructed in
+> the v1.2 milestone audit.
+
+## Isolated bounded rehearsal cohort
 
 | Source | Bounded facts | Official evidence |
 |---|---|---|

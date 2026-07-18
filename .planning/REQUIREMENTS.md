@@ -50,10 +50,10 @@
 | PDI-04 | Phase 28 | Complete — 28-03 |
 | PDI-05 | Phase 29 | Complete — 29-01/02/04 |
 | PDI-06 | Phase 29 | Complete — 29-01/02/03/04 |
-| PDI-07 | Phase 30 | Planned |
-| PDI-08 | Phase 31 | Planned |
+| PDI-07 | Phase 30 | Complete — 30-01/02/03 |
+| PDI-08 | Phase 31 | Complete — 31-01/02/03 |
 
 **Coverage:** 8/8 active requirements mapped; unmapped 0.
 
 ---
-*Requirements updated: 2026-07-18 — v1.2 activated*
+*Requirements updated: 2026-07-18 — v1.2 complete through Phase 31*
