@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import datetime, timezone
+
+import pytest
+
+from personal_knowledge.intelligence.proactive.controls import (
+    ControlCommand,
+    ControlTarget,
+    active_control_frontier,
+    append_control,
+    project_controls,
+)
+from personal_knowledge.intelligence.proactive.schema import checksum
+from tests.integration.test_proactive_runs import _candidate, _upstream
+from personal_knowledge.intelligence.proactive.runs import plan_run, publish_run
+
+
+AS_OF = "2026-07-18T12:00:00Z"
+ACTOR = checksum({"user": "fixture-owner"})
+
+
+def _published_candidate(tmp_path):
+    db, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path)
+    run = plan_run(
+        db, [draft], source_run_id=state_id, source_run_checksum=state_checksum,
+        source_publication_sequence=seq, decision_run_id=decision.run_id,
+        decision_run_checksum=decision.run_checksum, coordination_policy="c",
+        ranking_policy="r", noise_policy="n", input_manifest={},
+        candidate_drafts=(_candidate(draft),),
+    )
+    publish_run(db, run, write=True)
+    candidate = run.candidates[0]
+    return db, ControlTarget("a.proactive_intelligence", "candidate", candidate.candidate_id, candidate.payload_checksum)
+
+
+def _command(target, operation, key, *, expected=0, scope="global", expires_at=None,
+             rollback_of=None, details=None):
+    return ControlCommand(
+        target=target, operation=operation, scope=scope, actor_class="user",
+        actor_identity_hash=ACTOR, expected_sequence=expected, idempotency_key=key,
+        reason_code="user_declared", created_at=AS_OF, expires_at=expires_at,
+        rollback_of_event_id=rollback_of, details=details or {},
+    )
+
+
+@pytest.mark.parametrize("operation", [
+    "limit_scope", "suppress", "snooze", "revoke", "correct",
+    "mark_not_useful", "mark_wrong_timing", "restore",
+])
+def test_closed_control_operation_vocabulary(operation: str) -> None:
+    assert operation in ControlCommand.OPERATIONS
+
+
+def test_user_owned_append_projection_and_exact_replay(tmp_path) -> None:
+    db, target = _published_candidate(tmp_path)
+    command = _command(target, "suppress", "one")
+    first = append_control(db, command, write=True)
+    replay = append_control(db, command, write=True)
+    assert first.written is True and replay.existing is True
+    assert first.event == replay.event
+    projected = project_controls(db, targets=(target,), as_of=AS_OF)
+    assert projected.eligible is False
+    assert projected.reason_codes == ("trust_veto", "suppressed_by_user")
+
+
+def test_scope_precedence_denial_and_snooze_expiry(tmp_path) -> None:
+    db, target = _published_candidate(tmp_path)
+    global_target = ControlTarget("a.proactive_intelligence", "global", "proactive", checksum({"global": "proactive"}))
+    append_control(db, _command(global_target, "suppress", "g"), write=True)
+    append_control(db, _command(target, "snooze", "e", expires_at="2026-07-18T13:00:00Z"), write=True)
+    before = project_controls(db, targets=(global_target, target), as_of=AS_OF)
+    after = project_controls(db, targets=(global_target, target), as_of="2026-07-18T14:00:00Z")
+    assert before.eligible is False and before.winning_event_id is not None
+    assert before.reason_codes == ("trust_veto", "snoozed_by_user")
+    assert after.eligible is False and after.reason_codes == ("trust_veto", "suppressed_by_user")
+
+
+def test_restore_is_compensating_and_double_restore_fails(tmp_path) -> None:
+    db, target = _published_candidate(tmp_path)
+    suppression = append_control(db, _command(target, "suppress", "s"), write=True).event
+    restored = append_control(
+        db, _command(target, "restore", "r", expected=1, rollback_of=suppression.event_id), write=True,
+    ).event
+    assert restored.rollback_of_event_id == suppression.event_id
+    assert restored.before_projected_checksum != restored.after_projected_checksum
+    assert project_controls(db, targets=(target,), as_of=AS_OF).eligible is True
+    with pytest.raises(ValueError, match="invalid_restore"):
+        append_control(db, _command(target, "restore", "r2", expected=2, rollback_of=suppression.event_id), write=True)
+
+
+def test_correction_is_request_only_and_limit_scope_is_fail_closed(tmp_path) -> None:
+    db, target = _published_candidate(tmp_path)
+    correction = append_control(db, _command(target, "correct", "c", details={"interpretation_code": "user_correction"}), write=True)
+    assert correction.event.outcome == "canonical_correction_requested"
+    append_control(db, _command(target, "limit_scope", "l", expected=1, details={"allowed_scopes": ["project:alpha"]}), write=True)
+    denied = project_controls(db, targets=(target,), as_of=AS_OF, scope="project:beta")
+    allowed = project_controls(db, targets=(target,), as_of=AS_OF, scope="project:alpha")
+    assert denied.eligible is False and "scope_limited" in denied.reason_codes
+    assert allowed.eligible is True
+
+
+def test_frontier_is_deterministic_and_changes_only_on_append(tmp_path) -> None:
+    db, target = _published_candidate(tmp_path)
+    before = active_control_frontier(db)
+    append_control(db, _command(target, "mark_not_useful", "f"), write=False)
+    assert active_control_frontier(db) == before
+    append_control(db, _command(target, "mark_not_useful", "f"), write=True)
+    assert active_control_frontier(db) != before
+

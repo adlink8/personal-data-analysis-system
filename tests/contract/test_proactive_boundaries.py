@@ -40,3 +40,12 @@ def test_candidate_contract_has_no_truth_or_delivery_authority() -> None:
                   "recipient", "credential", "webhook", "send_target", "external_action"}
     assert not ({field.name for field in fields(CandidateDraft)} & prohibited)
     assert not ({field.name for field in fields(ProactiveCandidate)} & prohibited)
+
+
+def test_control_contract_is_overlay_only_and_user_owned() -> None:
+    from dataclasses import fields
+    from personal_knowledge.intelligence.proactive.controls import ControlCommand
+
+    names = {field.name for field in fields(ControlCommand)}
+    assert {"target", "actor_class", "actor_identity_hash", "expected_sequence", "idempotency_key"} <= names
+    assert not names & {"reviewer", "approve", "apply_lifecycle", "publish", "dispatch", "external_action"}
