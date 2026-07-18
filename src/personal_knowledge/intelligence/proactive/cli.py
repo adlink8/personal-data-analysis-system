@@ -13,7 +13,7 @@ from typing import Any
 from personal_knowledge.core.project_paths import KNOWLEDGE_ACTIVE_POINTER, UNIFIED_DB
 from personal_knowledge.intelligence.cli import _FINGERPRINT_GROUPS, _phase24_dependency_status, _table_fingerprint
 from personal_knowledge.intelligence.decision.cli import _DECISION_TABLES, _sandbox_loop as _decision_sandbox
-from personal_knowledge.intelligence.proactive.ranking import DEFAULT_RANKING_POLICY, EvaluationContext, evaluate_candidates, rank_candidates
+from personal_knowledge.intelligence.proactive.ranking import DEFAULT_NOISE_POLICY, DEFAULT_RANKING_POLICY, EvaluationContext, evaluate_candidates, rank_candidates
 
 from .controls import ControlCommand, ControlError, ControlTarget, append_control
 from .runs import PROACTIVE_TABLES
@@ -112,7 +112,7 @@ def _technical_sandbox() -> dict[str, Any]:
     ref = SupportReference("a.personal_change", "change", "fixture-change", "1"*64, "fixture-state", "2"*64, "fixture-snapshot", "3"*64)
     drafts = tuple(CandidateDraft("important_change" if i % 2 == 0 else "cross_domain_opportunity", "inbox_item", "fixture-user", "personal", (domain,), (f"fixture:{domain}",), "2026-07-18T00:00:00Z", "2026-08-01T00:00:00Z", (ref,), .8, .8, .8, .7, .9, .8, .2, "fixture_only", ("fixture_only",), sensitive=(domain in {"health", "finance"} and i == 4)) for i, domain in enumerate(CANONICAL_DOMAINS))
     ranked = rank_candidates(drafts, policy=DEFAULT_RANKING_POLICY, run_id="fixture-target-d")
-    evaluated = evaluate_candidates(ranked, context=EvaluationContext.fixed(), ranking_policy=DEFAULT_RANKING_POLICY)
+    evaluated = evaluate_candidates(ranked, context=EvaluationContext.fixed(), policy=DEFAULT_NOISE_POLICY, ranking_policy=DEFAULT_RANKING_POLICY)
     counts: dict[str, int] = {}
     reasons: dict[str, int] = {}
     for item in evaluated:
@@ -125,6 +125,17 @@ def run_acceptance(db_path: Path | str, *, pointer_path: Path = KNOWLEDGE_ACTIVE
     path = Path(db_path)
     if not path.exists(): return _error("acceptance", "database_missing", str(path))
     before = _fingerprints(path, pointer_path); sandbox = _technical_sandbox(); proactive = before["groups"]["proactive"]
+    con = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        con.execute("PRAGMA query_only=ON")
+        authority = con.execute("SELECT active_snapshot_id FROM serving_authority WHERE singleton_id=1").fetchone()
+        snapshot_id = str(authority[0]) if authority and authority[0] else None
+        snapshot = con.execute("SELECT manifest_hash FROM serving_snapshots WHERE snapshot_id=?", (snapshot_id,)).fetchone() if snapshot_id else None
+        snapshot_hash = str(snapshot[0]) if snapshot else None
+    finally: con.close()
+    def schema_state(group: str) -> str:
+        rows = before["groups"][group]; present = [row for row in rows if row["exists"]]
+        return "applied" if len(present) == len(rows) else "unapplied" if not present else "partial"
     existing, missing = [r["table"] for r in proactive if r["exists"]], [r["table"] for r in proactive if not r["exists"]]
     state = "applied" if not missing else "unapplied" if not existing else "partial"
     gate: dict[str, Any] = {"ok": state == "unapplied", "reason": f"proactive_schema_{state}", "existing_tables": existing, "missing_tables": missing, "count": 0}
@@ -132,14 +143,15 @@ def run_acceptance(db_path: Path | str, *, pointer_path: Path = KNOWLEDGE_ACTIVE
         listing = ProactiveIntelligenceService(path).invoke("inbox.list", limit=10)
         gate = {"ok": bool(listing.get("ok")), "reason": "bounded_committed_proactive_replay" if listing.get("ok") else listing.get("error", {}).get("code"), "existing_tables": existing, "missing_tables": [], "count": int(listing.get("data", {}).get("total_available") or 0)}
     after = _fingerprints(path, pointer_path); unchanged = before == after; phase24 = _phase24_dependency_status(path)
-    technical_blockers = ([] if sandbox["ok"] else ["sandbox:failed"]) + ([] if gate["ok"] else [f"proactive:{gate['reason']}"]) + ([] if unchanged else ["fingerprints:changed"])
+    upstream_states = {"phase25": schema_state("analysis"), "phase26": schema_state("decision"), "phase27": state}
+    technical_blockers = ([] if sandbox["ok"] else ["sandbox:failed"]) + ([] if gate["ok"] else [f"proactive:{gate['reason']}"]) + ([f"{name}:{value}" for name, value in upstream_states.items() if value == "partial"]) + ([] if unchanged else ["fingerprints:changed"])
     technical_ok = not technical_blockers
     # Product release additionally requires strict human review, lifecycle, final gate and explicit product UAT.
     checkpoint_statuses = {str(c["checkpoint"]): str(c["status"]) for c in phase24.get("checkpoints", ())}
     final_gate = all(status in {"pass", "passed", "complete", "completed"} for status in checkpoint_statuses.values())
     explicit_uat = False
     release_ready = technical_ok and bool(phase24["human_review_strict"]["ok"]) and bool(phase24["lifecycle_strict"]["ok"]) and final_gate and explicit_uat
-    return {"schema_version": "target_d_acceptance_v1", "operation": "acceptance", "ok": technical_ok, "technical_status": "passed" if technical_ok else "failed", "release_status": "release_ready" if release_ready else "release_blocked", "release_ready": release_ready, "release_blockers": {"technical": technical_blockers, "phase24": list(phase24.get("reason_codes") or []) + ([] if explicit_uat else ["product_uat:missing"])}, "dry_run": True, "metadata_only": True, "sandbox": sandbox, "live": {"proactive_schema_state": state, "proactive_status": gate, "snapshot_id": next((r.get("active_snapshot_id") for r in before["groups"].get("serving", []) if r.get("table") == "serving_authority"), None)}, "fingerprints": {"before": before, "after": after, "unchanged": unchanged}, "before_fingerprint": before["checksum"], "after_fingerprint": after["checksum"], "unchanged": unchanged, "phase24": phase24, "persisted_rows": 0, "mutations": 0 if unchanged else 1, "private_bodies": 0, "external_actions": 0, "network_calls": 0, "paid_calls": 0}
+    return {"schema_version": "target_d_acceptance_v1", "operation": "acceptance", "ok": technical_ok, "technical_status": "passed" if technical_ok else "failed", "release_status": "release_ready" if release_ready else "release_blocked", "release_ready": release_ready, "release_blockers": {"technical": technical_blockers, "phase24": list(phase24.get("reason_codes") or []) + ([] if explicit_uat else ["product_uat:missing"])}, "dry_run": True, "metadata_only": True, "snapshot_id": snapshot_id, "snapshot_hash": snapshot_hash, "phase25_binding": {"schema_state": upstream_states["phase25"]}, "phase26_binding": {"schema_state": upstream_states["phase26"]}, "phase27_schema_state": state, "sandbox": sandbox, "candidate_counts": sandbox["candidate_counts"], "suppression_reason_counts": sandbox["suppression_reason_counts"], "domain_counts": sandbox["domain_counts"], "control_and_rollback_results": sandbox["control_and_rollback_results"], "live": {"phase25_schema_state": upstream_states["phase25"], "phase26_schema_state": upstream_states["phase26"], "proactive_schema_state": state, "proactive_status": gate, "snapshot_id": snapshot_id, "snapshot_hash": snapshot_hash}, "fingerprints": {"before": before, "after": after, "unchanged": unchanged}, "before_fingerprint": before["checksum"], "after_fingerprint": after["checksum"], "unchanged": unchanged, "phase24": phase24, "persisted_rows": 0, "mutations": 0 if unchanged else 1, "private_bodies": 0, "external_actions": 0, "network_calls": 0, "paid_calls": 0}
 
 
 def _invoke(args: argparse.Namespace) -> dict[str, Any]:
