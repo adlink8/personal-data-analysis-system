@@ -311,6 +311,13 @@ const objectSchema = (properties, required = []) => ({
   additionalProperties: true
 });
 
+const strictObjectSchema = (properties, required = []) => ({
+  type: "object",
+  properties,
+  required,
+  additionalProperties: false
+});
+
 const graphOutputSchema = objectSchema({
   ok: { type: "boolean" },
   scope: { type: "object" },
@@ -388,26 +395,29 @@ const agentReadOutputSchema = objectSchema({
   authority: { type: "string" },
   operation: { type: "string" },
   summary: { type: "string" },
+  item_count: { type: "integer" },
   ids: { type: "array", items: { type: "string" } },
   limitations: { type: "array", items: { type: "string" } },
+  next_action: { type: "string" },
   data: { type: "object" },
   truncated: { type: "boolean" },
+  error_code: { type: "string" },
   error: { type: "string" }
 }, ["ok", "authority", "operation"]);
 
 const agentReadToolSpecs = [
-  ["external_context_list", "External context list", "List verified external sources, active snapshot, and bounded public facts.", "/agent/external", "external", "list", objectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
-  ["external_context_get", "External context get", "Get one verified source, fact, or snapshot by stable id.", "/agent/external/item", "external", "get", objectSchema({ resource_type: { type: "string", enum: ["source", "fact", "snapshot"] }, resource_id: { type: "string" } }, ["resource_type"])],
-  ["external_context_explain", "External context explain", "Explain one external resource's lineage, limits, and safe drill-down.", "/agent/external/explain", "external", "explain", objectSchema({ resource_type: { type: "string", enum: ["source", "fact", "snapshot"] }, resource_id: { type: "string" } }, ["resource_type"])],
-  ["decision_analysis_list", "Decision analysis list", "List checksum-verified analysis runs without provider bodies.", "/agent/analysis", "analysis", "list", objectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
-  ["decision_analysis_get", "Decision analysis get", "Get one verified analysis candidate, claims, and typed evidence references.", "/agent/analysis/item", "analysis", "get", objectSchema({ run_id: { type: "string" } }, ["run_id"])],
-  ["decision_analysis_explain", "Decision analysis explain", "Explain evidence and non-authoritative limits for one analysis run.", "/agent/analysis/explain", "analysis", "explain", objectSchema({ run_id: { type: "string" } }, ["run_id"])],
-  ["project_pilot_list", "Project pilot list", "List low-risk project pilot cases; no external actions.", "/agent/pilot", "pilot", "list", objectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
-  ["project_pilot_get", "Project pilot get", "Get one pilot case, recommendation, and protocol.", "/agent/pilot/item", "pilot", "get", objectSchema({ case_id: { type: "string" } }, ["case_id"])],
-  ["project_pilot_explain", "Project pilot explain", "Explain one pilot history, controls, and observed outcome.", "/agent/pilot/explain", "pilot", "explain", objectSchema({ case_id: { type: "string" }, as_of: { type: "string" } }, ["case_id"])],
-  ["recommendation_calibration_list", "Calibration list", "List recommendation calibration protocols.", "/agent/calibration", "calibration", "list", objectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
-  ["recommendation_calibration_get", "Calibration get", "Get one calibration protocol, arms, measurements, verdict, and proposals.", "/agent/calibration/item", "calibration", "get", objectSchema({ protocol_id: { type: "string" } }, ["protocol_id"])],
-  ["recommendation_calibration_explain", "Calibration explain", "Explain calibration limitations; never claims causality or promotes policy.", "/agent/calibration/explain", "calibration", "explain", objectSchema({ protocol_id: { type: "string" } }, ["protocol_id"])]
+  ["external_context_list", "External context list", "List verified external sources, active snapshot, and bounded public facts.", "/agent/external", "external", "list", strictObjectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
+  ["external_context_get", "External context get", "Get one verified source, fact, or snapshot by stable id.", "/agent/external/item", "external", "get", strictObjectSchema({ resource_type: { type: "string", enum: ["source", "fact", "snapshot"] }, resource_id: { type: "string" } }, ["resource_type"])],
+  ["external_context_explain", "External context explain", "Explain one external resource's lineage, limits, and safe drill-down.", "/agent/external/explain", "external", "explain", strictObjectSchema({ resource_type: { type: "string", enum: ["source", "fact", "snapshot"] }, resource_id: { type: "string" } }, ["resource_type"])],
+  ["decision_analysis_list", "Decision analysis list", "List checksum-verified analysis runs without provider bodies.", "/agent/analysis", "analysis", "list", strictObjectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
+  ["decision_analysis_get", "Decision analysis get", "Get one verified analysis candidate, claims, and typed evidence references.", "/agent/analysis/item", "analysis", "get", strictObjectSchema({ run_id: { type: "string" } }, ["run_id"])],
+  ["decision_analysis_explain", "Decision analysis explain", "Explain evidence and non-authoritative limits for one analysis run.", "/agent/analysis/explain", "analysis", "explain", strictObjectSchema({ run_id: { type: "string" } }, ["run_id"])],
+  ["project_pilot_list", "Project pilot list", "List low-risk project pilot cases; no external actions.", "/agent/pilot", "pilot", "list", strictObjectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
+  ["project_pilot_get", "Project pilot get", "Get one pilot case, recommendation, and protocol.", "/agent/pilot/item", "pilot", "get", strictObjectSchema({ case_id: { type: "string" } }, ["case_id"])],
+  ["project_pilot_explain", "Project pilot explain", "Explain one pilot history, controls, and observed outcome.", "/agent/pilot/explain", "pilot", "explain", strictObjectSchema({ case_id: { type: "string" }, as_of: { type: "string" } }, ["case_id"])],
+  ["recommendation_calibration_list", "Calibration list", "List recommendation calibration protocols.", "/agent/calibration", "calibration", "list", strictObjectSchema({ limit: { type: "integer", minimum: 1, maximum: 20, default: 10 } })],
+  ["recommendation_calibration_get", "Calibration get", "Get one calibration protocol, arms, measurements, verdict, and proposals.", "/agent/calibration/item", "calibration", "get", strictObjectSchema({ protocol_id: { type: "string" } }, ["protocol_id"])],
+  ["recommendation_calibration_explain", "Calibration explain", "Explain calibration limitations; never claims causality or promotes policy.", "/agent/calibration/explain", "calibration", "explain", strictObjectSchema({ protocol_id: { type: "string" } }, ["protocol_id"])]
 ];
 
 const agentReadToolDescriptors = agentReadToolSpecs.map(([name, title, description, , , , inputSchema]) => ({
@@ -966,7 +976,14 @@ async function readJsonResponse(response) {
     throw new Error(`REST returned non-JSON HTTP ${response.status}: ${text.slice(0, 160)}`);
   }
   if (!response.ok || payload?.ok === false) {
-    throw new Error(payload?.error || `REST HTTP ${response.status}`);
+    const detail = payload?.error;
+    const code = typeof detail === "object" && detail ? detail.code : undefined;
+    const message = typeof detail === "object" && detail
+      ? detail.detail || detail.code
+      : detail;
+    const error = new Error(message || `REST HTTP ${response.status}`);
+    if (code) error.code = code;
+    throw error;
   }
   return payload?.data ?? payload;
 }
@@ -1053,6 +1070,7 @@ function subjectToGraph(data, subject, neighbors) {
 function errorResult(error, fallback = {}) {
   return {
     ok: false,
+    error_code: error instanceof Error ? error.code : undefined,
     error: error instanceof Error ? error.message : String(error),
     ...fallback
   };
@@ -1170,15 +1188,22 @@ async function callToolInner(name, args = {}, rest) {
     collect(data);
     const encoded = JSON.stringify(data);
     const includeData = operation !== "list" && encoded.length <= 48000;
+    const itemCount = Number.isFinite(data?.count)
+      ? data.count
+      : operation === "list"
+        ? ids.length
+        : 1;
     const structuredContent = {
       ok: true,
       authority,
       operation,
       summary: `${authority} ${operation} returned ${ids.length} stable id(s).`,
+      item_count: itemCount,
       ids: ids.slice(0, 100),
       limitations: authority === "calibration"
         ? ["causal_claim=false", "automatic promotion unavailable"]
         : ["read-only verified metadata", "no external action"],
+      next_action: operation === "list" ? `${authority}_get` : `${authority}_explain`,
       data: includeData ? data : undefined,
       truncated: !includeData && operation !== "list"
     };

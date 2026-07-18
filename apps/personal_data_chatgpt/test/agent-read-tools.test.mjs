@@ -26,7 +26,7 @@ test("agent read descriptors are focused, bounded, and truthfully read-only", ()
     assert.equal(tool.annotations.idempotentHint, true);
     assert.equal(tool.annotations.openWorldHint, false);
     assert.equal(tool._meta.ui, undefined, `${name} must remain tool-only`);
-    assert.equal(tool.inputSchema.additionalProperties, true);
+    assert.equal(tool.inputSchema.additionalProperties, false);
     if (tool.inputSchema.properties.limit) {
       assert.equal(tool.inputSchema.properties.limit.maximum, 20);
     }
@@ -50,6 +50,8 @@ test("list tools forward to the fixed REST path and return compact ids", async (
   assert.equal(calls[0].pathname, "/agent/analysis");
   assert.equal(calls[0].searchParams.get("limit"), "20");
   assert.deepEqual(result.structuredContent.ids, ["dar_test"]);
+  assert.equal(result.structuredContent.item_count, 1);
+  assert.equal(result.structuredContent.next_action, "analysis_get");
   assert.equal(result.structuredContent.data, undefined);
   assert.equal(JSON.stringify(result.structuredContent).includes("must-not-surface"), false);
 });
@@ -73,4 +75,18 @@ test("explicit explain keeps bounded verified data and honest calibration limits
   assert.equal(result.structuredContent.data.promotion_available, false);
   assert.ok(result.structuredContent.limitations.includes("causal_claim=false"));
   assert.ok(JSON.stringify(result.structuredContent).length < 48000);
+});
+
+test("REST error codes survive the HTTP MCP adapter", async () => {
+  const fetchImpl = async () => new Response(JSON.stringify({
+    ok: false,
+    error: { code: "invalid_run_id", detail: "run does not exist" }
+  }), { status: 400, headers: { "Content-Type": "application/json" } });
+  const result = await callTool("decision_analysis_get", { run_id: "missing" }, {
+    fetchImpl,
+    restBaseUrl: "http://rest.test"
+  });
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error_code, "invalid_run_id");
+  assert.equal(result.structuredContent.error, "run does not exist");
 });
