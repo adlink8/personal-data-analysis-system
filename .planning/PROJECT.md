@@ -83,7 +83,7 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 
 - [x] Phase 28–31 能力通过统一 REST/MCP 契约供 Agent 读取和下钻 — Phase 32
 - [x] Agent 可在显式确认和幂等边界内推进真实低风险决策会话
-- [ ] Agent 输出为紧凑摘要，同时保留完整 evidence/checksum 审计入口
+- [x] Agent 输出为紧凑摘要，同时保留完整 evidence/checksum 审计入口
 - [ ] REST、MCP、Tunnel 可可靠启动并通过真实 ChatGPT 在线 E2E
 
 ### Optional backlog (not Active)

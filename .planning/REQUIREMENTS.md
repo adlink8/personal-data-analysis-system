@@ -22,8 +22,8 @@
 
 ### Agent-readable UX
 
-- [ ] **UX-01**: 每个工具默认返回紧凑模型摘要、稳定 ID、限制和下一步允许动作；完整证据通过显式 drill-down 获取。
-- [ ] **UX-02**: REST/MCP 使用共享 typed error contract，包含机器可读 code、safe message、retryability 和不越权的恢复提示。
+- [x] **UX-01**: 每个工具默认返回紧凑模型摘要、稳定 ID、限制和下一步允许动作；完整证据通过显式 drill-down 获取。
+- [x] **UX-02**: REST/MCP 使用共享 typed error contract，包含机器可读 code、safe message、retryability 和不越权的恢复提示。
 
 ### Runtime and Live Acceptance
 
@@ -53,7 +53,7 @@
 |---|---|---|
 | AGENT-01..04 | Phase 32 | Complete |
 | ORCH-01..04 | Phase 33 | Complete |
-| UX-01..02 | Phase 34 | Pending |
+| UX-01..02 | Phase 34 | Complete |
 | LIVE-01..03 | Phase 35 | Pending |
 
 **Coverage:** 13/13 active requirements mapped; unmapped 0.

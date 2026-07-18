@@ -1,6 +1,6 @@
 ---
 phase: 34
-status: draft
+status: verified
 nyquist: enabled
 created: 2026-07-19
 ---
