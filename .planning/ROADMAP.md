@@ -4,7 +4,7 @@
 
 项目从多源个人数据导入和统一架构开始，逐步建设结构化记忆、关系图、AI 消费接口与 canonical AgentView 会话层，并把历史会话蒸馏为可评估、可发布、可增量更新的知识单元 RAG。
 
-**Milestone v1.1：Knowledge Unit Evaluation & Quality** — Phase 17 代码已完成，人工 gold/judge/UAT 检查点仍开放；Phase 18 正在执行。v1.0 已完成，详见 [MILESTONE-v1.0.md](MILESTONE-v1.0.md)。
+**Milestone v1.1：Knowledge Unit Evaluation & Quality** — Phase 23–27 与 Product UAT 已完成，当前里程碑 release-ready；Phase 17 的历史人工检查点继续作为已知治理例外保留。v1.0 已完成，详见 [MILESTONE-v1.0.md](MILESTONE-v1.0.md)。
 
 ## Phases
 
@@ -32,6 +32,11 @@
 - [x] **Phase 20: Physical Data & Runtime Relocation** - 全部批准后 apply 完成；bak/alias 兼容窗口保留
 - [x] **Phase 21: Architectural Alignment - Domains Slimming** - build/eval → application/evaluation；facade 窗口至 2026-08-13（2026-07-15）
 - [x] **Phase 22: KU Lifecycle & Growth Line** - 不删数的 supersede/conflict；成长线；canary 收口；产品就绪（2026-07-16 complete）
+- [x] **Phase 23: Composite SSOT Snapshot Integrity** - D/S/R/A registry、复合 Serving Snapshot、证据下钻与 fail-closed Doctor
+- [x] **Phase 24: Evaluation Closure and Lifecycle Adoption** - 最终质量门、真实 lifecycle 与可逆 UAT（2026-07-18）
+- [x] **Phase 25: Personal State and Change Intelligence** - 个人状态、变化与历史解释（2026-07-18）
+- [x] **Phase 26: Decision Action Feedback Loop** - 建议、确认、行动、结果与效果闭环（2026-07-18）
+- [x] **Phase 27: Proactive Multi-domain Intelligence and Target D Acceptance** - 主动智能、信任控制与 Product UAT（2026-07-18）
 
 > **Audit note (2026-07-12):** P0 + P1 (15-02 / 16-02) executed and verified. See [Phase 15–16 audit](phases/15-retrieval-ssot-governance/15-16-AUDIT.md).
 
@@ -256,7 +261,7 @@
 | 20 | apply complete | **Complete** (alias/bak removal deferred) | 2026-07-13 |
 | 21 | 4/4 | **Complete** | 2026-07-15 |
 | 22 | 4/4 | **Complete** | 2026-07-16 |
-| **v1.1** | Phase 17 human + Phase 22 product hardening | **Executing** | — |
+| **v1.1** | Phase 23–27 + Product UAT | **Release-ready** | 2026-07-18 |
 
 ### Phase 21: Architectural Alignment - Domains Slimming
 
@@ -317,7 +322,8 @@ Plans:
 **Goal:** 用当前 serving snapshot 关闭 v1.1 评测和质量签收，并让真实生命周期数据进入 current-only 产品检索、历史解释和可回滚发布链。
 **Requirements**: QUAL-01, QUAL-02, LIFE-01, LIFE-02
 **Depends on:** Phase 23
-**Plans:** 1/4 plans executed
+**Status:** Complete (2026-07-18) — final quality, lifecycle and reversible UAT gates passed
+**Plans:** 7/7 plans complete
 
 **Success criteria:**
 - 五路检索与回答评测绑定同一 serving snapshot，真实 Gold/cross-turn/grounded/judge 证据达到 v2 门槛。
@@ -327,16 +333,19 @@ Plans:
 
 Plans:
 - [x] 24-01: Evidence-aware relevance and snapshot-bound evaluation
-- [ ] 24-02: Private human Gold, groundedness and judge calibration workflow
-- [ ] 24-03: Governed lifecycle events, corrections and real-cohort adoption
-- [ ] 24-04: Full evaluation PASS, promotion/rollback UAT and sign-off
+- [x] 24-02: Provenance-safe LLM Gold, groundedness and judge calibration workflow
+- [x] 24-03: Governed lifecycle events, corrections and real-cohort adoption
+- [x] 24-04: Full evaluation PASS, promotion/rollback UAT and sign-off
+- [x] 24-05: Evidence-aware retrieval candidate and immutable draft snapshot
+- [x] 24-06: Eligible lifecycle cohort adoption and reversible release chain
+- [x] 24-07: Final verification, documentation alignment and Product UAT closure
 
 ### Phase 25: Personal State and Change Intelligence — model goals, constraints, observations and changes; generate evidence-backed recent change summaries and explain current state from history
 
 **Goal:** 建立证据支持的个人状态与变化模型，可靠总结近期变化，并从历史解释目标、约束、项目和偏好的当前状态。
 **Requirements**: INTEL-01, INTEL-02
 **Depends on:** Phase 24
-**Status:** Technically verified — INTEL-01/02 passed; release remains blocked on Phase 24 human/quality gates
+**Status:** Complete — INTEL-01/02 passed; Phase 24 release gates and Product UAT are closed
 **Plans:** 4/4 plans complete
 
 Plans:
@@ -350,7 +359,7 @@ Plans:
 **Goal:** 建立事实/观察/推断/建议/确认的认知边界，以及建议→用户决定→行动→结果→有效性评估的可审计闭环。
 **Requirements**: DEC-01, DEC-02
 **Depends on:** Phase 25
-**Status:** Technically verified — DEC-01/02 passed; release remains blocked on Phase 24 human/quality gates
+**Status:** Complete — DEC-01/02 passed; Phase 24 release gates and Product UAT are closed
 **Plans:** 4/4 plans complete
 
 Plans:
@@ -371,7 +380,7 @@ Plans:
 **Goal:** 在隐私与信任控制下协调多领域目标，主动呈现真正重要的变化而不制造噪声，并通过完整 Target D 端到端验收。
 **Requirements**: PRO-01, PRO-02, TRUST-01, TD-01
 **Depends on:** Phase 26
-**Status:** Technically verified — PRO-01/02, TRUST-01 and TD-01 passed; product release remains blocked on Phase 24
+**Status:** Complete — PRO-01/02, TRUST-01 and TD-01 passed; Product UAT is accepted
 **Plans:** 4/4 plans complete
 
 Plans:

@@ -27,7 +27,7 @@
 
 LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执行权限。
 
-## Current Milestone: v1.1 Knowledge Unit Evaluation & Quality
+## Current Milestone: v1.1 Knowledge Unit Evaluation & Quality — Release-ready
 
 **Goal:** 建立统一、可复跑、可视化、可阻断发布的知识单元全面评测闭环，量化 Raw、L1、L2、L1+L2、Hybrid 与最终 RAG 回答之间的真实提升。
 
@@ -128,4 +128,4 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 本文件在阶段转换和里程碑边界持续更新。每次阶段完成时核对需求、关键决策、范围和真实运行状态；每次里程碑结束时重新检查 Core Value、Out of Scope 与已验证能力。
 
 ---
-*Last updated: 2026-07-13 — Milestone v1.1 planning started*
+*Last updated: 2026-07-18 — Milestone v1.1 release-ready; next PDI milestone remains candidate-only*
