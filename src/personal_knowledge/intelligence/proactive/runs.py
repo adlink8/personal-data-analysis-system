@@ -20,6 +20,11 @@ REGISTRY_ID = "a.proactive_intelligence"
 REGISTRY_AUTHORITY_ROLE = "proactive_intelligence"
 NO_CONTROL_FRONTIER_CHECKSUM = checksum({"control_events": []})
 NO_DECISION_EVENT_FRONTIER_CHECKSUM = checksum({"decision_events": []})
+PROACTIVE_TABLES = frozenset({
+    "proactive_runs", "proactive_coordination_items", "proactive_candidates",
+    "proactive_candidate_support", "proactive_evaluations",
+    "proactive_control_events", "proactive_surface_events",
+})
 
 
 class ProactiveValidationError(ValueError):
@@ -31,6 +36,14 @@ class ProactiveValidationError(ValueError):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _assert_schema(con: sqlite3.Connection) -> None:
+    tables = {str(row[0]) for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    existing = tables & PROACTIVE_TABLES
+    if existing != PROACTIVE_TABLES:
+        code = "proactive_schema_unapplied" if not existing else "proactive_schema_partial"
+        raise ProactiveValidationError(code, ",".join(sorted(PROACTIVE_TABLES - existing)))
 
 
 def _event_frontier(con: sqlite3.Connection, decision_run_id: str | None) -> str:
@@ -129,6 +142,7 @@ def plan_run(
     con = sqlite3.connect(f"file:{Path(db_path).resolve().as_posix()}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     try:
+        _assert_schema(con)
         source = _source_context(con, source_run_id)
         if str(source["output_manifest_checksum"]) != source_run_checksum or int(source["publication_sequence"]) != source_publication_sequence:
             raise ProactiveValidationError("source_binding_changed", source_run_id)
@@ -226,6 +240,7 @@ def publish_run(db_path: Path, run: ProactiveRun, *, write: bool, inject_failure
     try:
         assert_foreign_key_integrity(con)
         con.execute("BEGIN IMMEDIATE")
+        _assert_schema(con)
         source = _source_context(con, run.source_run_id)
         decision = _decision_context(con, run.decision_run_id)
         if str(source["output_manifest_checksum"]) != run.source_run_checksum or int(source["publication_sequence"]) != run.source_publication_sequence or str(source["snapshot_id"]) != run.snapshot_id or str(source["snapshot_hash"]) != run.snapshot_hash:

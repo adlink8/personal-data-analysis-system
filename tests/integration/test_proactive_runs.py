@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -90,3 +91,59 @@ def test_fault_rolls_back_all_typed_rows(tmp_path: Path) -> None:
     assert con.execute("SELECT COUNT(*) FROM proactive_runs").fetchone()[0] == 0
     assert con.execute("SELECT COUNT(*) FROM proactive_coordination_items").fetchone()[0] == 0
     con.close()
+
+
+def test_changed_input_creates_new_run_and_concurrent_replay_converges(tmp_path: Path) -> None:
+    db, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path)
+    common = dict(source_run_id=state_id, source_run_checksum=state_checksum,
+                  source_publication_sequence=seq, decision_run_id=decision.run_id,
+                  decision_run_checksum=decision.run_checksum, coordination_policy="c-v1",
+                  ranking_policy="r-v1", noise_policy="n-v1")
+    first = plan_run(db, [draft], input_manifest={"request": "one"}, **common)
+    second = plan_run(db, [draft], input_manifest={"request": "two"}, **common)
+    assert first.run_id != second.run_id
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: publish_run(db, first, write=True), range(2)))
+    assert sorted((item["written"], item["existing"]) for item in results) == [(False, True), (True, False)]
+    assert publish_run(db, second, write=True)["written"] is True
+    assert sqlite3.connect(db).execute("SELECT COUNT(*) FROM proactive_runs").fetchone()[0] == 2
+
+
+def test_source_and_existing_row_tamper_fail_closed(tmp_path: Path) -> None:
+    db, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path)
+    run = plan_run(db, [draft], source_run_id=state_id, source_run_checksum=state_checksum,
+                   source_publication_sequence=seq, decision_run_id=decision.run_id,
+                   decision_run_checksum=decision.run_checksum, coordination_policy="c",
+                   ranking_policy="r", noise_policy="n", input_manifest={})
+    con = sqlite3.connect(db)
+    con.execute("DROP TRIGGER trg_personal_state_runs_immutable_update")
+    con.execute("UPDATE personal_state_runs SET output_manifest_json='{}' WHERE run_id=?", (state_id,))
+    con.commit(); con.close()
+    with pytest.raises(ProactiveValidationError, match="source_output_manifest_tampered"):
+        publish_run(db, run, write=True)
+    assert sqlite3.connect(db).execute("SELECT COUNT(*) FROM proactive_runs").fetchone()[0] == 0
+
+    other, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path / "other")
+    run = plan_run(other, [draft], source_run_id=state_id, source_run_checksum=state_checksum,
+                   source_publication_sequence=seq, decision_run_id=decision.run_id,
+                   decision_run_checksum=decision.run_checksum, coordination_policy="c",
+                   ranking_policy="r", noise_policy="n", input_manifest={})
+    publish_run(other, run, write=True)
+    con = sqlite3.connect(other)
+    con.execute("DROP TRIGGER trg_proactive_coordination_items_immutable_update")
+    con.execute("UPDATE proactive_coordination_items SET payload_json='{}'")
+    con.commit(); con.close()
+    with pytest.raises(ProactiveValidationError, match="existing_coordination_tampered"):
+        publish_run(other, run, write=True)
+
+
+def test_partial_proactive_schema_fails_closed(tmp_path: Path) -> None:
+    db, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path)
+    con = sqlite3.connect(db)
+    con.execute("DROP TABLE proactive_surface_events")
+    con.commit(); con.close()
+    with pytest.raises(ProactiveValidationError, match="proactive_schema_partial"):
+        plan_run(db, [draft], source_run_id=state_id, source_run_checksum=state_checksum,
+                 source_publication_sequence=seq, decision_run_id=decision.run_id,
+                 decision_run_checksum=decision.run_checksum, coordination_policy="c",
+                 ranking_policy="r", noise_policy="n", input_manifest={})
