@@ -14,6 +14,7 @@ from personal_knowledge.intelligence.decision.context_binding import (
 )
 
 from .runs import load_policy
+from .evidence import present_evidence_reference
 from .schema import (
     ALLOWED_EVIDENCE_AUTHORITIES,
     SCHEMA_VERSION,
@@ -28,7 +29,7 @@ from .schema import (
 
 ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_PROMPT_PATH = ROOT / "assets/prompts/decision_analysis_v1.txt"
-DEFAULT_SCHEMA_PATH = Path(__file__).with_name("schema.py")
+DEFAULT_SCHEMA_PATH = ROOT / "assets/schemas/decision_analysis_response_v1.json"
 DEFAULT_POLICY_PATH = ROOT / "governance/policies/decision_analysis.yaml"
 PROMPT_VERSION = "decision-analysis-prompt-v1"
 BEGIN_EVIDENCE = "<<<UNTRUSTED_EVIDENCE_BEGIN>>>"
@@ -213,14 +214,24 @@ def build_confirmed_input(
         "personal": [asdict(item) for item in personal],
         "external": [asdict(item) for item in external],
     }
-    manifest = {**controls, "evidence_allowlist": evidence}
+    evidence_context = {
+        "personal": [present_evidence_reference(
+            item, personal_db_path=personal_db_path, external_db_path=external_db_path,
+        ) for item in personal],
+        "external": [present_evidence_reference(
+            item, personal_db_path=personal_db_path, external_db_path=external_db_path,
+        ) for item in external],
+    }
+    manifest = {**controls, "evidence_allowlist": evidence, "evidence_context": evidence_context}
     reject_forbidden(manifest, "request")
     encoded = canonical_json(manifest).encode("utf-8")
     if len(encoded) > max_request_bytes:
         raise AnalysisInputError("request_payload_too_large", str(len(encoded)))
     request_checksum = checksum(manifest)
     rendered = template.replace("{{CONTROL_JSON}}", canonical_json(controls)).replace(
-        "{{UNTRUSTED_EVIDENCE_JSON}}", canonical_json(evidence),
+        "{{UNTRUSTED_EVIDENCE_JSON}}", canonical_json({
+            "allowlist": evidence, "context": evidence_context,
+        }),
     )
     return ConfirmedAnalysisInput(
         request_manifest=manifest, request_checksum=request_checksum,

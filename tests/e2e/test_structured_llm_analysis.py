@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 from pathlib import Path
 import sqlite3
+import subprocess
 
 import pytest
 
@@ -11,7 +13,8 @@ from personal_knowledge.intelligence.analysis.executor import execute_analysis
 from personal_knowledge.intelligence.analysis.inputs import ConfirmedAnalysisInput
 from personal_knowledge.intelligence.analysis.migrate import migrate
 from personal_knowledge.intelligence.analysis.providers import (
-    OpenAICompatibleProvider, ProviderError, ProviderRequest, ProviderTimeout, ReplayProvider,
+    CodexCliProvider, OpenAICompatibleProvider, ProviderError, ProviderRequest,
+    ProviderTimeout, ReplayProvider,
 )
 from personal_knowledge.intelligence.analysis.runs import load_policy
 from personal_knowledge.intelligence.analysis.schema import SCHEMA_VERSION, checksum
@@ -192,3 +195,30 @@ def test_openai_compatible_boundary_is_disabled_by_default() -> None:
     with pytest.raises(ProviderError, match="provider_not_authorized"):
         provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 10, 1.0))
     assert not called
+
+
+def test_codex_cli_provider_parses_jsonl_and_enforces_single_call(tmp_path: Path) -> None:
+    schema = tmp_path / "schema.json"
+    schema.write_text("{}", encoding="utf-8")
+    payload = _payload()
+    events = "\n".join(json.dumps(item) for item in [
+        {"type": "thread.started", "thread_id": "redacted"},
+        {"type": "item.completed", "item": {
+            "type": "agent_message", "text": json.dumps(payload),
+        }},
+        {"type": "turn.completed", "usage": {"input_tokens": 123, "output_tokens": 45}},
+    ])
+    def runner(command, **kwargs):
+        assert "--ephemeral" in command and "read-only" in command
+        assert kwargs["input"] == "prompt"
+        return subprocess.CompletedProcess(command, 0, stdout=events, stderr="")
+    provider = CodexCliProvider(
+        model="gpt-5.6-luna", output_schema_path=schema,
+        working_directory=tmp_path, enabled=True, credential_present=True,
+        runner=runner,
+    )
+    result = provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
+    assert result.response_payload == payload
+    assert result.telemetry.input_tokens == 123 and result.telemetry.output_tokens == 45
+    with pytest.raises(ProviderError, match="provider_call_budget_exhausted"):
+        provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))

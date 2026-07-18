@@ -98,7 +98,7 @@ def parse_candidate_package(
         raise CandidateParseError("candidate_claims_invalid")
     claims: list[AnalysisClaim] = []
     for index, raw_claim in enumerate(raw_claims):
-        fields = {"claim_id", "claim_type", "statement", "evidence", "claim_checksum"}
+        fields = {"claim_id", "claim_type", "statement", "evidence"}
         if not isinstance(raw_claim, Mapping) or set(raw_claim) != fields:
             raise CandidateParseError("candidate_claim_fields_invalid", str(index))
         raw_evidence = raw_claim["evidence"]
@@ -114,12 +114,10 @@ def parse_candidate_package(
             claim = AnalysisClaim(
                 claim_id=str(raw_claim["claim_id"]), claim_type=str(raw_claim["claim_type"]),
                 statement=str(raw_claim["statement"]), evidence=evidence,
-                claim_checksum=str(raw_claim["claim_checksum"]),
+                claim_checksum=checksum(core),
             )
         except (AnalysisSchemaError, TypeError, ValueError) as exc:
             raise CandidateParseError("candidate_claim_invalid", str(index)) from exc
-        if checksum(core) != claim.claim_checksum:
-            raise CandidateParseError("candidate_claim_checksum_mismatch", claim.claim_id)
         claims.append(claim)
     if len({item.claim_id for item in claims}) != len(claims):
         raise CandidateParseError("candidate_claim_id_duplicate")

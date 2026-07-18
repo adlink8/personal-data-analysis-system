@@ -13,7 +13,7 @@ from personal_knowledge.intelligence.decision.context_binding import DecisionCon
 
 ROOT = Path(__file__).resolve().parents[2]
 PROMPT = ROOT / "assets/prompts/decision_analysis_v1.txt"
-SCHEMA = ROOT / "src/personal_knowledge/intelligence/analysis/schema.py"
+SCHEMA = ROOT / "assets/schemas/decision_analysis_response_v1.json"
 POLICY = ROOT / "governance/policies/decision_analysis.yaml"
 
 
@@ -30,6 +30,11 @@ def _build(monkeypatch, **paths):
     monkeypatch.setattr(
         "personal_knowledge.intelligence.analysis.inputs.validate_decision_context_binding",
         lambda value, personal, external, now=None: {"binding": binding.to_dict()},
+    )
+    monkeypatch.setattr(
+        "personal_knowledge.intelligence.analysis.inputs.present_evidence_reference",
+        lambda item, **kwargs: {"reference": __import__("dataclasses").asdict(item),
+                               "evidence_type": item.record_type, "value": "bounded"},
     )
     refs = (
         EvidenceReference("a.personal_change", "change", "pc1", "3" * 64, "p1", "1" * 64),
@@ -67,4 +72,3 @@ def test_prompt_schema_or_policy_drift_changes_request_identity(tmp_path: Path, 
     changed_policy = _build(monkeypatch, prompt_path=prompt, schema_path=schema, policy_path=policy)
     assert len({baseline.request_checksum, changed_prompt.request_checksum,
                 changed_schema.request_checksum, changed_policy.request_checksum}) == 4
-

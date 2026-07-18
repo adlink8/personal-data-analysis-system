@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from pathlib import Path
+import subprocess
 import time
 from typing import Any, Callable, Mapping, Protocol
 
@@ -173,8 +175,115 @@ class OpenAICompatibleProvider:
         )
 
 
+CodexRunner = Callable[..., subprocess.CompletedProcess[str]]
+
+
+class CodexCliProvider:
+    """One-shot existing-ChatGPT boundary using Codex JSONL and a frozen schema."""
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        output_schema_path: Path | str,
+        working_directory: Path | str,
+        enabled: bool = False,
+        credential_present: bool = False,
+        max_calls: int = 1,
+        runner: CodexRunner = subprocess.run,
+    ) -> None:
+        self.model = model
+        self.output_schema_path = Path(output_schema_path)
+        self.working_directory = Path(working_directory)
+        self.enabled = enabled
+        self.credential_present = credential_present
+        self.max_calls = max_calls
+        self.runner = runner
+        self.calls = 0
+
+    @staticmethod
+    def _events(stdout: str) -> tuple[dict[str, Any], dict[str, int]]:
+        final_text: str | None = None
+        usage: dict[str, int] = {}
+        for line in stdout.splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ProviderError("codex_jsonl_invalid") from exc
+            if not isinstance(event, Mapping):
+                continue
+            item = event.get("item")
+            if (event.get("type") == "item.completed" and isinstance(item, Mapping)
+                    and item.get("type") == "agent_message" and isinstance(item.get("text"), str)):
+                final_text = str(item["text"])
+            if event.get("type") in {"agent_message", "message.completed"} and isinstance(event.get("text"), str):
+                final_text = str(event["text"])
+            raw_usage = event.get("usage") or event.get("token_usage")
+            if isinstance(raw_usage, Mapping):
+                for target, sources in {
+                    "input_tokens": ("input_tokens", "prompt_tokens"),
+                    "output_tokens": ("output_tokens", "completion_tokens"),
+                }.items():
+                    for source in sources:
+                        if source in raw_usage:
+                            usage[target] = int(raw_usage[source])
+                            break
+        if final_text is None:
+            raise ProviderError("codex_final_message_missing")
+        try:
+            payload = json.loads(final_text)
+        except json.JSONDecodeError as exc:
+            raise ProviderError("codex_response_json_invalid") from exc
+        if not isinstance(payload, dict):
+            raise ProviderError("codex_response_json_invalid")
+        return payload, usage
+
+    def generate(self, request: ProviderRequest) -> ProviderResult:
+        if not self.enabled:
+            raise ProviderError("provider_not_authorized")
+        if not self.credential_present:
+            raise ProviderError("provider_credential_missing")
+        if self.max_calls != 1 or self.calls >= self.max_calls:
+            raise ProviderError("provider_call_budget_exhausted")
+        if not self.output_schema_path.is_file() or not self.working_directory.is_dir():
+            raise ProviderError("provider_runtime_path_invalid")
+        self.calls += 1
+        command = [
+            "codex", "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+            "--skip-git-repo-check", "--sandbox", "read-only", "--model", self.model,
+            "--output-schema", str(self.output_schema_path.resolve()), "--json",
+            "--color", "never", "--cd", str(self.working_directory.resolve()), "-",
+        ]
+        started = time.monotonic()
+        try:
+            completed = self.runner(
+                command, input=request.prompt, text=True, capture_output=True,
+                timeout=request.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ProviderTimeout("codex_cli") from exc
+        except OSError as exc:
+            raise ProviderError("codex_cli_unavailable", type(exc).__name__) from exc
+        latency = int((time.monotonic() - started) * 1000)
+        if completed.returncode != 0:
+            raise ProviderError("codex_cli_failed", f"exit={completed.returncode}")
+        payload, usage = self._events(completed.stdout)
+        return ProviderResult(
+            response_payload=payload, response_checksum=checksum(payload),
+            telemetry=ProviderTelemetry(
+                provider="codex-chatgpt", model=self.model,
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+                cost_amount=0.0, cost_currency="USD", latency_ms=latency,
+                status="completed",
+            ),
+        )
+
+
 __all__ = [
     "AnalysisProvider", "OpenAICompatibleProvider", "ProviderError", "ProviderRequest",
-    "ProviderResult", "ProviderTelemetry", "ProviderTimeout", "ReplayProvider",
+    "CodexCliProvider", "ProviderResult", "ProviderTelemetry", "ProviderTimeout",
+    "ReplayProvider",
 ]
-

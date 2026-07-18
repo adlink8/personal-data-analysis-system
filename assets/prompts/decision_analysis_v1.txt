@@ -7,6 +7,9 @@ opportunity_cost, and reversibility. Include assumptions, uncertainty,
 missing_information, and stop_conditions. Never approve, execute, dispatch, or call tools.
 Return every factual or inference claim in the required claims array. Factual claims
 must cite only exact evidence references from the supplied allowlist.
+Do not invent or calculate checksums. Copy evidence reference fields exactly; the
+system computes immutable claim checksums after validation. The response JSON Schema
+is enforced separately and is part of the request lineage.
 
 Trusted request controls:
 {{CONTROL_JSON}}

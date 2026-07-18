@@ -25,6 +25,11 @@ def _request(monkeypatch, **changes):
         "personal_knowledge.intelligence.analysis.inputs.validate_decision_context_binding",
         lambda value, personal, external, now=None: {"binding": binding.to_dict()},
     )
+    monkeypatch.setattr(
+        "personal_knowledge.intelligence.analysis.inputs.present_evidence_reference",
+        lambda item, **kwargs: {"reference": __import__("dataclasses").asdict(item),
+                               "evidence_type": item.record_type, "value": "bounded"},
+    )
     values = dict(
         binding=binding, personal_db_path="personal.sqlite", external_db_path="external.sqlite",
         goal="Choose rollout", constraints=("no downtime",), weights={"safety": .7, "speed": .3},
@@ -112,15 +117,16 @@ def test_model_claims_require_exact_checksum_and_typed_evidence(monkeypatch) -> 
     evidence = request.request_manifest["evidence_allowlist"]["external"][0]
     core = {"claim_id": "claim-1", "claim_type": "factual",
             "statement": "The external release is current.", "evidence": [evidence]}
-    payload["claims"] = [{**core, "claim_checksum": checksum(core)}]
+    payload["claims"] = [core]
     from personal_knowledge.intelligence.analysis.candidates import parse_candidate_package
     _, claims = parse_candidate_package(
         payload, expected_binding_hash=_binding().binding_hash,
         expected_request_checksum=request.request_checksum,
     )
     assert claims[0].evidence[0].record_id == evidence["record_id"]
-    payload["claims"][0]["claim_checksum"] = "0" * 64
-    with pytest.raises(CandidateParseError, match="candidate_claim_checksum_mismatch"):
+    assert claims[0].claim_checksum == checksum(core)
+    payload["claims"][0]["evidence"][0]["record_checksum"] = "invalid"
+    with pytest.raises(CandidateParseError, match="candidate_claim_invalid"):
         parse_candidate_package(
             payload, expected_binding_hash=_binding().binding_hash,
             expected_request_checksum=request.request_checksum,

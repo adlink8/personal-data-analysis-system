@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import json
 from pathlib import Path
 import sqlite3
 from typing import Any, Iterable, Mapping
 
 from personal_knowledge.external_context.service import ExternalContextService
+from personal_knowledge.core.privacy_guard import guard_jsonable
 from personal_knowledge.intelligence.decision.context_binding import (
     DecisionContextBinding,
     validate_decision_context_binding,
@@ -129,6 +131,73 @@ def resolve_evidence_reference(
     raise EvidenceGateError("evidence_authority_invalid", reference.authority_id)
 
 
+def present_evidence_reference(
+    reference: EvidenceReference,
+    *,
+    personal_db_path: Path | str,
+    external_db_path: Path | str,
+) -> dict[str, Any]:
+    """Resolve first, then expose one bounded structured value to the provider."""
+    resolved = resolve_evidence_reference(
+        reference, personal_db_path=personal_db_path, external_db_path=external_db_path,
+    )
+    if reference.authority_id == "s.external_fact":
+        response = ExternalContextService(external_db_path).invoke("facts.get", fact_id=reference.record_id)
+        if not response.get("ok"):
+            raise EvidenceGateError("evidence_record_invalid", reference.record_id)
+        item = response["data"]
+        presentation: dict[str, Any] = {
+            "reference": asdict(reference), "evidence_type": resolved.evidence_type,
+            "subject": item["subject"], "predicate": item["predicate"],
+            "value": item["value"], "valid_from": item["valid_from"],
+            "valid_to": item["valid_to"], "region": item["region"],
+            "source_quality": item["source_quality"],
+            "fact_confidence": item["fact_confidence"],
+        }
+    else:
+        table_map = {
+            "fact": ("personal_state_assertions", "assertion_id"),
+            "observation": ("personal_state_assertions", "assertion_id"),
+            "inference": ("personal_state_assertions", "assertion_id"),
+            "assertion": ("personal_state_assertions", "assertion_id"),
+        }
+        spec = table_map.get(reference.record_type)
+        if spec is None:
+            presentation = {
+                "reference": asdict(reference), "evidence_type": resolved.evidence_type,
+                "record_id": reference.record_id,
+            }
+        else:
+            table, id_column = spec
+            con = _ro(personal_db_path)
+            try:
+                row = con.execute(
+                    f"SELECT subject,domain,scope,predicate,value_json,confidence,uncertainty,lifecycle "
+                    f"FROM {table} WHERE {id_column}=?", (reference.record_id,),
+                ).fetchone()
+            finally:
+                con.close()
+            if row is None:
+                raise EvidenceGateError("evidence_record_missing", reference.record_id)
+            try:
+                value = json.loads(str(row["value_json"]))
+            except json.JSONDecodeError as exc:
+                raise EvidenceGateError("evidence_record_invalid", reference.record_id) from exc
+            presentation = {
+                "reference": asdict(reference), "evidence_type": resolved.evidence_type,
+                "subject": str(row["subject"]), "domain": str(row["domain"]),
+                "scope": str(row["scope"]), "predicate": str(row["predicate"]),
+                "value": value, "confidence": float(row["confidence"]),
+                "uncertainty": str(row["uncertainty"]), "lifecycle": str(row["lifecycle"]),
+            }
+    guarded, privacy = guard_jsonable(presentation, mode="redact")
+    if privacy.hit_count or canonical_json(guarded) != canonical_json(presentation):
+        raise EvidenceGateError("evidence_privacy_risk", reference.record_id)
+    if len(canonical_json(presentation).encode("utf-8")) > 8_192:
+        raise EvidenceGateError("evidence_presentation_too_large", reference.record_id)
+    return presentation
+
+
 def validate_claim_evidence(
     claims: Iterable[AnalysisClaim],
     *,
@@ -185,5 +254,5 @@ def validate_claim_evidence(
 
 __all__ = [
     "EvidenceGateError", "ResolvedEvidence", "resolve_evidence_reference",
-    "validate_claim_evidence",
+    "present_evidence_reference", "validate_claim_evidence",
 ]
