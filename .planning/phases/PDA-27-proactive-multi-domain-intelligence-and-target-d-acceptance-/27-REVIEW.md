@@ -67,14 +67,25 @@ Phase 27 深度审查发现的 3 个 Critical 与 3 个 Warning 已全部修复�
 ## Verification Evidence
 
 - 审查新增及直接受影响测试：**49 passed**。
-- Phase 27 全量：**86 passed**。
-- Phase 25/26 相邻回归：**78 passed**。
+- Phase 27 全量：**90 passed**（含独立验证 F-01 的 4 项新回归）。
+- Phase 25/26 相邻回归：**156 passed**。
 - Apps SDK、knowledge search、serving snapshot：**33 passed**。
 - Governance preflight：**13/13 PASS**。
 - 全仓：**PASS，2 skipped**；仅 2 条既有 `SyntaxWarning`。
 - `git diff --check`：PASS。
 - live `acceptance --dry-run --metadata-only --json`：`technical_status=passed`、`release_status=release_blocked`；before/after fingerprint 均为 `4dd84122a832d593006f6f7107d96abe80fb6c77dfa7c2144cc06f0ec898476c`。
 - live side effects：`persisted_rows=0`、`mutations=0`、`private_bodies=0`、`external_actions=0`、`network_calls=0`、`paid_calls=0`。
+
+## Independent Verification Gap Appendix
+
+独立验证随后发现 F-01：同 specificity 控制曾按原始 ISO-8601 字符串排序，混合 UTC offset 时可能选错 winner。该缺口不改变 target specificity 主序、scope specificity 次序或 denial fail-closed 语义。
+
+- `0e01c40`：新增同 target stream sequence、跨 target 混合 offset、equal instant 和稳定 tie-break 的 RED 回归。
+- `a526f3a`：流内以 checksum-verified sequence 为权威；跨流比较解析后的 UTC instant，再以稳定 target/sequence/event-ID 决胜。
+- 修复后 controls 受影响套件 **58 passed**，Phase 27 **90 passed**，Phase 25/26 **156 passed**，接口回归 **33 passed**，preflight **13/13 PASS**，全仓 PASS（2 skipped）。
+- live metadata-only acceptance 保持 `technical_status=passed`、`release_status=release_blocked`，before/after fingerprint 均为 `4dd84122a832d593006f6f7107d96abe80fb6c77dfa7c2144cc06f0ec898476c`，所有副作用计数为零。
+
+因此 F-01 已关闭，独立技术验证更新为 4/4 passed；本附录不改变下述 Phase 24 产品发布阻塞。
 
 ## Preserved Release Boundary
 

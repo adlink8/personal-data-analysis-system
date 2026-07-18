@@ -1,14 +1,14 @@
 ---
 phase: 27
 verified: 2026-07-18
-status: failed
-score: "3/4"
+status: passed
+score: "4/4"
 requirements:
   PRO-01: passed
   PRO-02: passed
-  TRUST-01: failed
+  TRUST-01: passed
   TD-01: passed
-technical_status: failed
+technical_status: passed
 release_status: release_blocked
 verification_scope: independent_technical
 ---
@@ -17,7 +17,7 @@ verification_scope: independent_technical
 
 ## Verdict
 
-**Phase 27 independent technical verification: FAILED (3/4 requirements).** PRO-01, PRO-02 and TD-01 have direct implementation and positive/negative execution evidence. TRUST-01 has one independently reproduced temporal-precedence defect: same-specificity control events are ordered by their raw ISO-8601 strings, so equivalent timestamps with different UTC offsets can select an older control as the current winner.
+**Phase 27 independent technical verification: PASSED (4/4 requirements).** PRO-01, PRO-02, TRUST-01 and TD-01 have direct implementation and positive/negative execution evidence. The independently reproduced TRUST-01 temporal-precedence defect is fixed and covered by mixed-offset, equal-instant, same-target sequence and cross-target regression cases.
 
 **Product release remains `release_blocked`.** Phase 24 still lacks genuine human Gold, groundedness, Judge calibration, reviewed lifecycle adoption and product UAT. This verification did not run any live migration/write/apply, change serving/pointer/watermark state, finalize reviews, dispatch an external action, or make network/paid calls.
 
@@ -37,33 +37,25 @@ verification_scope: independent_technical
 - Exact candidate-support replay validates the complete support set and rejects missing, extra, payload-tampered or stale source records.
 - Outputs remain metadata-only inbox/digest proposals; REST/MCP expose no notification sender, scheduler, connector, command or external executor.
 
-### TRUST-01 — failed
+### TRUST-01 — passed
 
-Append-only user ownership, exact target binding, sequence/checksum chains, idempotency, restore history, current overlay and correction routing are implemented and their ordinary paths pass. However, temporal precedence is incorrect for valid offset-aware timestamps.
+Append-only user ownership, exact target binding, sequence/checksum chains, idempotency, restore history, current overlay and correction routing are implemented and pass. Temporal precedence now also passes valid offset-aware, equal-instant and out-of-time-order sequence cases.
 
-#### F-01 — raw timestamp string can select the wrong latest control
+#### F-01 — RESOLVED: normalized cross-stream time with authoritative stream sequence
 
 **Contract:** `27-RESEARCH.md` requires the most recent valid stream state in sequence order and says the latest valid event wins at equal specificity. `27-03-PLAN.md` also requires timezone-aware `as_of` behavior.
 
-**Implementation evidence:** `src/personal_knowledge/intelligence/proactive/controls.py:258` selects the winner with:
-
-```python
-max(denials or top, key=lambda item: (item.created_at, item.sequence, item.event_id))
-```
-
-`created_at` is the unnormalized input string. Although eligibility and expiry parse timestamps to UTC, winner ordering does not.
-
-**Independent disposable reproduction:** one exact candidate target received two valid same-specificity denial events:
+**Original independent reproduction:** one exact candidate target received two valid same-specificity denial events:
 
 1. sequence 1: `suppress`, `created_at=2026-07-18T12:00:00+08:00` (UTC 04:00);
 2. sequence 2: `snooze`, `created_at=2026-07-18T05:00:00Z` (UTC 05:00), expiry UTC 08:00;
 3. projection at `2026-07-18T06:00:00Z`.
 
-The later event is the snooze, but the implementation returned `suppressed_by_user` and the sequence-1 suppress event as winner because the string `12:00...` sorts after `05:00...`.
+The old implementation returned the sequence-1 suppress event because it compared the raw strings. The repaired implementation first selects the latest event within each checksum-verified target stream by sequence, then compares different target streams by parsed UTC instant with stable target/sequence/event-ID tie breakers. Target specificity remains the primary order, scope specificity remains secondary and denial semantics remain fail closed.
 
-**Impact:** current control reason, winning event and projected checksum can be wrong when callers use different valid timezone offsets. This weakens user trust lifecycle semantics and deterministic replay across equivalent timestamp representations.
+**Regression evidence:** the old implementation failed three new cases covering same-stream sequence, mixed-offset cross-stream order and equal-instant stable target precedence. After the repair, all four added cases pass, including cross-stream selection after per-stream sequence reduction. The complete control suite and all wider gates also pass.
 
-**Required fix:** normalize timestamps before ordering. Within one target stream, use the checksum-verified sequence as the authoritative order; across target streams, compare parsed UTC instants and use stable target/sequence/event-ID tie breakers. Add regression coverage for mixed offsets, equal instants, same-target sequence order and cross-target equal-specificity precedence. Re-run the complete Phase 27, adjacent, acceptance and preflight gates.
+**Repair commits:** `0e01c40` adds the RED regression matrix; `a526f3a` implements the minimal normalized precedence repair.
 
 ### TD-01 — passed
 
@@ -72,23 +64,24 @@ The later event is the snooze, but the implementation returned `suppressed_by_us
 - Applied schema validation passed for a complete disposable Phase 25→26→27 authority, rejected deleted candidate-support rows as `support_manifest_mismatch`, and rejected a partial Phase 27 schema as `phase27_schema_partial`.
 - CLI guards require explicit local write authorization and exact confirmation. REST/MCP remain read-only and all external/network/paid counters are zero.
 
-TD-01's end-to-end mechanism is technically demonstrated, but the phase-wide `technical_status` remains failed until F-01 is fixed because Target D includes trustworthy user correction/control semantics.
+TD-01's end-to-end mechanism and the repaired TRUST-01 control semantics are technically demonstrated. The phase-wide `technical_status` is therefore `passed`.
 
 ## Independent execution evidence
 
 | Gate | Result |
 |---|---|
-| Phase 27 unit/contract/integration suite | PASS — 86 tests |
-| Phase 25/26 adjacent regression | PASS — 78 tests |
+| Phase 27 unit/contract/integration suite | PASS — 90 tests |
+| Phase 25/26 adjacent regression | PASS — 156 tests |
 | Apps SDK, knowledge search and serving snapshot regression | PASS — 33 tests |
 | Governance preflight | PASS — 13/13 gates |
-| Live metadata-only acceptance | Command passed its current gates; independent verification overrides technical verdict because F-01 is not covered |
+| Live metadata-only acceptance | PASS — `technical_status=passed`, unchanged fingerprint and zero side effects |
 | Complete-applied disposable authority | PASS — Phase 25/26/27 each `validated_committed_runs` |
 | Corrupt candidate-support fixture | PASS fail-closed — `proactive_integrity_invalid:support_manifest_mismatch` |
 | Partial Phase 27 schema fixture | PASS fail-closed — `technical_status=failed`, `phase27_schema_partial` |
-| Mixed-offset trust precedence fixture | FAIL — reproduced F-01 |
+| Mixed-offset/equal-instant/stream-sequence fixtures | PASS — F-01 repaired |
+| Full repository suite | PASS — 2 skipped; only 2 pre-existing `SyntaxWarning` messages |
 
-The full repository suite was not rerun in this verifier pass because the current Phase 27 review already records a post-remediation repository PASS and the independent targeted, adjacent and interface suites cover the changed authority. This omission does not affect the failed verdict; it must be rerun after F-01 is repaired.
+The full repository suite was rerun after the repair and passed. `git diff --check` also passed.
 
 ## Live metadata-only evidence
 
@@ -100,11 +93,11 @@ python -m personal_knowledge.intelligence.proactive.cli acceptance --dry-run --m
 
 It resolved active snapshot `ss_1590353394c948b908a5d675` with hash `a2ce76eb76c15ab8560718b03e94405538a54491c7b14c12f283d29e35c1a0fa`. Before/after fingerprints were identical at `4dd84122a832d593006f6f7107d96abe80fb6c77dfa7c2144cc06f0ec898476c`. Live Phase 25/26/27 schemas were all explicitly `unapplied`. `mutations`, `persisted_rows`, `private_bodies`, `external_actions`, `network_calls` and `paid_calls` were all zero.
 
-The command reported its implemented sandbox as `technical_status=passed`, but that result does not cover F-01. The independent phase verdict is therefore `technical_status=failed` until the missing negative case is fixed and added to the acceptance/test matrix.
+The command reported `technical_status=passed`, and independent regression now covers F-01. The live command remained metadata-only: before/after fingerprints were identical, with zero persisted rows, mutations, private bodies, external actions, network calls and paid calls.
 
 ## Technical Target D vs product Target D
 
-- **Technical Target D:** not yet signed off because TRUST-01 temporal precedence is wrong under valid mixed-offset timestamps. Fix and re-verification are required.
+- **Technical Target D:** passed independent verification across PRO-01, PRO-02, TRUST-01 and TD-01.
 - **Product Target D:** remains blocked regardless of F-01. Fixture/sandbox identities, controls and outcomes are not real user adoption or usefulness evidence. Product sign-off additionally requires genuine Phase 24 human quality evidence, reviewed lifecycle adoption/rollback, authorized live analysis publication, real-user end-to-end UAT and explicit release authorization.
 
 ## Preserved Phase 24 blockers
@@ -117,4 +110,3 @@ The command reported its implemented sandbox as `technical_status=passed`, but t
 - Explicit product UAT: absent
 
 No automated evidence in Phase 27 resolves these product blockers.
-
