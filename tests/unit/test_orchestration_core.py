@@ -17,7 +17,7 @@ from personal_knowledge.intelligence.orchestration import (
 
 
 SECRET = b"phase-33-confirmation-secret-32-bytes-minimum"
-ACTOR = "actor-user-verified"
+ACTOR = hashlib.sha256(b"actor-user-verified").hexdigest()
 NOW = "2026-07-19T01:00:00Z"
 
 
@@ -98,7 +98,7 @@ def test_prepare_is_pure_bounded_and_risk_gated(service: OrchestrationService):
 def test_confirmation_binds_preview_actor_operation_sequence_and_expiry(service: OrchestrationService):
     preview = _preview(service)
     token = service.issue_confirmation(preview, expires_at="2026-07-19T01:05:00Z")
-    drifted = replace(preview, actor_identity_hash="different")
+    drifted = replace(preview, actor_identity_hash="f" * 64)
     with pytest.raises(OrchestrationError, match="preview_checksum_mismatch"):
         service.confirm(drifted, confirmation_token=token, idempotency_key="x", now=NOW)
     with pytest.raises(OrchestrationError, match="confirmation_expired"):

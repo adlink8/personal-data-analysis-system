@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ from personal_knowledge.intelligence.orchestration.generation import reserve_gen
 
 
 NOW = "2026-07-19T02:00:00Z"
-ACTOR = "actor-generation-test"
+ACTOR = hashlib.sha256(b"actor-generation-test").hexdigest()
 SECRET = b"phase-33-generation-confirmation-secret-long"
 
 
