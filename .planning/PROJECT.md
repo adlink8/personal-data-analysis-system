@@ -2,7 +2,7 @@
 
 ## What This Is
 
-这是一个 Windows 本地优先的**个人决策智能系统**。它把 Google、GPT、Agent 与 AgentView 等长期个人数据转换为可持续追加、可查询、可追溯的个人知识与状态；未来再以独立的外部环境情报层接入社会、行业、政策和市场信息，通过受控 LLM 与确定性规则形成个性化决策建议、行动结果和反馈校准。系统同时提供 CLI、REST、MCP、可视化与 RAG 消费接口。
+这是一个 Windows 本地优先的**个人决策智能系统**。它把 Google、GPT、Agent 与 AgentView 等长期个人数据转换为可持续追加、可查询、可追溯的个人知识与状态，并以独立 External Context Authority 接入受控公共事实，通过受控 LLM 与确定性规则形成个性化决策建议、行动结果和反馈校准。系统同时提供 CLI、REST、MCP、可视化与 RAG 消费接口。
 
 项目状态分析只是 project 域的一个输入能力，不是产品最终目标。系统默认不替用户执行外部动作，用户保留价值选择、风险接受与最终决策权。
 
@@ -27,28 +27,34 @@
 
 LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执行权限。
 
-## Current Milestone: v1.2 External Context & Low-risk Decision Intelligence Pilot
+## Current State: v1.2 External Context & Low-risk Decision Intelligence Pilot
 
-**Goal:** 建立与个人事实隔离的 External Context Authority，并在低风险 `project` 域用受控 LLM 完成真实、证据绑定、可反馈的决策试点。
+**Shipped:** 2026-07-18。已建立与个人事实隔离的 External Context Authority，并在低风险 `project` 域用受控 LLM 完成真实、证据绑定、可反馈的决策试点。
 
-**Target features:**
+**Delivered features:**
 - 两个受控公共来源、一个 project/technology 主题的独立 External Authority
 - Personal + External 双快照 Decision Context 绑定与 fail-closed 漂移检查
 - 逐主张 evidence ID 的结构化 LLM Decision Analysis Candidate
 - 真实低风险 Recommendation→Decision→Action→Outcome 纵向链
-- 预注册 personalized/generic 对照、长期观察窗与 `INCONCLUSIVE` 边界
+- 预注册 personalized/generic 对照、观察窗与严格 `INCONCLUSIVE` 边界
 
 **Previous:** v1.0 completed 2026-07-12（Phases 01–16；Phase 08 cancelled）。见 [MILESTONE-v1.0.md](MILESTONE-v1.0.md)。
 
 ## Current Reality — 2026-07-18
 
+- Phase 28–31 已完成：External Authority、双快照结构化 LLM 分析、project 真实决策链和成对校准均可校验重建。
+- Phase 29 通过现有 ChatGPT 登录完成一次真实 `gpt-5.4` 分析；Phase 31 严格执行两臂各一次调用、零重试、零费用。
+- Phase 30 有一条 11-event 真实 Recommendation→Decision→Action→Outcome 主链及一条 defer 控制链；系统外部动作数为零。
+- Phase 31 个性化相对 generic 的效果结论为 **INCONCLUSIVE**：样本 1 小于最小 2、generic 缺少真实 outcome、实际 token 超出预注册预算；`causal_claim=false`。
+- v1.2 需求 PDI-01..08 全部完成，里程碑审计通过；后续扩样或扩域必须重新预注册并保持无自动 promotion。
+
 - Phase 23 已完成复合 SSOT、D/S/R/A registry、Serving Snapshot、证据下钻和 fail-closed Doctor。
 - Phase 24 已闭环：最终 Recall@5 提升 **10.4478pp**，置信下界 **+4.4776pp**；真实 lifecycle ledger 有 6 个事件、2 个 applied manifests。
 - Phase 25–27 Live schemas 已应用，Personal State、Decision Feedback、Proactive Intelligence 各有 1 个真实 committed run，并通过 exact snapshot/checksum 验证。
 - 真实链路已覆盖状态、建议、用户确认、行动、结果、非因果效果评估、主动候选以及 suppress/restore。
-- `src/personal_knowledge/intelligence` 当前没有 LLM 调用；建议生成仍是确定性规则与 abstention。
-- 当前没有社会、行业、政策和市场等 External Context Authority；Google Activities 属于个人行为数据，不属于外部社会情报。
-- Technical Target D、真实低风险数据链和用户显式 Product UAT 均已通过，当前里程碑 release-ready。External Context 与 LLM 决策分析仍属后续 PDI 愿景。
+- `src/personal_knowledge/intelligence` 已有受控 LLM candidate 路径；所有事实、隐私、冲突与风险门仍由确定性规则执行。
+- External Context Authority 当前限定两个 allowlisted 公共来源；Google Activities 仍属于个人行为数据，不属于外部社会情报。
+- Technical Target D、真实低风险数据链、External Context、LLM 决策分析与 Product UAT 均已通过；比较效果仍需更大真实 cohort。
 
 ## Requirements
 
@@ -63,6 +69,13 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 - ✓ Google 轻量结构化 lifecycle + RO consumer — Phase 16
 - ✓ 工程结构重整：闲置模块 `_recycle/`；scripts 领域分包 + 兼容 shim
 - ✓ Phase 08 取消（MEMX-01 wontfix）
+
+### Validated (v1.2)
+
+- ✓ 独立 External Context Authority、bounded import、生命周期和可逆快照 — PDI-01..04
+- ✓ 双快照证据绑定的结构化 LLM Decision Analysis Candidate — PDI-05..06
+- ✓ 低风险 project 真实主链、defer 控制链和非因果 outcome — PDI-07
+- ✓ 预注册 personalized/generic 对照与诚实 INCONCLUSIVE 边界 — PDI-08
 
 ### Optional backlog (not Active)
 
@@ -122,10 +135,14 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 | L2 是 L1 的跨轮补强，不是独立事实源 | 保留 message 证据边界，并单独测量跨轮净增益 | Planned (v1.1) |
 | 所有 KU candidate 必须先通过统一评测门 | 防止“数量增加但质量下降”仍被 promote | Planned (v1.1) |
 | 评测使用现有 Python + SQLite/JSON/HTML | 数据私密、本地优先，避免引入重型外部平台 | Planned (v1.1) |
+| External 与 Personal 权威物理、语义和权限隔离 | 防止公共事实污染个人事实 | ✓ Good (v1.2) |
+| LLM 输出永远是 candidate，事实与安全门确定性执行 | 保留证据边界和用户最终决策权 | ✓ Good (v1.2) |
+| 样本不足、缺测或协议偏离必须 INCONCLUSIVE | 防止把单次演示包装为个性化因果增益 | ✓ Good (v1.2) |
+| 校准 proposal 不自动 promotion | 策略变更必须独立评审并可回滚 | ✓ Good (v1.2) |
 
 ## Evolution
 
 本文件在阶段转换和里程碑边界持续更新。每次阶段完成时核对需求、关键决策、范围和真实运行状态；每次里程碑结束时重新检查 Core Value、Out of Scope 与已验证能力。
 
 ---
-*Last updated: 2026-07-18 — Milestone v1.2 activated; Phase 28 first*
+*Last updated: 2026-07-18 after v1.2 milestone completion*
