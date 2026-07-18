@@ -1031,12 +1031,18 @@ async function readJsonResponse(response) {
     const detail = payload?.error;
     const code = typeof detail === "object" && detail ? detail.code : undefined;
     const message = typeof detail === "object" && detail
-      ? detail.detail || detail.code
+      ? detail.message || detail.detail || detail.code
       : detail;
     const error = new Error(message || `REST HTTP ${response.status}`);
-    if (code) error.code = code;
+    if (code) {
+      error.code = code;
+      error.category = detail.category;
+      error.retryable = detail.retryable;
+      error.recoveryActions = detail.recovery_actions;
+    }
     throw error;
   }
+  if (payload?.schema_version === "agent_compact_envelope_v1") return payload;
   return payload?.data ?? payload;
 }
 
@@ -1123,6 +1129,9 @@ function errorResult(error, fallback = {}) {
   return {
     ok: false,
     error_code: error instanceof Error ? error.code : undefined,
+    error_category: error instanceof Error ? error.category : undefined,
+    retryable: error instanceof Error ? error.retryable : undefined,
+    recovery_actions: error instanceof Error ? error.recoveryActions : undefined,
     error: error instanceof Error ? error.message : String(error),
     ...fallback
   };
@@ -1227,6 +1236,12 @@ async function callToolInner(name, args = {}, rest) {
     const data = orchestrationSpec.method === "get"
       ? await rest.get(orchestrationSpec.path, args)
       : await rest.post(orchestrationSpec.path, args);
+    if (data?.schema_version === "agent_compact_envelope_v1") {
+      return {
+        structuredContent: data,
+        content: textContent(data.summary)
+      };
+    }
     const nextAction = data?.next_operation
       ? `agent_session_${data.next_operation}`
       : (name === "agent_session_prepare" ? "agent_session_confirm" : undefined);
@@ -1253,6 +1268,12 @@ async function callToolInner(name, args = {}, rest) {
     const query = { ...args };
     if (query.limit !== undefined) query.limit = clampInt(query.limit, 10, 1, 20);
     const data = await rest.get(pathname, query);
+    if (data?.schema_version === "agent_compact_envelope_v1") {
+      return {
+        structuredContent: data,
+        content: textContent(data.summary)
+      };
+    }
     const ids = [];
     const collect = (value) => {
       if (Array.isArray(value)) return value.forEach(collect);
