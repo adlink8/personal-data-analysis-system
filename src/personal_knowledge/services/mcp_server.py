@@ -665,10 +665,10 @@ ALL_TOOLS = [
     types.Tool(name="recommendation_calibration_get", description="读取 calibration protocol、arms、measurements 与 verdict。", inputSchema={"type":"object","properties":{"protocol_id":{"type":"string"}},"required":["protocol_id"]}),
     types.Tool(name="recommendation_calibration_explain", description="解释 calibration 限制；保持 causal_claim=false 且不可自动 promotion。", inputSchema={"type":"object","properties":{"protocol_id":{"type":"string"}},"required":["protocol_id"]}),
     types.Tool(name="agent_session_prepare", description="准备一个低风险 project 决策会话预览；此步骤不写入。", inputSchema={"type":"object","additionalProperties":False,"properties":{"goal":{"type":"string"},"constraints":{"type":"array","items":{"type":"string"}},"weights":{"type":"object","additionalProperties":{"type":"number"}},"actor_identity_hash":{"type":"string"},"domain":{"type":"string","enum":["project"]},"risk_budget":{"type":"string","enum":["low"]},"region":{"type":"string"},"max_external_age_seconds":{"type":"integer"},"now":{"type":"string"}},"required":["goal","constraints","weights","actor_identity_hash"]}),
-    types.Tool(name="agent_session_confirm", description="用绑定预览的短期令牌确认会话；本地不可变写入。", inputSchema={"type":"object","additionalProperties":False,"properties":{"preview":{"type":"object"},"confirmation_token":{"type":"string"},"idempotency_key":{"type":"string"},"now":{"type":"string"}},"required":["preview","confirmation_token","idempotency_key"]}),
+    types.Tool(name="agent_session_confirm", description="用户明确确认绑定预览后，由服务内部签发短期令牌并完成本地不可变写入。", inputSchema={"type":"object","additionalProperties":False,"properties":{"preview":{"type":"object"},"confirmed":{"type":"boolean","const":True},"idempotency_key":{"type":"string"},"now":{"type":"string"}},"required":["preview","confirmed","idempotency_key","now"]}),
     types.Tool(name="agent_session_preview", description="预览会话下一次状态转换；此步骤不写入。", inputSchema={"type":"object","additionalProperties":False,"properties":{"session_id":{"type":"string"},"transition":{"type":"string","enum":["generate","publish","decide","preregister","action_start","action_complete","observe","calibrate"]},"payload":{"type":"object"},"actor_identity_hash":{"type":"string"},"expected_sequence":{"type":"integer"},"now":{"type":"string"}},"required":["session_id","transition","payload","actor_identity_hash","expected_sequence"]}),
     *[
-        types.Tool(name=f"agent_session_{operation}", description=f"执行已确认的 {operation} 本地受控转换；幂等且不执行开放世界动作。", inputSchema={"type":"object","additionalProperties":False,"properties":{"preview":{"type":"object"},"confirmation_token":{"type":"string"},"idempotency_key":{"type":"string"},"now":{"type":"string"}},"required":["preview","confirmation_token","idempotency_key","now"]})
+        types.Tool(name=f"agent_session_{operation}", description=f"用户明确确认后执行 {operation} 本地受控转换；令牌由服务内部签发，幂等且不执行开放世界动作。", inputSchema={"type":"object","additionalProperties":False,"properties":{"preview":{"type":"object"},"confirmed":{"type":"boolean","const":True},"idempotency_key":{"type":"string"},"now":{"type":"string"}},"required":["preview","confirmed","idempotency_key","now"]})
         for operation in ("generate", "publish", "decide", "preregister", "action_start", "action_complete", "observe", "calibrate")
     ],
     types.Tool(name="agent_session_resume", description="恢复并校验一个会话的当前状态。", inputSchema={"type":"object","additionalProperties":False,"properties":{"session_id":{"type":"string"},"now":{"type":"string"}},"required":["session_id"]}),
@@ -1009,7 +1009,11 @@ async def handle_call_tool(
     """处理 tool 调用。所有异常都转成文本返回,避免 server 崩溃。"""
     arguments = arguments or {}
     # 日志走 stderr,不污染 stdio 协议
-    print(f"[mcp] call {name} args={arguments}", file=sys.stderr, flush=True)
+    log_arguments = {
+        key: ("[REDACTED]" if key in {"confirmation_token", "token", "secret"} else value)
+        for key, value in arguments.items()
+    }
+    print(f"[mcp] call {name} args={log_arguments}", file=sys.stderr, flush=True)
 
     try:
         if name == "search_semantic":

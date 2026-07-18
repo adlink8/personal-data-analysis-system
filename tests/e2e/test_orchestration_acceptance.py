@@ -59,9 +59,8 @@ def test_real_transport_generation_replays_without_second_provider_call(tmp_path
         "now": "2026-07-18T09:10:00Z",
     }, service=interface)
     assert prepared["ok"]
-    confirmation = core.issue_confirmation(prepared["data"])
     confirmed = orchestration_tool_contract("agent_session_confirm", {
-        "preview": prepared["data"], "confirmation_token": confirmation,
+        "preview": prepared["data"], "confirmed": True,
         "idempotency_key": "confirm-e2e", "now": "2026-07-18T09:10:00Z",
     }, service=interface)
     assert confirmed["ok"] and confirmed["data"]["state"] == "confirmed"
@@ -71,8 +70,7 @@ def test_real_transport_generation_replays_without_second_provider_call(tmp_path
         "payload": {"personal_evidence": [], "external_evidence": []},
         "actor_identity_hash": ACTOR, "expected_sequence": 1, "now": NOW,
     }, service=interface)["data"]
-    token = core.issue_confirmation(preview)
-    args = {"preview": preview, "confirmation_token": token, "idempotency_key": "generate-e2e", "now": NOW}
+    args = {"preview": preview, "confirmed": True, "idempotency_key": "generate-e2e", "now": NOW}
     first = orchestration_tool_contract("agent_session_generate", args, service=interface)
     replay = orchestration_tool_contract("agent_session_generate", args, service=interface)
     assert first["ok"], first

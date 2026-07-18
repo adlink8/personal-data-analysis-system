@@ -457,10 +457,10 @@ const orchestrationOutputSchema = objectSchema({
 
 const confirmedMutationSchema = strictObjectSchema({
   preview: { type: "object" },
-  confirmation_token: { type: "string" },
+  confirmed: { type: "boolean", const: true },
   idempotency_key: { type: "string" },
   now: { type: "string" }
-}, ["preview", "confirmation_token", "idempotency_key", "now"]);
+}, ["preview", "confirmed", "idempotency_key", "now"]);
 
 const orchestrationToolSpecs = [
   { name: "agent_session_prepare", title: "Prepare agent session", path: "/agent/session/prepare", method: "post", readOnly: true, inputSchema: strictObjectSchema({ goal: { type: "string" }, constraints: { type: "array", items: { type: "string" } }, weights: { type: "object" }, actor_identity_hash: { type: "string" }, domain: { type: "string", enum: ["project"] }, risk_budget: { type: "string", enum: ["low"] }, region: { type: "string" }, max_external_age_seconds: { type: "integer" }, now: { type: "string" } }, ["goal", "constraints", "weights", "actor_identity_hash"]) },

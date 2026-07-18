@@ -110,9 +110,15 @@ class GuardedOrchestrationInterface:
         return self.service.prepare(**p).to_dict()
 
     def _session_confirm(self, p: Mapping[str, Any]):
-        self._only(p, {"preview", "confirmation_token", "idempotency_key", "now"})
+        self._only(p, {"preview", "confirmation_token", "confirmed", "idempotency_key", "now"})
+        preview = Preview.from_dict(p["preview"])
+        token = p.get("confirmation_token")
+        if not token:
+            if p.get("confirmed") is not True:
+                raise OrchestrationError("explicit_confirmation_required")
+            token = self.service.issue_confirmation(preview)
         return self.service.confirm(
-            Preview.from_dict(p["preview"]), confirmation_token=p["confirmation_token"],
+            preview, confirmation_token=token,
             idempotency_key=p["idempotency_key"], now=p.get("now"),
         )
 
@@ -125,10 +131,15 @@ class GuardedOrchestrationInterface:
         ).to_dict()
 
     def _session_execute(self, p: Mapping[str, Any]):
-        self._only(p, {"preview", "confirmation_token", "idempotency_key", "now"})
+        self._only(p, {"preview", "confirmation_token", "confirmed", "idempotency_key", "now"})
         preview = Preview.from_dict(p["preview"])
+        token = p.get("confirmation_token")
+        if not token:
+            if p.get("confirmed") is not True:
+                raise OrchestrationError("explicit_confirmation_required")
+            token = self.service.issue_confirmation(preview)
         common = {
-            "confirmation_token": p["confirmation_token"],
+            "confirmation_token": token,
             "idempotency_key": p["idempotency_key"],
             "now": p.get("now"),
         }

@@ -63,9 +63,13 @@ def test_confirmation_preview_resume_and_stable_errors(tmp_path: Path) -> None:
         "session.prepare", goal="Choose local validation", constraints=["manual only"],
         weights={"safety": 1.0}, actor_identity_hash=ACTOR, now=NOW,
     )["data"]
-    token = core.issue_confirmation(prepared)
+    refused = interface.invoke(
+        "session.confirm", preview=prepared, confirmed=False,
+        idempotency_key="refused", now=NOW,
+    )
+    assert refused["error"]["code"] == "explicit_confirmation_required"
     confirmed = orchestration_tool_contract("agent_session_confirm", {
-        "preview": prepared, "confirmation_token": token,
+        "preview": prepared, "confirmed": True,
         "idempotency_key": "confirm-contract", "now": NOW,
     }, service=interface)
     assert confirmed["ok"] and confirmed["data"]["state"] == "confirmed"
@@ -75,7 +79,7 @@ def test_confirmation_preview_resume_and_stable_errors(tmp_path: Path) -> None:
     assert resumed["data"]["sequence"] == 1
 
     missing = interface.invoke("session.confirm", preview=prepared, idempotency_key="missing", now=NOW)
-    assert missing["error"]["code"] == "missing_parameter"
+    assert missing["error"]["code"] == "explicit_confirmation_required"
     stale = interface.invoke(
         "session.preview", session_id=confirmed["data"]["session_id"], transition="generate",
         payload={}, actor_identity_hash=ACTOR, expected_sequence=0, now=NOW,
@@ -97,4 +101,4 @@ def test_tool_names_are_additive_and_mutations_are_strict() -> None:
     for name in expected - {"agent_session_prepare", "agent_session_preview", "agent_session_resume", "agent_session_explain"}:
         schema = tools[name].inputSchema
         assert schema["additionalProperties"] is False
-        assert {"preview", "confirmation_token", "idempotency_key"} <= set(schema["required"])
+        assert {"preview", "confirmed", "idempotency_key"} <= set(schema["required"])

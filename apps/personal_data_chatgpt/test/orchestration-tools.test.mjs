@@ -33,7 +33,7 @@ test("mutations forward complete confirmation tuple to fixed paths", async () =>
   const calls = [];
   const args = {
     preview: { operation: "observe", preview_checksum: "p" },
-    confirmation_token: "token",
+    confirmed: true,
     idempotency_key: "observe-1",
     now: "2026-07-19T02:00:00Z"
   };
