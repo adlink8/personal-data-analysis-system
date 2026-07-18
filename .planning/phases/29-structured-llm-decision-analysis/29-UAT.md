@@ -75,6 +75,26 @@ structured-output defect consistent with immediate pre-generation rejection.
 It is now fixed and protected by a recursive contract test. No call was made
 after that correction.
 
+The user then authorized the corrected lineage-bound request. Its receipt was:
+
+| Field | Value |
+|---|---|
+| Confirmation event | `uat-lineage-gpt54-20260718T102632Z` |
+| Authorization checksum | `3e0dcc32f21359e42ccf92c8ebc0a63d631f5e649b1fd6a8bc9afb5cf2bf757e` |
+| Provider calls / retries | 1 / 0 |
+| Binding hash | `77c7fdfcb1936633c407d5130e4ce01cb47868ab6436a98c712bd1460d2db822` |
+| Request checksum | `a01718b8377b99da433d96363fa47461da17c8f0f89390c9e3e9c3b1cb5a77bc` |
+| Result / reason | provider-boundary `abstain` / `codex_cli_failed` |
+| Response / run / candidate | none |
+| Personal / External / Analysis changed | false / false / false |
+| External actions | 0 |
+
+The remaining deterministic boundary was then identified: the Windows Python
+subprocess encoded the Chinese prompt with the locale default while Codex reads
+stdin as UTF-8. Generation now fixes stdin/stdout/stderr to strict UTF-8 and a
+contract passes an actual Chinese prompt through the provider runner. No call
+has run after this encoding correction.
+
 Post-attempt diagnosis found no `gpt-5.6-luna` entry in the Codex CLI remote
 model catalog. The current user configuration names `gpt-5.6-sol`; therefore
 the failed Luna invocation is not accepted as the required successful real LLM
@@ -108,8 +128,8 @@ must not be reissued.
 
 ## Open scenarios
 
-1. Obtain a new explicit authorization for the lineage-bound request before
-   any further call through direct `codex-cli 0.145.0`.
+1. Obtain a new explicit authorization for the lineage-bound strict-UTF-8
+   request before any further call through direct `codex-cli 0.145.0`.
 2. Review the resulting exact candidate or deterministic post-model abstention,
    evidence bindings, telemetry, privacy report and zero-side-effect proof.
 3. Record explicit user acceptance or rejection of that exact evidence.

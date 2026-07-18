@@ -366,7 +366,7 @@ class CodexCliProvider:
         try:
             completed = self.runner(
                 command, input=request.prompt, text=True, capture_output=True,
-                timeout=request.timeout_seconds,
+                timeout=request.timeout_seconds, encoding="utf-8", errors="strict",
             )
         except subprocess.TimeoutExpired as exc:
             raise ProviderTimeout("codex_cli") from exc
@@ -375,7 +375,9 @@ class CodexCliProvider:
         latency = int((time.monotonic() - started) * 1000)
         if completed.returncode != 0:
             error_text = completed.stderr.lower()
-            if "schema" in error_text or "response_format" in error_text:
+            if "utf-8" in error_text or "utf8" in error_text:
+                code = "codex_prompt_encoding_invalid"
+            elif "schema" in error_text or "response_format" in error_text:
                 code = "codex_output_schema_rejected"
             elif "model" in error_text and any(token in error_text for token in ("not found", "unsupported", "unavailable")):
                 code = "provider_model_unavailable"

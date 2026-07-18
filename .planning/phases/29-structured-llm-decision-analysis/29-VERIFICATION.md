@@ -61,6 +61,17 @@ the structured-output Schema. The current Schema passes Draft 2020-12
 validation and a recursive all-objects-closed contract. Authorization now
 binds spec, Prompt, Schema, Policy and model checksums; no post-fix call has run.
 
+A fourth explicitly authorized lineage-bound attempt still exited before a
+response. It recorded authorization checksum
+`3e0dcc32f21359e42ccf92c8ebc0a63d631f5e649b1fd6a8bc9afb5cf2bf757e`,
+binding hash `77c7fdfcb1936633c407d5130e4ce01cb47868ab6436a98c712bd1460d2db822`,
+request checksum `a01718b8377b99da433d96363fa47461da17c8f0f89390c9e3e9c3b1cb5a77bc`,
+one call, zero retries, no response/run/candidate and unchanged authorities.
+The remaining local defect was implicit Windows locale encoding for the
+Chinese prompt. The provider now uses strict UTF-8 for stdin/stdout/stderr and
+the E2E contract asserts an actual Chinese prompt plus encoding arguments. No
+post-encoding-fix call has run.
+
 ## Verdict
 
 Technical replay and safety gates pass, but Phase 29 does not yet satisfy the

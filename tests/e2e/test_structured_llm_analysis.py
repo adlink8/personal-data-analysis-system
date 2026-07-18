@@ -210,7 +210,8 @@ def test_codex_cli_provider_parses_jsonl_and_enforces_single_call(tmp_path: Path
     ])
     def runner(command, **kwargs):
         assert "--ephemeral" in command and "read-only" in command
-        assert kwargs["input"] == "prompt"
+        assert kwargs["input"] == "中文 prompt"
+        assert kwargs["encoding"] == "utf-8" and kwargs["errors"] == "strict"
         return subprocess.CompletedProcess(command, 0, stdout=events, stderr="")
     def preflight_runner(command, **kwargs):
         if command[1:3] == ["login", "status"]:
@@ -223,11 +224,11 @@ def test_codex_cli_provider_parses_jsonl_and_enforces_single_call(tmp_path: Path
         working_directory=tmp_path, enabled=True, credential_present=True,
         runner=runner, preflight_runner=preflight_runner, command_path="codex",
     )
-    result = provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
+    result = provider.generate(ProviderRequest("中文 prompt", "0" * 64, 0.0, 100, 5.0))
     assert result.response_payload == payload
     assert result.telemetry.input_tokens == 123 and result.telemetry.output_tokens == 45
     with pytest.raises(ProviderError, match="provider_call_budget_exhausted"):
-        provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
+        provider.generate(ProviderRequest("中文 prompt", "0" * 64, 0.0, 100, 5.0))
 
 
 def test_codex_cli_preflight_rejects_missing_model_without_generation(tmp_path: Path) -> None:

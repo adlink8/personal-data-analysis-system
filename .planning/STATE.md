@@ -64,7 +64,7 @@ progress:
 Phase: 29 of 31 — Structured LLM Decision Analysis Candidate
 Plan: 3 of 4 complete
 Status: Phase 29 executing; 29-04 technical path passes, but corrected real LLM execution and exact user UAT remain open
-Last activity: 2026-07-18 — a separately authorized direct codex-cli 0.145.0/gpt-5.4 attempt failed before response with zero writes; an open structured-output object branch was then fixed and authorization now binds spec/prompt/schema/policy/model checksums; Phase 29 live output/UAT remains open
+Last activity: 2026-07-18 — the authorized lineage-bound gpt-5.4 attempt exited before response with zero writes; the remaining Windows locale/Chinese-stdin defect was fixed by strict UTF-8 and covered by E2E contract; no post-fix call has run and Phase 29 live output/UAT remains open
 
 ## Cross-cutting architecture/data governance audit
 
