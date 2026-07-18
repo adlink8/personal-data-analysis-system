@@ -15,10 +15,10 @@
 
 ### Guarded Decision Orchestration
 
-- [ ] **ORCH-01**: Agent 可 prepare 一个绑定精确 Personal/External snapshots、用户目标、约束、权重和风险预算的低风险 `project` 决策会话；prepare 不调用 provider、不写决策权威。
-- [ ] **ORCH-02**: generate、publish、decide、observe 或 calibrate 写入必须携带短期显式确认，确认绑定 exact preview checksum、expected sequence 与 idempotency key。
-- [ ] **ORCH-03**: 会话可安全 resume/replay；ChatGPT 或网络重试不得重复 provider 调用、事件或记录。
-- [ ] **ORCH-04**: 高风险、越域、证据不足、冲突、过期、确认漂移和非法状态转换必须以稳定 reason code abstain，且零副作用。
+- [x] **ORCH-01**: Agent 可 prepare 一个绑定精确 Personal/External snapshots、用户目标、约束、权重和风险预算的低风险 `project` 决策会话；prepare 不调用 provider、不写决策权威。
+- [x] **ORCH-02**: generate、publish、decide、observe 或 calibrate 写入必须携带短期显式确认，确认绑定 exact preview checksum、expected sequence 与 idempotency key。
+- [x] **ORCH-03**: 会话可安全 resume/replay；ChatGPT 或网络重试不得重复 provider 调用、事件或记录。
+- [x] **ORCH-04**: 高风险、越域、证据不足、冲突、过期、确认漂移和非法状态转换必须以稳定 reason code abstain，且零副作用。
 
 ### Agent-readable UX
 
@@ -51,8 +51,8 @@
 
 | Requirement | Phase | Status |
 |---|---|---|
-| AGENT-01..04 | Phase 32 | Pending |
-| ORCH-01..04 | Phase 33 | Pending |
+| AGENT-01..04 | Phase 32 | Complete |
+| ORCH-01..04 | Phase 33 | Complete |
 | UX-01..02 | Phase 34 | Pending |
 | LIVE-01..03 | Phase 35 | Pending |
 
