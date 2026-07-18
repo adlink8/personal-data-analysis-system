@@ -3,21 +3,21 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: External Context & Low-risk Decision Intelligence Pilot
 status: executing
-last_updated: "2026-07-18T07:18:50.605Z"
+last_updated: "2026-07-18T08:15:00.000Z"
 last_activity: 2026-07-18
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
-  percent: 75
+  completed_plans: 4
+  percent: 25
 ---
 
 # Project State
 
 ## Milestone
 
-**v1.2 External Context & Low-risk Decision Intelligence Pilot:** Phase 28 is active. Plan 28-01 established the independent source registry, database/schema boundary and metadata-only local interface; no live external authority is active yet.
+**v1.2 External Context & Low-risk Decision Intelligence Pilot:** Phase 28 is complete and user-accepted. Phase 29 structured LLM decision analysis is next. No live External authority was activated; the real two-source UAT used an isolated database.
 
 ## Authoritative surfaces
 
@@ -61,10 +61,10 @@ progress:
 
 ## Current Position
 
-Phase: 28 of 31 — External Context Authority
-Plan: 3 of 4 complete
-Status: Executing; 28-04 real cohort, Doctor and reversible UAT are next
-Last activity: 2026-07-18 — Plan 28-03 passed 44 adjacent tests after independent review fixes
+Phase: 29 of 31 — Structured LLM Decision Analysis Candidate
+Plan: planning next
+Status: Phase 28 complete; prepare Phase 29 execution plans
+Last activity: 2026-07-18 — Phase 28 passed 48 adjacent tests, governance 13/13 and explicit Product UAT
 
 ## Cross-cutting architecture/data governance audit
 

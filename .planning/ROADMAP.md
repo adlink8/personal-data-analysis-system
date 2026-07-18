@@ -11,7 +11,7 @@
 
 ## Phases
 
-- [ ] **Phase 28: External Context Authority** — independent external facts, snapshots and dual-context binding
+- [x] **Phase 28: External Context Authority** — independent external facts, snapshots and dual-context binding
 - [ ] **Phase 29: Structured LLM Decision Analysis Candidate** — evidence-bound analysis with deterministic risk gates
 - [ ] **Phase 30: Low-risk Project Decision Pilot** — real project-domain recommendation, decision, action and outcome
 - [ ] **Phase 31: Recommendation Calibration and Product UAT** — preregistered comparison, uncertainty and long-window acceptance
@@ -39,7 +39,7 @@ Plans:
 - [x] 28-01: Authority contract, source registry and append-only schema
 - [x] 28-02: Bounded ingest, canonicalization, freshness and lifecycle
 - [x] 28-03: External snapshot lifecycle, read APIs and dual-snapshot binding
-- [ ] 28-04: Real project/technology cohort, Doctor, rollback and UAT
+- [x] 28-04: Real project/technology cohort, Doctor, rollback and UAT
 
 ### Phase 29: Structured LLM Decision Analysis Candidate
 
@@ -90,7 +90,7 @@ Plans:
 
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
-| 28 | PDI-01..04 | 3/4 | Executing |
+| 28 | PDI-01..04 | 4/4 | Complete |
 | 29 | PDI-05..06 | 0/4 | Not started |
 | 30 | PDI-07 | 0/3 | Not started |
 | 31 | PDI-08 | 0/3 | Not started |
