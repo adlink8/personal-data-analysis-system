@@ -87,6 +87,7 @@ from personal_knowledge.core.runtime_config import semantic_api_url  # noqa: E40
 from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
 from personal_knowledge.intelligence.service import IntelligenceService  # noqa: E402
 from personal_knowledge.intelligence.decision.service import DecisionFeedbackService  # noqa: E402
+from personal_knowledge.intelligence.proactive.service import ProactiveIntelligenceService  # noqa: E402
 
 SEMANTIC_API_URL = semantic_api_url()
 
@@ -136,6 +137,12 @@ CORE_TOOL_NAMES = frozenset({
     "decision_recommendation_history",
     "decision_recommendation_outcomes",
     "decision_recommendation_effectiveness",
+    "proactive_inbox",
+    "proactive_digest",
+    "proactive_candidate_get",
+    "proactive_candidate_explain",
+    "proactive_controls_status",
+    "proactive_metrics",
 })
 
 FULL_ONLY_TOOL_NAMES = frozenset({
@@ -608,6 +615,12 @@ ALL_TOOLS = [
             "limit": {"type": "integer", "default": 50, "minimum": 1, "maximum": 100},
         }, "required": ["recommendation_id"]},
     ),
+    types.Tool(name="proactive_inbox", description="读取校验后的主动情报收件箱；无发送或写入。", inputSchema={"type":"object","properties":{"domain":{"type":"string"},"limit":{"type":"integer","default":50,"minimum":1,"maximum":100}}}),
+    types.Tool(name="proactive_digest", description="读取元数据摘要提案；无调度或通知。", inputSchema={"type":"object","properties":{"domain":{"type":"string"},"limit":{"type":"integer","default":50,"minimum":1,"maximum":100}}}),
+    types.Tool(name="proactive_candidate_get", description="读取单个候选元数据。", inputSchema={"type":"object","properties":{"candidate_id":{"type":"string"}},"required":["candidate_id"]}),
+    types.Tool(name="proactive_candidate_explain", description="解释候选的理由、不确定性和校验链。", inputSchema={"type":"object","properties":{"candidate_id":{"type":"string"}},"required":["candidate_id"]}),
+    types.Tool(name="proactive_controls_status", description="读取用户控制投影及不可变历史。", inputSchema={"type":"object","properties":{"candidate_id":{"type":"string"},"as_of":{"type":"string"}},"required":["candidate_id"]}),
+    types.Tool(name="proactive_metrics", description="读取主动情报可观测性元数据；外部动作恒为零。", inputSchema={"type":"object","properties":{}}),
 ]
 
 
@@ -866,6 +879,19 @@ def decision_tool_contract(
     return DecisionFeedbackService(db_path or UNIFIED_DB).invoke(operation, **values)
 
 
+def proactive_tool_contract(name: str, arguments: dict, *, db_path: Path | None = None) -> dict:
+    """Thin MCP adapter over proactive read operations only."""
+    operation = {
+        "proactive_inbox": "inbox.list", "proactive_digest": "digest.get",
+        "proactive_candidate_get": "candidates.get", "proactive_candidate_explain": "candidates.explain",
+        "proactive_controls_status": "controls.status", "proactive_metrics": "metrics.get",
+    }.get(name)
+    if operation is None:
+        return ProactiveIntelligenceService._error("unknown", "unknown_operation", name)
+    values = {key: value for key, value in arguments.items() if value not in {None, ""}}
+    return ProactiveIntelligenceService(db_path or UNIFIED_DB).invoke(operation, **values)
+
+
 # === MCP Server ===========================================================
 
 server = Server("personal-data")
@@ -1076,6 +1102,12 @@ async def handle_call_tool(
             "decision_recommendation_effectiveness",
         }:
             text = _json_contract(decision_tool_contract(name, arguments))
+
+        elif name in {
+            "proactive_inbox", "proactive_digest", "proactive_candidate_get",
+            "proactive_candidate_explain", "proactive_controls_status", "proactive_metrics",
+        }:
+            text = _json_contract(proactive_tool_contract(name, arguments))
 
         else:
             text = f"未知工具: {name}"

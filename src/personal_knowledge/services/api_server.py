@@ -81,6 +81,7 @@ from personal_knowledge.core.privacy_guard import guard_jsonable, guard_text  # 
 from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
 from personal_knowledge.intelligence.service import IntelligenceService  # noqa: E402
 from personal_knowledge.intelligence.decision.service import DecisionFeedbackService  # noqa: E402
+from personal_knowledge.intelligence.proactive.service import ProactiveIntelligenceService  # noqa: E402
 
 # AI 长期上下文文档路径(给 /profile 用)
 ROOT = _THIS_DIR.parents[1]
@@ -171,6 +172,17 @@ def decision_rest_contract(
                 operation, "invalid_limit", str(values["limit"])
             )
     return DecisionFeedbackService(db_path or UNIFIED_DB).invoke(operation, **values)
+
+
+def proactive_rest_contract(operation: str, params: dict, *, db_path: Path | None = None) -> dict:
+    """Thin read-only REST adapter over proactive intelligence."""
+    values = {key: value for key, value in params.items() if value not in {None, ""}}
+    if "limit" in values:
+        try:
+            values["limit"] = int(values["limit"])
+        except (TypeError, ValueError):
+            return ProactiveIntelligenceService._error(operation, "invalid_limit", str(values["limit"]))
+    return ProactiveIntelligenceService(db_path or UNIFIED_DB).invoke(operation, **values)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -278,6 +290,26 @@ class Handler(BaseHTTPRequestHandler):
                 elif path != "/decision/recommendations":
                     params.pop("domain")
                 data = decision_rest_contract(decision_routes[path], params)
+                self._send(_contract(data), 200 if data.get("ok") else 400)
+                return
+
+            proactive_routes = {
+                "/proactive/inbox": "inbox.list",
+                "/proactive/digest": "digest.get",
+                "/proactive/candidate": "candidates.get",
+                "/proactive/candidate/explain": "candidates.explain",
+                "/proactive/controls/status": "controls.status",
+                "/proactive/metrics": "metrics.get",
+            }
+            if path in proactive_routes:
+                params = {"candidate_id": qs.get("candidate_id"), "domain": qs.get("domain"), "limit": qs.get("limit", "50"), "as_of": qs.get("as_of")}
+                if path in {"/proactive/candidate", "/proactive/candidate/explain"}:
+                    params = {"candidate_id": qs.get("candidate_id")}
+                elif path == "/proactive/controls/status":
+                    params = {"candidate_id": qs.get("candidate_id"), "as_of": qs.get("as_of")}
+                elif path == "/proactive/metrics":
+                    params = {}
+                data = proactive_rest_contract(proactive_routes[path], params)
                 self._send(_contract(data), 200 if data.get("ok") else 400)
                 return
 
