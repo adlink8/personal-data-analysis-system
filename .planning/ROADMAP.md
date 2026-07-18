@@ -115,4 +115,4 @@ Plans:
 | 31 | 3/3 | Complete    | 2026-07-18 |
 
 ---
-*Updated 2026-07-18 — Phase 29 complete; Phase 30 is next*
+*Updated 2026-07-18 — v1.2 implementation complete through Phase 31*
