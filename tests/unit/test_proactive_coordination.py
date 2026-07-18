@@ -19,8 +19,10 @@ def _goal(goal_id: str, domain: str, *, target: str = "", resources=(), **change
     return GoalSignal(**values)
 
 
-def _resource(goal_id: str, kind: str, amount: float, capacity: float, *, unit: str = "hours") -> ResourceClaim:
-    return ResourceClaim(kind, amount, unit, "2026-07-18T00:00:00Z", "2026-07-25T00:00:00Z", capacity, _ref(goal_id), kind == "budget")
+def _resource(goal_id: str, kind: str, amount: float, capacity: float, *, unit: str = "hours",
+              resource_id: str | None = None, source: SupportReference | None = None) -> ResourceClaim:
+    return ResourceClaim(kind, amount, unit, "2026-07-18T00:00:00Z", "2026-07-25T00:00:00Z", capacity,
+                         source or _ref(goal_id), kind == "budget", resource_id or f"shared:{kind}")
 
 
 def test_rule_registry_covers_all_relation_types() -> None:
@@ -70,3 +72,21 @@ def test_sensitive_future_expired_conflicted_and_cross_snapshot_inputs_abstain()
         assert result.abstentions[0].reason_code == reason
     mixed = coordinate_goals([_goal("a", "career", target="same"), replace(_goal("b", "project", target="same"), support=_ref("b", snapshot="ss2"))], as_of="2026-07-18T00:00:00Z")
     assert mixed.abstentions[0].reason_code == "cross_snapshot_input"
+
+
+def test_resource_identity_and_source_are_decisive_support() -> None:
+    left = _goal("a", "career", resources=[_resource("a", "time", 8, 10, resource_id="calendar:week")])
+    right = _goal("b", "project", resources=[_resource("b", "time", 8, 10, resource_id="calendar:week")])
+    result = coordinate_goals([left, right], as_of="2026-07-18T00:00:00Z")
+    assert len(result.items) == 1
+    assert {ref.record_id for ref in result.items[0].source_refs} == {"a", "b"}
+
+    other_resource = replace(right.resources[0], resource_id="different-calendar")
+    mismatched_identity = coordinate_goals([left, replace(right, resources=(other_resource,))], as_of="2026-07-18T00:00:00Z")
+    assert not mismatched_identity.items
+    assert mismatched_identity.abstentions[0].reason_code == "resource_identity_mismatch"
+
+    forged = replace(right.resources[0], source=replace(right.resources[0].source, snapshot_id="other-snapshot"))
+    bad_source = coordinate_goals([left, replace(right, resources=(forged,))], as_of="2026-07-18T00:00:00Z")
+    assert not bad_source.items
+    assert bad_source.abstentions[0].reason_code == "resource_source_mismatch"

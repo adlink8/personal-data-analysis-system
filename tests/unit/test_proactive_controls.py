@@ -116,3 +116,32 @@ def test_human_actor_and_timezone_are_mandatory(tmp_path) -> None:
         append_control(db, replace(_command(target, "suppress", "bot"), actor_class="agent"), write=True)
     with pytest.raises(ValueError, match="timezone_required"):
         append_control(db, replace(_command(target, "suppress", "time"), created_at="2026-07-18T12:00:00"), write=True)
+
+
+def test_restore_changes_only_projection_at_or_after_restore_time(tmp_path) -> None:
+    db, target = _published_candidate(tmp_path)
+    suppression = append_control(
+        db, replace(_command(target, "suppress", "s"), created_at="2026-07-18T12:00:00Z"), write=True,
+    ).event
+    append_control(
+        db, replace(_command(target, "restore", "r", expected=1, rollback_of=suppression.event_id),
+                    created_at="2026-07-18T13:00:00Z"), write=True,
+    )
+    assert project_controls(db, targets=(target,), as_of="2026-07-18T12:30:00Z").eligible is False
+    assert project_controls(db, targets=(target,), as_of="2026-07-18T13:00:00Z").eligible is True
+    assert project_controls(db, targets=(target,), as_of="2026-07-18T13:30:00Z").eligible is True
+
+
+def test_target_specificity_precedes_scope_specificity(tmp_path) -> None:
+    db, exact = _published_candidate(tmp_path)
+    global_target = ControlTarget("a.proactive_intelligence", "global", "proactive", checksum({"global": "proactive"}))
+    domain_target = ControlTarget("a.proactive_intelligence", "domain", "career", checksum({"domain": "career"}))
+    policy_target = ControlTarget("a.proactive_intelligence", "policy", "importance-v1", checksum({"policy": "importance-v1"}))
+    append_control(db, _command(global_target, "suppress", "g", scope="project:alpha"), write=True)
+    append_control(db, _command(domain_target, "suppress", "d", scope="policy:importance-v1"), write=True)
+    append_control(db, _command(policy_target, "suppress", "p", scope="domain:career"), write=True)
+    append_control(db, _command(exact, "limit_scope", "e", scope="global", details={"allowed_scopes": ["project:alpha"]}), write=True)
+    projection = project_controls(db, targets=(global_target, domain_target, policy_target, exact),
+                                  as_of=AS_OF, scope="project:alpha", domains=("career",), policies=("importance-v1",))
+    assert projection.eligible is True
+    assert projection.winning_event_id is not None

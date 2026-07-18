@@ -185,6 +185,34 @@ def test_candidate_support_and_evaluation_publish_atomically_and_replay(tmp_path
     con.close()
 
 
+@pytest.mark.parametrize("mode", ["missing", "extra", "payload", "record"])
+def test_exact_replay_rejects_candidate_support_drift(tmp_path: Path, mode: str) -> None:
+    db, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path)
+    run = plan_run(db, [draft], source_run_id=state_id, source_run_checksum=state_checksum,
+                   source_publication_sequence=seq, decision_run_id=decision.run_id,
+                   decision_run_checksum=decision.run_checksum, coordination_policy="c",
+                   ranking_policy="r", noise_policy="n", input_manifest={},
+                   candidate_drafts=(_candidate(draft),))
+    publish_run(db, run, write=True)
+    con = sqlite3.connect(db)
+    con.execute("DROP TRIGGER trg_proactive_candidate_support_immutable_delete")
+    con.execute("DROP TRIGGER trg_proactive_candidate_support_immutable_update")
+    if mode == "missing":
+        con.execute("DELETE FROM proactive_candidate_support")
+    elif mode == "extra":
+        row = list(con.execute("SELECT * FROM proactive_candidate_support").fetchone())
+        row[0] = "pcs_" + "f" * 24
+        row[4] = "forged-extra-record"
+        con.execute("INSERT INTO proactive_candidate_support VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
+    elif mode == "payload":
+        con.execute("UPDATE proactive_candidate_support SET payload_json='{}'")
+    else:
+        con.execute("UPDATE proactive_candidate_support SET record_checksum=?", ("0" * 64,))
+    con.commit(); con.close()
+    with pytest.raises(ProactiveValidationError, match="existing_support_tampered"):
+        publish_run(db, run, write=True)
+
+
 @pytest.mark.parametrize("failure", ["after_candidates", "after_evaluations"])
 def test_candidate_publication_fault_has_zero_partial_rows(tmp_path: Path, failure: str) -> None:
     db, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path)

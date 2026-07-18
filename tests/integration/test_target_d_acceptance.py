@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from personal_knowledge.core.project_paths import KNOWLEDGE_ACTIVE_POINTER, UNIFIED_DB
-from personal_knowledge.intelligence.proactive.cli import build_parser, run_acceptance, _guard
+from personal_knowledge.intelligence.proactive.cli import build_parser, run_acceptance, _guard, _technical_sandbox
 
 
 def test_live_target_d_acceptance_is_metadata_only_and_two_verdict() -> None:
@@ -28,3 +28,14 @@ def test_local_write_requires_all_guards() -> None:
     assert _guard(args)["error"]["code"] == "confirmation_mismatch"
     args = build_parser().parse_args(base + ["--write", "--i-confirm", "candidate"])
     assert _guard(args) is None
+
+
+def test_target_d_sandbox_executes_every_stage_and_fails_on_injection() -> None:
+    result = _technical_sandbox()
+    assert result["ok"] is True
+    assert result["disposable_sqlite"] is True
+    assert all(result["stage_results"].values())
+    for stage in result["stage_results"]:
+        failed = _technical_sandbox(fail_stage=stage)
+        assert failed["ok"] is False
+        assert failed["stage_results"][stage] is False

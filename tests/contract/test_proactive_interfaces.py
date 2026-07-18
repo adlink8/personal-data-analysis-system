@@ -5,6 +5,8 @@ from personal_knowledge.services.api_server import proactive_rest_contract
 from personal_knowledge.services.mcp_server import proactive_tool_contract
 from tests.unit.test_proactive_controls import _published_candidate
 from personal_knowledge.intelligence.proactive.cli import _invoke, build_parser
+from personal_knowledge.intelligence.proactive.controls import append_control
+from tests.unit.test_proactive_controls import _command
 
 
 def test_shared_inbox_candidate_explain_and_metrics_are_metadata_only(tmp_path) -> None:
@@ -51,3 +53,28 @@ def test_guarded_local_surface_append_is_explicit_and_idempotent(tmp_path) -> No
     assert first["ok"] and first["status"] == "written"
     assert second["ok"] and second["status"] == "existing"
     assert first["external_actions"] == second["external_actions"] == 0
+
+
+def test_reads_validate_historical_run_frontier_then_apply_current_overlay(tmp_path) -> None:
+    db, target = _published_candidate(tmp_path)
+    service = ProactiveIntelligenceService(db)
+    before = service.invoke("candidates.get", candidate_id=target.record_id)
+    assert before["ok"]
+    original_lineage = before["data"]["control_frontier_checksum"]
+
+    suppression = append_control(db, _command(target, "suppress", "read-suppress"), write=True).event
+    after = service.invoke("candidates.get", candidate_id=target.record_id)
+    status = service.invoke("controls.status", candidate_id=target.record_id,
+                            as_of="2026-07-18T12:00:00Z")
+    explain = service.invoke("candidates.explain", candidate_id=target.record_id)
+    assert after["ok"] and status["ok"] and explain["ok"]
+    assert after["data"]["control_frontier_checksum"] == original_lineage
+    assert after["data"]["current_control_frontier_checksum"] != original_lineage
+    assert status["data"]["eligible"] is False
+
+    append_control(db, _command(target, "restore", "read-restore", expected=1,
+                                rollback_of=suppression.event_id), write=True)
+    restored = service.invoke("controls.status", candidate_id=target.record_id,
+                              as_of="2026-07-18T12:00:00Z")
+    assert restored["ok"] and restored["data"]["eligible"] is True
+    assert service.invoke("candidates.get", candidate_id=target.record_id)["data"]["control_frontier_checksum"] == original_lineage
