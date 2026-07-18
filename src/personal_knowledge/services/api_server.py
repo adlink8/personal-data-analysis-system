@@ -85,6 +85,9 @@ from personal_knowledge.intelligence.proactive.service import ProactiveIntellige
 from personal_knowledge.services.decision_intelligence_reads import (  # noqa: E402
     DecisionIntelligenceReadService,
 )
+from personal_knowledge.services.orchestration_service import (  # noqa: E402
+    GuardedOrchestrationInterface,
+)
 
 # AI 长期上下文文档路径(给 /profile 用)
 ROOT = _THIS_DIR.parents[1]
@@ -194,6 +197,18 @@ def agent_read_rest_contract(
     """Thin REST adapter for Phase 28-31 read authorities."""
     values = {key: value for key, value in params.items() if value not in {None, ""}}
     return (service or DecisionIntelligenceReadService()).invoke(operation, **values)
+
+
+def orchestration_rest_contract(
+    operation: str, params: dict, *, service: GuardedOrchestrationInterface | None = None,
+) -> dict:
+    """Thin REST adapter over the shared guarded orchestration contract."""
+    try:
+        target = service or GuardedOrchestrationInterface()
+    except Exception as exc:
+        code = str(getattr(exc, "code", "") or str(exc) or "service_unavailable").split(":", 1)[0]
+        return GuardedOrchestrationInterface._envelope(operation, ok=False, code=code)
+    return target.invoke(operation, **params)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -352,6 +367,17 @@ class Handler(BaseHTTPRequestHandler):
                 elif operation.startswith("calibration.") and operation != "calibration.list":
                     params = {"protocol_id": qs.get("protocol_id")}
                 data = agent_read_rest_contract(operation, params)
+                self._send(_contract(data), 200 if data.get("ok") else 400)
+                return
+
+            session_read_routes = {
+                "/agent/session/resume": "session.resume",
+                "/agent/session/explain": "session.explain",
+            }
+            if path in session_read_routes:
+                data = orchestration_rest_contract(
+                    session_read_routes[path], {"session_id": qs.get("session_id"), "now": qs.get("now")},
+                )
                 self._send(_contract(data), 200 if data.get("ok") else 400)
                 return
 
@@ -575,6 +601,36 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_body()
 
         try:
+            session_write_routes = {
+                "/agent/session/prepare": "session.prepare",
+                "/agent/session/confirm": "session.confirm",
+                "/agent/session/preview": "session.preview",
+                "/agent/session/execute": "session.execute",
+                "/agent/session/generate": "session.execute",
+                "/agent/session/publish": "session.execute",
+                "/agent/session/decide": "session.execute",
+                "/agent/session/preregister": "session.execute",
+                "/agent/session/action-start": "session.execute",
+                "/agent/session/action-complete": "session.execute",
+                "/agent/session/observe": "session.execute",
+                "/agent/session/calibrate": "session.execute",
+            }
+            if path in session_write_routes:
+                operation = session_write_routes[path]
+                expected = path.rsplit("/", 1)[-1].replace("-", "_")
+                if operation == "session.execute" and path != "/agent/session/execute":
+                    preview = body.get("preview") or {}
+                    if preview.get("operation") != expected:
+                        data = GuardedOrchestrationInterface._envelope(
+                            operation, ok=False, code="route_operation_mismatch",
+                        )
+                    else:
+                        data = orchestration_rest_contract(operation, body)
+                else:
+                    data = orchestration_rest_contract(operation, body)
+                self._send(_contract(data), 200 if data.get("ok") else 400)
+                return
+
             if path == "/search/semantic":
                 query = body.get("query", "").strip()
                 if not query:

@@ -91,6 +91,9 @@ from personal_knowledge.intelligence.proactive.service import ProactiveIntellige
 from personal_knowledge.services.decision_intelligence_reads import (  # noqa: E402
     DecisionIntelligenceReadService,
 )
+from personal_knowledge.services.orchestration_service import (  # noqa: E402
+    GuardedOrchestrationInterface,
+)
 
 SEMANTIC_API_URL = semantic_api_url()
 
@@ -158,6 +161,19 @@ CORE_TOOL_NAMES = frozenset({
     "recommendation_calibration_list",
     "recommendation_calibration_get",
     "recommendation_calibration_explain",
+    "agent_session_prepare",
+    "agent_session_confirm",
+    "agent_session_preview",
+    "agent_session_generate",
+    "agent_session_publish",
+    "agent_session_decide",
+    "agent_session_preregister",
+    "agent_session_action_start",
+    "agent_session_action_complete",
+    "agent_session_observe",
+    "agent_session_calibrate",
+    "agent_session_resume",
+    "agent_session_explain",
 })
 
 FULL_ONLY_TOOL_NAMES = frozenset({
@@ -648,6 +664,15 @@ ALL_TOOLS = [
     types.Tool(name="recommendation_calibration_list", description="列出 calibration protocols；只读。", inputSchema={"type":"object","properties":{"limit":{"type":"integer","default":50,"minimum":1,"maximum":100}}}),
     types.Tool(name="recommendation_calibration_get", description="读取 calibration protocol、arms、measurements 与 verdict。", inputSchema={"type":"object","properties":{"protocol_id":{"type":"string"}},"required":["protocol_id"]}),
     types.Tool(name="recommendation_calibration_explain", description="解释 calibration 限制；保持 causal_claim=false 且不可自动 promotion。", inputSchema={"type":"object","properties":{"protocol_id":{"type":"string"}},"required":["protocol_id"]}),
+    types.Tool(name="agent_session_prepare", description="准备一个低风险 project 决策会话预览；此步骤不写入。", inputSchema={"type":"object","additionalProperties":False,"properties":{"goal":{"type":"string"},"constraints":{"type":"array","items":{"type":"string"}},"weights":{"type":"object","additionalProperties":{"type":"number"}},"actor_identity_hash":{"type":"string"},"domain":{"type":"string","enum":["project"]},"risk_budget":{"type":"string","enum":["low"]},"region":{"type":"string"},"max_external_age_seconds":{"type":"integer"},"now":{"type":"string"}},"required":["goal","constraints","weights","actor_identity_hash"]}),
+    types.Tool(name="agent_session_confirm", description="用绑定预览的短期令牌确认会话；本地不可变写入。", inputSchema={"type":"object","additionalProperties":False,"properties":{"preview":{"type":"object"},"confirmation_token":{"type":"string"},"idempotency_key":{"type":"string"},"now":{"type":"string"}},"required":["preview","confirmation_token","idempotency_key"]}),
+    types.Tool(name="agent_session_preview", description="预览会话下一次状态转换；此步骤不写入。", inputSchema={"type":"object","additionalProperties":False,"properties":{"session_id":{"type":"string"},"transition":{"type":"string","enum":["generate","publish","decide","preregister","action_start","action_complete","observe","calibrate"]},"payload":{"type":"object"},"actor_identity_hash":{"type":"string"},"expected_sequence":{"type":"integer"},"now":{"type":"string"}},"required":["session_id","transition","payload","actor_identity_hash","expected_sequence"]}),
+    *[
+        types.Tool(name=f"agent_session_{operation}", description=f"执行已确认的 {operation} 本地受控转换；幂等且不执行开放世界动作。", inputSchema={"type":"object","additionalProperties":False,"properties":{"preview":{"type":"object"},"confirmation_token":{"type":"string"},"idempotency_key":{"type":"string"},"now":{"type":"string"}},"required":["preview","confirmation_token","idempotency_key","now"]})
+        for operation in ("generate", "publish", "decide", "preregister", "action_start", "action_complete", "observe", "calibrate")
+    ],
+    types.Tool(name="agent_session_resume", description="恢复并校验一个会话的当前状态。", inputSchema={"type":"object","additionalProperties":False,"properties":{"session_id":{"type":"string"},"now":{"type":"string"}},"required":["session_id"]}),
+    types.Tool(name="agent_session_explain", description="解释会话链、下一步和安全限制。", inputSchema={"type":"object","additionalProperties":False,"properties":{"session_id":{"type":"string"},"now":{"type":"string"}},"required":["session_id"]}),
 ]
 
 
@@ -939,6 +964,33 @@ def agent_read_tool_contract(
     return target.invoke(operation, **values)
 
 
+def orchestration_tool_contract(
+    name: str, arguments: dict, *, service: GuardedOrchestrationInterface | None = None,
+) -> dict:
+    """Thin stdio MCP adapter over the guarded orchestration interface."""
+    if name == "agent_session_prepare":
+        operation = "session.prepare"
+    elif name == "agent_session_confirm":
+        operation = "session.confirm"
+    elif name == "agent_session_preview":
+        operation = "session.preview"
+    elif name in {"agent_session_resume", "agent_session_explain"}:
+        operation = "session." + name.rsplit("_", 1)[-1]
+    elif name.startswith("agent_session_"):
+        operation = "session.execute"
+        expected = name.removeprefix("agent_session_")
+        if (arguments.get("preview") or {}).get("operation") != expected:
+            return GuardedOrchestrationInterface._envelope(operation, ok=False, code="route_operation_mismatch")
+    else:
+        operation = "unknown"
+    try:
+        target = service or GuardedOrchestrationInterface()
+    except Exception as exc:
+        code = str(getattr(exc, "code", "") or str(exc) or "service_unavailable").split(":", 1)[0]
+        return GuardedOrchestrationInterface._envelope(operation, ok=False, code=code)
+    return target.invoke(operation, **arguments)
+
+
 # === MCP Server ===========================================================
 
 server = Server("personal-data")
@@ -1164,6 +1216,9 @@ async def handle_call_tool(
             "recommendation_calibration_explain",
         }:
             text = _json_contract(agent_read_tool_contract(name, arguments))
+
+        elif name.startswith("agent_session_"):
+            text = _json_contract(orchestration_tool_contract(name, arguments))
 
         else:
             text = f"未知工具: {name}"
