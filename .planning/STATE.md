@@ -2,22 +2,22 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
-status: release_blocked
-last_updated: 2026-07-18T04:35:00Z
+status: awaiting_product_uat
+last_updated: 2026-07-18T06:45:00Z
 progress:
   total_phases: 29
   completed_phases: 21
   total_plans: 73
   completed_plans: 66
-  percent: 90
-stopped_at: Phase 24 LLM review complete — release blocked on retrieval quality and lifecycle adoption
+  percent: 99
+stopped_at: Phase 24-27 real-data loop complete — awaiting explicit Product UAT
 ---
 
 # Project State
 
 ## Milestone
 
-**v1.1 product hardening:** Phase 24 review evidence is complete through auditable LLM review; retrieval quality and lifecycle adoption remain open. Phases 18–23 and 25–27 are technically complete; **2026-07-16 ops close-out: canary strict PASS → promote active=ir_4cd8af → watermark advanced**.
+**v1.1 product hardening:** Phase 24 strict review, retrieval quality, lifecycle adoption and reversible release UAT pass. Phase 25–27 technical contracts and one real snapshot-bound end-to-end run pass. The only current milestone gate is explicit Product UAT.
 
 ## Authoritative surfaces
 
@@ -25,8 +25,8 @@ stopped_at: Phase 24 LLM review complete — release blocked on retrieval qualit
 |-------|----------------|
 | Dialogue SSOT | `data/canonical/agent/structured/db/agent_conversations.sqlite` |
 | Knowledge SSOT | `canonical_knowledge_units` + **active** Chroma collection |
-| Active KU (live) | **`knowledge_units_ir_4cd8af4ad_20260716020508`** (promoted 2026-07-16; previous 205bff for rollback) |
-| Active serving snapshot | **`ss_1590353394c948b908a5d675`** — 10/10 typed roles, Doctor critical_fail=0 |
+| Active KU (live) | **`knowledge_units_ir_4cd8af4ad_20260718054940`** — 32,181 vectors, exact collection checksum verified |
+| Active serving snapshot | **`ss_5d816a6bf3ebd0bce9463236`** — 10/10 typed roles, Doctor critical_fail=0 |
 | Watermark | matches current source checksum |
 | Product CLI | `pk-sync`, `pk-ku` (inspect…promote, watermark, **reconcile**, **history**, **doctor**) |
 
@@ -47,32 +47,37 @@ stopped_at: Phase 24 LLM review complete — release blocked on retrieval qualit
 - **22-04:** `pk-ku doctor` read-only health; facade inventory (16 import lines / 10 files)
 - Safe cleanup: bak-phase20 quarantined; readiness scorecard updated (~81 weighted)
 - **Phase 23:** typed D/S/R/A registry, immutable composite snapshot, evidence drilldown, source versions/watermarks, fail-closed Doctor/Preflight
-- Live Target A: snapshot `ss_1590353394c948b908a5d675`; 10/10 roles; `pk-sync status` drift=[]; full pytest and all 13 preflight gates pass
+- Live Target A: snapshot `ss_5d816a6bf3ebd0bce9463236`; 10/10 roles; pointer parity clean; Doctor 10/10 critical
 - **Phase 24-01:** evidence-aware support/abstain and snapshot-bound evaluation complete; private dev FP=0, eligible-positive retention=100%, 26 invalid legacy positives routed to human Gold review
 - **Phase 24-02 review re-baseline:** explicit LLM provenance accepted without human impersonation; 45 cross-turn Gold, 50 grounded labels and independent 30x5 judge ratings pass strict evidence checks
-- **Phase 24-03/04:** all 13 ineligible lifecycle proposals rejected; full run `d54e53ea0a78031d` is safe and error-free but quality gate FAIL (+2.99pp overall, +2.22pp cross-turn)
+- **Phase 24-03/04 closure:** evidence-aware final run `3a4b7f7b85e864b86031a79a0c017fa74c80e5b9908aa7fd73e765343fcc5d99` passes unchanged quality gates (+10.4478pp overall, +13.3333pp cross-turn); lifecycle has 6 append-only events and 2 applied manifests; activation/rollback/forward-restore UAT passes
 - **Phase 25-01/02/03/04:** immutable snapshot-bound personal-state runs, typed current-state projection, deterministic changes/trends/risks, metadata-safe explanations, shared CLI/REST/MCP reads and zero-mutation metadata-only acceptance complete
 - **Phase 26-01/02/03/04:** independent non-serving decision authority, deterministic abstaining recommendations, genesis-rooted confirmation/action streams, typed outcomes, non-causal effectiveness, shared read-only interfaces, guarded local writes and metadata-only acceptance complete
 - **Phase 27-01:** independent non-serving proactive authority, seven immutable tables, exact Phase 25/26/frontier binding and deterministic eight-domain resource coordination complete
 - **Phase 27-02:** deterministic evidence-bound importance/novelty, stable dedup/cooldown, quiet deferral and global/domain noise-budget evaluation complete
 - **Phase 27-03:** user-owned append-only trust controls, deterministic scope/expiry projection, compensating restore and future-run control-frontier binding complete
 - **Phase 27-04:** checksum-verifying proactive inbox/digest/explain/control-history reads, guarded local user writes, read-only REST/MCP and zero-mutation Target D technical acceptance complete; product release remains blocked
+- **Phase 25–27 live adoption:** committed runs `psr_3a28363b9d1c6d9ab656fde5` → `dfr_e367f7689d64ad96a10311bd` → `pir_065c80888c81723abd43fc4a`; exact seven-event decision history, conservative insufficient-window assessment and proactive suppress/restore all verified
 
 ## Current Position
 
 Phase: 27
-Plan: 4 of 4 technically verified — product release blocked
+Plan: 4 of 4 technically and live-data verified — awaiting user Product UAT
 Previous: Phase 23 / Target A complete
-Parallel execution: Phases 25, 26 and 27 / Technical Target D are independently verified; product release remains dependent on Phase 24 retrieval quality and valid lifecycle adoption.
+Parallel execution: Phases 24–27 are independently verified; automated acceptance has no technical blockers and reports only `product_uat:missing`.
 **Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
 Readiness: `.planning/PRODUCT-READINESS.md` (**~86** weighted; operationally usable, quality sign-off open)
-Active: `knowledge_units_ir_4cd8af4ad_20260716020508`; watermark matches source.  
-Next optional: `reconcile --write --i-know` after dry-run; Phase 17 human gold; facade retire 2026-08-13.
+Active: `knowledge_units_ir_4cd8af4ad_20260718054940`; watermark matches source.
+Next: user reviews `.planning/phases/PDA-27-*/27-UAT.md` and explicitly accepts or rejects product behavior.
 
 ## Cross-cutting architecture/data governance audit
 
+- **2026-07-18 live closure:** Phase 24 strict review, final retrieval gate and lifecycle adoption pass; Active snapshot is `ss_5d816a6bf3ebd0bce9463236`. Phase 25–27 schemas are applied with one validated committed real run per phase. Technical blockers are empty; only explicit Product UAT remains.
+
+- **Corrected product vision and current status:** [`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md) — final target is decision intelligence based on long-term personal data plus external environment, not a project-status Agent.
 - **Authoritative issue inventory:** [`ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md`](./ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md)
-- **Expected target gap:** [`TARGET-GAP-ANALYSIS-2026-07-17.md`](./TARGET-GAP-ANALYSIS-2026-07-17.md) — separately evaluates foundation integrity, v1.1 evaluation closure, stable knowledge-product readiness, and the long-term personal-intelligence loop.
+- **Current expected-target gap:** [`TARGET-GAP-ANALYSIS-2026-07-18.md`](./TARGET-GAP-ANALYSIS-2026-07-18.md) — current authoritative distance analysis for PDI-T0..T4, Phase 24 blockers, External Context, LLM decision analysis and real outcome calibration.
+- **Historical target-gap snapshot:** [`TARGET-GAP-ANALYSIS-2026-07-17.md`](./TARGET-GAP-ANALYSIS-2026-07-17.md) — retained for historical comparison only.
 - Scope: D/S/R/A layer separation, SQLite/Chroma composite SSOT, inventory/watermark/lifecycle integrity, evaluation evidence, repository and runtime drift.
 - Initial verdict: **gaps_found**. The audit found disabled SQLite FK enforcement, 18,859 FK violations, Delta Inventory FK mismatch, and unsafe incremental inspection/execution boundaries.
 - **2026-07-17 remediation:** unified Full/Delta Inventory registry migrated with verified backup; FK violations are 0; knowledge write connections enforce FK; doctor and publish/promote gates fail closed; inspect defaults to committed watermark; execution lists are no longer preview-truncated; governance preflight is 12/12 PASS.
@@ -80,20 +85,23 @@ Next optional: `reconcile --write --i-know` after dry-run; Phase 17 human gold; 
 
 ## Remaining product checkpoints
 
-1. **Phase 24 review evidence is complete; retrieval quality is not** — overall +2.99pp vs required +10pp, cross-turn CI low remains negative
-2. **Lifecycle adoption is not proven** — invalid 13-action cohort was correctly rejected; strict ledger remains empty
-3. ~~Canary → promote → watermark~~ **DONE 2026-07-16** (active=ir_4cd8af; wm advanced)
-4. 2026-08-13: domains facade removal (inventory owned; mass rewrite deferred)
+1. **Product UAT** — automated gates pass; explicit user acceptance remains intentionally non-automatable
+2. ~~Phase 24 retrieval quality~~ **DONE** — +10.4478pp, positive CI lower bound
+3. ~~Lifecycle adoption~~ **DONE** — 6 events, 2 applied manifests, reversible history
+4. 2026-08-13: domains facade removal (optional follow-up; outside current release gate)
 
-Latest Phase 24 evaluation evidence: run `d54e53ea0a78031d` has 223 rows, 67 real scoreable Gold and 45 real cross-turn Gold. LLM review evidence, safety, citation, reconcile, latency and 92% grounded precision pass. The product gate remains FAIL because L1+L2 Recall@5 improves only 2.99pp versus the required 10pp and cross-turn CI low is -4.44pp. Active is unchanged.
+Phase 17 code complete; historical human checkpoints remain open and are
+preserved as a separate governance record. Phase 24's authorized LLM review
+does not rewrite or impersonate those Phase 17 human checkpoints.
+
+Latest Phase 24 evidence: run `3a4b7f7b85e864b86031a79a0c017fa74c80e5b9908aa7fd73e765343fcc5d99` has 67 real scoreable Gold and 45 real cross-turn Gold. Review, safety, citation, reconcile, latency, grounded precision and both retrieval-improvement confidence gates pass.
 
 ## Verification snapshot
 
 ```powershell
 $env:PYTHONPATH="D:\ADLINK\数据分析\src"
-python -m personal_knowledge.application.ku doctor
-python -m personal_knowledge.application.ku workflow
-python -m personal_knowledge.application.ku watermark   # read-only
+python -m personal_knowledge.application.knowledge.doctor_ku --json
+python -m personal_knowledge.intelligence.proactive.cli acceptance --dry-run --metadata-only --json
 python -m pytest -q
 python -m personal_knowledge.governance.preflight
 ```

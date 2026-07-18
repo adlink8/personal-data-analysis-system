@@ -2,13 +2,15 @@
 analysis_type: expected-target-gap
 project: Personal Knowledge System
 date: 2026-07-17
-status: current_estimate
+status: historical_snapshot_superseded
 method: GSD project/requirements/readiness audit + live database/CLI/test observations
 related_audit: ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md
 estimate_policy: percentages are planning estimates, not release metrics
 ---
 
 # 个人数据分析项目：预期目标差距分析
+
+> **Superseded 2026-07-18：**本文件保留为 2026-07-17 阶段性差距快照。当前权威目标差距分析见 [`TARGET-GAP-ANALYSIS-2026-07-18.md`](./TARGET-GAP-ANALYSIS-2026-07-18.md)；最终产品定义与现状说明见 [`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md)。
 
 ## 1. 分析目的
 

@@ -2,11 +2,30 @@
 
 ## What This Is
 
-这是一个 Windows 本地优先的个人数据系统，把 Google、GPT、Agent 与 AgentView 的数字足迹转换为可持续追加、可查询、可追溯的统一数据、记忆和知识层。系统同时提供 CLI、REST、MCP、可视化与 RAG 消费接口。
+这是一个 Windows 本地优先的**个人决策智能系统**。它把 Google、GPT、Agent 与 AgentView 等长期个人数据转换为可持续追加、可查询、可追溯的个人知识与状态；未来再以独立的外部环境情报层接入社会、行业、政策和市场信息，通过受控 LLM 与确定性规则形成个性化决策建议、行动结果和反馈校准。系统同时提供 CLI、REST、MCP、可视化与 RAG 消费接口。
+
+项目状态分析只是 project 域的一个输入能力，不是产品最终目标。系统默认不替用户执行外部动作，用户保留价值选择、风险接受与最终决策权。
 
 ## Core Value
 
-把个人历史转换为隐私安全、证据可回查、能够持续增量学习的外部知识系统。
+以长期个人数据为内部状态、以外部社会环境为外部状态，在隐私安全、证据可回查和不确定性可解释的前提下，为用户提供可验证、可反馈、可持续校准的个人决策支持。
+
+## Long-term Product Target
+
+权威目标说明：[`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md)。
+
+当前预期目标差距：[`TARGET-GAP-ANALYSIS-2026-07-18.md`](./TARGET-GAP-ANALYSIS-2026-07-18.md)。
+
+```text
+长期个人数据 + 当前个人状态 + 外部环境 + 历史决策结果
+→ 状态与变化建模
+→ 决策案例与多方案比较
+→ LLM 决策分析候选
+→ 用户确认、行动与结果
+→ 后验评估与建议校准
+```
+
+LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执行权限。
 
 ## Current Milestone: v1.1 Knowledge Unit Evaluation & Quality
 
@@ -20,6 +39,16 @@
 - JSON/SQLite 历史记录与本地 HTML/PNG 可视化报告
 
 **Previous:** v1.0 completed 2026-07-12（Phases 01–16；Phase 08 cancelled）。见 [MILESTONE-v1.0.md](MILESTONE-v1.0.md)。
+
+## Current Reality — 2026-07-18
+
+- Phase 23 已完成复合 SSOT、D/S/R/A registry、Serving Snapshot、证据下钻和 fail-closed Doctor。
+- Phase 24 已闭环：最终 Recall@5 提升 **10.4478pp**，置信下界 **+4.4776pp**；真实 lifecycle ledger 有 6 个事件、2 个 applied manifests。
+- Phase 25–27 Live schemas 已应用，Personal State、Decision Feedback、Proactive Intelligence 各有 1 个真实 committed run，并通过 exact snapshot/checksum 验证。
+- 真实链路已覆盖状态、建议、用户确认、行动、结果、非因果效果评估、主动候选以及 suppress/restore。
+- `src/personal_knowledge/intelligence` 当前没有 LLM 调用；建议生成仍是确定性规则与 abstention。
+- 当前没有社会、行业、政策和市场等 External Context Authority；Google Activities 属于个人行为数据，不属于外部社会情报。
+- Technical Target D 和真实低风险数据链已通过；当前唯一发布门是用户显式 Product UAT。External Context 与 LLM 决策分析仍属后续 PDI 愿景。
 
 ## Requirements
 
@@ -63,7 +92,7 @@
   Agent 全流程见 `docs/AGENTS.md`。  
 - **数据/运行时（Phase 20）：** `data/`、`var/`、`archive/`；AgentsView live 仍为 protected-external。
 - 核心统合库：`var/db/personal_system.sqlite`（非对话 PE 过渡层）；对话 SSOT：`data/canonical/agent/structured/db/agent_conversations.sqlite`。
-- 当前 active 知识索引：`knowledge_units_205bff9560b9_20260712142938`（**30,774**，含 L2 session 窗并入）。
+- 当前 active 知识索引：`knowledge_units_ir_4cd8af4ad_20260718054940`；当前复合 serving snapshot：`ss_5d816a6bf3ebd0bce9463236`。
 - 向量模型：`bge-small-zh-v1.5`（512d）— 当前数据量无需更换。
 - KU 抽取：L1 **1 message / 1 call** + L2 **session 窗二次抽取**（已并入 canonical/active）。
 

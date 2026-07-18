@@ -31,6 +31,8 @@ active_snapshot: ss_5d816a6bf3ebd0bce9463236
 - [x] Proactive candidate is evidence-backed, explainable and metadata-only.
 - [x] User suppression and restore are append-only and reversible.
 - [x] Acceptance fingerprint is unchanged; external/network/paid actions are zero.
+- [x] Full repository regression passes: 900 collected, 898 passed, 2 skipped.
+- [x] Governance preflight passes all 13 gates.
 - [ ] User explicitly accepts the demonstrated product behavior.
 
 ## User sign-off

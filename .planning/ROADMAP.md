@@ -37,8 +37,10 @@
 
 ## Cross-cutting architecture/data governance gaps
 
+- Corrected final product target and current status: [`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md)
 - Source of truth: [`ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md`](./ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md)
-- Expected-goal distance and staged path: [`TARGET-GAP-ANALYSIS-2026-07-17.md`](./TARGET-GAP-ANALYSIS-2026-07-17.md)
+- Current expected-goal distance and staged path: [`TARGET-GAP-ANALYSIS-2026-07-18.md`](./TARGET-GAP-ANALYSIS-2026-07-18.md)
+- Historical goal-distance snapshot: [`TARGET-GAP-ANALYSIS-2026-07-17.md`](./TARGET-GAP-ANALYSIS-2026-07-17.md)
 - Before adding more memory/profile layers, close or explicitly accept the audit's P0 contracts: SQLite FK enforcement and schema repair, Delta Inventory identity, watermark-safe inspect, non-truncated refresh execution, SQLite/Chroma publication consistency, and D/S/R/A layer registry.
 - This entry is backlog only and does not authorize lifecycle writes, promotion, watermark advance, pointer mutation, or data cleanup.
 
@@ -386,4 +388,25 @@ Plans:
 - [x] 27-04: Shared read interfaces, guarded local control and Target D dual-verdict acceptance
 
 ---
-*Roadmap migrated from `.gsd/phases/` on 2026-07-10. Updated 2026-07-17 for Phase 22 close-out and governance audit remediation.*
+## Future Product Direction — Personal Decision Intelligence（candidate only）
+
+> These phases are not activated. Phase 24 quality/lifecycle gates are closed; the current release gate is explicit Product UAT. See [`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md).
+
+### Candidate Phase 28: External Context Authority
+
+**Goal:** 建立与个人 KU 分离的社会、行业、政策、市场和价格外部事实权威，包含来源质量、地区、有效时间、冲突、Snapshot 与 Watermark。
+
+### Candidate Phase 29: LLM Decision Analysis Candidate
+
+**Goal:** 让 LLM 仅基于绑定的 Personal State + External Context 生成结构化 Decision Analysis Candidate；所有主张必须有 evidence ID，并通过隐私、时效、冲突和领域风险门禁。
+
+### Candidate Phase 30: Low-risk Domain Decision Pilot
+
+**Goal:** 在学习、项目或职业领域完成真实 Decision Case→Recommendation→User Decision→Action→Outcome 试点；不提供自动外部执行。
+
+### Candidate Phase 31: Recommendation Calibration and Product UAT
+
+**Goal:** 使用真实结果评估个性化建议的执行率、时间/成本偏差、副作用、遗憾和用户满意度，并证明相对通用 LLM 建议的真实增益。
+
+---
+*Roadmap migrated from `.gsd/phases/` on 2026-07-10. Updated 2026-07-18 for corrected Personal Decision Intelligence vision and current Phase 24–27 status.*

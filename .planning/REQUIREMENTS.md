@@ -1,7 +1,7 @@
 # Requirements: 个人数据分析项目
 
 **Defined:** 2026-07-10  
-**Core Value:** 把个人历史转换为隐私安全、证据可回查、能够持续增量学习的外部知识系统。
+**Core Value:** 以长期个人数据为内部状态、以外部社会环境为外部状态，在隐私安全、证据可回查和不确定性可解释的前提下，为用户提供可验证、可反馈、可持续校准的个人决策支持。
 
 ## Current Milestone Requirements
 
@@ -23,7 +23,20 @@
 - [x] **PRO-01**: 在隐私和权限范围内协调学习、职业、项目、健康、财务、关系、时间与精力等领域目标和约束
 - [x] **PRO-02**: 主动提示只输出达到重要性阈值且有证据的新变化，支持去重、冷却、静默和噪声评估
 - [x] **TRUST-01**: 用户可纠正、限制、撤销、限定作用域或改变任何认知/建议的生命周期，且操作可追溯可回滚
-- [x] **TD-01**: 采集→变化检测→历史比较→冲突/趋势/风险→建议→确认/纠正→行动→结果→反馈的 Target D 端到端验收通过
+- [x] **TD-01**: 采集→变化检测→历史比较→冲突/趋势/风险→建议→确认/纠正→行动→结果→反馈的 Technical Target D 和真实低风险数据链均通过；最终产品发布只待用户显式 UAT，不代表外部环境或 LLM 决策愿景已完成
+
+### Future Product Target — Personal Decision Intelligence（未激活里程碑）
+
+- [ ] **PDI-01**: 建立独立 External Context Authority，规范化社会、行业、政策、市场和价格等外部事实，并保存来源质量、地区、有效时间、冲突与版本
+- [ ] **PDI-02**: Personal State Snapshot 与 External Context Snapshot 只能通过明确 Decision Case 组合，外部事实不得写成个人 KU，个人推断不得冒充社会事实
+- [ ] **PDI-03**: 受控 LLM 只生成结构化 Decision Analysis Candidate，输出方案、基线、收益、成本、风险、机会成本、假设、不确定性、缺失信息与停止条件
+- [ ] **PDI-04**: 所有 LLM 决策主张必须引用 Personal/External evidence ID，并通过隐私、时效、冲突、高风险和领域策略门禁；失败时 abstain
+- [ ] **PDI-05**: 用户显式确认目标、价值权重、风险预算和最终选择；系统不得默认执行购买、投资、医疗、求职、关系或其他外部动作
+- [ ] **PDI-06**: 真实 Recommendation→Decision→Action→Outcome→Effectiveness 数据形成长期校准集，评估建议执行率、结果偏差、副作用、遗憾和用户满意度
+- [ ] **PDI-07**: 先在学习、项目或职业等低风险领域完成真实 UAT，再按独立风险政策扩展健康、财务和关系领域
+- [ ] **PDI-08**: 产品能证明长期个性化建议相对通用 LLM 建议的真实增益，而不仅是语言质量、沙箱合同或 fixture 通过
+
+权威愿景与现状：[`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md)。
 
 ### Milestone v1.1 — Knowledge Unit Evaluation & Quality
 

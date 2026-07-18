@@ -106,11 +106,12 @@ def test_load_eligible_units_only_current(tmp_path: Path) -> None:
     con.close()
 
     from personal_knowledge.domains.knowledge.build_knowledge_unit_vector_store import load_eligible_units
-    units = load_eligible_units(db)
+    units, sealed_spans = load_eligible_units(db, tmp_path / "missing-conversations.sqlite")
     # 不含 rejected
     unit_ids = [u["unit_id"] for u in units]
     assert "cu_rej" not in unit_ids
     assert "cu_old" not in unit_ids
+    assert sealed_spans == 0
 
 
 def test_get_current_run_id(tmp_path: Path) -> None:
