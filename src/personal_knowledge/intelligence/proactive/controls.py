@@ -237,6 +237,25 @@ def _specificity(target: ControlTarget, event: ControlEvent) -> tuple[int, int]:
     return target_rank, scope_rank
 
 
+def _latest_control(events: tuple[ControlEvent, ...]) -> ControlEvent:
+    """Select by verified stream order, then compare streams on normalized time."""
+    latest_by_target: dict[tuple[str, str, str], ControlEvent] = {}
+    for event in events:
+        target_key = _target_key(event.target)
+        current = latest_by_target.get(target_key)
+        if current is None or (event.sequence, event.event_id) > (current.sequence, current.event_id):
+            latest_by_target[target_key] = event
+    return max(
+        latest_by_target.values(),
+        key=lambda item: (
+            _time(item.created_at, "created_at"),
+            _target_key(item.target),
+            item.sequence,
+            item.event_id,
+        ),
+    )
+
+
 def _project(events: tuple[ControlEvent, ...], *, as_of: str, scope: str,
              domains: frozenset[str], policies: frozenset[str]) -> ControlProjection:
     instant = _time(as_of, "as_of")
@@ -255,7 +274,7 @@ def _project(events: tuple[ControlEvent, ...], *, as_of: str, scope: str,
         best = max(_specificity(event.target, event) for event in candidates)
         top = tuple(event for event in candidates if _specificity(event.target, event) == best)
         denials = tuple(event for event in top if event.operation in DENIAL_OPERATIONS)
-        winning = max(denials or top, key=lambda item: (item.created_at, item.sequence, item.event_id))
+        winning = _latest_control(denials or top)
         if len({event.operation for event in top}) > 1 and not denials:
             eligible, reason, winning = False, ("trust_veto", "ambiguous_control"), None
         elif winning.operation == "suppress":
