@@ -61,3 +61,12 @@ Phase 26 深度审查发现的 3 项完整性问题均已修复并由负向测�
 ## Remaining Release Boundary
 
 Phase 26 代码审查已 clean，但这不代表 Phase 24 或 Target B/C 的人工与质量证据已经完成，也不授权 live schema migration/publication、lifecycle apply、serving 变更、外部执行或 REST/MCP 写能力。Phase 27 只能依赖当前已验证的 sandbox/read-only 技术合同继续推进。
+
+## F-01 Reverification Addendum
+
+独立验证随后发现 local append 未在写事务内重验 Phase 25 source binding。该缺口现已修复：四个 append 入口在同一 `BEGIN IMMEDIATE` connection 中、幂等回放与 insert 之前调用共享只读 validator，重算 Phase 25 input/output manifest checksum，并核对 publication sequence、snapshot ID/hash 与 decision run/support binding；失败统一为 `source_binding_invalid` 且零 typed row、零 event、sequence 不变。
+
+- RED：output manifest、input checksum、publication sequence、snapshot 四类篡改分别穿透 CLI confirmation、action、outcome、assessment，原实现 4/4 失败。
+- GREEN：新增负测 4/4 通过；Phase 26 全量 69/69，通过后 review 结论仍为 `clean`。
+- 扩大回归：Phase 25/Apps SDK/knowledge search/serving snapshot 120/120；preflight 13/13；全仓 792 passed、2 skipped。
+- Live metadata-only acceptance：`technical_status=passed`、`release_status=release_blocked`，before/after fingerprint 均为 `99b5dacbb9e3ba3ed6c67512d01bae3d2988ffce47e70a2d5da05154e198324c`，所有 mutation/external/network/paid counters 为 0。

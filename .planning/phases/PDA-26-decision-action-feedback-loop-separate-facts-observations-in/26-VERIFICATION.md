@@ -1,11 +1,11 @@
 ---
 phase: 26
 verified: 2026-07-18
-status: failed
-score: "1/2"
+status: passed
+score: "2/2"
 requirements:
   DEC-01: passed
-  DEC-02: failed
+  DEC-02: passed
 release_status: release_blocked
 verification_scope: independent_technical
 ---
@@ -14,7 +14,7 @@ verification_scope: independent_technical
 
 ## Verdict
 
-**Phase 26 independent technical verification: FAILED (1/2 requirements).** DEC-01 passes: the implementation keeps fact, observation, inference, recommendation and user confirmation in separate typed and authority boundaries. DEC-02 is not yet complete because the local append path can extend a recommendation stream after its bound Phase 25 source run has failed checksum validation.
+**Phase 26 independent technical verification: PASSED (2/2 requirements).** DEC-01 keeps fact, observation, inference, recommendation and user confirmation in separate typed and authority boundaries. DEC-02 now validates the exact Phase 25 source and Phase 26 decision/support binding inside every append transaction before idempotent replay or insertion.
 
 **Release status remains `release_blocked`.** Phase 24 human Gold/Judge/UAT and lifecycle quality gates remain unresolved. This verification performed no live schema migration, live decision write, lifecycle apply, serving/pointer/watermark change, network/paid call or external action.
 
@@ -28,13 +28,13 @@ verification_scope: independent_technical
 - Decision runs and supports bind one Phase 25 run checksum/publication sequence and one serving snapshot ID/hash. Recommendation publication atomically commits the recommendation and its unique sequence-1 `recommendation_published` genesis.
 - Outcome rows are typed observations; effectiveness rows are immutable inferences with `causal_claim=false`. The persistence boundary reloads outcome/action rows, resolves a registered rule and recomputes the assessment before accepting it.
 
-### DEC-02 — failed
+### DEC-02 — passed
 
-The append-only loop, sequence, idempotency, concurrency and assessment derivation tests pass for valid fixtures, but the local write boundary does not revalidate the bound Phase 25 source before appending.
+The append-only loop, sequence, idempotency, concurrency and assessment derivation tests pass for valid fixtures. The local write boundary now also fails closed on upstream source-version or tamper drift.
 
 #### F-01 — source-version drift is read-blocking but not write-blocking
 
-**Severity:** blocking integrity gap  
+**Severity:** blocking integrity gap — resolved
 **Affected entry points:**
 
 - `record_confirmation()` and CLI `confirm`
@@ -49,7 +49,7 @@ The append-only loop, sequence, idempotency, concurrency and assessment derivati
 3. Read the recommendation through `DecisionFeedbackService.recommendations_get()`.
 4. Append an `accept` confirmation with the exact recommendation checksum, human actor, expected sequence and idempotency key.
 
-**Observed:**
+**Original observation:**
 
 ```text
 read_ok=False
@@ -58,29 +58,27 @@ write.accepted=True
 write.sequence=2
 ```
 
-The read service correctly fails closed because `_context()` hydrates `IntelligenceService` and validates the Phase 25 run. The local writers call `_project()` directly; `_project()` validates the decision run manifests, recommendation genesis and decision event chain but does not validate the current Phase 25 run manifest/checksum/publication/snapshot binding. Therefore a user-facing local write can extend a stream that every read surface considers invalid.
+The original read service correctly failed closed while local writers could append. This mismatch is now closed by one shared `_validate_source_binding()` boundary in `state_machine.py`.
 
 This violates the Phase 26 contract that a stream remains bound to an exact valid Phase 25 run and that source-version/tamper drift fails closed. Existing automated tests cover drift on reads and acceptance, but not the same drift at each local append boundary.
 
-#### Required fix and regression proof
+#### Implemented fix and regression proof
 
-Before Phase 26 can pass:
-
-1. Add one shared, read-only source-binding validator that recomputes and verifies the Phase 25 run/output manifest checksum, publication sequence, snapshot ID/hash and the decision run/support binding in the same `BEGIN IMMEDIATE` transaction used by each append.
-2. Invoke it before idempotent replay or insertion in `record_confirmation`, `record_action`, `record_outcome` and `record_assessment`; failure must roll back and return a stable source-drift reason code.
-3. Do not route through a separate connection whose validation can race the append transaction.
-4. Add negative tests for all four append operations after Phase 25 manifest/checksum/publication/snapshot tampering. Assert zero new typed rows/events and unchanged last sequence.
-5. Retain the current read-service validation, CLI five guards, REST/MCP read-only boundary and Phase 24 release block.
+1. `_validate_source_binding(con, recommendation_id)` recomputes both Phase 25 input/output manifest checksums and validates publication sequence, serving snapshot ID/hash, decision run manifests/checksum and recommendation/support bindings.
+2. `record_confirmation`, `record_action`, `record_outcome` and `record_assessment` call it on the same connection immediately after `BEGIN IMMEDIATE`, before projection, idempotent replay or insertion. It opens no second connection.
+3. All source drift failures use stable reason code `source_binding_invalid`; the surrounding transaction rolls back.
+4. Four negative entry-point tests cover output-manifest, input-checksum, publication-sequence and snapshot tampering. The confirmation case exercises the guarded CLI write path. Every case asserts unchanged typed-row counts and event sequence/count.
+5. Existing read-service validation, CLI five guards, REST/MCP read-only boundary and the Phase 24 release block remain intact.
 
 ## Independent passing evidence
 
 | Gate | Result |
 |---|---|
-| Phase 26 unit/contract/integration suite | PASS — 65 tests |
-| Apps SDK, Phase 25 interface, knowledge-search and serving-snapshot regression | PASS — 45 tests |
+| Phase 26 unit/contract/integration suite | PASS — 69 tests |
+| Phase 25, Apps SDK, knowledge-search and serving-snapshot regression | PASS — 120 tests |
 | Governance preflight | PASS — 13/13 gates |
-| Full repository regression | PASS — 788 passed, 2 skipped; two pre-existing SyntaxWarnings |
-| Live metadata-only acceptance | PASS for the currently encoded read-only gate; technical result in this verification remains failed because F-01 is outside that gate |
+| Full repository regression | PASS — 792 passed, 2 skipped; two pre-existing SyntaxWarnings |
+| Live metadata-only acceptance | PASS — `technical_status=passed`, `release_status=release_blocked`, zero mutations |
 
 The live acceptance resolved a complete-unapplied decision schema, returned `technical_status=passed` for its existing checks and retained `release_status=release_blocked`. Before/after authority fingerprint was identical at `99b5dacbb9e3ba3ed6c67512d01bae3d2988ffce47e70a2d5da05154e198324c`. `persisted_rows`, `mutations`, `private_bodies`, `external_actions`, `network_calls` and `paid_calls` were all zero. The sandbox reconstructed one seven-event accepted history and one two-event rejected history; its effectiveness result remained observational with `causal_claim=false`.
 
@@ -102,4 +100,4 @@ The live acceptance resolved a complete-unapplied decision schema, returned `tec
 - Human review strict: false
 - Lifecycle strict: false; applied manifests and lifecycle events remain zero
 
-Phase 26 must not be marked technically complete or used as a verified dependency for Phase 27 until F-01 is fixed and independently reverified. This failure does not authorize live migration/publication, lifecycle apply, serving changes, external action or REST/MCP writes.
+F-01 is fixed and reverified, so Phase 26 is technically complete and may be used as the verified technical dependency for Phase 27. This pass does not authorize live migration/publication, lifecycle apply, serving changes, external action or REST/MCP writes, and it does not resolve the Phase 24 release blockers.

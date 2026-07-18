@@ -131,6 +131,160 @@ def _load_recommendation(con: sqlite3.Connection, recommendation_id: str) -> tup
     return row, payload, run
 
 
+def _validate_source_binding(con: sqlite3.Connection, recommendation_id: str) -> None:
+    """Validate the immutable Phase 25 anchor using the append transaction.
+
+    The caller must already hold ``BEGIN IMMEDIATE`` on ``con``.  Keeping all
+    reads on that connection makes source validation and the later append one
+    serialized operation instead of a check on a racing read connection.
+    """
+    def fail(detail: str) -> None:
+        raise DecisionStateError("source_binding_invalid", detail)
+
+    def manifest(row: sqlite3.Row, name: str, owner: str) -> dict[str, Any]:
+        try:
+            value = json.loads(str(row[f"{name}_manifest_json"]))
+        except (TypeError, json.JSONDecodeError):
+            fail(f"{owner}_{name}_manifest")
+        if not isinstance(value, dict) or checksum(value) != str(row[f"{name}_manifest_checksum"]):
+            fail(f"{owner}_{name}_checksum")
+        return value
+
+    rec = con.execute(
+        "SELECT * FROM decision_recommendations WHERE recommendation_id=?",
+        (recommendation_id,),
+    ).fetchone()
+    if rec is None:
+        fail("recommendation_missing")
+    run = con.execute("SELECT * FROM decision_runs WHERE run_id=?", (rec["run_id"],)).fetchone()
+    if run is None:
+        fail("decision_run_missing")
+    source = con.execute(
+        "SELECT r.*,p.publication_sequence,s.manifest_hash AS current_snapshot_hash "
+        "FROM personal_state_runs r "
+        "LEFT JOIN personal_state_publications p ON p.run_id=r.run_id "
+        "LEFT JOIN serving_snapshots s ON s.snapshot_id=r.snapshot_id "
+        "WHERE r.run_id=?",
+        (run["source_run_id"],),
+    ).fetchone()
+    if source is None or source["publication_sequence"] is None or source["current_snapshot_hash"] is None:
+        fail("source_run_unpublished")
+
+    source_input = manifest(source, "input", "source")
+    source_output = manifest(source, "output", "source")
+    source_anchor = (
+        str(source["run_id"]),
+        str(source["output_manifest_checksum"]),
+        int(source["publication_sequence"]),
+        str(source["snapshot_id"]),
+        str(source["snapshot_hash"]),
+    )
+    if (
+        str(source["status"]) != "committed"
+        or str(source["current_snapshot_hash"]) != source_anchor[4]
+        or source_input.get("snapshot_id") != source_anchor[3]
+        or source_input.get("snapshot_hash") != source_anchor[4]
+        or source_input.get("producer_version") != str(source["producer_version"])
+        or source_output.get("run_id") != source_anchor[0]
+        or source_output.get("snapshot_id") != source_anchor[3]
+        or source_output.get("snapshot_hash") != source_anchor[4]
+    ):
+        fail("source_manifest_binding")
+
+    decision_input = manifest(run, "input", "decision")
+    decision_output = manifest(run, "output", "decision")
+    run_anchor = (
+        str(run["source_run_id"]),
+        str(run["source_run_checksum"]),
+        int(run["source_publication_sequence"]),
+        str(run["snapshot_id"]),
+        str(run["snapshot_hash"]),
+    )
+    if run_anchor != source_anchor:
+        fail("decision_source_binding")
+    for value in (decision_input, decision_output):
+        if (
+            value.get("source_run_id") != source_anchor[0]
+            or value.get("source_run_checksum") != source_anchor[1]
+            or value.get("source_publication_sequence") != source_anchor[2]
+            or value.get("snapshot_id") != source_anchor[3]
+            or value.get("snapshot_hash") != source_anchor[4]
+        ):
+            fail("decision_manifest_binding")
+    recommendations = decision_output.get("recommendations")
+    core = {
+        key: decision_output.get(key)
+        for key in (
+            "schema_version", "run_id", "source_run_id", "source_run_checksum",
+            "source_publication_sequence", "snapshot_id", "snapshot_hash", "policy_id",
+            "policy_version", "input_manifest_checksum", "recommendations",
+        )
+    }
+    if (
+        decision_input.get("registry_id") != str(run["registry_id"])
+        or decision_input.get("policy_id") != str(run["policy_id"])
+        or decision_input.get("policy_version") != str(run["policy_version"])
+        or decision_output.get("run_id") != str(run["run_id"])
+        or decision_output.get("input_manifest_checksum") != str(run["input_manifest_checksum"])
+        or checksum(core) != str(run["run_checksum"])
+        or decision_output.get("run_checksum") != str(run["run_checksum"])
+        or not isinstance(recommendations, list)
+    ):
+        fail("decision_run_binding")
+
+    try:
+        rec_payload = json.loads(str(rec["payload_json"]))
+    except (TypeError, json.JSONDecodeError):
+        fail("recommendation_manifest")
+    if (
+        not isinstance(rec_payload, dict)
+        or checksum(rec_payload) != str(rec["payload_checksum"])
+        or str(rec["source_run_id"]) != source_anchor[0]
+        or str(rec["source_run_checksum"]) != source_anchor[1]
+        or str(rec["snapshot_id"]) != source_anchor[3]
+        or str(rec["snapshot_hash"]) != source_anchor[4]
+        or not any(
+            isinstance(item, dict)
+            and item.get("recommendation_id") == recommendation_id
+            and item.get("payload_checksum") == str(rec["payload_checksum"])
+            for item in recommendations
+        )
+    ):
+        fail("recommendation_source_binding")
+
+    expected_support = rec_payload.get("support")
+    support_rows = con.execute(
+        "SELECT * FROM decision_support_refs WHERE recommendation_id=? ORDER BY support_id",
+        (recommendation_id,),
+    ).fetchall()
+    if not isinstance(expected_support, list) or len(support_rows) != len(expected_support):
+        fail("support_manifest")
+    actual_support: list[dict[str, Any]] = []
+    for support in support_rows:
+        try:
+            payload = json.loads(str(support["payload_json"]))
+        except (TypeError, json.JSONDecodeError):
+            fail("support_manifest")
+        if (
+            not isinstance(payload, dict)
+            or checksum(payload) != str(support["payload_checksum"])
+            or str(support["source_run_id"]) != source_anchor[0]
+            or str(support["source_run_checksum"]) != source_anchor[1]
+            or int(support["source_publication_sequence"]) != source_anchor[2]
+            or str(support["snapshot_id"]) != source_anchor[3]
+            or str(support["snapshot_hash"]) != source_anchor[4]
+            or payload.get("source_run_id") != source_anchor[0]
+            or payload.get("source_run_checksum") != source_anchor[1]
+            or payload.get("source_publication_sequence") != source_anchor[2]
+            or payload.get("snapshot_id") != source_anchor[3]
+            or payload.get("snapshot_hash") != source_anchor[4]
+        ):
+            fail("support_source_binding")
+        actual_support.append(payload)
+    if sorted(map(canonical_json, actual_support)) != sorted(map(canonical_json, expected_support)):
+        fail("support_manifest")
+
+
 def _typed_payload(con: sqlite3.Connection, event_type: str, record_id: str) -> dict[str, Any]:
     table, id_column = {
         "confirmation": ("decision_confirmations", "confirmation_id"),
@@ -405,6 +559,7 @@ def record_confirmation(
     try:
         assert_foreign_key_integrity(con)
         con.execute("BEGIN IMMEDIATE")
+        _validate_source_binding(con, recommendation_id)
         state = _project(con, recommendation_id)
         rec, _, _ = _load_recommendation(con, recommendation_id)
         if str(rec["payload_checksum"]) != recommendation_checksum:
@@ -504,6 +659,7 @@ def record_action(
     try:
         assert_foreign_key_integrity(con)
         con.execute("BEGIN IMMEDIATE")
+        _validate_source_binding(con, recommendation_id)
         state = _project(con, recommendation_id)
         rec, _, _ = _load_recommendation(con, recommendation_id)
         if str(rec["payload_checksum"]) != recommendation_checksum:
@@ -640,6 +796,7 @@ def record_outcome(
     try:
         assert_foreign_key_integrity(con)
         con.execute("BEGIN IMMEDIATE")
+        _validate_source_binding(con, recommendation_id)
         state = _project(con, recommendation_id)
         rec, _, _ = _load_recommendation(con, recommendation_id)
         if str(rec["payload_checksum"]) != recommendation_checksum:
@@ -753,6 +910,7 @@ def record_assessment(
     try:
         assert_foreign_key_integrity(con)
         con.execute("BEGIN IMMEDIATE")
+        _validate_source_binding(con, assessment.recommendation_id)
         state = _project(con, assessment.recommendation_id)
         rec, _, _ = _load_recommendation(con, assessment.recommendation_id)
         outcome = con.execute(
