@@ -1,12 +1,20 @@
 ---
 phase: 30-low-risk-project-decision-pilot
-status: passed
+status: complete
+phase: 30-low-risk-project-decision-pilot
+source: [30-01-SUMMARY.md, 30-02-SUMMARY.md, 30-03-SUMMARY.md]
 review_mode: delegated_llm
+started: 2026-07-18T12:32:00Z
+updated: 2026-07-18T12:52:00Z
 reviewed: 2026-07-18
 open_scenarios: 0
 ---
 
 # Phase 30 Product UAT
+
+## Current Test
+
+[testing complete]
 
 ## Acceptance authority
 
@@ -28,6 +36,45 @@ to `codex_operator`; the user authorization is stored only as a one-way hash.
 | Real reject/defer/abstain control exists | PASS | direct-adoption case defer `ppe_01e1bd75910bb130dffb125e` |
 | Correction, revoke/restore and snapshot recovery preserve history | PASS | sequences 7 through 11 |
 | Product reads are checksum-verifying and side-effect free | PASS | metadata-only acceptance `ok=true`, `unchanged=true` |
+
+## Tests
+
+### 1. Reconstruct the exact project case
+expected: The case view shows the frozen Phase 29 candidate, confirmed inputs, no-action baseline and both alternatives.
+result: pass
+
+### 2. Follow the user-owned decision and action chain
+expected: Decision, Codex local action and outcome appear as separate chronological records with zero system external action.
+result: pass
+
+### 3. Inspect the preregistered observation
+expected: Metric, baseline, target, source and window precede the action; the completed observation is non-causal PASS.
+result: pass
+
+### 4. Inspect the defer control case
+expected: Direct adoption remains a distinct case with an explicit defer and no action record.
+result: pass
+
+### 5. Exercise correction and recovery
+expected: Correction, revoke/restore and rollback/forward-restore preserve prior history and end in the original BOUND projection.
+result: pass
+
+### 6. Run metadata-only acceptance
+expected: All authority fingerprints remain equal and provider, network, Knowledge-write and external-action counters are zero.
+result: pass
+
+## Summary
+
+total: 6
+passed: 6
+issues: 0
+pending: 0
+skipped: 0
+blocked: 0
+
+## Gaps
+
+None.
 
 ## Decision
 
