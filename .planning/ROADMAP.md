@@ -56,6 +56,13 @@ Plans:
 3. 每条事实主张逐项绑定 typed Personal/External evidence ID；schema-valid 但 unsupported 的输出同样失败。
 4. Model/provider、prompt/schema/policy、temperature、token/cost/latency 和 request/response checksum 可审计；真实 LLM run 与 replayable stub 均验收。
 
+Plans:
+
+- [ ] 29-01: Immutable analysis candidate authority and typed contracts
+- [ ] 29-02: Confirmed dual-context inputs and structured candidate parser
+- [ ] 29-03: Claim evidence validation and deterministic safety gates
+- [ ] 29-04: Provider execution, replay, Doctor and real LLM UAT
+
 ### Phase 30: Low-risk Project Decision Pilot
 
 **Goal:** 在单一 `project` 域完成真实、安全、用户确认的建议到结果纵向链，不自动执行外部动作。
@@ -91,7 +98,7 @@ Plans:
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
 | 28 | PDI-01..04 | 4/4 | Complete |
-| 29 | PDI-05..06 | 0/4 | Not started |
+| 29 | PDI-05..06 | 0/4 | Planned |
 | 30 | PDI-07 | 0/3 | Not started |
 | 31 | PDI-08 | 0/3 | Not started |
 
