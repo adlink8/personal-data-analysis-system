@@ -88,6 +88,7 @@ from personal_knowledge.services.decision_intelligence_reads import (  # noqa: E
 from personal_knowledge.services.orchestration_service import (  # noqa: E402
     GuardedOrchestrationInterface,
 )
+from personal_knowledge.services.agent_contract import compact_envelope  # noqa: E402
 
 # AI 长期上下文文档路径(给 /profile 用)
 ROOT = _THIS_DIR.parents[1]
@@ -196,7 +197,7 @@ def agent_read_rest_contract(
 ) -> dict:
     """Thin REST adapter for Phase 28-31 read authorities."""
     values = {key: value for key, value in params.items() if value not in {None, ""}}
-    return (service or DecisionIntelligenceReadService()).invoke(operation, **values)
+    return compact_envelope((service or DecisionIntelligenceReadService()).invoke(operation, **values))
 
 
 def orchestration_rest_contract(
@@ -207,8 +208,8 @@ def orchestration_rest_contract(
         target = service or GuardedOrchestrationInterface()
     except Exception as exc:
         code = str(getattr(exc, "code", "") or str(exc) or "service_unavailable").split(":", 1)[0]
-        return GuardedOrchestrationInterface._envelope(operation, ok=False, code=code)
-    return target.invoke(operation, **params)
+        return compact_envelope(GuardedOrchestrationInterface._envelope(operation, ok=False, code=code))
+    return compact_envelope(target.invoke(operation, **params))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -621,9 +622,9 @@ class Handler(BaseHTTPRequestHandler):
                 if operation == "session.execute" and path != "/agent/session/execute":
                     preview = body.get("preview") or {}
                     if preview.get("operation") != expected:
-                        data = GuardedOrchestrationInterface._envelope(
+                        data = compact_envelope(GuardedOrchestrationInterface._envelope(
                             operation, ok=False, code="route_operation_mismatch",
-                        )
+                        ))
                     else:
                         data = orchestration_rest_contract(operation, body)
                 else:

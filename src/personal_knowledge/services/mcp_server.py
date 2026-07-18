@@ -94,6 +94,7 @@ from personal_knowledge.services.decision_intelligence_reads import (  # noqa: E
 from personal_knowledge.services.orchestration_service import (  # noqa: E402
     GuardedOrchestrationInterface,
 )
+from personal_knowledge.services.agent_contract import compact_envelope  # noqa: E402
 
 SEMANTIC_API_URL = semantic_api_url()
 
@@ -959,9 +960,9 @@ def agent_read_tool_contract(
     }.get(name)
     target = service or DecisionIntelligenceReadService()
     if operation is None:
-        return target._error("unknown", "unknown_operation", name)
+        return compact_envelope(target._error("unknown", "unknown_operation", name))
     values = {key: value for key, value in arguments.items() if value not in {None, ""}}
-    return target.invoke(operation, **values)
+    return compact_envelope(target.invoke(operation, **values))
 
 
 def orchestration_tool_contract(
@@ -980,15 +981,15 @@ def orchestration_tool_contract(
         operation = "session.execute"
         expected = name.removeprefix("agent_session_")
         if (arguments.get("preview") or {}).get("operation") != expected:
-            return GuardedOrchestrationInterface._envelope(operation, ok=False, code="route_operation_mismatch")
+            return compact_envelope(GuardedOrchestrationInterface._envelope(operation, ok=False, code="route_operation_mismatch"))
     else:
         operation = "unknown"
     try:
         target = service or GuardedOrchestrationInterface()
     except Exception as exc:
         code = str(getattr(exc, "code", "") or str(exc) or "service_unavailable").split(":", 1)[0]
-        return GuardedOrchestrationInterface._envelope(operation, ok=False, code=code)
-    return target.invoke(operation, **arguments)
+        return compact_envelope(GuardedOrchestrationInterface._envelope(operation, ok=False, code=code))
+    return compact_envelope(target.invoke(operation, **arguments))
 
 
 # === MCP Server ===========================================================
