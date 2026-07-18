@@ -26,8 +26,11 @@ def test_arms_have_exact_parity_except_personal_context(tmp_path: Path) -> None:
         response={"protocol_checksum":protocol.payload_checksum,"blind_label":arms[kind]["blind_label"],
                   "status":"candidate","recommendation":"validate then adopt","rationale":["bounded"],
                   "limitations":["single case"],"confidence":.6}
-        receipt=execute_frozen_arm(db,arm_id=ids[kind],provider=ReplayProvider(response))
+        provider=ReplayProvider(response)
+        receipt=execute_frozen_arm(db,arm_id=ids[kind],provider=provider)
         assert receipt["receipt"]["cost_amount"]==0
+        assert execute_frozen_arm(db,arm_id=ids[kind],provider=provider)["existing"]
+        assert provider.calls==1
 
 
 def test_generic_personal_leakage_and_generation_drift_fail_closed(tmp_path: Path) -> None:
@@ -42,3 +45,15 @@ def test_generic_personal_leakage_and_generation_drift_fail_closed(tmp_path: Pat
     arms["generic"]["generation"]={**arms["generic"]["generation"],"max_output_tokens":1}
     with pytest.raises(CalibrationPairError,match="arm_parity_invalid"):
         freeze_arm_assignments(db,protocol.protocol_id,member_id=member,arms=arms,created_at="2026-07-18T13:01:00Z")
+
+
+def test_replay_provider_cannot_bypass_response_schema(tmp_path: Path) -> None:
+    env,db,protocol=setup_protocol(tmp_path); from personal_knowledge.intelligence.calibration.protocols import freeze_protocol
+    freeze_protocol(db,env["pilot"],protocol,write=True)
+    import sqlite3
+    con=sqlite3.connect(db); member=con.execute("SELECT member_id FROM calibration_cohort_members").fetchone()[0]; con.close()
+    arms=build_paired_requests(db,protocol.protocol_id,member_id=member,external_context={"x":1},personal_context={"y":2})
+    ids=freeze_arm_assignments(db,protocol.protocol_id,member_id=member,arms=arms,created_at="2026-07-18T13:01:00Z")
+    bad={"protocol_checksum":protocol.payload_checksum,"blind_label":"arm_a","status":"candidate"}
+    with pytest.raises(CalibrationPairError,match="arm_response_schema_invalid"):
+        execute_frozen_arm(db,arm_id=ids["generic"],provider=ReplayProvider(bad))

@@ -37,6 +37,14 @@ def record_proposal_control(db_path: Path | str, proposal_id: str, *, action: st
     try: source=con.execute("SELECT * FROM calibration_proposals WHERE proposal_id=?",(proposal_id,)).fetchone()
     finally: con.close()
     if source is None: raise ValueError("proposal_missing")
+    if source["proposal_status"] != "candidate": raise ValueError("proposal_control_target_invalid")
+    if action == "restored":
+        con=sqlite3.connect(db_path)
+        try:
+            rows=con.execute("SELECT payload_json FROM calibration_proposals WHERE protocol_id=? AND proposal_status='revoked'",(source["protocol_id"],)).fetchall()
+        finally: con.close()
+        if not any(__import__("json").loads(row[0]).get("target_proposal_id")==proposal_id for row in rows):
+            raise ValueError("proposal_revoke_required")
     payload={"target_proposal_id":proposal_id,"target_checksum":source["payload_checksum"],"action":action,
              "reason":reason,"compensating":True,"promotion_performed":False}
     digest=checksum(payload); control_id=stable_id("calpr",payload)

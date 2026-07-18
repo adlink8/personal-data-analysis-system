@@ -23,6 +23,9 @@ def test_proposal_reject_revoke_restore_are_append_only_and_parent_stable(tmp_pa
     proposal=create_proposal(db,p.protocol_id,parent_version="calibration-paired-v1",parent_checksum=parent,
         proposal_kind="policy",changes={"minimum_evidence":4,"enforce_actual_token_budget":True},
         rationale=("current cohort is insufficient","actual tokens exceeded freeze"),created_at="2026-07-18T15:02:00Z")
+    import pytest
+    with pytest.raises(ValueError,match="proposal_revoke_required"):
+        record_proposal_control(db,proposal["proposal_id"],action="restored",reason="too early",created_at="2026-07-18T15:02:30Z")
     reject=record_proposal_control(db,proposal["proposal_id"],action="rejected",reason="insufficient evidence",created_at="2026-07-18T15:03:00Z")
     revoke=record_proposal_control(db,proposal["proposal_id"],action="revoked",reason="rollback drill",created_at="2026-07-18T15:04:00Z")
     restore=record_proposal_control(db,proposal["proposal_id"],action="restored",reason="forward restore drill",created_at="2026-07-18T15:05:00Z")

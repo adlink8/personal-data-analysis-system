@@ -34,10 +34,23 @@ def evaluate_protocol(
     if missing: reasons.append("missing_measurements")
     if protocol_deviations: reasons.append("protocol_deviation")
     if confounders: reasons.append("confounded_or_ambiguous")
-    status="INCONCLUSIVE" if reasons else "PASS"
+    lower_better={"time_deviation","cost_deviation","side_effects","regret","abstention"}
+    gains={}
+    if not reasons:
+        for name in REQUIRED_METRICS:
+            p=float(metrics["personalized"][name]); g=float(metrics["generic"][name])
+            gains[name]=(g-p) if name in lower_better else (p-g)
+        failed=[name for name,gain in gains.items() if gain<float(protocol["thresholds"][name])]
+        status="FAIL" if failed else "PASS"
+        if failed: reasons.append("threshold_not_met")
+    else:
+        status="INCONCLUSIVE"
+        failed=[]
+        gains={name:None for name in REQUIRED_METRICS}
     payload={"protocol_id":protocol_id,"protocol_checksum":protocol_row["payload_checksum"],"status":status,
              "metrics":metrics,"missing":missing,"protocol_deviations":list(protocol_deviations),
-             "confounders":list(confounders),"reason_codes":reasons,"causal_claim":False,"as_of":as_of}
+             "confounders":list(confounders),"gains":gains,"failed_thresholds":failed,
+             "reason_codes":reasons,"causal_claim":False,"as_of":as_of}
     digest=checksum(payload); verdict_id=stable_id("calv",payload)
     con=connect_rw(Path(db_path),timeout=30)
     try:

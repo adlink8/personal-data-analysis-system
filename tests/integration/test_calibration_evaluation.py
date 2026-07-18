@@ -32,3 +32,18 @@ def test_incomplete_window_or_confounder_never_becomes_gain(tmp_path:Path)->None
                               as_of="2026-07-18T14:30:00Z",confounders=("rubric ambiguity",))
     assert verdict["status"]=="INCONCLUSIVE"
     assert {"sample_below_minimum","missing_window","confounded_or_ambiguous"}<=set(verdict["reason_codes"])
+
+
+def test_sufficient_complete_evidence_below_threshold_is_fail(tmp_path:Path)->None:
+    db,p=_ready(tmp_path)
+    import sqlite3,json
+    from personal_knowledge.intelligence.analysis.schema import canonical_json,checksum,stable_id
+    payload={"protocol_id":p.protocol_id,"ordinal":1,"case_id":"case-2","case_checksum":"4"*64,"outcome_event_checksum":"5"*64}
+    con=sqlite3.connect(db)
+    con.execute("INSERT INTO calibration_cohort_members VALUES (?,?,?,?,?,?,?,?,?)",
+                (stable_id("calm",payload),p.protocol_id,1,"case-2","4"*64,"5"*64,canonical_json(payload),checksum(payload),"2026-07-18T13:00:00Z"))
+    con.commit(); con.close()
+    good={name:1 for name in REQUIRED_METRICS}; worse={name:0 for name in REQUIRED_METRICS}
+    verdict=evaluate_protocol(db,p.protocol_id,arm_outcomes={"personalized":worse,"generic":good},as_of="2026-07-18T15:01:00Z")
+    assert verdict["status"]=="FAIL" and verdict["reason_codes"]==["threshold_not_met"]
+    assert verdict["failed_thresholds"]
