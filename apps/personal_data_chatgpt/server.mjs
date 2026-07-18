@@ -1818,7 +1818,7 @@ export function createAppServer(options = {}) {
   });
 }
 
-export { callTool, handleRpc, makeRestClient, toolDescriptors, WIDGETS };
+export { callTool, handleRpc, makeRestClient, PROTOCOL_VERSION, toolDescriptors, WIDGETS };
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const server = createAppServer();

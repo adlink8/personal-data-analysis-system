@@ -3,11 +3,13 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Read-only ChatGPT-facing HTTP MCP Apps adapter for the local personal data REST API.",
+  "description": "Guarded ChatGPT-facing HTTP MCP adapter for local personal decision intelligence.",
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "test:widgets": "node --test test/widget-render.test.mjs"
+    "test:widgets": "node --test test/widget-render.test.mjs",
+    "snapshot:tools": "node scripts/descriptor-snapshot.mjs",
+    "snapshot:tools:update": "node scripts/descriptor-snapshot.mjs --update"
   },
   "engines": {
     "node": ">=20"
