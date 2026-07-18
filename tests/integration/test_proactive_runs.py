@@ -209,3 +209,20 @@ def test_prior_candidate_suppresses_exact_duplicate_but_material_change_versions
                        candidate_drafts=(replace(_candidate(draft), severity=.2),), **common)
     assert changed.candidates[0].dedup_key != first.candidates[0].dedup_key
     assert changed.candidates[0].novelty == 1
+
+
+def test_concurrent_candidate_replay_converges_to_one_immutable_bundle(tmp_path: Path) -> None:
+    db, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path)
+    run = plan_run(db, [draft], source_run_id=state_id, source_run_checksum=state_checksum,
+                   source_publication_sequence=seq, decision_run_id=decision.run_id,
+                   decision_run_checksum=decision.run_checksum, coordination_policy="c",
+                   ranking_policy="r", noise_policy="n", input_manifest={},
+                   candidate_drafts=(_candidate(draft),))
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: publish_run(db, run, write=True), range(2)))
+    assert sorted((item["written"], item["existing"]) for item in results) == [(False, True), (True, False)]
+    con = sqlite3.connect(db)
+    assert tuple(con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in (
+        "proactive_runs", "proactive_candidates", "proactive_candidate_support", "proactive_evaluations"
+    )) == (1, 1, 1, 1)
+    con.close()

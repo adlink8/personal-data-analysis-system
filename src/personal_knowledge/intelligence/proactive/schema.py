@@ -174,6 +174,7 @@ class ProactiveCandidate:
     domains: tuple[str, ...]
     target_group: tuple[str, ...]
     dedup_key: str
+    cooldown_key: str
     material_change_signature: str
     valid_from: str
     expires_at: str

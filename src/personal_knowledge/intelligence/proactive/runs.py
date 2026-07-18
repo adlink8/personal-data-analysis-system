@@ -222,7 +222,8 @@ def plan_run(
     expired_keys = frozenset(str(row[0]) for row in prior_rows if _parse_time(str(row[1])) <= _parse_time(context.as_of))
     candidates = rank_candidates(candidate_inputs, policy=ranking_config, run_id=run_id,
                                  prior_dedup_keys=prior_keys, expired_prior_keys=expired_keys)
-    evaluations = evaluate_candidates(candidates, context=context, policy=noise_config)
+    evaluations = evaluate_candidates(candidates, context=context, policy=noise_config,
+                                      ranking_policy=ranking_config)
     core = {"run_id": run_id, "input_manifest_checksum": input_checksum,
             "coordination_items": [{"coordination_id": i.coordination_id, "payload_checksum": i.payload_checksum} for i in items],
             "candidates": [{"candidate_id": i.candidate_id, "payload_checksum": i.payload_checksum} for i in candidates],

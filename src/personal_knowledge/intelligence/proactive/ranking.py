@@ -142,6 +142,9 @@ def rank_candidates(
             "domains": domains, "scope": draft.scope, "material_change_signature": material,
             "policy_version": policy.version,
         })
+        cooldown_key = checksum({"candidate_class": draft.candidate_class,
+                                 "subject": draft.subject, "scope": draft.scope,
+                                 "domains": domains, "policy_version": policy.version})
         novelty = 0.0 if dedup_key in prior and dedup_key not in expired_prior_keys else 1.0
         values: Mapping[str, float] = {
             "severity": _bounded(draft.severity, "severity"),
@@ -158,6 +161,7 @@ def rank_candidates(
         identity = {
             "run_id": run_id, "candidate_class": draft.candidate_class, "subject": draft.subject,
             "scope": draft.scope, "domains": domains, "dedup_key": dedup_key,
+            "cooldown_key": cooldown_key,
             "valid_from": draft.valid_from, "expires_at": draft.expires_at,
             "policy_id": policy.policy_id, "policy_version": policy.version,
         }
@@ -173,7 +177,7 @@ def rank_candidates(
         validate_metadata_payload(payload, "candidate")
         results.append(ProactiveCandidate(
             candidate_id, run_id, draft.candidate_class, draft.presentation_kind, draft.subject,
-            draft.scope, domains, tuple(sorted(draft.target_group)), dedup_key, material,
+            draft.scope, domains, tuple(sorted(draft.target_group)), dedup_key, cooldown_key, material,
             draft.valid_from, draft.expires_at, policy.policy_id, policy.version, importance,
             novelty, draft.uncertainty, tuple(sorted(set(draft.reason_codes))),
             draft.evidence_eligible, draft.trust_eligible, draft.sensitive, draft.support_refs,
@@ -197,6 +201,7 @@ def _quiet_until(as_of: datetime, zone: ZoneInfo, policy: NoisePolicy) -> str | 
 
 def evaluate_candidates(
     candidates: Iterable[ProactiveCandidate], *, context: EvaluationContext, policy: NoisePolicy,
+    ranking_policy: RankingPolicy = DEFAULT_RANKING_POLICY,
 ) -> tuple[ProactiveEvaluation, ...]:
     if not policy.policy_id or not policy.version:
         raise ValueError("noise_policy_invalid")
@@ -226,15 +231,15 @@ def evaluate_candidates(
             result, reasons = "abstained", ("trust_veto",)
         elif as_of >= _time(candidate.expires_at):
             result, reasons = "expired", ("expired",)
-        elif zone is None:
+        elif zone is None and candidate.presentation_kind != "inbox_item":
             result, reasons = "abstained", ("invalid_timezone_inbox_only",)
-        elif candidate.importance.final_score < DEFAULT_RANKING_POLICY.threshold:
+        elif candidate.importance.final_score < ranking_policy.threshold:
             result, reasons = "abstained", ("below_threshold",)
         elif candidate.novelty == 0:
             result, reasons = "suppressed", ("duplicate_no_material_change",)
-        elif candidate.dedup_key in surfaced and as_of - surfaced[candidate.dedup_key] < timedelta(hours=policy.cooldown_hours):
+        elif candidate.cooldown_key in surfaced and as_of - surfaced[candidate.cooldown_key] < timedelta(hours=policy.cooldown_hours):
             result, reasons = "suppressed", ("cooldown_active",)
-        elif (quiet_until := _quiet_until(as_of, zone, policy)) is not None:
+        elif zone is not None and (quiet_until := _quiet_until(as_of, zone, policy)) is not None:
             result, reasons, deferred = "deferred", ("quiet_period",), quiet_until
         else:
             critical = candidate.importance.final_score >= policy.critical_threshold and policy.critical_budget_override

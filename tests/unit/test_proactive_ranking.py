@@ -10,6 +10,7 @@ from personal_knowledge.intelligence.proactive.ranking import (
     EvaluationContext,
     SurfaceRecord,
     evaluate_candidates,
+    build_digest,
     rank_candidates,
 )
 from personal_knowledge.intelligence.proactive.schema import CandidateDraft, SupportReference, checksum
@@ -73,7 +74,7 @@ def test_novelty_dedup_cooldown_quiet_and_budgets_are_reason_coded() -> None:
     duplicate = rank_candidates([_draft()], policy=DEFAULT_RANKING_POLICY, prior_candidates=(base,))[0]
     assert duplicate.novelty == 0.0
     assert duplicate.candidate_id == base.candidate_id
-    cooldown = EvaluationContext.fixed(surface_records=(SurfaceRecord(base.dedup_key, "presented", "2026-07-18T08:00:00Z"),))
+    cooldown = EvaluationContext.fixed(surface_records=(SurfaceRecord(base.cooldown_key, "presented", "2026-07-18T08:00:00Z"),))
     assert evaluate_candidates([base], context=cooldown, policy=DEFAULT_NOISE_POLICY)[0].reason_codes == ("cooldown_active",)
     quiet = replace(EvaluationContext.fixed(), as_of="2026-07-18T23:00:00Z")
     deferred = evaluate_candidates([base], context=quiet, policy=DEFAULT_NOISE_POLICY)[0]
@@ -92,3 +93,51 @@ def test_invalid_timezone_fails_closed_to_inbox_only_and_expiry_is_explicit() ->
     expired = replace(EvaluationContext.fixed(), as_of="2026-07-21T00:00:00Z",
                       window_start="2026-07-21T00:00:00Z", window_end="2026-07-22T00:00:00Z")
     assert evaluate_candidates([candidate], context=expired, policy=DEFAULT_NOISE_POLICY)[0].result == "expired"
+
+
+def test_cooldown_expires_at_exact_boundary_and_dismissal_does_not_start_it() -> None:
+    candidate = rank_candidates([_draft()], policy=DEFAULT_RANKING_POLICY)[0]
+    boundary = EvaluationContext.fixed(surface_records=(
+        SurfaceRecord(candidate.cooldown_key, "acknowledged", "2026-07-17T12:00:00Z"),
+    ))
+    assert evaluate_candidates([candidate], context=boundary, policy=DEFAULT_NOISE_POLICY)[0].result == "eligible"
+    dismissed = EvaluationContext.fixed(surface_records=(
+        SurfaceRecord(candidate.cooldown_key, "dismissed", "2026-07-18T11:59:00Z"),
+    ))
+    assert evaluate_candidates([candidate], context=dismissed, policy=DEFAULT_NOISE_POLICY)[0].result == "eligible"
+
+
+def test_quiet_period_boundaries_are_fair_and_do_not_schedule_delivery() -> None:
+    candidate = rank_candidates([_draft()], policy=DEFAULT_RANKING_POLICY)[0]
+    at_start = replace(EvaluationContext.fixed(), as_of="2026-07-18T22:00:00Z")
+    before_end = replace(EvaluationContext.fixed(), as_of="2026-07-18T06:59:59Z")
+    at_end = replace(EvaluationContext.fixed(), as_of="2026-07-18T07:00:00Z")
+    assert evaluate_candidates([candidate], context=at_start, policy=DEFAULT_NOISE_POLICY)[0].result == "deferred"
+    assert evaluate_candidates([candidate], context=before_end, policy=DEFAULT_NOISE_POLICY)[0].result == "deferred"
+    assert evaluate_candidates([candidate], context=at_end, policy=DEFAULT_NOISE_POLICY)[0].result == "eligible"
+    assert "schedule" not in evaluate_candidates([candidate], context=at_start, policy=DEFAULT_NOISE_POLICY)[0].payload
+
+
+def test_global_and_domain_budget_ties_are_stable_and_critical_never_bypasses_user_veto() -> None:
+    drafts = [replace(_draft(subject=f"p-{i}"), domains=("project",)) for i in range(2)] + [
+        replace(_draft(subject=f"l-{i}"), domains=("learning",)) for i in range(2)
+    ]
+    candidates = rank_candidates(reversed(drafts), policy=DEFAULT_RANKING_POLICY)
+    results = evaluate_candidates(candidates, context=EvaluationContext.fixed(), policy=DEFAULT_NOISE_POLICY)
+    assert sum(item.result == "eligible" for item in results) == DEFAULT_NOISE_POLICY.global_budget
+    assert sum("global_budget_exhausted" in item.reason_codes for item in results) == 1
+    winner_ids = [item.candidate_id for item in results if item.result == "eligible"]
+    expected = [item.candidate_id for item in sorted(candidates, key=lambda item: (-item.importance.final_score, -item.importance.urgency, item.candidate_id))[:3]]
+    assert winner_ids == sorted(expected)
+    critical = rank_candidates([_draft(score=1.0)], policy=DEFAULT_RANKING_POLICY)[0]
+    suppressed = replace(EvaluationContext.fixed(), explicit_suppressions=(critical.dedup_key,))
+    result = evaluate_candidates([critical], context=suppressed, policy=replace(DEFAULT_NOISE_POLICY, global_budget=0, domain_budget=0))[0]
+    assert result.result == "abstained" and result.reason_codes == ("trust_veto",)
+
+
+def test_digest_keeps_each_support_manifest_and_never_merges_contradictions() -> None:
+    candidates = rank_candidates([_draft(subject="a"), _draft(subject="b")], policy=DEFAULT_RANKING_POLICY)
+    digest = build_digest(candidates)
+    assert digest["presentation_kind"] == "digest_item"
+    assert digest["contradictory_evidence_merged"] is False
+    assert len(digest["support_manifests"]) == 2
