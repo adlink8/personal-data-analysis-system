@@ -1,12 +1,8 @@
 """Compensating pilot controls and read-only snapshot recovery validation."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
-import sqlite3
 from typing import Any, Mapping
-
-from personal_knowledge.intelligence.decision.context_binding import validate_decision_context_binding
 
 from .workflow import PilotEventReceipt, PilotWorkflowError, _append, read_event_stream
 
@@ -75,30 +71,6 @@ def record_restore(
     )
 
 
-def _case_binding(db_path: Path | str, case_id: str) -> tuple[dict[str, Any], str]:
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
-    try:
-        row = con.execute("SELECT payload_json,payload_checksum FROM pilot_cases WHERE case_id=?", (case_id,)).fetchone()
-    finally:
-        con.close()
-    if row is None:
-        raise PilotWorkflowError("pilot_case_missing")
-    payload = json.loads(str(row["payload_json"]))
-    source = payload["source"]
-    snapshots = payload["snapshots"]
-    binding = {
-        "schema_version": "decision_context_binding_v1",
-        "personal_snapshot_id": snapshots["personal"]["snapshot_id"],
-        "personal_snapshot_hash": snapshots["personal"]["snapshot_hash"],
-        "external_snapshot_id": snapshots["external"]["snapshot_id"],
-        "external_snapshot_hash": snapshots["external"]["snapshot_hash"],
-        "policy": payload.get("binding_policy") or {},
-        "bound_at": payload.get("bound_at", ""), "binding_hash": source["binding_hash"],
-    }
-    return binding, str(row["payload_checksum"])
-
-
 def record_snapshot_transition(
     db_path: Path | str, *, case_id: str, action: str,
     personal_db_path: Path | str, external_db_path: Path | str,
@@ -110,6 +82,8 @@ def record_snapshot_transition(
     stream = read_event_stream(db_path, case_id)
     rollbacks = [item for item in stream if item["event_type"] == "snapshot_rollback"]
     restores = [item for item in stream if item["event_type"] == "snapshot_forward_restore"]
+    import json
+    import sqlite3
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
     try:

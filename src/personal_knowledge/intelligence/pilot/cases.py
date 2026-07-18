@@ -96,7 +96,7 @@ def _validate_analysis_candidate(
         if str(candidate["domain"]) != "project" or str(candidate["candidate_status"]) != "candidate":
             raise PilotAdmissionError("analysis_candidate_not_admitted")
         event = con.execute(
-            "SELECT payload_checksum FROM analysis_events WHERE run_id=? AND sequence=1 AND event_type='candidate_published'",
+            "SELECT * FROM analysis_events WHERE run_id=? AND sequence=1 AND event_type='candidate_published'",
             (run_id,),
         ).fetchone()
         if event is None:
@@ -106,12 +106,22 @@ def _validate_analysis_candidate(
         request = _json(run, "request_manifest_json")
         response = _json(run, "response_manifest_json")
         candidate_payload = _json(candidate, "payload_json")
+        event_payload = _json(event, "payload_json")
         if checksum(request) != str(run["request_checksum"]):
             raise PilotAdmissionError("analysis_request_checksum_mismatch")
         if checksum(response) != str(run["response_checksum"]):
             raise PilotAdmissionError("analysis_response_checksum_mismatch")
         if checksum(candidate_payload) != str(candidate["payload_checksum"]):
             raise PilotAdmissionError("analysis_candidate_checksum_mismatch")
+        expected_event_checksum = checksum({
+            "sequence": 1, "event_type": "candidate_published",
+            "previous_event_checksum": "GENESIS", "payload": event_payload,
+        })
+        if (stable_id("dac", candidate_payload) != candidate_id
+                or expected_event_checksum != str(event["payload_checksum"])
+                or stable_id("dae", expected_event_checksum) != str(event["event_id"])
+                or str(event["previous_event_checksum"]) != "GENESIS"):
+            raise PilotAdmissionError("analysis_admission_event_checksum_mismatch")
         try:
             typed_binding = DecisionContextBinding.from_dict(binding)
         except Exception as exc:
@@ -147,6 +157,7 @@ def _validate_analysis_candidate(
         ).fetchall()
         if len(claim_links) != len(claim_rows):
             raise PilotAdmissionError("analysis_claim_count_mismatch")
+        verified_claim_checksums: list[str] = []
         for ordinal, (link, claim) in enumerate(zip(claim_links, claim_rows, strict=True)):
             if (claim["claim_ordinal"] != ordinal or not isinstance(link, dict)
                     or link.get("claim_id") != claim["claim_id"]
@@ -168,6 +179,32 @@ def _validate_analysis_candidate(
                 ):
                     if payload.get(key) != ref[key]:
                         raise PilotAdmissionError("analysis_evidence_lineage_mismatch")
+            claim_core = {
+                "claim_id": str(claim["claim_id"]), "claim_type": str(claim["claim_type"]),
+                "statement": str(claim["statement"]),
+                "evidence": [_json(ref, "payload_json") for ref in refs],
+            }
+            if checksum(claim_core) != str(claim["claim_checksum"]):
+                raise PilotAdmissionError("analysis_claim_checksum_mismatch")
+            verified_claim_checksums.append(str(claim["claim_checksum"]))
+
+        receipt = con.execute("SELECT * FROM analysis_provider_receipts WHERE run_id=?", (run_id,)).fetchone()
+        if receipt is None:
+            raise PilotAdmissionError("analysis_receipt_missing")
+        receipt_payload = _json(receipt, "payload_json")
+        receipt_checksum = checksum(receipt_payload)
+        if receipt_checksum != str(receipt["payload_checksum"]):
+            raise PilotAdmissionError("analysis_receipt_checksum_mismatch")
+        run_core = {
+            "schema_version": "decision_analysis_candidate_v1", "registry_id": str(run["registry_id"]),
+            "binding": binding, "binding_hash": str(run["binding_hash"]),
+            "policy_version": str(run["policy_version"]), "policy_checksum": str(run["policy_checksum"]),
+            "request_checksum": str(run["request_checksum"]), "response_checksum": str(run["response_checksum"]),
+            "candidate_id": candidate_id, "candidate_checksum": str(candidate["payload_checksum"]),
+            "claim_checksums": verified_claim_checksums, "receipt_checksum": receipt_checksum,
+        }
+        if checksum(run_core) != str(run["run_checksum"]) or stable_id("dar", run_core) != run_id:
+            raise PilotAdmissionError("analysis_run_checksum_mismatch")
 
         if request.get("domain") != "project" or request.get("risk_budget") != "low":
             raise PilotAdmissionError("analysis_request_policy_invalid")
@@ -263,6 +300,14 @@ def _publish(
             ).fetchone()
             if child is None or str(child["payload_checksum"]) != recommendation.payload_checksum:
                 raise PilotAdmissionError("existing_recommendation_checksum_mismatch")
+            protocol = con.execute("SELECT payload_json,payload_checksum FROM pilot_protocols WHERE case_id=?", (case.case_id,)).fetchone()
+            event = con.execute("SELECT * FROM pilot_events WHERE case_id=? AND sequence=1", (case.case_id,)).fetchone()
+            if protocol is None or event is None:
+                raise PilotAdmissionError("existing_case_children_missing")
+            if (checksum(json.loads(str(protocol["payload_json"]))) != str(protocol["payload_checksum"])
+                    or checksum(json.loads(str(event["payload_json"]))) != str(event["payload_checksum"])
+                    or str(event["previous_event_checksum"]) != "GENESIS"):
+                raise PilotAdmissionError("existing_case_child_checksum_mismatch")
             return False, True
         con.execute("BEGIN IMMEDIATE")
         con.execute(

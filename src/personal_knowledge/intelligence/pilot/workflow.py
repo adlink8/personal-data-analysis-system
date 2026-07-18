@@ -36,6 +36,18 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _utc(value: str) -> datetime:
+    if not value.endswith("Z"):
+        raise PilotWorkflowError("timestamp_invalid")
+    try:
+        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError as exc:
+        raise PilotWorkflowError("timestamp_invalid") from exc
+    if parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+        raise PilotWorkflowError("timestamp_invalid")
+    return parsed
+
+
 def _case(con: sqlite3.Connection, case_id: str) -> sqlite3.Row:
     row = con.execute("SELECT * FROM pilot_cases WHERE case_id=?", (case_id,)).fetchone()
     if row is None:
@@ -143,8 +155,16 @@ def preregister_outcome(
 ) -> PilotEventReceipt:
     if direction not in {"higher", "lower", "equal"} or not metric.strip() or not unit.strip():
         raise PilotWorkflowError("outcome_protocol_invalid")
-    if not window_start.endswith("Z") or not window_end.endswith("Z") or window_end < window_start:
+    if _utc(window_end) < _utc(window_start):
         raise PilotWorkflowError("outcome_window_invalid")
+    stream = read_event_stream(db_path, case_id)
+    if any(item["event_type"] == "outcome_preregistered" for item in stream):
+        replay = next(
+            (item for item in stream if item["event_type"] == "outcome_preregistered"
+             and item["payload"].get("idempotency_key") == idempotency_key), None,
+        )
+        if replay is None:
+            raise PilotWorkflowError("outcome_already_preregistered")
     body = {
         "metric": metric, "unit": unit, "baseline": float(baseline), "target": float(target),
         "direction": direction, "window_start": window_start, "window_end": window_end,

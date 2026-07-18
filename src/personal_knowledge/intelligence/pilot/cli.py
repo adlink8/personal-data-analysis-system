@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from typing import Any
 
 from personal_knowledge.intelligence.analysis.schema import canonical_json

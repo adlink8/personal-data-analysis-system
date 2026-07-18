@@ -176,6 +176,29 @@ def test_analysis_tamper_and_active_snapshot_drift_abstain_without_mutation(tmp_
     assert not any(_counts(drift["pilot"]).values())
 
 
+def test_run_checksum_and_existing_child_tamper_fail_closed(tmp_path: Path) -> None:
+    run_tamper = setup_authorities(tmp_path / "run")
+    con = sqlite3.connect(run_tamper["analysis"])
+    con.execute("DROP TRIGGER trg_analysis_runs_no_update")
+    con.execute("UPDATE analysis_runs SET run_checksum=?", ("0" * 64,))
+    con.commit(); con.close()
+    result = _admit(run_tamper)
+    assert result.status == "abstain" and result.reason_codes == ("analysis_run_checksum_mismatch",)
+
+    child_tamper = setup_authorities(tmp_path / "child")
+    assert _admit(child_tamper).written
+    con = sqlite3.connect(child_tamper["pilot"])
+    con.execute("DROP TRIGGER trg_pilot_protocols_no_delete")
+    con.execute("DELETE FROM pilot_protocols")
+    con.execute(
+        "CREATE TRIGGER trg_pilot_protocols_no_delete BEFORE DELETE ON pilot_protocols "
+        "BEGIN SELECT RAISE(ABORT, 'pilot_protocols is append-only'); END"
+    )
+    con.commit(); con.close()
+    replay = _admit(child_tamper)
+    assert replay.status == "abstain" and replay.reason_codes == ("existing_case_children_missing",)
+
+
 @pytest.mark.parametrize("fault_at", ["after_case", "after_event"])
 def test_fault_injection_is_atomic_and_source_authorities_unchanged(tmp_path: Path, fault_at: str) -> None:
     env = setup_authorities(tmp_path)

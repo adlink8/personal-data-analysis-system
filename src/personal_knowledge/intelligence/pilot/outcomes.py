@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .workflow import PilotEventReceipt, PilotWorkflowError, _append, read_event_stream
+from .workflow import PilotEventReceipt, PilotWorkflowError, _append, _utc, read_event_stream
 
 
 @dataclass(frozen=True)
@@ -67,7 +67,7 @@ def assess_outcome(db_path: Path | str, case_id: str, *, as_of: str) -> OutcomeA
     if len(protocols) != 1:
         raise PilotWorkflowError("outcome_preregistration_required")
     protocol = protocols[0]
-    window_complete = as_of >= protocol["window_end"]
+    window_complete = _utc(as_of) >= _utc(protocol["window_end"])
     if not observations:
         return OutcomeAssessment(
             case_id, "inconclusive", protocol["metric"], None, float(protocol["target"]),

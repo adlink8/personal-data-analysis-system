@@ -5,9 +5,10 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, Iterable
+from typing import Any
 
 from personal_knowledge.intelligence.analysis.schema import checksum
+from personal_knowledge.intelligence.decision.context_binding import validate_decision_context_binding
 
 from .cases import _validate_analysis_candidate
 from .outcomes import assess_outcome
@@ -110,11 +111,15 @@ def _fingerprint(path: Path | str) -> str:
     root = Path(path)
     digest = hashlib.sha256()
     if root.is_file():
-        digest.update(root.read_bytes())
+        with root.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
     elif root.is_dir():
         for item in sorted((path for path in root.rglob("*") if path.is_file()), key=lambda value: value.as_posix()):
             digest.update(item.relative_to(root).as_posix().encode("utf-8"))
-            digest.update(item.read_bytes())
+            with item.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
     else:
         raise PilotServiceError("authority_path_missing", str(root))
     return digest.hexdigest()
@@ -141,9 +146,12 @@ def acceptance_report(
         detail = get_case(pilot_db_path, case_id)
         option_id = str(detail["recommendation"]["option_id"])
         source = detail["case"]["payload"]["source"]
-        _validate_analysis_candidate(
+        admitted = _validate_analysis_candidate(
             analysis_db_path, run_id=str(source["run_id"]),
             candidate_id=str(source["candidate_id"]), selected_option_id=option_id,
+        )
+        validate_decision_context_binding(
+            admitted["binding"], personal_db_path, external_db_path, now=as_of,
         )
         view = explain(pilot_db_path, case_id, as_of=as_of)
         action_count += int(view["system_external_actions"])

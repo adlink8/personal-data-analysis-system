@@ -13,6 +13,7 @@ from personal_knowledge.intelligence.pilot.service import acceptance_report, con
 from personal_knowledge.intelligence.pilot.workflow import PilotWorkflowError, read_event_stream
 
 from tests.integration.test_project_pilot_outcomes import ACTOR, _completed
+from tests.integration.test_project_pilot_authority import _external
 
 
 def _controlled(tmp_path: Path):
@@ -98,3 +99,14 @@ def test_bounded_reads_and_metadata_only_acceptance_are_zero_side_effect(tmp_pat
         "--metadata-only",
     ]) == 0
     assert '"ok":true' in capsys.readouterr().out
+
+
+def test_acceptance_fails_when_active_external_pointer_drifts(tmp_path: Path) -> None:
+    env, _, _ = _controlled(tmp_path)
+    _external(env["external"], version="3.14.3")
+    with pytest.raises(Exception, match="external_authority_drift"):
+        acceptance_report(
+            pilot_db_path=env["pilot"], knowledge_authority_path=env["personal"],
+            personal_db_path=env["personal"], external_db_path=env["external"],
+            analysis_db_path=env["analysis"], as_of="2026-07-18T09:40:00Z",
+        )

@@ -102,3 +102,30 @@ def test_case_checksum_and_command_like_action_fail_closed(tmp_path: Path) -> No
             description="deploy to https://example.invalid", operator="codex_operator",
             expected_sequence=2, idempotency_key="external", actor_identity_hash=ACTOR,
         )
+
+
+def test_second_protocol_and_invalid_window_timestamp_fail_closed(tmp_path: Path) -> None:
+    env, case = _case(tmp_path)
+    preregister_outcome(
+        env["pilot"], case_id=case.case_id, metric="pass_rate", unit="fraction",
+        baseline=0, target=1, direction="higher", window_start="2026-07-18T09:20:00Z",
+        window_end="2026-07-18T09:40:00Z", collection_source="pytest",
+        estimated_time_minutes=20, estimated_cost=0, expected_sequence=1,
+        idempotency_key="first", actor_identity_hash=ACTOR,
+    )
+    with pytest.raises(PilotWorkflowError, match="outcome_already_preregistered"):
+        preregister_outcome(
+            env["pilot"], case_id=case.case_id, metric="other", unit="count",
+            baseline=0, target=1, direction="higher", window_start="2026-07-18T09:20:00Z",
+            window_end="2026-07-18T09:40:00Z", collection_source="other",
+            estimated_time_minutes=1, estimated_cost=0, expected_sequence=2,
+            idempotency_key="second", actor_identity_hash=ACTOR,
+        )
+    with pytest.raises(PilotWorkflowError, match="timestamp_invalid"):
+        preregister_outcome(
+            env["pilot"], case_id=case.case_id, metric="x", unit="x",
+            baseline=0, target=1, direction="higher", window_start="not-a-time",
+            window_end="2026-07-18T09:40:00Z", collection_source="x",
+            estimated_time_minutes=1, estimated_cost=0, expected_sequence=2,
+            idempotency_key="bad-time", actor_identity_hash=ACTOR,
+        )
