@@ -394,9 +394,18 @@ def run_acceptance(
     sandbox = _sandbox_loop()
     phase25 = run_personal_state_acceptance(path, pointer_path=pointer_path, limit=10)
     decision_tables = before["groups"]["decision"]
-    decision_ready = all(item["exists"] for item in decision_tables)
+    existing_tables = [str(item["table"]) for item in decision_tables if item["exists"]]
+    missing_tables = [str(item["table"]) for item in decision_tables if not item["exists"]]
+    decision_ready = not missing_tables
+    decision_unapplied = not existing_tables
     decision_nonempty = any(item["row_count"] for item in decision_tables)
-    decision_gate: dict[str, Any] = {"ok": True, "reason": "decision_schema_unapplied", "count": 0}
+    decision_gate: dict[str, Any] = {
+        "ok": decision_unapplied,
+        "reason": "decision_schema_unapplied" if decision_unapplied else "decision_schema_partial",
+        "count": 0,
+        "existing_tables": existing_tables,
+        "missing_tables": missing_tables,
+    }
     if decision_ready:
         listing = DecisionFeedbackService(path).invoke("recommendations.list", limit=10)
         decision_gate = {
@@ -404,6 +413,8 @@ def run_acceptance(
             "reason": "bounded_committed_decision_replay" if listing.get("ok") else str(listing.get("error", {}).get("code")),
             "count": int(listing.get("data", {}).get("total_available") or 0),
             "error": listing.get("error"),
+            "existing_tables": existing_tables,
+            "missing_tables": [],
         }
     source_reason = str(phase25.get("run_plan", {}).get("candidate_reason") or "source_analysis_unavailable")
     if source_reason in {"analysis_schema_unapplied", "run_missing"}:
@@ -412,12 +423,27 @@ def run_acceptance(
     unchanged = before == after
     phase24 = _phase24_dependency_status(path)
     technical_ok = bool(sandbox["ok"] and phase25.get("ok") and decision_gate["ok"] and unchanged)
+    technical_blockers: list[str] = []
+    if not sandbox["ok"]:
+        technical_blockers.append("sandbox:failed")
+    if not phase25.get("ok"):
+        technical_blockers.append("phase25:failed")
+    if not decision_gate["ok"]:
+        technical_blockers.append(f"decision:{decision_gate['reason']}")
+    if not unchanged:
+        technical_blockers.append("fingerprints:changed")
+    phase24_blockers = list(phase24.get("reason_codes") or [])
+    release_ready = technical_ok and not phase24["release_blocked"]
     return {
         "schema_version": "decision_feedback_acceptance_v1",
         "operation": "acceptance",
         "ok": technical_ok,
         "technical_status": "passed" if technical_ok else "failed",
-        "release_status": "release_blocked" if phase24["release_blocked"] else "release_ready",
+        "release_status": "release_ready" if release_ready else "release_blocked",
+        "release_blockers": {
+            "technical": technical_blockers,
+            "phase24": phase24_blockers,
+        },
         "dry_run": True,
         "metadata_only": True,
         "sandbox": sandbox,
@@ -425,6 +451,9 @@ def run_acceptance(
             "source_status": source_reason,
             "decision_status": decision_gate,
             "decision_schema_applied": decision_ready,
+            "decision_schema_state": (
+                "applied" if decision_ready else "unapplied" if decision_unapplied else "partial"
+            ),
             "decision_rows_present": decision_nonempty,
         },
         "fingerprints": {"before": before, "after": after, "unchanged": unchanged},

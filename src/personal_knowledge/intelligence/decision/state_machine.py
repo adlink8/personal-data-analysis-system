@@ -19,6 +19,12 @@ from .schema import (
     canonical_json,
     checksum,
 )
+from .effectiveness import (
+    EffectivenessAssessment,
+    assess_outcome,
+    outcome_from_payload,
+    registered_effectiveness_rule,
+)
 
 
 _ACTION_STATES = frozenset({"planned", "started", "completed", "abandoned", "not_taken"})
@@ -712,6 +718,8 @@ def record_assessment(
     inject_failure_at: str | None = None,
 ) -> DecisionReceipt:
     if (
+        not isinstance(assessment, EffectivenessAssessment)
+        or
         getattr(assessment, "cognitive_type", None) != "inference"
         or getattr(assessment, "causal_claim", None) is not False
         or getattr(assessment, "verdict", None) not in {"effective", "ineffective", "mixed", "inconclusive"}
@@ -747,6 +755,54 @@ def record_assessment(
         con.execute("BEGIN IMMEDIATE")
         state = _project(con, assessment.recommendation_id)
         rec, _, _ = _load_recommendation(con, assessment.recommendation_id)
+        outcome = con.execute(
+            "SELECT recommendation_id,action_id,action_checksum,payload_json,payload_checksum "
+            "FROM decision_outcomes WHERE outcome_id=?",
+            (assessment.outcome_id,),
+        ).fetchone()
+        if outcome is None:
+            raise DecisionStateError("outcome_missing", assessment.outcome_id)
+        try:
+            outcome_payload = json.loads(str(outcome["payload_json"]))
+        except json.JSONDecodeError as exc:
+            raise DecisionStateError("outcome_payload_invalid", assessment.outcome_id) from exc
+        if checksum(outcome_payload) != str(outcome["payload_checksum"]):
+            raise DecisionStateError("outcome_checksum_mismatch", assessment.outcome_id)
+        if (
+            str(outcome["recommendation_id"]) != assessment.recommendation_id
+            or str(rec["payload_checksum"]) != assessment.recommendation_checksum
+            or str(outcome["payload_checksum"]) != assessment.outcome_checksum
+            or tuple(assessment.input_checksums) != (str(outcome["action_checksum"]), str(outcome["payload_checksum"]))
+        ):
+            raise DecisionStateError("assessment_input_mismatch", assessment.outcome_id)
+        action = con.execute(
+            "SELECT recommendation_id,action_state,payload_json,payload_checksum "
+            "FROM decision_actions WHERE action_id=?",
+            (str(outcome["action_id"]),),
+        ).fetchone()
+        if action is None:
+            raise DecisionStateError("action_missing", str(outcome["action_id"]))
+        try:
+            action_payload = json.loads(str(action["payload_json"]))
+        except json.JSONDecodeError as exc:
+            raise DecisionStateError("action_payload_invalid", str(outcome["action_id"])) from exc
+        if checksum(action_payload) != str(action["payload_checksum"]):
+            raise DecisionStateError("action_checksum_mismatch", str(outcome["action_id"]))
+        if (
+            str(action["recommendation_id"]) != assessment.recommendation_id
+            or str(action["payload_checksum"]) != str(outcome["action_checksum"])
+        ):
+            raise DecisionStateError("assessment_input_mismatch", assessment.outcome_id)
+        try:
+            rule = registered_effectiveness_rule(assessment.rule_id, assessment.rule_version)
+        except ValueError as exc:
+            raise DecisionStateError("unknown_effectiveness_rule", f"{assessment.rule_id}:{assessment.rule_version}") from exc
+        hydrated_outcome = outcome_from_payload(
+            assessment.outcome_id, outcome_payload, str(outcome["payload_checksum"])
+        )
+        derived = assess_outcome(hydrated_outcome, rule, action_state=str(action["action_state"]))
+        if assessment != derived:
+            raise DecisionStateError("assessment_derivation_mismatch", assessment.outcome_id)
         existing = con.execute(
             "SELECT assessment_id,payload_json,payload_checksum FROM decision_effectiveness "
             "WHERE recommendation_id=? AND rule_id=? AND rule_version=? AND outcome_id=? AND idempotency_key=?",
@@ -767,24 +823,6 @@ def record_assessment(
                                    str(existing["payload_checksum"]))
         if expected_sequence != state.events[-1].sequence:
             raise DecisionStateError("stale_expected_sequence", str(expected_sequence))
-        outcome = con.execute(
-            "SELECT recommendation_id,action_checksum,payload_json,payload_checksum FROM decision_outcomes WHERE outcome_id=?",
-            (assessment.outcome_id,),
-        ).fetchone()
-        if outcome is None:
-            raise DecisionStateError("outcome_missing", assessment.outcome_id)
-        try:
-            outcome_payload = json.loads(str(outcome["payload_json"]))
-        except json.JSONDecodeError as exc:
-            raise DecisionStateError("outcome_payload_invalid", assessment.outcome_id) from exc
-        if checksum(outcome_payload) != str(outcome["payload_checksum"]):
-            raise DecisionStateError("outcome_checksum_mismatch", assessment.outcome_id)
-        if (
-            str(outcome["recommendation_id"]) != assessment.recommendation_id
-            or str(outcome["payload_checksum"]) != assessment.outcome_checksum
-            or tuple(assessment.input_checksums) != (str(outcome["action_checksum"]), str(outcome["payload_checksum"]))
-        ):
-            raise DecisionStateError("assessment_input_mismatch", assessment.outcome_id)
         assessment_id = assessment.assessment_id
         payload_checksum = checksum(payload)
         con.execute(

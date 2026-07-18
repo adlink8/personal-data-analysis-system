@@ -57,6 +57,56 @@ class CohortSummary:
     causal_claim: bool
 
 
+_EFFECTIVENESS_RULES: dict[tuple[str, str], EffectivenessRule] = {
+    ("observed_goal_attainment", "1"): EffectivenessRule(
+        "observed_goal_attainment", "1", "focus_blocks", "count/week", "increase", 86400
+    ),
+    ("goal-attainment", "1"): EffectivenessRule(
+        "goal-attainment", "1", "progress", "count", "increase", 86400
+    ),
+}
+
+
+def registered_effectiveness_rule(rule_id: str, version: str) -> EffectivenessRule:
+    """Resolve the immutable rule definition allowed at the persistence boundary."""
+    try:
+        return _EFFECTIVENESS_RULES[(rule_id, version)]
+    except KeyError as exc:
+        raise ValueError("unknown_effectiveness_rule") from exc
+
+
+def outcome_from_payload(
+    outcome_id: str,
+    payload: dict[str, object],
+    payload_checksum: str,
+) -> OutcomeObservation:
+    """Hydrate a verified outcome payload without trusting caller-owned objects."""
+    return OutcomeObservation(
+        outcome_id=outcome_id,
+        recommendation_id=str(payload["recommendation_id"]),
+        recommendation_checksum=str(payload["recommendation_checksum"]),
+        action_id=str(payload["action_id"]),
+        action_checksum=str(payload["action_checksum"]),
+        source_class=str(payload["source_class"]),
+        measurement_definition=str(payload["measurement_definition"]),
+        metric=str(payload["metric"]),
+        baseline_value=payload["baseline_value"],
+        target_value=payload["target_value"],
+        observed_value=payload["observed_value"],
+        unit=str(payload["unit"]),
+        direction=str(payload["direction"]),
+        window_start=str(payload["window_start"]),
+        window_end=str(payload["window_end"]),
+        adherence_status=str(payload["adherence_status"]),
+        evidence_refs=tuple(payload["evidence_refs"]),
+        confidence=float(payload["confidence"]),
+        uncertainty=tuple(payload["uncertainty"]),
+        confounders=tuple(payload["confounders"]),
+        concurrent_actions=tuple(payload["concurrent_actions"]),
+        payload_checksum=payload_checksum,
+    )
+
+
 def _time(value: str) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -210,35 +260,13 @@ def load_outcome(db_path: Path, outcome_id: str) -> OutcomeObservation:
         payload = json.loads(str(row["payload_json"]))
         if checksum(payload) != str(row["payload_checksum"]):
             raise ValueError("outcome_checksum_mismatch")
-        return OutcomeObservation(
-            outcome_id=outcome_id,
-            recommendation_id=str(payload["recommendation_id"]),
-            recommendation_checksum=str(payload["recommendation_checksum"]),
-            action_id=str(payload["action_id"]),
-            action_checksum=str(payload["action_checksum"]),
-            source_class=str(payload["source_class"]),
-            measurement_definition=str(payload["measurement_definition"]),
-            metric=str(payload["metric"]),
-            baseline_value=payload["baseline_value"],
-            target_value=payload["target_value"],
-            observed_value=payload["observed_value"],
-            unit=str(payload["unit"]),
-            direction=str(payload["direction"]),
-            window_start=str(payload["window_start"]),
-            window_end=str(payload["window_end"]),
-            adherence_status=str(payload["adherence_status"]),
-            evidence_refs=tuple(payload["evidence_refs"]),
-            confidence=float(payload["confidence"]),
-            uncertainty=tuple(payload["uncertainty"]),
-            confounders=tuple(payload["confounders"]),
-            concurrent_actions=tuple(payload["concurrent_actions"]),
-            payload_checksum=str(row["payload_checksum"]),
-        )
+        return outcome_from_payload(outcome_id, payload, str(row["payload_checksum"]))
     finally:
         con.close()
 
 
 __all__ = [
     "CohortSummary", "EffectivenessAssessment", "EffectivenessRule", "OutcomeObservation",
-    "assess_outcome", "load_outcome", "summarize_assessments",
+    "assess_outcome", "load_outcome", "outcome_from_payload", "registered_effectiveness_rule",
+    "summarize_assessments",
 ]
