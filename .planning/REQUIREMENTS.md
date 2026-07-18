@@ -27,9 +27,9 @@
 
 ### Runtime and Live Acceptance
 
-- [ ] **LIVE-01**: 一个命令可启动并检查 REST、MCP 与 HTTPS tunnel，识别端口、代理、路径和进程故障，有限次自动恢复并报告真实 readiness。
-- [ ] **LIVE-02**: 真实 ChatGPT Developer Mode E2E 至少完成一次只读解释流和一次显式确认的低风险流程/replay，证明零未授权动作、零权威串写和零自动 promotion。
-- [ ] **LIVE-03**: MCP tool descriptor/contract snapshot 可验证工具名称、schema、annotations、响应边界和 ChatGPT connector 刷新兼容性。
+- [x] **LIVE-01**: 一个命令可启动并检查 REST、MCP 与 HTTPS tunnel，识别端口、代理、路径和进程故障，有限次自动恢复并报告真实 readiness。
+- [x] **LIVE-02**: 真实 tunnel-backed HTTP MCP Agent E2E 完成一次只读解释流和一次显式确认的低风险流程/replay，证明零未授权动作、零权威串写和零自动 promotion；ChatGPT 当前 Plugins 设置页保留人工可见性复核。
+- [x] **LIVE-03**: MCP tool descriptor/contract snapshot 可验证工具名称、schema、annotations、响应边界和 ChatGPT connector 刷新兼容性。
 
 ## Future Requirements
 
@@ -54,7 +54,7 @@
 | AGENT-01..04 | Phase 32 | Complete |
 | ORCH-01..04 | Phase 33 | Complete |
 | UX-01..02 | Phase 34 | Complete |
-| LIVE-01..03 | Phase 35 | Pending |
+| LIVE-01..03 | Phase 35 | Complete |
 
 **Coverage:** 13/13 active requirements mapped; unmapped 0.
 

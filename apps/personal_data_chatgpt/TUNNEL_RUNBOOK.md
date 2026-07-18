@@ -1,6 +1,6 @@
 # Personal Data ChatGPT Tunnel Runbook
 
-This runbook connects the read-only personal data MCP Apps server to ChatGPT through OpenAI Secure MCP Tunnel.
+This runbook connects the personal decision-intelligence MCP Apps server to ChatGPT through OpenAI Secure MCP Tunnel. It exposes checksum-verified reads plus explicitly confirmed, local, append-only low-risk orchestration tools.
 
 ## Prerequisites
 
@@ -12,19 +12,23 @@ This runbook connects the read-only personal data MCP Apps server to ChatGPT thr
 
 Do not write API keys or tunnel secrets into repo files. Keep credentials in the environment or a secure credential store.
 
-## Start Local Services
+## Start And Check The Full Stack
 
 From the project root:
 
 ```powershell
-rag-api --host 127.0.0.1 --port 8000
+pwsh -NoProfile -File ops\runtime\start-agent-stack.ps1 -Mode Check
+pwsh -NoProfile -File ops\runtime\start-agent-stack.ps1 -Mode Run -TunnelProxy http://127.0.0.1:7897
 ```
 
-From the app directory:
+The supervisor starts REST → MCP → tunnel in order, waits for real health, restarts with a bounded budget, records owned PIDs, and only stops processes it can prove it owns. Use a proxy argument only when the local environment requires it.
+
+Status, probe and safe stop:
 
 ```powershell
-cd apps\personal_data_chatgpt
-npm start
+pwsh -NoProfile -File ops\runtime\start-agent-stack.ps1 -Mode Status
+pwsh -NoProfile -File ops\runtime\start-agent-stack.ps1 -Mode Probe
+pwsh -NoProfile -File ops\runtime\start-agent-stack.ps1 -Mode Stop
 ```
 
 Verify:
@@ -102,6 +106,14 @@ $body = @{jsonrpc='2.0'; id=1; method='tools/list'; params=@{}} | ConvertTo-Json
 Invoke-RestMethod -Uri 'http://127.0.0.1:8789/mcp' -Method Post -ContentType 'application/json' -Body $body -NoProxy
 ```
 
+Reviewed descriptor and live Agent acceptance:
+
+```powershell
+node apps\personal_data_chatgpt\scripts\descriptor-snapshot.mjs --check
+python ops\runtime\smoke-agent-stack.py --snapshot apps\personal_data_chatgpt\contracts\tool-descriptors.snapshot.json --out ops\reports\evidence\agent-stack-smoke.json
+python ops\runtime\live-agent-acceptance.py --out ops\reports\evidence\live-agent-acceptance.json
+```
+
 Graph tool call:
 
 ```powershell
@@ -120,7 +132,9 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8789/mcp' -Method Post -ContentType 'ap
 
 ## Safety Boundary
 
-- The current app exposes read-only tools only.
-- It does not write to `memory_items`, `memory_links`, or `memory_relations`.
+- Personal, External, Analysis, Pilot and Calibration reads are checksum-verifying and read-only.
+- Orchestration mutations require `confirmed=true`, an exact preview checksum and an idempotency key; the HMAC capability is minted and consumed only inside the REST process.
+- Confirmed writes are limited to the local append-only orchestration authority. They do not write Personal/External authorities, perform external actions or auto-promote calibration proposals.
+- It does not write `memory_items`, `memory_links`, or `memory_relations`.
 - It does not expose the REST API publicly.
 - It should not be run with raw unsafe HTTP logging enabled.

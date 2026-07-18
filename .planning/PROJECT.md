@@ -27,7 +27,7 @@
 
 LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执行权限。
 
-## Current Milestone: v1.3 Agent Productization
+## Current Milestone: v1.3 Agent Productization — Implementation Complete
 
 **Goal:** 将已验证的 External、LLM Analysis、Project Pilot 和 Calibration 能力产品化为可由 ChatGPT/MCP Agent 真实调用、可读解释、受控确认和在线验收的统一决策流程。
 
@@ -40,10 +40,12 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 
 **Previous:** v1.2 shipped 2026-07-18（Phases 28–31），完成 External Authority、真实 `gpt-5.4` 决策链和诚实 `INCONCLUSIVE` 校准。见 [v1.2 audit](milestones/v1.2-MILESTONE-AUDIT.md)。
 
-## Current Reality — 2026-07-18
+## Current Reality — 2026-07-19
 
 - Phase 32 已完成：External、Analysis、Pilot、Calibration 具备统一 checksum-verifying Service/REST/stdio MCP/ChatGPT HTTP MCP 的 list/get/explain 读面；52 项阶段与相邻回归测试通过，四个 live authority 数据库读取前后指纹一致。
 - Phase 33 已完成：低风险 project 会话具备 snapshot-bound prepare、逐步显式确认、at-most-once generation、immutable Pilot/Calibration bridges，以及 REST/stdio MCP/ChatGPT MCP 真实传输；40 项 Python/Node 阶段回归通过。
+- Phase 34 已完成：统一 16 KiB compact envelope、稳定 IDs/limits/next actions/evidence links 和 typed recovery contract。
+- Phase 35 已完成：生产审计通过的一键 REST/MCP/tunnel supervisor、44-tool descriptor 快照、真实 read/explain 与 confirmed exact replay；五权威库指纹不变，provider/external/promotion 均为零。ChatGPT 当前 Plugins 设置页保留人工可见性复核。
 - Phase 28–31 已完成：External Authority、双快照结构化 LLM 分析、project 真实决策链和成对校准均可校验重建。
 - Phase 29 通过现有 ChatGPT 登录完成一次真实 `gpt-5.4` 分析；Phase 31 严格执行两臂各一次调用、零重试、零费用。
 - Phase 30 有一条 11-event 真实 Recommendation→Decision→Action→Outcome 主链及一条 defer 控制链；系统外部动作数为零。
@@ -79,12 +81,16 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 - ✓ 低风险 project 真实主链、defer 控制链和非因果 outcome — PDI-07
 - ✓ 预注册 personalized/generic 对照与诚实 INCONCLUSIVE 边界 — PDI-08
 
-### Active (v1.3)
+### Validated (v1.3)
 
-- [x] Phase 28–31 能力通过统一 REST/MCP 契约供 Agent 读取和下钻 — Phase 32
-- [x] Agent 可在显式确认和幂等边界内推进真实低风险决策会话
-- [x] Agent 输出为紧凑摘要，同时保留完整 evidence/checksum 审计入口
-- [ ] REST、MCP、Tunnel 可可靠启动并通过真实 ChatGPT 在线 E2E
+- ✓ 四类决策权威的 checksum-verifying Agent read/explain 契约 — AGENT-01..04
+- ✓ 显式确认、幂等、可恢复且 fail-closed 的低风险编排 — ORCH-01..04
+- ✓ 紧凑 Agent envelope、证据下钻和 typed recovery — UX-01..02
+- ✓ 生产安全一键运行、44-tool 快照与真实 tunnel-backed MCP replay — LIVE-01..03
+
+### Active
+
+- 下一里程碑尚未定义；当前产品保持本地、低风险、无自动外部执行边界。
 
 ### Optional backlog (not Active)
 
@@ -148,10 +154,13 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 | LLM 输出永远是 candidate，事实与安全门确定性执行 | 保留证据边界和用户最终决策权 | ✓ Good (v1.2) |
 | 样本不足、缺测或协议偏离必须 INCONCLUSIVE | 防止把单次演示包装为个性化因果增益 | ✓ Good (v1.2) |
 | 校准 proposal 不自动 promotion | 策略变更必须独立评审并可回滚 | ✓ Good (v1.2) |
+| Agent 写入只接受 exact preview + explicit confirmation + idempotency | 保留用户最终权力并使网络重试安全 | ✓ Good (v1.3) |
+| MCP 默认使用 compact envelope，完整证据显式下钻 | 控制上下文、隐私与恢复语义 | ✓ Good (v1.3) |
+| Runtime 只管理可证明 owned 的进程 | 防止端口冲突时误杀用户进程 | ✓ Good (v1.3) |
 
 ## Evolution
 
 本文件在阶段转换和里程碑边界持续更新。每次阶段完成时核对需求、关键决策、范围和真实运行状态；每次里程碑结束时重新检查 Core Value、Out of Scope 与已验证能力。
 
 ---
-*Last updated: 2026-07-19 after Phase 33 completion*
+*Last updated: 2026-07-19 after v1.3 implementation completion*

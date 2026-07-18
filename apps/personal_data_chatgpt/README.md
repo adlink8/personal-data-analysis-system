@@ -1,6 +1,6 @@
 # Personal Data ChatGPT MCP App
 
-Read-only HTTP MCP Apps adapter for the local personal data REST API.
+HTTP MCP Apps adapter for the local personal decision-intelligence REST API. Reads are checksum-verifying; the bounded orchestration tools require explicit confirmation and remain local, append-only and idempotent.
 
 ## Run
 
@@ -53,7 +53,9 @@ npm start
 - `data_get_memory_by_id` (`Data.get_memory_by_id`): fetches one exact memory id.
 - `data_quality_report` (`Data.data_quality_report`): summarizes duplicate, missing-field, orphan-link, and judgment-status checks.
 
-All tools are read-only and set `annotations.readOnlyHint = true`.
+Read tools set `annotations.readOnlyHint = true`. Guarded orchestration mutations truthfully set `readOnlyHint = false`, `destructiveHint = false`, `idempotentHint = true`, and `openWorldHint = false`.
+
+The Agent-facing decision tools include focused list/get/explain surfaces for External, Analysis, Pilot and Calibration authorities, plus prepare/confirm/preview/execute/resume/explain orchestration tools. Default responses use the compact `agent_compact_envelope_v1`; large evidence requires explicit drill-down.
 
 ### Tool surface (KU-first)
 
