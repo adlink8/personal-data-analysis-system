@@ -69,7 +69,7 @@ Plans:
 
 **Requirements:** PDI-07
 **Depends on:** Phase 29
-**Plans:** 3 planned
+**Plans:** 1/3 plans executed
 
 **Success criteria:**
 
@@ -80,7 +80,7 @@ Plans:
 
 Plans:
 
-- [ ] 30-01: Frozen project case and admitted analysis recommendation bridge
+- [x] 30-01: Frozen project case and admitted analysis recommendation bridge
 - [ ] 30-02: User decision, manual action, control path and outcome window
 - [ ] 30-03: Correction/revoke/restore, snapshot recovery and real pilot UAT
 
@@ -111,7 +111,7 @@ Plans:
 |---|---|---:|---|
 | 28 | PDI-01..04 | 4/4 | Complete |
 | 29 | PDI-05..06 | 4/4 | Complete |
-| 30 | PDI-07 | 0/3 | Not started |
+| 30 | 1/3 | In Progress|  |
 | 31 | PDI-08 | 0/3 | Not started |
 
 ---
