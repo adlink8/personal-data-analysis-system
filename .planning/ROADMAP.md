@@ -26,7 +26,7 @@
 **Requirements:** AGENT-01, AGENT-02, AGENT-03, AGENT-04
 
 **Depends on:** v1.2 immutable authorities
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 **Success criteria:**
 
@@ -87,7 +87,7 @@
 
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
-| 32 | 1/3 | In Progress|  |
+| 32 | 2/3 | In Progress|  |
 | 33 | ORCH-01..04 | 0/4 | Pending |
 | 34 | UX-01..02 | 0/2 | Pending |
 | 35 | LIVE-01..03 | 0/3 | Pending |
