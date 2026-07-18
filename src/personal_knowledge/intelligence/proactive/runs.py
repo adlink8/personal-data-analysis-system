@@ -11,9 +11,13 @@ from typing import Any, Iterable, Mapping
 from personal_knowledge.core.sqlite import assert_foreign_key_integrity, connect_rw
 
 from .schema import (
-    CANONICAL_DOMAINS, RELATION_TYPES, CoordinationDraft, CoordinationItem,
+    CANONICAL_DOMAINS, RELATION_TYPES, CandidateDraft, CoordinationDraft, CoordinationItem,
     ProactiveRun, SupportReference, canonical_domain, canonical_json, checksum,
     validate_metadata_payload,
+)
+from .ranking import (
+    DEFAULT_NOISE_POLICY, DEFAULT_RANKING_POLICY, EvaluationContext, NoisePolicy,
+    RankingPolicy, SurfaceRecord, evaluate_candidates, rank_candidates,
 )
 
 REGISTRY_ID = "a.proactive_intelligence"
@@ -133,9 +137,13 @@ def plan_run(
     source_run_id: str, source_run_checksum: str, source_publication_sequence: int,
     decision_run_id: str | None = None, decision_run_checksum: str | None = None,
     coordination_policy: str, ranking_policy: str, noise_policy: str,
-    input_manifest: Mapping[str, Any],
+    input_manifest: Mapping[str, Any], candidate_drafts: Iterable[CandidateDraft] = (),
+    ranking_config: RankingPolicy = DEFAULT_RANKING_POLICY,
+    noise_config: NoisePolicy = DEFAULT_NOISE_POLICY,
+    evaluation_context: EvaluationContext | None = None,
 ) -> ProactiveRun:
     drafts = tuple(coordination)
+    candidate_inputs = tuple(candidate_drafts)
     if not drafts:
         raise ProactiveValidationError("coordination_required")
     validate_metadata_payload(input_manifest, "input_manifest")
@@ -173,8 +181,14 @@ def plan_run(
             validate_metadata_payload(asdict(draft), "coordination")
             normalized.append(CoordinationDraft(**{**asdict(draft), "domains": domains,
                 "source_refs": draft.source_refs, "resource_manifest": draft.resource_manifest}))
+        for candidate in candidate_inputs:
+            for ref in candidate.support_refs:
+                _validate_ref(con, ref, snapshot_id=snapshot_id, snapshot_hash=snapshot_hash,
+                              source_run_id=source_run_id, source_run_checksum=source_run_checksum,
+                              decision_run_id=decision_run_id, decision_run_checksum=decision_run_checksum)
     finally:
         con.close()
+    context = evaluation_context or EvaluationContext.fixed()
     manifest = {
         "schema_version": "proactive_run_v1", "registry_id": REGISTRY_ID,
         "source_run_id": source_run_id, "source_run_checksum": source_run_checksum,
@@ -185,6 +199,9 @@ def plan_run(
         "coordination_policy": coordination_policy, "ranking_policy": ranking_policy,
         "noise_policy": noise_policy, "request_input": input_manifest,
         "coordination_drafts": [asdict(item) for item in normalized],
+        "candidate_drafts": [asdict(item) for item in candidate_inputs],
+        "ranking_config": asdict(ranking_config), "noise_config": asdict(noise_config),
+        "evaluation_context": asdict(context),
     }
     input_checksum = checksum(manifest)
     run_id = f"pir_{input_checksum[:24]}"
@@ -194,25 +211,69 @@ def plan_run(
         coordination_id = f"pci_{checksum(payload)[:24]}"
         payload = {**payload, "coordination_id": coordination_id}
         items.append(CoordinationItem(coordination_id, run_id, draft, payload, checksum(payload)))
+    con = sqlite3.connect(f"file:{Path(db_path).resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        prior_rows = con.execute(
+            "SELECT dedup_key,expires_at FROM proactive_candidates WHERE run_id<>?", (run_id,)
+        ).fetchall()
+    finally:
+        con.close()
+    prior_keys = frozenset(str(row[0]) for row in prior_rows)
+    expired_keys = frozenset(str(row[0]) for row in prior_rows if _parse_time(str(row[1])) <= _parse_time(context.as_of))
+    candidates = rank_candidates(candidate_inputs, policy=ranking_config, run_id=run_id,
+                                 prior_dedup_keys=prior_keys, expired_prior_keys=expired_keys)
+    evaluations = evaluate_candidates(candidates, context=context, policy=noise_config)
     core = {"run_id": run_id, "input_manifest_checksum": input_checksum,
-            "coordination_items": [{"coordination_id": i.coordination_id, "payload_checksum": i.payload_checksum} for i in items]}
+            "coordination_items": [{"coordination_id": i.coordination_id, "payload_checksum": i.payload_checksum} for i in items],
+            "candidates": [{"candidate_id": i.candidate_id, "payload_checksum": i.payload_checksum} for i in candidates],
+            "evaluations": [{"evaluation_id": i.evaluation_id, "payload_checksum": i.payload_checksum} for i in evaluations]}
     run_checksum = checksum(core)
     output = {**core, "run_checksum": run_checksum}
     return ProactiveRun(run_id, REGISTRY_ID, source_run_id, source_run_checksum,
         source_publication_sequence, decision_run_id, decision_run_checksum,
         event_frontier, snapshot_id, snapshot_hash, control_frontier,
         coordination_policy, ranking_policy, noise_policy, manifest, input_checksum,
-        output, checksum(output), run_checksum, tuple(items))
+        output, checksum(output), run_checksum, tuple(items), candidates, evaluations)
+
+
+def _parse_time(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ProactiveValidationError("timezone_required")
+    return parsed.astimezone(timezone.utc)
+
+
+def _support_ref(value: Mapping[str, Any]) -> SupportReference:
+    return SupportReference(**{key: str(item) for key, item in value.items()})
+
+
+def _candidate_draft(value: Mapping[str, Any]) -> CandidateDraft:
+    data = dict(value)
+    data["domains"] = tuple(str(item) for item in data["domains"])
+    data["target_group"] = tuple(str(item) for item in data["target_group"])
+    data["reason_codes"] = tuple(str(item) for item in data["reason_codes"])
+    data["support_refs"] = tuple(_support_ref(item) for item in data["support_refs"])
+    return CandidateDraft(**data)
 
 
 def validate_run(db_path: Path, run: ProactiveRun) -> ProactiveRun:
     request = run.input_manifest.get("request_input")
     drafts = tuple(item.draft for item in run.coordination_items)
+    candidate_values = run.input_manifest.get("candidate_drafts", [])
+    candidate_drafts = tuple(_candidate_draft(item) for item in candidate_values if isinstance(item, Mapping))
+    ranking_value = run.input_manifest.get("ranking_config", asdict(DEFAULT_RANKING_POLICY))
+    noise_value = run.input_manifest.get("noise_config", asdict(DEFAULT_NOISE_POLICY))
+    context_value = dict(run.input_manifest.get("evaluation_context", asdict(EvaluationContext.fixed())))
+    context_value["surface_records"] = tuple(SurfaceRecord(**item) for item in context_value.get("surface_records", ()))
+    context_value["explicit_suppressions"] = tuple(context_value.get("explicit_suppressions", ()))
+    ranking_value = dict(ranking_value); ranking_value["weights"] = tuple(tuple(item) for item in ranking_value["weights"])
     expected = plan_run(db_path, drafts, source_run_id=run.source_run_id,
         source_run_checksum=run.source_run_checksum, source_publication_sequence=run.source_publication_sequence,
         decision_run_id=run.decision_run_id, decision_run_checksum=run.decision_run_checksum,
         coordination_policy=run.coordination_policy, ranking_policy=run.ranking_policy,
-        noise_policy=run.noise_policy, input_manifest=request if isinstance(request, Mapping) else {})
+        noise_policy=run.noise_policy, input_manifest=request if isinstance(request, Mapping) else {},
+        candidate_drafts=candidate_drafts, ranking_config=RankingPolicy(**ranking_value),
+        noise_config=NoisePolicy(**noise_value), evaluation_context=EvaluationContext(**context_value))
     if expected != run:
         raise ProactiveValidationError("run_content_mismatch", run.run_id)
     return run
@@ -227,6 +288,16 @@ def _validate_existing(con: sqlite3.Connection, run: ProactiveRun) -> None:
     actual = sorted((str(r[0]), canonical_json(json.loads(str(r[1]))), str(r[2])) for r in rows)
     if actual != expected:
         raise ProactiveValidationError("existing_coordination_tampered", run.run_id)
+    rows = con.execute("SELECT candidate_id,payload_json,payload_checksum FROM proactive_candidates WHERE run_id=? ORDER BY candidate_id", (run.run_id,)).fetchall()
+    expected = sorted((i.candidate_id, canonical_json(i.payload), i.payload_checksum) for i in run.candidates)
+    actual = sorted((str(r[0]), canonical_json(json.loads(str(r[1]))), str(r[2])) for r in rows)
+    if actual != expected:
+        raise ProactiveValidationError("existing_candidate_tampered", run.run_id)
+    rows = con.execute("SELECT evaluation_id,payload_json,payload_checksum FROM proactive_evaluations WHERE candidate_id IN (SELECT candidate_id FROM proactive_candidates WHERE run_id=?) ORDER BY evaluation_id", (run.run_id,)).fetchall()
+    expected = sorted((i.evaluation_id, canonical_json(i.payload), i.payload_checksum) for i in run.evaluations)
+    actual = sorted((str(r[0]), canonical_json(json.loads(str(r[1]))), str(r[2])) for r in rows)
+    if actual != expected:
+        raise ProactiveValidationError("existing_evaluation_tampered", run.run_id)
 
 
 def publish_run(db_path: Path, run: ProactiveRun, *, write: bool, inject_failure_at: str | None = None) -> dict[str, Any]:
@@ -279,6 +350,34 @@ def publish_run(db_path: Path, run: ProactiveRun, *, write: bool, inject_failure
                 canonical_json(item.payload), item.payload_checksum, _now()))
         if inject_failure_at == "after_coordination":
             raise RuntimeError("injected proactive publication failure")
+        for candidate in run.candidates:
+            con.execute("INSERT INTO proactive_candidates VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+                candidate.candidate_id, run.run_id, candidate.candidate_class,
+                candidate.presentation_kind, candidate.subject, candidate.scope,
+                canonical_json(candidate.domains), candidate.dedup_key, candidate.valid_from,
+                candidate.expires_at, candidate.policy_id, candidate.policy_version,
+                canonical_json(asdict(candidate.importance)), candidate.uncertainty,
+                canonical_json(candidate.reason_codes), canonical_json(candidate.payload),
+                candidate.payload_checksum, _now()))
+            for ref in candidate.support_refs:
+                support_payload = {"candidate_id": candidate.candidate_id, **asdict(ref)}
+                support_id = f"pcs_{checksum(support_payload)[:24]}"
+                con.execute("INSERT INTO proactive_candidate_support VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+                    support_id, candidate.candidate_id, ref.authority_id, ref.record_type,
+                    ref.record_id, ref.record_checksum, ref.source_run_id, ref.source_run_checksum,
+                    ref.snapshot_id, ref.snapshot_hash, canonical_json(support_payload),
+                    checksum(support_payload), _now()))
+        if inject_failure_at == "after_candidates":
+            raise RuntimeError("injected proactive candidate failure")
+        for evaluation in run.evaluations:
+            con.execute("INSERT INTO proactive_evaluations VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (
+                evaluation.evaluation_id, evaluation.candidate_id, evaluation.policy_id,
+                evaluation.policy_version, evaluation.window_start, evaluation.window_end,
+                evaluation.result, canonical_json(evaluation.reason_codes),
+                evaluation.state_checksum, canonical_json(evaluation.payload),
+                evaluation.payload_checksum, _now()))
+        if inject_failure_at == "after_evaluations":
+            raise RuntimeError("injected proactive evaluation failure")
         con.commit()
         return {**result, "written": True}
     except Exception:

@@ -128,10 +128,11 @@ def _validate_draft(draft: CandidateDraft) -> tuple[str, ...]:
 def rank_candidates(
     drafts: Iterable[CandidateDraft], *, policy: RankingPolicy,
     prior_candidates: tuple[ProactiveCandidate, ...] = (), run_id: str = "preview",
+    prior_dedup_keys: frozenset[str] = frozenset(), expired_prior_keys: frozenset[str] = frozenset(),
 ) -> tuple[ProactiveCandidate, ...]:
     """Construct stable metadata-only candidates; no eligibility veto is scored away."""
     _validate_policy(policy)
-    prior = {item.dedup_key: item for item in prior_candidates}
+    prior = {item.dedup_key for item in prior_candidates} | set(prior_dedup_keys)
     results: list[ProactiveCandidate] = []
     for draft in drafts:
         domains = _validate_draft(draft)
@@ -141,7 +142,7 @@ def rank_candidates(
             "domains": domains, "scope": draft.scope, "material_change_signature": material,
             "policy_version": policy.version,
         })
-        novelty = 0.0 if dedup_key in prior and _time(draft.expires_at) > _time(draft.valid_from) else 1.0
+        novelty = 0.0 if dedup_key in prior and dedup_key not in expired_prior_keys else 1.0
         values: Mapping[str, float] = {
             "severity": _bounded(draft.severity, "severity"),
             "urgency": _bounded(draft.urgency, "urgency"),

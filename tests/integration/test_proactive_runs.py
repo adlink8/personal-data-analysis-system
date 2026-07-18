@@ -9,7 +9,8 @@ import pytest
 
 from personal_knowledge.intelligence.decision.runs import plan_run as plan_decision_run, publish_run as publish_decision_run
 from personal_knowledge.intelligence.proactive.runs import ProactiveValidationError, plan_run, publish_run
-from personal_knowledge.intelligence.proactive.schema import CoordinationDraft, SupportReference
+from personal_knowledge.intelligence.proactive.ranking import EvaluationContext
+from personal_knowledge.intelligence.proactive.schema import CandidateDraft, CoordinationDraft, SupportReference
 from tests.integration.test_decision_feedback_runs import _database, _draft
 
 
@@ -45,6 +46,15 @@ def _protected(db: Path):
     )) + (con.execute("SELECT active_snapshot_id FROM serving_authority WHERE singleton_id=1").fetchone()[0],)
     con.close()
     return result
+
+
+def _candidate(draft: CoordinationDraft, *, subject: str = "user") -> CandidateDraft:
+    return CandidateDraft(
+        "cross_domain_opportunity", "inbox_item", subject, draft.scope, draft.domains,
+        tuple(f"{ref.record_type}:{ref.record_id}" for ref in draft.source_refs),
+        draft.valid_from, draft.valid_to or "2026-08-01T00:00:00Z", draft.source_refs,
+        .8, .8, .8, .8, .9, .8, 0, "fixture contract only", ("fixture_only",),
+    )
 
 
 def test_publication_is_atomic_idempotent_and_protected_authorities_are_unchanged(tmp_path: Path) -> None:
@@ -147,3 +157,55 @@ def test_partial_proactive_schema_fails_closed(tmp_path: Path) -> None:
                  source_publication_sequence=seq, decision_run_id=decision.run_id,
                  decision_run_checksum=decision.run_checksum, coordination_policy="c",
                  ranking_policy="r", noise_policy="n", input_manifest={})
+
+
+def test_candidate_support_and_evaluation_publish_atomically_and_replay(tmp_path: Path) -> None:
+    db, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path)
+    run = plan_run(db, [draft], source_run_id=state_id, source_run_checksum=state_checksum,
+                   source_publication_sequence=seq, decision_run_id=decision.run_id,
+                   decision_run_checksum=decision.run_checksum, coordination_policy="coord-v1",
+                   ranking_policy="importance-v1", noise_policy="noise-v1", input_manifest={},
+                   candidate_drafts=(_candidate(draft),), evaluation_context=EvaluationContext.fixed())
+    assert publish_run(db, run, write=True)["written"] is True
+    assert publish_run(db, run, write=True)["existing"] is True
+    con = sqlite3.connect(db)
+    assert tuple(con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in (
+        "proactive_runs", "proactive_candidates", "proactive_candidate_support", "proactive_evaluations"
+    )) == (1, 1, 1, 1)
+    assert con.execute("SELECT result FROM proactive_evaluations").fetchone()[0] == "eligible"
+    con.close()
+
+
+@pytest.mark.parametrize("failure", ["after_candidates", "after_evaluations"])
+def test_candidate_publication_fault_has_zero_partial_rows(tmp_path: Path, failure: str) -> None:
+    db, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path)
+    run = plan_run(db, [draft], source_run_id=state_id, source_run_checksum=state_checksum,
+                   source_publication_sequence=seq, decision_run_id=decision.run_id,
+                   decision_run_checksum=decision.run_checksum, coordination_policy="c",
+                   ranking_policy="r", noise_policy="n", input_manifest={},
+                   candidate_drafts=(_candidate(draft),))
+    with pytest.raises(RuntimeError, match="injected"):
+        publish_run(db, run, write=True, inject_failure_at=failure)
+    con = sqlite3.connect(db)
+    assert tuple(con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in (
+        "proactive_runs", "proactive_coordination_items", "proactive_candidates",
+        "proactive_candidate_support", "proactive_evaluations",
+    )) == (0, 0, 0, 0, 0)
+    con.close()
+
+
+def test_prior_candidate_suppresses_exact_duplicate_but_material_change_versions(tmp_path: Path) -> None:
+    db, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path)
+    common = dict(source_run_id=state_id, source_run_checksum=state_checksum,
+                  source_publication_sequence=seq, decision_run_id=decision.run_id,
+                  decision_run_checksum=decision.run_checksum, coordination_policy="c",
+                  ranking_policy="r", noise_policy="n")
+    first = plan_run(db, [draft], input_manifest={"cycle": 1}, candidate_drafts=(_candidate(draft),), **common)
+    publish_run(db, first, write=True)
+    duplicate = plan_run(db, [draft], input_manifest={"cycle": 2}, candidate_drafts=(_candidate(draft),), **common)
+    assert duplicate.candidates[0].novelty == 0
+    assert duplicate.evaluations[0].reason_codes == ("duplicate_no_material_change",)
+    changed = plan_run(db, [draft], input_manifest={"cycle": 3},
+                       candidate_drafts=(replace(_candidate(draft), severity=.2),), **common)
+    assert changed.candidates[0].dedup_key != first.candidates[0].dedup_key
+    assert changed.candidates[0].novelty == 1

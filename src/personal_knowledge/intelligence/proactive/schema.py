@@ -230,3 +230,5 @@ class ProactiveRun:
     output_manifest_checksum: str
     run_checksum: str
     coordination_items: tuple[CoordinationItem, ...]
+    candidates: tuple[ProactiveCandidate, ...] = ()
+    evaluations: tuple[ProactiveEvaluation, ...] = ()
