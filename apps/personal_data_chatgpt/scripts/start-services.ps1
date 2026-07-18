@@ -2,6 +2,7 @@
 <#! Thin compatibility wrapper. Canonical implementation: ops/runtime/start-agent-stack.ps1 #>
 [CmdletBinding()]
 param(
+  [ValidateSet('Run','Check','Probe','Stop','Status')][string]$Mode = 'Run',
   [switch]$CheckOnly,
   [int]$HealthIntervalSeconds = 5,
   [int]$MaxRestarts = 3,
@@ -20,7 +21,7 @@ $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 $canonical = Join-Path $projectRoot 'ops\runtime\start-agent-stack.ps1'
 $arguments = @(
   '-NoProfile', '-File', $canonical,
-  '-Mode', $(if ($CheckOnly) {'Check'} else {'Run'}),
+  '-Mode', $(if ($CheckOnly) {'Check'} else {$Mode}),
   '-ProjectRoot', $projectRoot,
   '-HealthIntervalSeconds', [string]$HealthIntervalSeconds,
   '-MaxRestarts', [string]$MaxRestarts,

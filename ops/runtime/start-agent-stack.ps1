@@ -5,7 +5,7 @@
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
-  [ValidateSet('Run', 'Check', 'Probe')][string]$Mode = 'Run',
+  [ValidateSet('Run', 'Check', 'Probe', 'Stop', 'Status')][string]$Mode = 'Run',
   [string]$ProjectRoot = '',
   [string]$TunnelDirectory = '',
   [string]$TunnelProfile = 'personal-data-app',
@@ -139,9 +139,45 @@ function Save-State {
     }
   }
   $temporary = "$statePath.tmp"
-  @{ updated_at = (Get-Date).ToUniversalTime().ToString('o'); services = @($items) } |
+  @{ updated_at = (Get-Date).ToUniversalTime().ToString('o'); supervisor_pid = $PID; services = @($items) } |
     ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temporary -Encoding utf8
   Move-Item -LiteralPath $temporary -Destination $statePath -Force
+}
+
+function StopManagedProcesses {
+  if (-not (Test-Path -LiteralPath $statePath)) { throw 'managed_state_missing' }
+  $saved = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+  $supervisor = Get-CimInstance Win32_Process -Filter "ProcessId=$($saved.supervisor_pid)" -ErrorAction SilentlyContinue
+  if ($supervisor) {
+    if ($supervisor.CommandLine -notlike '*start-agent-stack.ps1*') { throw 'supervisor_ownership_mismatch' }
+    if (-not $DryRun -and $PSCmdlet.ShouldProcess($saved.supervisor_pid, 'Stop owned Agent stack supervisor')) {
+      Stop-Process -Id $saved.supervisor_pid -Force
+      Start-Sleep -Milliseconds 500
+    }
+  }
+  $patterns = @{ rest='personal_knowledge.services.api_server'; mcp='server.mjs'; tunnel='tunnel-client' }
+  foreach ($service in $saved.services) {
+    if ($service.adopted -or -not $service.pid) { continue }
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($service.pid)" -ErrorAction SilentlyContinue
+    if (-not $process) { continue }
+    if ($process.CommandLine -notlike "*$($patterns[$service.service])*" ) { throw "child_ownership_mismatch:$($service.service)" }
+    if (-not $DryRun -and $PSCmdlet.ShouldProcess($service.pid, "Stop owned $($service.service) process")) {
+      Stop-Process -Id $service.pid -Force
+    }
+  }
+  Write-StructuredLog 'OK' 'managed_stop_complete' 'agent-stack' $(if ($DryRun) {'dry_run'} else {'stopped_owned_processes'})
+}
+
+function Show-ManagedStatus {
+  $saved = if (Test-Path -LiteralPath $statePath) { Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json } else { $null }
+  $status = [ordered]@{ state_path=$statePath; state_exists=[bool]$saved; supervisor_running=$false; services=@() }
+  if ($saved) {
+    $status.supervisor_running = [bool]($saved.supervisor_pid -and (Get-Process -Id $saved.supervisor_pid -ErrorAction SilentlyContinue))
+    $status.services = @($saved.services | ForEach-Object {
+      [ordered]@{ service=$_.service; pid=$_.pid; adopted=$_.adopted; process_running=[bool]($_.pid -and (Get-Process -Id $_.pid -ErrorAction SilentlyContinue)); healthy=(Test-Endpoint $_.health_url); health_url=$_.health_url }
+    })
+  }
+  Write-Host ($status | ConvertTo-Json -Depth 5)
 }
 
 function Get-MissingRequiredSecrets {
@@ -187,6 +223,10 @@ function Invoke-Preflight {
 
 $exitCode = 0
 $entries = @()
+if ($Mode -eq 'Status') { Show-ManagedStatus; exit 0 }
+if ($Mode -eq 'Stop') {
+  try { StopManagedProcesses; exit 0 } catch { Write-StructuredLog 'ERROR' 'managed_stop_failed' 'agent-stack' $_.Exception.Message; exit 2 }
+}
 try {
   $preflight = Invoke-Preflight -RequireSecret:(-not $SkipTunnel)
   if (-not $preflight.Ok) { throw "preflight_failed:$($preflight.Failures -join ',')" }
