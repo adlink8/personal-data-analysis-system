@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
 status: ready_to_execute
-last_updated: 2026-07-18T00:55:00.360Z
+last_updated: 2026-07-18T01:30:00.000Z
 progress:
   total_phases: 29
   completed_phases: 20
   total_plans: 73
-  completed_plans: 62
-  percent: 85
-stopped_at: Phase 27 planned (4 plans in 4 waves) — ready to execute 27-01
+  completed_plans: 63
+  percent: 86
+stopped_at: Phase 27 plan 01 complete (1/4) — ready to execute 27-02
 ---
 
 # Project State
@@ -51,11 +51,12 @@ stopped_at: Phase 27 planned (4 plans in 4 waves) — ready to execute 27-01
 - **Phase 24-01:** evidence-aware support/abstain and snapshot-bound evaluation complete; private dev FP=0, eligible-positive retention=100%, 26 invalid legacy positives routed to human Gold review
 - **Phase 25-01/02/03/04:** immutable snapshot-bound personal-state runs, typed current-state projection, deterministic changes/trends/risks, metadata-safe explanations, shared CLI/REST/MCP reads and zero-mutation metadata-only acceptance complete
 - **Phase 26-01/02/03/04:** independent non-serving decision authority, deterministic abstaining recommendations, genesis-rooted confirmation/action streams, typed outcomes, non-causal effectiveness, shared read-only interfaces, guarded local writes and metadata-only acceptance complete
+- **Phase 27-01:** independent non-serving proactive authority, seven immutable tables, exact Phase 25/26/frontier binding and deterministic eight-domain resource coordination complete
 
 ## Current Position
 
 Phase: 27
-Plan: Not started
+Plan: 27-01 complete; next 27-02
 Previous: Phase 23 / Target A complete
 Parallel execution: Phases 25 and 26 are independently technically verified; release remains dependent on Phase 24 human/quality gates.
 **Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
