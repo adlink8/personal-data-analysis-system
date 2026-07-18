@@ -20,6 +20,7 @@ from personal_knowledge.evaluation.knowledge_eval_metrics import RankedHit  # no
 from personal_knowledge.retrieval.relevance import annotate_candidate_support  # noqa: E402
 from personal_knowledge.application.serving.snapshots import (  # noqa: E402
     get_active_snapshot,
+    get_snapshot,
     manifest_hash,
 )
 from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
@@ -39,11 +40,19 @@ _EVAL_EVIDENCE_ROLES = {
 }
 
 
-def capture_serving_binding(db_path: Path = UNIFIED_DB) -> dict[str, Any]:
-    """Capture a JSON-safe immutable view of the active serving authority."""
-    active = get_active_snapshot(db_path)
+def capture_serving_binding(
+    db_path: Path = UNIFIED_DB,
+    snapshot_id: str | None = None,
+) -> dict[str, Any]:
+    """Capture active authority or an explicit immutable evaluation snapshot."""
+    active = get_snapshot(db_path, snapshot_id) if snapshot_id else get_active_snapshot(db_path)
     if not active:
-        return {"ok": False, "error": "active_snapshot_missing", "members": {}}
+        return {
+            "ok": False,
+            "error": "evaluation_snapshot_missing" if snapshot_id else "active_snapshot_missing",
+            "snapshot_id": snapshot_id or "",
+            "members": {},
+        }
     members = {
         role: {
             key: row.get(key)
@@ -83,17 +92,17 @@ def validate_eval_binding(
     missing = sorted(_EVAL_EVIDENCE_ROLES - set(members))
     if missing:
         errors.append("snapshot_missing_roles:" + ",".join(missing))
-    active_collection = str((members.get("knowledge_retrieval") or {}).get("location_ref") or "")
-    configured = str(targets.get("l1_l2_collection") or active_collection)
+    bound_collection = str((members.get("knowledge_retrieval") or {}).get("location_ref") or "")
+    configured = str(targets.get("l1_l2_collection") or bound_collection)
     candidate = str(targets.get("candidate_collection") or configured)
-    if not active_collection:
+    if not bound_collection:
         errors.append("snapshot_knowledge_collection_missing")
-    if configured != active_collection:
+    if configured != bound_collection:
         errors.append("l1_l2_collection_not_in_snapshot")
-    if candidate != active_collection:
+    if candidate != bound_collection:
         errors.append("candidate_collection_not_in_snapshot")
     if l2_audit is not None:
-        if str(l2_audit.get("source_collection") or "") != active_collection:
+        if str(l2_audit.get("source_collection") or "") != bound_collection:
             errors.append("l2_source_not_in_snapshot")
         if not l2_audit.get("source_binding_ok"):
             errors.append("l2_collection_source_binding_failed")
@@ -102,7 +111,7 @@ def validate_eval_binding(
         "errors": errors,
         "snapshot_id": binding.get("snapshot_id"),
         "manifest_hash": binding.get("manifest_hash"),
-        "active_collection": active_collection,
+        "active_collection": bound_collection,
     }
 
 

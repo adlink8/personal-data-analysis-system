@@ -4,7 +4,8 @@ import sqlite3
 from pathlib import Path
 
 from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
-from personal_knowledge.application.serving.snapshots import activate_snapshot, prepare_snapshot, validate_snapshot
+from personal_knowledge.application.serving.snapshots import activate_snapshot, get_snapshot, prepare_snapshot, validate_snapshot
+from personal_knowledge.evaluation.retrieval_adapters import capture_serving_binding
 from personal_knowledge.retrieval.serving import ServingSnapshotResolver
 
 
@@ -45,3 +46,31 @@ def test_shared_search_contract_exposes_one_snapshot(monkeypatch, tmp_path: Path
     versions = {x["name"]: x.get("version") for x in result["telemetry"]["layers"]}
     assert versions["knowledge_unit"] == "kv1"
     assert versions["canonical_messages"] == "cv1"
+
+
+def test_explicit_evaluation_snapshot_does_not_change_active_authority(tmp_path: Path) -> None:
+    db, pointer, active_id = _active(tmp_path)
+    candidate = prepare_snapshot(
+        db,
+        {
+            "knowledge_retrieval": {
+                "version": "kv2", "checksum": "kck2",
+                "location_kind": "chroma_collection", "location_ref": "ku_candidate",
+                "metadata": {"unit_count": 3},
+            },
+            "canonical_message": {
+                "version": "cv1", "checksum": "cck",
+                "location_kind": "sqlite_view", "location_ref": "canonical_messages",
+            },
+        },
+        write=True,
+    )
+
+    binding = capture_serving_binding(db, candidate["snapshot_id"])
+
+    assert binding["ok"] is True
+    assert binding["snapshot_id"] == candidate["snapshot_id"]
+    assert binding["members"]["knowledge_retrieval"]["location_ref"] == "ku_candidate"
+    assert get_snapshot(db, candidate["snapshot_id"])["status"] == "draft"
+    assert pointer.read_text(encoding="utf-8") == "ku_snapshot"
+    assert capture_serving_binding(db)["snapshot_id"] == active_id

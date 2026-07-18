@@ -654,7 +654,13 @@ def run_eval(
             f"config scorer_version={declared_scorer!r} does not match runtime "
             f"{SCORER_VERSION!r}"
         )
-    serving_before = capture_serving_binding()
+    active_serving_before = capture_serving_binding()
+    requested_snapshot_id = str(
+        (cfg.get("targets") or {}).get("serving_snapshot_id") or ""
+    )
+    serving_before = capture_serving_binding(
+        snapshot_id=requested_snapshot_id or None
+    )
     cases_path = resolve_cases_path(cfg)
     cases = load_cases_jsonl(cases_path)
     ds_ck = cases_checksum(cases)
@@ -803,6 +809,7 @@ def run_eval(
         "active_collection": active_before,
         "active_checksum_before": checksum_before,
         "serving_snapshot_before": serving_before,
+        "active_serving_snapshot_before": active_serving_before,
         "errors": errors,
         "dry_run": dry_run,
         "offline": offline,
@@ -893,17 +900,23 @@ def run_eval(
 
     checksum_after = _active_checksum_proxy()
     active_after = _read_active()
-    serving_after = capture_serving_binding()
+    serving_after = capture_serving_binding(
+        snapshot_id=requested_snapshot_id or None
+    )
+    active_serving_after = capture_serving_binding()
     summary["active_collection_after"] = active_after
     summary["active_checksum_after"] = checksum_after
     summary["active_unchanged"] = (
         active_before == active_after
         and checksum_before == checksum_after
-        and serving_before == serving_after
+        and active_serving_before == active_serving_after
     )
     summary["serving_snapshot_after"] = serving_after
+    summary["active_serving_snapshot_after"] = active_serving_after
     if serving_before != serving_after:
-        errors.append("serving_snapshot_changed_during_evaluation")
+        errors.append("evaluation_snapshot_changed_during_evaluation")
+    if active_serving_before != active_serving_after:
+        errors.append("active_serving_snapshot_changed_during_evaluation")
     summary["errors"] = errors
     dump_json(run_dir / "summary.json", summary)
     dump_json(

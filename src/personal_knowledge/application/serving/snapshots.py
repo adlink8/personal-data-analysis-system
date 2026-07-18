@@ -226,6 +226,21 @@ def get_active_snapshot(db_path: Path) -> dict[str, Any] | None:
         con.close()
 
 
+def get_snapshot(db_path: Path, snapshot_id: str) -> dict[str, Any] | None:
+    """Read any immutable snapshot without changing serving authority."""
+    if not db_path.exists() or not snapshot_id:
+        return None
+    con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        row, members = _snapshot_rows(con, snapshot_id)
+        if row is None:
+            return None
+        return {**dict(row), "members": {m["serving_role"]: dict(m) for m in members}}
+    finally:
+        con.close()
+
+
 def activate_snapshot(
     db_path: Path,
     snapshot_id: str,
