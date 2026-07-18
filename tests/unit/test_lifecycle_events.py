@@ -105,6 +105,54 @@ def test_finalize_review_binds_all_decisions_and_records_rejections(tmp_path: Pa
     assert out.exists()
 
 
+def test_finalize_review_accepts_explicit_llm_provenance(tmp_path: Path) -> None:
+    proposal = build_manifest(
+        [{"unit_id": "old", "action": "conflict", "expected_version": 1,
+          "expected_lifecycle": "current", "reason": "evidence conflict",
+          "evidence_refs": ["cm|1"]}],
+        source_snapshot_id="ss_test",
+    )
+    review = {
+        "proposal_manifest_id": proposal["manifest_id"],
+        "proposal_checksum": proposal["manifest_checksum"],
+        "reviewer_type": "llm", "reviewer_id": "openai-gpt-5.6-luna",
+        "model_id": "gpt-5.6-luna", "review_run_id": "lifecycle-run-1",
+        "prompt_version": "phase24-lifecycle-v1", "reviewed_at": "2026-07-18T12:00:00Z",
+        "decisions": [{"unit_id": "old", "decision": "approve", "confidence": 0.9}],
+    }
+    pp, rp, out = tmp_path / "proposal.json", tmp_path / "review.json", tmp_path / "reviewed.json"
+    pp.write_text(json.dumps(proposal), encoding="utf-8")
+    rp.write_text(json.dumps(review), encoding="utf-8")
+    result = finalize_review(pp, rp, out)
+    assert result["reviewer_type"] == "llm"
+    assert result["model_id"] == "gpt-5.6-luna"
+
+
+def test_finalize_review_persists_auditable_all_rejected_receipt(tmp_path: Path) -> None:
+    proposal = build_manifest(
+        [{"unit_id": "old", "action": "conflict", "expected_version": 1,
+          "expected_lifecycle": "current", "reason": "unsupported proposal",
+          "evidence_refs": ["cm|missing"]}],
+        source_snapshot_id="ss_test",
+    )
+    review = {
+        "proposal_manifest_id": proposal["manifest_id"],
+        "proposal_checksum": proposal["manifest_checksum"],
+        "reviewer_type": "llm", "reviewer_id": "openai-gpt-5.6-luna",
+        "model_id": "gpt-5.6-luna", "review_run_id": "reject-run",
+        "prompt_version": "phase24-lifecycle-v1", "reviewed_at": "2026-07-18T12:00:00Z",
+        "decisions": [{"unit_id": "old", "decision": "reject", "confidence": 0.99}],
+    }
+    pp, rp, out = tmp_path / "proposal.json", tmp_path / "review.json", tmp_path / "receipt.json"
+    pp.write_text(json.dumps(proposal), encoding="utf-8")
+    rp.write_text(json.dumps(review), encoding="utf-8")
+    receipt = finalize_review(pp, rp, out)
+    assert receipt["review_status"] == "no_actions_approved"
+    assert receipt["rejected_unit_ids"] == ["old"]
+    with pytest.raises(LifecycleError):
+        register_manifest(_db(tmp_path), receipt, write=False)
+
+
 def test_tampered_stale_and_unreviewed_fail_without_changes(tmp_path: Path) -> None:
     db = _db(tmp_path)
     manifest = _manifest()

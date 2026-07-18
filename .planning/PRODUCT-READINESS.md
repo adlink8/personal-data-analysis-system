@@ -77,7 +77,7 @@ Score: **0–100** per dimension. **Product-grade bar** = every dimension ≥ 80
 | If we complete… | Expected overall |
 |-----------------|-----------------:|
 | Now (post 22 + Phase 17 re-audit) | **~86** weighted |
-| + Phase 17 human checkpoints | **~90** |
+| + Phase 24 retrieval quality + valid lifecycle adoption | **~90** |
 | + facade retire (import 0) | **~91–93** |
 
 ---

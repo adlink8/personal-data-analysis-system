@@ -3,21 +3,21 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Knowledge Unit Evaluation & Quality → product hardening
 status: release_blocked
-last_updated: 2026-07-18T03:38:39.359Z
+last_updated: 2026-07-18T04:35:00Z
 progress:
   total_phases: 29
   completed_phases: 21
   total_plans: 73
   completed_plans: 66
   percent: 90
-stopped_at: Technical Target D complete — product release blocked on Phase 24 human/quality gates
+stopped_at: Phase 24 LLM review complete — release blocked on retrieval quality and lifecycle adoption
 ---
 
 # Project State
 
 ## Milestone
 
-**v1.1 product hardening:** Phase 17 human checkpoints still open; Phases 18–21 complete; **Phase 22 plans 01–04 implemented**; **2026-07-16 ops close-out: canary strict PASS → promote active=ir_4cd8af → watermark advanced**.
+**v1.1 product hardening:** Phase 24 review evidence is complete through auditable LLM review; retrieval quality and lifecycle adoption remain open. Phases 18–23 and 25–27 are technically complete; **2026-07-16 ops close-out: canary strict PASS → promote active=ir_4cd8af → watermark advanced**.
 
 ## Authoritative surfaces
 
@@ -49,6 +49,8 @@ stopped_at: Technical Target D complete — product release blocked on Phase 24 
 - **Phase 23:** typed D/S/R/A registry, immutable composite snapshot, evidence drilldown, source versions/watermarks, fail-closed Doctor/Preflight
 - Live Target A: snapshot `ss_1590353394c948b908a5d675`; 10/10 roles; `pk-sync status` drift=[]; full pytest and all 13 preflight gates pass
 - **Phase 24-01:** evidence-aware support/abstain and snapshot-bound evaluation complete; private dev FP=0, eligible-positive retention=100%, 26 invalid legacy positives routed to human Gold review
+- **Phase 24-02 review re-baseline:** explicit LLM provenance accepted without human impersonation; 45 cross-turn Gold, 50 grounded labels and independent 30x5 judge ratings pass strict evidence checks
+- **Phase 24-03/04:** all 13 ineligible lifecycle proposals rejected; full run `d54e53ea0a78031d` is safe and error-free but quality gate FAIL (+2.99pp overall, +2.22pp cross-turn)
 - **Phase 25-01/02/03/04:** immutable snapshot-bound personal-state runs, typed current-state projection, deterministic changes/trends/risks, metadata-safe explanations, shared CLI/REST/MCP reads and zero-mutation metadata-only acceptance complete
 - **Phase 26-01/02/03/04:** independent non-serving decision authority, deterministic abstaining recommendations, genesis-rooted confirmation/action streams, typed outcomes, non-causal effectiveness, shared read-only interfaces, guarded local writes and metadata-only acceptance complete
 - **Phase 27-01:** independent non-serving proactive authority, seven immutable tables, exact Phase 25/26/frontier binding and deterministic eight-domain resource coordination complete
@@ -61,7 +63,7 @@ stopped_at: Technical Target D complete — product release blocked on Phase 24 
 Phase: 27
 Plan: 4 of 4 technically verified — product release blocked
 Previous: Phase 23 / Target A complete
-Parallel execution: Phases 25, 26 and 27 / Technical Target D are independently verified; product release remains dependent on Phase 24 human/quality gates.
+Parallel execution: Phases 25, 26 and 27 / Technical Target D are independently verified; product release remains dependent on Phase 24 retrieval quality and valid lifecycle adoption.
 **Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
 Readiness: `.planning/PRODUCT-READINESS.md` (**~86** weighted; operationally usable, quality sign-off open)
 Active: `knowledge_units_ir_4cd8af4ad_20260716020508`; watermark matches source.  
@@ -76,14 +78,14 @@ Next optional: `reconcile --write --i-know` after dry-run; Phase 17 human gold; 
 - **2026-07-17 remediation:** unified Full/Delta Inventory registry migrated with verified backup; FK violations are 0; knowledge write connections enforce FK; doctor and publish/promote gates fail closed; inspect defaults to committed watermark; execution lists are no longer preview-truncated; governance preflight is 12/12 PASS.
 - No reconcile write, KU collection promotion, source-watermark advance, data delete, or compat/archive retirement was performed during remediation. Phase 23 registered the unchanged live collection as one validated composite serving authority.
 
-## Remaining human / product checkpoints
+## Remaining product checkpoints
 
-1. **Phase 17 code complete; human checkpoints** still open (gold/judge/UAT sign-off — parallel)
-2. ~~Canary → promote → watermark~~ **DONE 2026-07-16** (active=ir_4cd8af; wm advanced)
-3. 2026-08-13: domains facade removal (inventory owned; mass rewrite deferred)
-4. Selective `reconcile --write --i-know` after dry-run review (optional)
+1. **Phase 24 review evidence is complete; retrieval quality is not** — overall +2.99pp vs required +10pp, cross-turn CI low remains negative
+2. **Lifecycle adoption is not proven** — invalid 13-action cohort was correctly rejected; strict ledger remains empty
+3. ~~Canary → promote → watermark~~ **DONE 2026-07-16** (active=ir_4cd8af; wm advanced)
+4. 2026-08-13: domains facade removal (inventory owned; mass rewrite deferred)
 
-Phase 17 evaluation evidence: `17-EVAL-REVIEW.md` scores coverage **74/100 NEEDS WORK**. Final scorer-v2/policy-v2 run `6d7233db5da0414c` has 178 rows but only 22 real scoreable gold cases and 0 real cross-turn gold; 150 synthetic shells are excluded from retrieval metrics. L1+L2 R@5 is 59.09%; exact L2-only (764/764) R@5 is 18.18%; secret provenance hits are 0. Candidate-scoped safety checks correctly FAIL on L2-only/Hybrid privacy and all candidate modes' no-answer FP, plus coverage/cross-turn/human-grounded requirements. The 58-case private dev calibration proved score-only abstention unsafe, so no threshold was deployed. Active is unchanged.
+Latest Phase 24 evaluation evidence: run `d54e53ea0a78031d` has 223 rows, 67 real scoreable Gold and 45 real cross-turn Gold. LLM review evidence, safety, citation, reconcile, latency and 92% grounded precision pass. The product gate remains FAIL because L1+L2 Recall@5 improves only 2.99pp versus the required 10pp and cross-turn CI low is -4.44pp. Active is unchanged.
 
 ## Verification snapshot
 

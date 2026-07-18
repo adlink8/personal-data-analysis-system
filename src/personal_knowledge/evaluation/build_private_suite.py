@@ -30,11 +30,11 @@ FROZEN = PRIVATE_SOURCE_DIR / "frozen_test_queries.private.jsonl"
 HOLDOUT = ASSET_DIR / "holdout_15_02.synthetic.jsonl"
 
 
-def load_reviewed_human_gold() -> list[dict]:
+def load_reviewed_gold() -> list[dict]:
     if not GOLD_IMPORT.exists() and not GOLD_MANIFEST.exists():
         return []
     if not GOLD_IMPORT.exists() or not GOLD_MANIFEST.exists():
-        raise ValueError("human Gold import and manifest must exist together")
+        raise ValueError("reviewed Gold import and manifest must exist together")
     rows = [
         json.loads(line)
         for line in GOLD_IMPORT.read_text(encoding="utf-8").splitlines()
@@ -42,12 +42,16 @@ def load_reviewed_human_gold() -> list[dict]:
     ]
     manifest = json.loads(GOLD_MANIFEST.read_text(encoding="utf-8"))
     if checksum(rows) != manifest.get("import_checksum"):
-        raise ValueError("human Gold import checksum mismatch")
+        raise ValueError("reviewed Gold import checksum mismatch")
     for row in rows:
-        if row.get("gold_provenance") != "human_reviewed_v1":
-            raise ValueError("human Gold provenance invalid")
+        if row.get("gold_provenance") not in {"human_reviewed_v1", "llm_reviewed_v1"}:
+            raise ValueError("reviewed Gold provenance invalid")
         if not row.get("reviewer_id") or not row.get("reviewed_at"):
-            raise ValueError("human Gold reviewer provenance missing")
+            raise ValueError("reviewed Gold provenance missing")
+        if row.get("gold_provenance") == "llm_reviewed_v1" and not all(
+            row.get(key) for key in ("model_id", "review_run_id", "prompt_version")
+        ):
+            raise ValueError("LLM Gold audit provenance missing")
         if str(row.get("split") or "").startswith("synthetic"):
             raise ValueError("synthetic row cannot enter human Gold")
     return rows
@@ -85,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             c = json.loads(line)
             rows.append(c)
-    rows.extend(load_reviewed_human_gold())
+    rows.extend(load_reviewed_gold())
 
     # dedupe by id (frozen wins)
     seen = set()

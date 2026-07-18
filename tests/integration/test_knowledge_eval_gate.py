@@ -118,7 +118,9 @@ def test_quality_pure_ku_regression_not_masked_by_hybrid() -> None:
     assert s["modes"]["hybrid"]["aggregate"]["recall_at"]["5"] == 1.0
 
 
-def test_full_entrypoint_offline_dry_run(tmp_path: Path) -> None:
+def test_full_entrypoint_offline_dry_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     cfg = (
         _ROOT
         / "assets"
@@ -134,6 +136,15 @@ def test_full_entrypoint_offline_dry_run(tmp_path: Path) -> None:
     from personal_knowledge.evaluation.run_knowledge_eval import EVAL_ROOT
     latest = EVAL_ROOT / "latest.txt"
     latest_before = latest.read_text(encoding="utf-8") if latest.exists() else None
+    monkeypatch.setattr(
+        "personal_knowledge.evaluation.run_knowledge_eval.stage_human_review",
+        lambda *, enabled: {
+            "ok": False,
+            "checks": {},
+            "proofs": {},
+            "binding_checksum": "isolated-missing-review-evidence",
+        },
+    )
     summary = run_eval(
         cfg,
         full=True,
@@ -201,7 +212,7 @@ def test_full_policy_fails_closed_on_unimplemented_human_and_quality_evidence() 
     assert "p95_latency_vs_l1_baseline" in names
 
 
-def test_v2_gate_requires_checksum_bound_human_review_evidence() -> None:
+def test_v2_gate_requires_checksum_bound_review_evidence() -> None:
     from personal_knowledge.evaluation.gate_knowledge_candidate import load_policy
 
     policy = load_policy(
@@ -210,7 +221,7 @@ def test_v2_gate_requires_checksum_bound_human_review_evidence() -> None:
     summary = _summary_base()
     gate = evaluate_gate(summary, policy, require_answer=False)
     assert gate["passed"] is False
-    assert any("human review evidence" in reason for reason in gate["reasons"])
+    assert any("review evidence" in reason for reason in gate["reasons"])
 
     summary["stage_details"]["human_review"] = {
         "ok": True,
@@ -218,5 +229,5 @@ def test_v2_gate_requires_checksum_bound_human_review_evidence() -> None:
         "binding_checksum": "review-binding-checksum",
     }
     rebound = evaluate_gate(summary, policy, require_answer=False)
-    human = next(c for c in rebound["checks"] if c["name"] == "human_review_evidence")
+    human = next(c for c in rebound["checks"] if c["name"] == "review_evidence")
     assert human["passed"] is True

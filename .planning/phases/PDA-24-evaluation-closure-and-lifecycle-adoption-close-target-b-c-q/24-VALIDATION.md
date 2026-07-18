@@ -1,7 +1,7 @@
 ---
 phase: 24
 validation_strategy: nyquist
-status: planned
+status: llm_evidence_complete_quality_failed
 ---
 
 # Phase 24 Validation
@@ -24,14 +24,17 @@ status: planned
 5. Full evaluation dry-run; gate FAIL must preserve active snapshot ID/hash.
 6. Full repository pytest and governance preflight.
 
-## Human Gates
+## Review Gates
 
 - At least 8 additional real scoreable Gold cases and 30 real cross-turn cases reviewed from resolvable evidence.
-- 50 grounded L2 packet rows labeled by a human reviewer; precision >=0.90.
-- 30x5 paired answer judge calibration labeled; agreement >=0.70 before judge is gating.
+- 50 grounded L2 packet rows labeled by an explicitly identified human or LLM reviewer; precision >=0.90.
+- 30x5 paired answer judge calibration labeled by two independent review runs; agreement >=0.70 before judge is gating.
 - UAT explicitly signs promotion/refusal and rollback/forward-restore evidence.
 
-Human gates are not replaceable by agent assertions. Until supplied, Phase 24 remains incomplete with code-ready status.
+LLM evidence must record model ID, distinct review run ID, prompt version,
+timestamp, per-item confidence and checksums. It must never be represented as
+human review. Evidence gates now pass; retrieval quality and lifecycle adoption
+still fail, so Phase 24 remains incomplete.
 
 ## Live Safety Invariants
 

@@ -114,3 +114,35 @@ def test_judge_calibration_requires_complete_30x5_and_human_provenance(tmp_path:
 
     with pytest.raises(ReviewError):
         calibrate_judge(pp, hp, jp, allow_network_judge=True)
+
+
+def test_llm_judge_calibration_requires_two_distinct_auditable_runs(tmp_path: Path) -> None:
+    rows = [
+        {"case_id": f"c{i}", "mode": mode, "answer": "private"}
+        for i in range(30) for mode in ("raw", "l1", "l2_only", "l1_l2", "hybrid")
+    ]
+    packet = build_packet("judge_30x5", rows)
+    ratings = [
+        {"case_id": row["case_id"], "mode": row["mode"], "score": (i % 5) + 1,
+         "pass": i % 2 == 0, "privacy_violation": False, "confidence": 0.9}
+        for i, row in enumerate(rows)
+    ]
+    common = {
+        "packet_id": packet["packet_id"], "source_checksum": packet["source_checksum"],
+        "reviewer_type": "llm", "reviewer_id": "openai-gpt-5.6-luna",
+        "model_id": "gpt-5.6-luna", "prompt_version": "phase24-llm-review-v1",
+        "reviewed_at": "2026-07-18T12:00:00Z", "ratings": ratings,
+    }
+    primary = {**common, "review_run_id": "run-primary"}
+    judge = {**common, "review_run_id": "run-independent"}
+    pp, hp, jp = tmp_path / "p.json", tmp_path / "h.json", tmp_path / "j.json"
+    for path, value in ((pp, packet), (hp, primary), (jp, judge)):
+        path.write_text(json.dumps(value), encoding="utf-8")
+    report = calibrate_judge(pp, hp, jp, report_path=tmp_path / "report.json")
+    assert report["reviewer_type"] == "llm"
+    assert report["judge_review_run_id"] == "run-independent"
+
+    judge["review_run_id"] = "run-primary"
+    jp.write_text(json.dumps(judge), encoding="utf-8")
+    with pytest.raises(ReviewError, match="distinct"):
+        calibrate_judge(pp, hp, jp, report_path=tmp_path / "report2.json")

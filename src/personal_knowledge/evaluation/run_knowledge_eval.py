@@ -244,7 +244,11 @@ def stage_dataset_audit(
 
 
 def stage_human_review(*, enabled: bool) -> dict[str, Any]:
-    """Capture a metadata-only, checksum-bound view of required human evidence."""
+    """Capture a metadata-only, checksum-bound view of required review evidence.
+
+    The function name and stage key remain for run-manifest compatibility. The
+    bound manifests explicitly identify whether evidence came from a human or LLM.
+    """
     if not enabled:
         return {"skipped": True, "ok": False}
     from personal_knowledge.evaluation.review_packets import status
@@ -261,6 +265,10 @@ def stage_human_review(*, enabled: bool) -> dict[str, Any]:
             "count": manifest.get("count"),
             "cross_turn_count": manifest.get("cross_turn_count"),
             "reviewer_id_hash": manifest.get("reviewer_id_hash"),
+            "reviewer_type": manifest.get("reviewer_type", "human"),
+            "model_id": manifest.get("model_id"),
+            "review_run_id": manifest.get("review_run_id"),
+            "prompt_version": manifest.get("prompt_version"),
             "reviewed_at": manifest.get("reviewed_at"),
             "source_checksum": manifest.get("source_checksum"),
             "import_checksum": manifest.get("import_checksum"),
@@ -282,10 +290,30 @@ def stage_extraction(run_dir: Path, enabled: bool) -> dict[str, Any]:
         return {"skipped": True}
     from personal_knowledge.evaluation.extraction_quality_eval import evaluate_extraction
     from personal_knowledge.evaluation.reconcile_l2_lineage import reconcile
+    from personal_knowledge.evaluation.review_packets import (
+        GROUNDED_IMPORT,
+        GROUNDED_MANIFEST,
+        checksum,
+    )
+
+    if not GROUNDED_IMPORT.exists() or not GROUNDED_MANIFEST.exists():
+        raise ContractError("reviewed grounded labels and manifest are required")
+    grounded_labels = [
+        json.loads(line)
+        for line in GROUNDED_IMPORT.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    grounded_manifest = json.loads(GROUNDED_MANIFEST.read_text(encoding="utf-8"))
+    if checksum(grounded_labels) != grounded_manifest.get("import_checksum"):
+        raise ContractError("reviewed grounded labels checksum mismatch")
 
     lineage = reconcile(UNIFIED_DB)
     dump_json(run_dir / "l2_lineage.json", lineage)
-    eq = evaluate_extraction(UNIFIED_DB, sample_limit=50)
+    eq = evaluate_extraction(
+        UNIFIED_DB,
+        sample_limit=50,
+        human_labels=grounded_labels,
+    )
     dump_json(run_dir / "extraction_quality.json", eq)
     return {"lineage": lineage, "extraction_quality": eq}
 

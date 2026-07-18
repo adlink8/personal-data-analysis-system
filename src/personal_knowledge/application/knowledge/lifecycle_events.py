@@ -107,6 +107,26 @@ def _reviewer_hash(reviewer_id: str) -> str:
     return hashlib.sha256(reviewer_id.encode("utf-8")).hexdigest()
 
 
+def _validate_reviewer(payload: Mapping[str, Any]) -> tuple[str, str, str]:
+    reviewer = str(payload.get("reviewer_id") or "").strip()
+    reviewed_at = str(payload.get("reviewed_at") or "").strip()
+    reviewer_type = str(payload.get("reviewer_type") or "human").strip().lower()
+    if reviewer_type not in {"human", "llm"} or len(reviewer) < 3:
+        raise LifecycleError("reviewer identity invalid")
+    if reviewer_type == "human" and _NON_HUMAN_RE.search(reviewer):
+        raise LifecycleError("human reviewer_id cannot identify an agent or model")
+    if reviewer_type == "llm" and not all(
+        str(payload.get(key) or "").strip()
+        for key in ("model_id", "review_run_id", "prompt_version")
+    ):
+        raise LifecycleError("llm review provenance incomplete")
+    try:
+        datetime.fromisoformat(reviewed_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise LifecycleError("reviewed_at must be ISO-8601") from exc
+    return reviewer, reviewed_at, reviewer_type
+
+
 def ensure_lifecycle_schema(con: sqlite3.Connection) -> None:
     con.executescript(LIFECYCLE_SCHEMA_SQL)
 
@@ -117,6 +137,10 @@ def build_manifest(
     source_snapshot_id: str,
     reviewer_id: str = "",
     reviewed_at: str = "",
+    reviewer_type: str = "human",
+    model_id: str = "",
+    review_run_id: str = "",
+    prompt_version: str = "",
     review_receipt: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized: list[dict[str, Any]] = []
@@ -140,6 +164,10 @@ def build_manifest(
         "source_snapshot_id": source_snapshot_id,
         "reviewer_id": reviewer_id,
         "reviewed_at": reviewed_at,
+        "reviewer_type": reviewer_type,
+        "model_id": model_id,
+        "review_run_id": review_run_id,
+        "prompt_version": prompt_version,
         "review_receipt": dict(review_receipt or {}),
         "actions": normalized,
     }
@@ -148,7 +176,12 @@ def build_manifest(
 
 
 def validate_manifest(manifest: Mapping[str, Any], *, require_review: bool = True) -> None:
-    body = {key: manifest.get(key) for key in ("schema_version", "source_snapshot_id", "reviewer_id", "reviewed_at", "review_receipt", "actions")}
+    provenance_keys = ("reviewer_type", "model_id", "review_run_id", "prompt_version")
+    body_keys = ("schema_version", "source_snapshot_id", "reviewer_id", "reviewed_at")
+    if any(key in manifest for key in provenance_keys):
+        body_keys += provenance_keys
+    body_keys += ("review_receipt", "actions")
+    body = {key: manifest.get(key) for key in body_keys}
     if manifest.get("manifest_checksum") != _checksum(body):
         raise LifecycleError("manifest checksum mismatch")
     if manifest.get("manifest_id") != f"klm_{_checksum(body)[:24]}":
@@ -179,13 +212,7 @@ def validate_manifest(manifest: Mapping[str, Any], *, require_review: bool = Tru
         if require_review and action.get("decision") != "approve":
             raise LifecycleError("every applied action requires approve decision")
     if require_review:
-        reviewer = str(manifest.get("reviewer_id") or "").strip()
-        if len(reviewer) < 3 or _NON_HUMAN_RE.search(reviewer):
-            raise LifecycleError("genuine human reviewer_id required")
-        try:
-            datetime.fromisoformat(str(manifest.get("reviewed_at") or "").replace("Z", "+00:00"))
-        except ValueError as exc:
-            raise LifecycleError("reviewed_at must be ISO-8601") from exc
+        _validate_reviewer(manifest)
 
 
 def register_manifest(db_path: Path, manifest: Mapping[str, Any], *, write: bool = False) -> dict[str, Any]:
@@ -226,18 +253,45 @@ def finalize_review(proposal_path: Path, review_path: Path, artifact: Path) -> d
         raise LifecycleError("review does not bind exact proposal")
     reviewer = str(review.get("reviewer_id") or "").strip()
     reviewed_at = str(review.get("reviewed_at") or "")
+    _, _, reviewer_type = _validate_reviewer(review)
     decisions = {str(x.get("unit_id")): str(x.get("decision")) for x in review.get("decisions") or []}
     expected = {str(x["unit_id"]) for x in proposal["actions"]}
     if set(decisions) != expected or any(value not in {"approve", "reject"} for value in decisions.values()):
         raise LifecycleError("review decisions must cover every proposal exactly once")
     approved = [{**action, "decision": "approve"} for action in proposal["actions"] if decisions[action["unit_id"]] == "approve"]
+    if reviewer_type == "llm":
+        for item in review.get("decisions") or []:
+            confidence = item.get("confidence")
+            if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= float(confidence) <= 1:
+                raise LifecycleError("llm lifecycle decision confidence must be between 0 and 1")
     if not approved:
-        raise LifecycleError("review approved no lifecycle actions")
+        receipt = {
+            "schema_version": "knowledge_lifecycle_review_receipt_v1",
+            "review_status": "no_actions_approved",
+            "proposal_manifest_id": proposal["manifest_id"],
+            "proposal_checksum": proposal["manifest_checksum"],
+            "reviewer_id_hash": _reviewer_hash(reviewer),
+            "reviewed_at": reviewed_at,
+            "reviewer_type": reviewer_type,
+            "model_id": review.get("model_id"),
+            "review_run_id": review.get("review_run_id"),
+            "prompt_version": review.get("prompt_version"),
+            "rejected_unit_ids": sorted(expected),
+            "review_checksum": _checksum(review),
+        }
+        receipt["receipt_checksum"] = _checksum(receipt)
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return receipt
     reviewed = build_manifest(
         approved,
         source_snapshot_id=str(proposal.get("source_snapshot_id") or ""),
         reviewer_id=reviewer,
         reviewed_at=reviewed_at,
+        reviewer_type=str(review.get("reviewer_type") or "human"),
+        model_id=str(review.get("model_id") or ""),
+        review_run_id=str(review.get("review_run_id") or ""),
+        prompt_version=str(review.get("prompt_version") or ""),
         review_receipt={
             "proposal_manifest_id": proposal["manifest_id"],
             "proposal_checksum": proposal["manifest_checksum"],

@@ -1,43 +1,46 @@
 ---
 phase: 24
 plan: 04
-status: blocked_on_human_and_quality_gates
-updated: 2026-07-17
+status: blocked_on_retrieval_quality_and_lifecycle_adoption
+updated: 2026-07-18
 ---
 
 # Phase 24-04 Final Evaluation Checkpoint
 
 ## Exact dry-run evidence
 
-- Run ID: `5a59bbccc8af07586d686222a14bd4721f1441fd1b8c27ff884cfccd56b74484`
-- Serving snapshot before/after: `ss_1590353394c948b908a5d675`
-- Human-review binding checksum: `3a3cf55498d22c1dae3e9d6d4fdb850b4d77621ceae5f2e44d20d9935220b5fc`
-- Gate verdict: `FAIL`
-- Active authority unchanged: `true`
-- Post-run `pk-sync status --json`: `ok=true`, `drift=[]`
+- Run ID: `d54e53ea0a78031da04c18aa9502912a55484fa72bf3a3778d10e7071995aa2c`.
+- Dataset: 223 rows; 67 real scoreable Gold; 45 real cross-turn Gold.
+- Review binding checksum: `3c084cef17ca639f244680d333863db48563598a78b2be9940661643074e0626`.
+- Review strict status: PASS; grounded precision `46/50 = 0.92`.
+- Judge calibration: rho `0.7853`, kappa `1.0`, privacy disagreement `0`.
+- Gate verdict: `FAIL`; claim: `未证明提升`; runtime errors: `0`.
+- Active collection before/after:
+  `knowledge_units_ir_4cd8af4ad_20260716020508` (unchanged).
 
-The v2 policy now requires checksum-bound human-review evidence. The immutable run manifest contains the exact Gold, groundedness and judge evidence binding; absent evidence cannot be silently interpreted as PASS.
+## Passing gates
 
-The run ID also binds seven executable evaluation/retrieval source files. Sandbox or test output directories no longer mutate the global latest-run pointer.
+Dataset audit, LLM review evidence, candidate privacy/secret checks,
+no-answer false-positive thresholds, five-mode presence, answer evaluation,
+citation precision, reconcile integrity, pure-KU regression, MRR
+non-inferiority, latency and grounded precision all pass.
 
-## Automated candidate safety gates now pass
+## Remaining quality gaps
 
-- `l2_only` no-answer false-positive rate: 0.0.
-- `l1_l2` no-answer false-positive rate: 0.0.
-- `hybrid` no-answer false-positive rate: 0.0625 (threshold 0.10).
-- Candidate privacy hits: 0 in `l2_only`, `l1_l2` and `hybrid`.
-- Candidate secret hits: 0 in `l2_only`, `l1_l2` and `hybrid`.
-- Sensitive identity, credential and payment-detail queries abstain.
-- Resolved but ungrounded KU/Turn candidates are filtered; grounded product queries still return evidence-backed results.
-
-## Open blocking evidence
-
-- Private suite contains 22 real Gold cases; the minimum is 30.
-- Private suite contains 0 real cross-turn Gold cases; the minimum is 30.
-- Imported Gold, grounded L2 and judge calibration manifests are absent.
-- The current unreviewed private suite cannot prove Recall@5 improvement; required minimum is +10pp with positive CI low.
-- Cross-turn L2 and grounded human precision claims lack eligible reviewed evidence.
+- Overall L1+L2 versus raw Recall@5 improvement is `+2.99pp`; policy requires
+  at least `+10pp` with a positive confidence-interval lower bound. Observed
+  lower bound is `0`.
+- Cross-turn L2 versus L1 improvement is `+2.22pp` on 45 cases; confidence
+  interval lower bound is `-4.44pp`.
+- All 170 reviewed Gold IDs exist in the Active collection. A metadata-only
+  rank audit found only 5/45 queries with any Gold in Top-500, while a
+  self-semantic index-health sample retrieved 47/50 Gold units at Top-1.
+  The remaining defect is cross-turn query-to-unit semantic alignment, not
+  missing index data.
 
 ## Safety decision
 
-No promotion, rollback or forward-restore UAT was performed because the candidate did not pass the gate. This is the required fail-closed behavior. Promotion/rollback UAT remains pending until genuine human review is imported and every v2 candidate gate passes.
+Thresholds were not weakened and source answers were not reused as queries to
+inflate recall. No promotion, rollback, forward-restore, lifecycle apply or
+Active switch was performed. Release remains blocked until retrieval quality
+passes and a valid reviewed lifecycle cohort produces real append-only events.

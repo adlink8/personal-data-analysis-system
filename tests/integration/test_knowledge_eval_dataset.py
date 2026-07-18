@@ -31,14 +31,29 @@ from personal_knowledge.evaluation.run_knowledge_eval import (  # noqa: E402
     load_config,
     resolve_cases_path,
     stage_dataset_audit,
+    stage_extraction,
 )
 from personal_knowledge.evaluation.build_private_suite import HOLDOUT, OUT_DIR, SYN  # noqa: E402
 from personal_knowledge.evaluation.knowledge_eval_metrics import SCORER_VERSION  # noqa: E402
 from personal_knowledge.evaluation.review_packets import (  # noqa: E402
     ReviewError,
+    _is_reviewable_user_text,
+    _pair_score,
     build_packet,
     import_gold,
 )
+
+
+def test_gold_candidate_filter_rejects_ide_control_payloads() -> None:
+    assert _is_reviewable_user_text("查看项目状态")
+    assert not _is_reviewable_user_text("<system-reminder data-role=\"user-context\">x")
+    assert not _is_reviewable_user_text("The TodoWrite tool hasn't been used recently. x")
+    assert not _is_reviewable_user_text("This session was forked from a previous session message. x")
+    assert not _is_reviewable_user_text("[Assistant Rules - You MUST follow these instructions]")
+    assert not _is_reviewable_user_text("<local-command-stdout>Set model</local-command-stdout>")
+    assert not _is_reviewable_user_text("Warning: apply_patch was requested via shell. x")
+    assert not _is_reviewable_user_text("<cb_summary>prior context</cb_summary>")
+    assert _pair_score("向量模型支持中文", "中文向量模型升级") > _pair_score("向量模型支持中文", "清灰多少钱")
 
 
 def test_contract_roundtrip_eval_case() -> None:
@@ -151,10 +166,46 @@ def test_eval_config_tracks_relocated_private_suite_and_runtime_active() -> None
 def test_private_suite_fails_closed_without_real_cross_turn_gold(tmp_path: Path) -> None:
     cfg = load_config(_ROOT / "assets" / "evals" / "knowledge_units" / "eval_v1.yaml")
     cases = load_cases_jsonl(resolve_cases_path(cfg))
-    audit = stage_dataset_audit(cases, tmp_path, require_private_gold=True)
+    cases_without_reviewed_gold = [
+        case
+        for case in cases
+        if case.gold_provenance not in {"human_reviewed_v1", "llm_reviewed_v1"}
+    ]
+    audit = stage_dataset_audit(
+        cases_without_reviewed_gold, tmp_path, require_private_gold=True
+    )
     assert audit["ok"] is False
     assert audit["real_gold_cases"] == 22
     assert audit["real_cross_turn_gold_cases"] < 30
+
+
+def test_extraction_stage_binds_reviewed_grounded_labels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import personal_knowledge.evaluation.extraction_quality_eval as extraction
+    import personal_knowledge.evaluation.reconcile_l2_lineage as lineage
+    import personal_knowledge.evaluation.review_packets as packets
+
+    labels = [{"unit_id": "l2|one", "grounded": True}]
+    labels_path = tmp_path / "grounded.private.jsonl"
+    labels_path.write_text(json.dumps(labels[0]) + "\n", encoding="utf-8")
+    manifest_path = tmp_path / "grounded.manifest.json"
+    manifest_path.write_text(
+        json.dumps({"import_checksum": packets.checksum(labels)}), encoding="utf-8"
+    )
+    monkeypatch.setattr(packets, "GROUNDED_IMPORT", labels_path)
+    monkeypatch.setattr(packets, "GROUNDED_MANIFEST", manifest_path)
+    monkeypatch.setattr(lineage, "reconcile", lambda _db: {"ok": True})
+    captured: dict = {}
+
+    def fake_evaluate(_db, *, sample_limit, human_labels):
+        captured.update(sample_limit=sample_limit, labels=human_labels)
+        return {"ok": True}
+
+    monkeypatch.setattr(extraction, "evaluate_extraction", fake_evaluate)
+    result = stage_extraction(tmp_path, enabled=True)
+    assert result["extraction_quality"]["ok"] is True
+    assert captured == {"sample_limit": 50, "labels": labels}
 
 
 def test_real_gold_case_excludes_synthetic_abstain_and_unlabelled() -> None:
@@ -222,3 +273,36 @@ def test_human_gold_import_rejects_ineligible_and_synthetic(tmp_path: Path) -> N
     _write_json(pp, packet); _write_json(lp, labels)
     with pytest.raises(ReviewError):
         import_gold(pp, lp, out_path=tmp_path / "o", manifest_path=tmp_path / "m", resolver=_Evidence("ineligible"))
+
+
+def test_llm_gold_import_requires_auditable_provenance_and_confidence(tmp_path: Path) -> None:
+    packet = build_packet(
+        "gold",
+        [{
+            "case_id": "llm-1", "id": "llm-1", "query": "reviewed query",
+            "split": "llm_review_candidate", "gold_evidence_refs": ["cm|1"],
+            "requires_cross_turn": True,
+        }],
+    )
+    labels = {
+        "packet_id": packet["packet_id"], "source_checksum": packet["source_checksum"],
+        "reviewer_type": "llm", "reviewer_id": "openai-gpt-5.6-luna",
+        "model_id": "gpt-5.6-luna", "review_run_id": "run-primary",
+        "prompt_version": "phase24-llm-review-v1", "reviewed_at": "2026-07-18T12:00:00Z",
+        "labels": [{"case_id": "llm-1", "decision": "accept", "confidence": 0.91}],
+    }
+    pp, lp = tmp_path / "p.json", tmp_path / "l.json"
+    _write_json(pp, packet); _write_json(lp, labels)
+    result = import_gold(
+        pp, lp, out_path=tmp_path / "gold.jsonl",
+        manifest_path=tmp_path / "manifest.json", resolver=_Evidence(),
+    )
+    assert result["reviewer_type"] == "llm"
+    imported = json.loads((tmp_path / "gold.jsonl").read_text(encoding="utf-8"))
+    assert imported["gold_provenance"] == "llm_reviewed_v1"
+    assert imported["model_id"] == "gpt-5.6-luna"
+
+    labels["labels"][0].pop("confidence")
+    _write_json(lp, labels)
+    with pytest.raises(ReviewError, match="confidence"):
+        import_gold(pp, lp, out_path=tmp_path / "x", manifest_path=tmp_path / "y", resolver=_Evidence())

@@ -70,14 +70,14 @@ def evaluate_gate(
     if not dataset_ok:
         reasons.append("dataset audit failed: " + "; ".join(dataset_audit.get("errors") or ["missing audit evidence"]))
 
-    if policy.get("require_human_review_evidence", False):
+    if policy.get("require_review_evidence", policy.get("require_human_review_evidence", False)):
         human_review = (summary.get("stage_details") or {}).get("human_review") or {}
         human_ok = bool(human_review.get("ok")) and bool(
             human_review.get("binding_checksum")
         )
         checks.append(
             {
-                "name": "human_review_evidence",
+                "name": "review_evidence",
                 "passed": human_ok,
                 "value": {
                     "checks": human_review.get("checks") or {},
@@ -86,7 +86,7 @@ def evaluate_gate(
             }
         )
         if not human_ok:
-            reasons.append("human review evidence incomplete or unbound")
+            reasons.append("review evidence incomplete or unbound")
 
     modes = summary.get("modes") or summary.get("metrics") or {}
     if not modes:

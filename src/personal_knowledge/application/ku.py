@@ -762,7 +762,18 @@ def _cmd_lifecycle(args: argparse.Namespace) -> int:
             result = register_manifest(db_path, load_manifest(args.manifest), write=bool(args.write))
         elif args.command == "lifecycle-finalize":
             reviewed = finalize_review(args.proposal, args.review, args.artifact)
-            result = {"ok": True, "manifest_id": reviewed["manifest_id"], "manifest_checksum": reviewed["manifest_checksum"], "approved": len(reviewed["actions"]), "rejected": len((reviewed.get("review_receipt") or {}).get("rejected_unit_ids") or []), "artifact": str(args.artifact)}
+            if reviewed.get("review_status") == "no_actions_approved":
+                result = {
+                    "ok": True,
+                    "review_status": reviewed["review_status"],
+                    "proposal_manifest_id": reviewed["proposal_manifest_id"],
+                    "receipt_checksum": reviewed["receipt_checksum"],
+                    "approved": 0,
+                    "rejected": len(reviewed.get("rejected_unit_ids") or []),
+                    "artifact": str(args.artifact),
+                }
+            else:
+                result = {"ok": True, "manifest_id": reviewed["manifest_id"], "manifest_checksum": reviewed["manifest_checksum"], "approved": len(reviewed["actions"]), "rejected": len((reviewed.get("review_receipt") or {}).get("rejected_unit_ids") or []), "artifact": str(args.artifact)}
         elif args.command == "lifecycle-apply":
             if not (args.write and args.i_know):
                 raise LifecycleError("lifecycle apply requires --write --i-know")
