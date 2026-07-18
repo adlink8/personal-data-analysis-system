@@ -6,9 +6,9 @@ status: release_ready
 last_updated: 2026-07-18T06:51:34Z
 progress:
   total_phases: 29
-  completed_phases: 21
-  total_plans: 73
-  completed_plans: 66
+  completed_phases: 29
+  total_plans: 76
+  completed_plans: 76
   percent: 100
 stopped_at: Phase 24-27 real-data loop and explicit Product UAT complete
 ---
@@ -56,7 +56,7 @@ stopped_at: Phase 24-27 real-data loop and explicit Product UAT complete
 - **Phase 27-01:** independent non-serving proactive authority, seven immutable tables, exact Phase 25/26/frontier binding and deterministic eight-domain resource coordination complete
 - **Phase 27-02:** deterministic evidence-bound importance/novelty, stable dedup/cooldown, quiet deferral and global/domain noise-budget evaluation complete
 - **Phase 27-03:** user-owned append-only trust controls, deterministic scope/expiry projection, compensating restore and future-run control-frontier binding complete
-- **Phase 27-04:** checksum-verifying proactive inbox/digest/explain/control-history reads, guarded local user writes, read-only REST/MCP and zero-mutation Target D technical acceptance complete; product release remains blocked
+- **Phase 27-04:** checksum-verifying proactive inbox/digest/explain/control-history reads, guarded local user writes, read-only REST/MCP and zero-mutation Target D technical acceptance complete; Product UAT passed
 - **Phase 25–27 live adoption:** committed runs `psr_3a28363b9d1c6d9ab656fde5` → `dfr_e367f7689d64ad96a10311bd` → `pir_065c80888c81723abd43fc4a`; exact seven-event decision history, conservative insufficient-window assessment and proactive suppress/restore all verified
 
 ## Current Position
@@ -66,9 +66,9 @@ Plan: 4 of 4 technically and live-data verified — Product UAT passed
 Previous: Phase 23 / Target A complete
 Parallel execution: Phases 24–27 are independently verified; automated acceptance and explicit Product UAT are complete.
 **Phase: 22 (ku-lifecycle-growth-line) — PLANS 01–04 CODE COMPLETE + OPS CLOSED**  
-Readiness: `.planning/PRODUCT-READINESS.md` (**~86** weighted; operationally usable, quality sign-off open)
+Readiness: `.planning/PRODUCT-READINESS.md` (**~86** weighted; operationally usable, quality and Product UAT closed)
 Active: `knowledge_units_ir_4cd8af4ad_20260718054940`; watermark matches source.
-Next: user reviews `.planning/phases/PDA-27-*/27-UAT.md` and explicitly accepts or rejects product behavior.
+Next: activate a bounded Personal Decision Intelligence milestone, beginning with the independent External Context Authority.
 
 ## Cross-cutting architecture/data governance audit
 

@@ -1,7 +1,7 @@
 ---
 phase: 24
 validation_strategy: nyquist
-status: llm_evidence_complete_quality_failed
+status: passed
 ---
 
 # Phase 24 Validation
@@ -33,8 +33,11 @@ status: llm_evidence_complete_quality_failed
 
 LLM evidence must record model ID, distinct review run ID, prompt version,
 timestamp, per-item confidence and checksums. It must never be represented as
-human review. Evidence gates now pass; retrieval quality and lifecycle adoption
-still fail, so Phase 24 remains incomplete.
+human review. Evidence gates pass. Final immutable run
+`3a4b7f7b85e864b86031a79a0c017fa74c80e5b9908aa7fd73e765343fcc5d99`
+also passes the unchanged retrieval-quality thresholds, and the live lifecycle
+ledger contains six append-only events across two applied reviewed manifests.
+Activation, rollback and forward-restore UAT passed, so Phase 24 is complete.
 
 ## Live Safety Invariants
 
