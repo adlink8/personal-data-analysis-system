@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Knowledge Unit Evaluation & Quality → product hardening
-status: Awaiting next milestone
-last_updated: "2026-07-18T07:16:05.216Z"
-last_activity: 2026-07-18 — Milestone v1.1 completed and archived
+milestone: v1.2
+milestone_name: External Context & Low-risk Decision Intelligence Pilot
+status: planning
+last_updated: "2026-07-18T07:18:50.605Z"
+last_activity: 2026-07-18
 progress:
-  total_phases: 29
-  completed_phases: 22
-  total_plans: 77
-  completed_plans: 72
-  percent: 76
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -61,10 +61,10 @@ progress:
 
 ## Current Position
 
-Phase: Milestone v1.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-18 — Milestone v1.1 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-18 — Milestone v1.2 started
 
 ## Cross-cutting architecture/data governance audit
 

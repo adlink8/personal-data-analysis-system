@@ -27,16 +27,16 @@
 
 LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执行权限。
 
-## Current Milestone: v1.1 Knowledge Unit Evaluation & Quality — Release-ready
+## Current Milestone: v1.2 External Context & Low-risk Decision Intelligence Pilot
 
-**Goal:** 建立统一、可复跑、可视化、可阻断发布的知识单元全面评测闭环，量化 Raw、L1、L2、L1+L2、Hybrid 与最终 RAG 回答之间的真实提升。
+**Goal:** 建立与个人事实隔离的 External Context Authority，并在低风险 `project` 域用受控 LLM 完成真实、证据绑定、可反馈的决策试点。
 
 **Target features:**
-- 同一冻结协议下的五路检索 A/B 与分场景指标
-- L2 跨轮增益、重复、冲突、隐私与时效质量评测
-- 最终回答正确性、忠实度、引用与 abstain 评测
-- candidate → eval gate → canary → promote/rollback 发布闭环
-- JSON/SQLite 历史记录与本地 HTML/PNG 可视化报告
+- 两个受控公共来源、一个 project/technology 主题的独立 External Authority
+- Personal + External 双快照 Decision Context 绑定与 fail-closed 漂移检查
+- 逐主张 evidence ID 的结构化 LLM Decision Analysis Candidate
+- 真实低风险 Recommendation→Decision→Action→Outcome 纵向链
+- 预注册 personalized/generic 对照、长期观察窗与 `INCONCLUSIVE` 边界
 
 **Previous:** v1.0 completed 2026-07-12（Phases 01–16；Phase 08 cancelled）。见 [MILESTONE-v1.0.md](MILESTONE-v1.0.md)。
 
@@ -128,4 +128,4 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 本文件在阶段转换和里程碑边界持续更新。每次阶段完成时核对需求、关键决策、范围和真实运行状态；每次里程碑结束时重新检查 Core Value、Out of Scope 与已验证能力。
 
 ---
-*Last updated: 2026-07-18 — Milestone v1.1 release-ready; next PDI milestone remains candidate-only*
+*Last updated: 2026-07-18 — Milestone v1.2 activated; Phase 28 first*
