@@ -7,7 +7,7 @@ import sqlite3
 
 import pytest
 
-from personal_knowledge.intelligence.analysis.migrate import TABLES, migrate
+from personal_knowledge.intelligence.analysis.migrate import FULL_SCHEMA_SQL, TABLES, inspect_schema, migrate
 from personal_knowledge.intelligence.analysis.runs import AnalysisRunError, plan_run, publish_run
 from personal_knowledge.intelligence.analysis.schema import (
     AnalysisClaim, AnalysisSchemaError, CandidateDraft, EvidenceReference,
@@ -93,6 +93,25 @@ def test_migration_is_dry_run_first_idempotent_and_append_only(tmp_path: Path) -
     con.close()
 
 
+def test_migration_repairs_legacy_global_evidence_payload_uniqueness(tmp_path: Path) -> None:
+    db = tmp_path / "legacy.sqlite"
+    legacy_sql = FULL_SCHEMA_SQL.replace(
+        "payload_checksum TEXT NOT NULL CHECK(length(payload_checksum)=64), created_at TEXT NOT NULL,\n"
+        "    UNIQUE(claim_id,evidence_ordinal)",
+        "payload_checksum TEXT NOT NULL UNIQUE CHECK(length(payload_checksum)=64), created_at TEXT NOT NULL,\n"
+        "    UNIQUE(claim_id,evidence_ordinal)",
+        1,
+    )
+    con = sqlite3.connect(db)
+    con.executescript(legacy_sql)
+    con.close()
+    assert inspect_schema(db)["schema_state"] == "legacy"
+    dry = migrate(db)
+    assert dry["would_repair_evidence_uniqueness"]
+    assert migrate(db, write=True)["migrated"]
+    assert inspect_schema(db)["schema_state"] == "applied"
+
+
 def test_strict_contracts_reject_missing_support_forbidden_fields_and_bad_shape() -> None:
     with pytest.raises(AnalysisSchemaError, match="factual_claim_evidence_required"):
         AnalysisClaim("c", "factual", "unsupported", (), "0" * 64)
@@ -120,6 +139,41 @@ def test_publish_defaults_to_dry_run_replays_idempotently_and_verifies_checksums
     }
     with pytest.raises(AnalysisRunError, match="response_checksum_mismatch"):
         publish_run(db, replace(run, response_manifest={"tampered": True}), policy_path=POLICY, write=True)
+
+
+def test_publish_allows_multiple_claims_to_reuse_the_same_evidence(tmp_path: Path) -> None:
+    db = tmp_path / "analysis.sqlite"
+    migrate(db, write=True)
+    first = _claim()
+    second_core = {
+        "claim_id": "claim-2", "claim_type": "factual",
+        "statement": "The constrained capacity affects delivery options.",
+        "evidence": [{
+            "authority_id": item.authority_id, "record_type": item.record_type,
+            "record_id": item.record_id, "record_checksum": item.record_checksum,
+            "snapshot_id": item.snapshot_id, "snapshot_hash": item.snapshot_hash,
+        } for item in first.evidence],
+    }
+    second = AnalysisClaim(
+        second_core["claim_id"], second_core["claim_type"], second_core["statement"],
+        first.evidence, checksum(second_core),
+    )
+    request = {"goal": "ship bounded project", "confirmation_id": "uc-2"}
+    response = {"candidate": "structured", "claim_ids": ["claim-1", "claim-2"]}
+    receipt = ProviderReceipt(
+        provider="replay", model="fixture", prompt_version="decision-analysis-v1",
+        schema_version=SCHEMA_VERSION, policy_version="decision-analysis-policy-v1",
+        temperature=0.0, max_output_tokens=1024, input_tokens=10, output_tokens=20,
+        cost_amount=0.0, cost_currency="USD", latency_ms=1,
+        request_checksum=checksum(request), response_checksum=checksum(response), status="completed",
+    )
+    run = plan_run(
+        binding=_binding(), policy_path=POLICY, request_manifest=request,
+        response_manifest=response, candidate=_draft(), claims=(first, second), receipt=receipt,
+    )
+    published = publish_run(db, run, policy_path=POLICY, write=True)
+    assert published["written"]
+    assert _counts(db)["analysis_evidence_refs"] == 2
 
 
 def test_replay_rejects_offline_child_payload_tamper(tmp_path: Path) -> None:

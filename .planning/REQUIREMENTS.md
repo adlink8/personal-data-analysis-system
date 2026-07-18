@@ -15,8 +15,8 @@
 
 ### Structured LLM Decision Analysis
 
-- [ ] **PDI-05**: 用户可基于双快照和已确认目标/约束/权重/风险预算生成结构化 Decision Analysis Candidate，包含方案、no-action baseline、收益、成本、风险、机会成本、可逆性、假设、不确定性、缺失信息和停止条件。
-- [ ] **PDI-06**: 每条模型事实主张必须绑定合法 Personal/External evidence ID，并通过隐私、时效、冲突、地区、prompt-injection 和领域风险门；不满足时 abstain，模型不得写事实权威、确认用户价值或执行外部动作。
+- [x] **PDI-05**: 用户可基于双快照和已确认目标/约束/权重/风险预算生成结构化 Decision Analysis Candidate，包含方案、no-action baseline、收益、成本、风险、机会成本、可逆性、假设、不确定性、缺失信息和停止条件。
+- [x] **PDI-06**: 每条模型事实主张必须绑定合法 Personal/External evidence ID，并通过隐私、时效、冲突、地区、prompt-injection 和领域风险门；不满足时 abstain，模型不得写事实权威、确认用户价值或执行外部动作。
 
 ### Low-risk Pilot and Calibration
 
@@ -48,8 +48,8 @@
 | PDI-02 | Phase 28 | Complete — 28-02/04 |
 | PDI-03 | Phase 28 | Complete — 28-03 |
 | PDI-04 | Phase 28 | Complete — 28-03 |
-| PDI-05 | Phase 29 | In progress — 29-01/02 |
-| PDI-06 | Phase 29 | In progress — 29-01/02/03 |
+| PDI-05 | Phase 29 | Complete — 29-01/02/04 |
+| PDI-06 | Phase 29 | Complete — 29-01/02/03/04 |
 | PDI-07 | Phase 30 | Planned |
 | PDI-08 | Phase 31 | Planned |
 

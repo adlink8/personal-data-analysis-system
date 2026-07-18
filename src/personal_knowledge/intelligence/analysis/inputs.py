@@ -242,7 +242,8 @@ def build_confirmed_input(
     if len(encoded) > max_request_bytes:
         raise AnalysisInputError("request_payload_too_large", str(len(encoded)))
     request_checksum = checksum(manifest)
-    rendered = template.replace("{{CONTROL_JSON}}", canonical_json(controls)).replace(
+    rendered_controls = {**controls, "request_checksum": request_checksum}
+    rendered = template.replace("{{CONTROL_JSON}}", canonical_json(rendered_controls)).replace(
         "{{UNTRUSTED_EVIDENCE_JSON}}", canonical_json({
             "allowlist": evidence, "context": evidence_context,
         }),

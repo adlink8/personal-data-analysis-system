@@ -12,7 +12,7 @@
 ## Phases
 
 - [x] **Phase 28: External Context Authority** — independent external facts, snapshots and dual-context binding
-- [ ] **Phase 29: Structured LLM Decision Analysis Candidate** — evidence-bound analysis with deterministic risk gates
+- [x] **Phase 29: Structured LLM Decision Analysis Candidate** — evidence-bound analysis with deterministic risk gates
 - [ ] **Phase 30: Low-risk Project Decision Pilot** — real project-domain recommendation, decision, action and outcome
 - [ ] **Phase 31: Recommendation Calibration and Product UAT** — preregistered comparison, uncertainty and long-window acceptance
 
@@ -61,7 +61,7 @@ Plans:
 - [x] 29-01: Immutable analysis candidate authority and typed contracts
 - [x] 29-02: Confirmed dual-context inputs and structured candidate parser
 - [x] 29-03: Claim evidence validation and deterministic safety gates
-- [ ] 29-04: Provider execution, replay, Doctor and real LLM UAT
+- [x] 29-04: Provider execution, replay, Doctor and real LLM UAT
 
 ### Phase 30: Low-risk Project Decision Pilot
 
@@ -110,9 +110,9 @@ Plans:
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
 | 28 | PDI-01..04 | 4/4 | Complete |
-| 29 | PDI-05..06 | 3/4 | Executing |
+| 29 | PDI-05..06 | 4/4 | Complete |
 | 30 | PDI-07 | 0/3 | Not started |
 | 31 | PDI-08 | 0/3 | Not started |
 
 ---
-*Updated 2026-07-18 — Phase 29 executing; Phases 30–31 planned*
+*Updated 2026-07-18 — Phase 29 complete; Phase 30 is next*

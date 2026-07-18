@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -71,6 +72,10 @@ def test_live_uat_executes_once_and_reports_source_isolation(tmp_path: Path, mon
     monkeypatch.setattr(
         "personal_knowledge.intelligence.analysis.live_uat.create_decision_context_binding",
         lambda *args, **kwargs: binding,
+    )
+    monkeypatch.setattr(
+        "personal_knowledge.intelligence.analysis.live_uat.build_confirmed_input",
+        lambda **kwargs: SimpleNamespace(rendered_prompt="ascii prompt"),
     )
     class Provider:
         calls = 0

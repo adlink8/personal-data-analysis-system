@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import time
+import tomllib
 from typing import Any, Callable, Mapping, Protocol
 
 from .schema import checksum
@@ -180,6 +182,35 @@ class OpenAICompatibleProvider:
 CodexRunner = Callable[..., subprocess.CompletedProcess[str]]
 
 
+def _classify_codex_failure(stderr: str) -> str:
+    """Reduce Codex stderr to a stable code without retaining diagnostic text."""
+    error_text = stderr.lower()
+    if "input is not valid utf-8" in error_text or "input appears to be" in error_text:
+        return "codex_stdin_encoding_invalid"
+    if ("invalid utf-8 in streamed bytes" in error_text
+            or "incomplete utf-8 code point" in error_text):
+        return "codex_response_stream_encoding_invalid"
+    if "schema" in error_text or "response_format" in error_text:
+        return "codex_output_schema_rejected"
+    if "model" in error_text and any(
+        token in error_text for token in ("not found", "unsupported", "unavailable")
+    ):
+        return "provider_model_unavailable"
+    if any(token in error_text for token in ("unauthorized", "authentication", "login required")):
+        return "provider_credential_missing"
+    if "unexpected argument" in error_text or "unrecognized option" in error_text:
+        return "codex_cli_argument_invalid"
+    if ("utf-8" in error_text or "utf8" in error_text) and "config" in error_text:
+        return "codex_config_encoding_invalid"
+    if ("utf-8" in error_text or "utf8" in error_text) and any(
+        token in error_text for token in ("agents.md", "instructions", "rules")
+    ):
+        return "codex_instruction_encoding_invalid"
+    if "utf-8" in error_text or "utf8" in error_text:
+        return "codex_runtime_text_encoding_invalid"
+    return "codex_cli_failed"
+
+
 def resolve_codex_command(*, runner: CodexRunner = subprocess.run) -> tuple[str | None, str | None]:
     """Prefer the newest direct executable over an older npm cmd wrapper."""
     candidates: list[str] = []
@@ -287,6 +318,7 @@ class CodexCliProvider:
         runner: CodexRunner = subprocess.run,
         preflight_runner: CodexRunner = subprocess.run,
         command_path: str | None = None,
+        config_path: Path | str | None = None,
     ) -> None:
         self.model = model
         self.output_schema_path = Path(output_schema_path)
@@ -297,7 +329,39 @@ class CodexCliProvider:
         self.runner = runner
         self.preflight_runner = preflight_runner
         self.command_path = command_path
+        self.config_path = Path(config_path) if config_path else Path.home() / ".codex" / "config.toml"
         self.calls = 0
+
+    def _mcp_disable_overrides(self) -> list[str]:
+        if not self.config_path.is_file():
+            return []
+        try:
+            config = tomllib.loads(self.config_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+            raise ProviderError("codex_config_isolation_invalid") from exc
+        overrides: list[str] = []
+        for name in sorted(str(name) for name in (config.get("mcp_servers") or {})):
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+                raise ProviderError("codex_config_isolation_invalid")
+            overrides.extend(("-c", f"mcp_servers.{name}.enabled=false"))
+        return overrides
+
+    @staticmethod
+    def _jsonl_error_text(stdout: str) -> str:
+        messages: list[str] = []
+        for line in stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, Mapping) or event.get("type") not in {"error", "turn.failed"}:
+                continue
+            raw = event.get("message") or event.get("error")
+            if isinstance(raw, str):
+                messages.append(raw)
+            elif isinstance(raw, Mapping):
+                messages.append(json.dumps(raw, sort_keys=True))
+        return "\n".join(messages)
 
     @staticmethod
     def _events(stdout: str) -> tuple[dict[str, Any], dict[str, int]]:
@@ -357,16 +421,25 @@ class CodexCliProvider:
         self.calls += 1
         command_path = str(preflight["command_path"])
         command = [
-            command_path, "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+            command_path, "exec", "--ephemeral", "--ignore-rules",
+            "--disable", "codex_hooks", "--disable", "multi_agent",
+            "--disable", "memories", "--disable", "plugins",
+            "--disable", "remote_plugin", "-c", "mcp_servers={}",
+            *self._mcp_disable_overrides(),
+            "-c", "notify=[]", "-c", 'approval_policy="never"',
             "--skip-git-repo-check", "--sandbox", "read-only", "--model", self.model,
             "--output-schema", str(self.output_schema_path.resolve()), "--json",
             "--color", "never", "--cd", str(self.working_directory.resolve()), "-",
         ]
         started = time.monotonic()
+        child_env = os.environ.copy()
+        child_env.pop("CODEX_API_KEY", None)
+        child_env.pop("OPENAI_API_KEY", None)
+        child_env.update({"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "LC_CTYPE": "C.UTF-8"})
         try:
             completed = self.runner(
-                command, input=request.prompt, text=True, capture_output=True,
-                timeout=request.timeout_seconds, encoding="utf-8", errors="strict",
+                command, input=request.prompt.encode("utf-8"), text=False,
+                capture_output=True, timeout=request.timeout_seconds, env=child_env,
             )
         except subprocess.TimeoutExpired as exc:
             raise ProviderTimeout("codex_cli") from exc
@@ -374,21 +447,25 @@ class CodexCliProvider:
             raise ProviderError("codex_cli_unavailable", type(exc).__name__) from exc
         latency = int((time.monotonic() - started) * 1000)
         if completed.returncode != 0:
-            error_text = completed.stderr.lower()
-            if "utf-8" in error_text or "utf8" in error_text:
-                code = "codex_prompt_encoding_invalid"
-            elif "schema" in error_text or "response_format" in error_text:
-                code = "codex_output_schema_rejected"
-            elif "model" in error_text and any(token in error_text for token in ("not found", "unsupported", "unavailable")):
-                code = "provider_model_unavailable"
-            elif any(token in error_text for token in ("unauthorized", "authentication", "login required")):
-                code = "provider_credential_missing"
-            elif "unexpected argument" in error_text or "unrecognized option" in error_text:
-                code = "codex_cli_argument_invalid"
-            else:
-                code = "codex_cli_failed"
+            stdout_text = (
+                completed.stdout.decode("utf-8", errors="replace")
+                if isinstance(completed.stdout, bytes) else str(completed.stdout)
+            )
+            stderr_text = (
+                completed.stderr.decode("utf-8", errors="replace")
+                if isinstance(completed.stderr, bytes) else str(completed.stderr)
+            )
+            error_text = self._jsonl_error_text(stdout_text) or stderr_text
+            code = _classify_codex_failure(error_text)
             raise ProviderError(code, f"exit={completed.returncode}")
-        payload, usage = self._events(completed.stdout)
+        try:
+            stdout = (
+                completed.stdout.decode("utf-8", errors="strict")
+                if isinstance(completed.stdout, bytes) else str(completed.stdout)
+            )
+        except UnicodeDecodeError as exc:
+            raise ProviderError("codex_output_encoding_invalid") from exc
+        payload, usage = self._events(stdout)
         return ProviderResult(
             response_payload=payload, response_checksum=checksum(payload),
             telemetry=ProviderTelemetry(

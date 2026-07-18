@@ -197,7 +197,9 @@ def test_openai_compatible_boundary_is_disabled_by_default() -> None:
     assert not called
 
 
-def test_codex_cli_provider_parses_jsonl_and_enforces_single_call(tmp_path: Path) -> None:
+def test_codex_cli_provider_parses_jsonl_and_enforces_single_call(
+    tmp_path: Path, monkeypatch,
+) -> None:
     schema = tmp_path / "schema.json"
     schema.write_text("{}", encoding="utf-8")
     payload = _payload()
@@ -210,19 +212,35 @@ def test_codex_cli_provider_parses_jsonl_and_enforces_single_call(tmp_path: Path
     ])
     def runner(command, **kwargs):
         assert "--ephemeral" in command and "read-only" in command
-        assert kwargs["input"] == "中文 prompt"
-        assert kwargs["encoding"] == "utf-8" and kwargs["errors"] == "strict"
-        return subprocess.CompletedProcess(command, 0, stdout=events, stderr="")
+        assert "--ignore-user-config" not in command
+        assert "mcp_servers={}" in command
+        assert "mcp_servers.demo.enabled=false" in command
+        assert "plugins" in command and "remote_plugin" in command
+        assert 'approval_policy="never"' in command
+        assert kwargs["input"] == "中文 prompt".encode("utf-8")
+        assert kwargs["text"] is False
+        assert kwargs["env"]["LANG"] == "C.UTF-8"
+        assert kwargs["env"]["LC_ALL"] == "C.UTF-8"
+        assert "CODEX_API_KEY" not in kwargs["env"]
+        assert "OPENAI_API_KEY" not in kwargs["env"]
+        return subprocess.CompletedProcess(
+            command, 0, stdout=events.encode("utf-8"), stderr=b"",
+        )
     def preflight_runner(command, **kwargs):
         if command[1:3] == ["login", "status"]:
             return subprocess.CompletedProcess(command, 0, stdout="Logged in using ChatGPT", stderr="")
         return subprocess.CompletedProcess(
             command, 0, stdout=json.dumps([{"slug": "gpt-5.5"}]), stderr="",
         )
+    config = tmp_path / "config.toml"
+    config.write_text('[mcp_servers.demo]\ncommand = "demo"\n', encoding="utf-8")
+    monkeypatch.setenv("CODEX_API_KEY", "not-used")
+    monkeypatch.setenv("OPENAI_API_KEY", "not-used")
     provider = CodexCliProvider(
         model="gpt-5.5", output_schema_path=schema,
         working_directory=tmp_path, enabled=True, credential_present=True,
         runner=runner, preflight_runner=preflight_runner, command_path="codex",
+        config_path=config,
     )
     result = provider.generate(ProviderRequest("中文 prompt", "0" * 64, 0.0, 100, 5.0))
     assert result.response_payload == payload
@@ -294,3 +312,63 @@ def test_codex_cli_failure_is_classified_without_stderr_disclosure(tmp_path: Pat
         provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
     assert captured.value.code == "codex_output_schema_rejected"
     assert "private detail" not in str(captured.value)
+
+
+def test_codex_cli_failure_prefers_jsonl_error_over_stderr_warning(tmp_path: Path) -> None:
+    schema = tmp_path / "schema.json"
+    schema.write_text("{}", encoding="utf-8")
+    def preflight_runner(command, **kwargs):
+        if command[1:3] == ["login", "status"]:
+            return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps([{"slug": "gpt-5.4"}]), stderr="",
+        )
+    events = json.dumps({
+        "type": "turn.failed", "error": {"message": "Invalid response_format schema"},
+    })
+    provider = CodexCliProvider(
+        model="gpt-5.4", output_schema_path=schema, working_directory=tmp_path,
+        enabled=True, credential_present=True,
+        runner=lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 1, stdout=events.encode(),
+            stderr=b"MCP stream did not contain valid UTF-8",
+        ),
+        preflight_runner=preflight_runner, command_path="codex",
+        config_path=tmp_path / "missing.toml",
+    )
+    with pytest.raises(ProviderError) as captured:
+        provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
+    assert captured.value.code == "codex_output_schema_rejected"
+
+
+@pytest.mark.parametrize(("stderr", "expected"), [
+    ("input is not valid UTF-8 (invalid byte at offset 4)", "codex_stdin_encoding_invalid"),
+    ("invalid UTF-8 in streamed bytes at offset 8", "codex_response_stream_encoding_invalid"),
+    ("config file is not valid UTF-8", "codex_config_encoding_invalid"),
+    ("AGENTS.md instructions are not valid UTF-8", "codex_instruction_encoding_invalid"),
+    ("unexpected UTF-8 runtime failure", "codex_runtime_text_encoding_invalid"),
+    ("locale is not UTF-8; Invalid response_format schema", "codex_output_schema_rejected"),
+])
+def test_codex_cli_utf8_failures_are_layer_classified(
+    tmp_path: Path, stderr: str, expected: str,
+) -> None:
+    schema = tmp_path / "schema.json"
+    schema.write_text("{}", encoding="utf-8")
+    def preflight_runner(command, **kwargs):
+        if command[1:3] == ["login", "status"]:
+            return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps([{"slug": "gpt-5.4"}]), stderr="",
+        )
+    provider = CodexCliProvider(
+        model="gpt-5.4", output_schema_path=schema, working_directory=tmp_path,
+        enabled=True, credential_present=True,
+        runner=lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 1, stdout=b"", stderr=stderr.encode("utf-8"),
+        ),
+        preflight_runner=preflight_runner, command_path="codex",
+    )
+    with pytest.raises(ProviderError) as captured:
+        provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
+    assert captured.value.code == expected
+    assert stderr not in str(captured.value)

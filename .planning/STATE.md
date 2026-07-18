@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: External Context & Low-risk Decision Intelligence Pilot
 status: executing
-last_updated: "2026-07-18T12:00:00.000Z"
+last_updated: "2026-07-18T11:30:00.000Z"
 last_activity: 2026-07-18
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 14
-  completed_plans: 7
+  completed_plans: 8
   percent: 50
 ---
 
@@ -17,7 +17,7 @@ progress:
 
 ## Milestone
 
-**v1.2 External Context & Low-risk Decision Intelligence Pilot:** Phase 28 is complete and user-accepted. Phase 29 replay, evidence and safety implementation is technically green; its first authorized live provider attempt abstained before generation because `gpt-5.6-luna` is not a Codex CLI model. Phases 30–31 now have executable plans but remain dependency-blocked on a successful Phase 29 live run and real user observation windows.
+**v1.2 External Context & Low-risk Decision Intelligence Pilot:** Phases 28 and 29 are complete and accepted. Phase 29 published a real evidence-bound `gpt-5.4` candidate through the deterministic gates with zero Personal/External mutation and zero external action. Phase 30 is now unblocked; Phase 31 remains dependent on the Phase 30 outcome window.
 
 ## Authoritative surfaces
 
@@ -61,10 +61,10 @@ progress:
 
 ## Current Position
 
-Phase: 29 of 31 — Structured LLM Decision Analysis Candidate
-Plan: 3 of 4 complete
-Status: Phase 29 executing; 29-04 technical path passes, but corrected real LLM execution and exact user UAT remain open
-Last activity: 2026-07-18 — the authorized lineage-bound gpt-5.4 attempt exited before response with zero writes; the remaining Windows locale/Chinese-stdin defect was fixed by strict UTF-8 and covered by E2E contract; no post-fix call has run and Phase 29 live output/UAT remains open
+Phase: 30 of 31 — Low-risk Project Decision Pilot
+Plan: 0 of 3 complete
+Status: Phase 29 complete; Phase 30 ready to execute
+Last activity: 2026-07-18 — live run `dar_77843392b266cd0a992cc274` and candidate `dac_8abee23d30d7df2c9df47ab7` passed Schema, budget, lineage, evidence, safety, atomic publication, Doctor and authorized LLM review
 
 ## Cross-cutting architecture/data governance audit
 
@@ -131,4 +131,5 @@ python -m personal_knowledge.governance.preflight
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Execute Phase 30 plans 30-01 through 30-03 in order.
+- Keep external actions manual/user-owned and preserve the Phase 29 frozen binding.

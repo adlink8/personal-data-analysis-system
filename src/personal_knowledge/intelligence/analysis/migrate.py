@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS analysis_evidence_refs (
     authority_id TEXT NOT NULL CHECK(authority_id IN ('a.personal_change','s.external_fact')),
     record_type TEXT NOT NULL, record_id TEXT NOT NULL, record_checksum TEXT NOT NULL CHECK(length(record_checksum)=64),
     snapshot_id TEXT NOT NULL, snapshot_hash TEXT NOT NULL CHECK(length(snapshot_hash)=64),
-    payload_json TEXT NOT NULL, payload_checksum TEXT NOT NULL UNIQUE CHECK(length(payload_checksum)=64), created_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL, payload_checksum TEXT NOT NULL CHECK(length(payload_checksum)=64), created_at TEXT NOT NULL,
     UNIQUE(claim_id,evidence_ordinal), UNIQUE(claim_id,authority_id,record_id)
 );
 CREATE TABLE IF NOT EXISTS analysis_provider_receipts (
@@ -82,11 +82,26 @@ def inspect_schema(db_path: Path | str) -> dict[str, Any]:
         integrity = str(con.execute("PRAGMA integrity_check").fetchone()[0])
         fk = con.execute("PRAGMA foreign_key_check").fetchall()
         trigger_count = int(con.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name LIKE 'trg_analysis_%_no_%'").fetchone()[0])
+        evidence_payload_global_unique = False
+        if "analysis_evidence_refs" in existing:
+            for index in con.execute("PRAGMA index_list('analysis_evidence_refs')"):
+                if not bool(index[2]):
+                    continue
+                columns = [str(item[2]) for item in con.execute(
+                    f"PRAGMA index_info('{str(index[1])}')"
+                )]
+                if columns == ["payload_checksum"]:
+                    evidence_payload_global_unique = True
+                    break
         state = "partial" if missing else "applied"
+        if not missing and evidence_payload_global_unique:
+            state = "legacy"
         if not missing and (integrity != "ok" or fk or trigger_count != len(TABLES) * 2):
             state = "invalid"
         return {"db_exists": True, "schema_state": state, "missing_tables": missing,
-                "integrity": integrity, "foreign_key_violations": len(fk), "append_only_trigger_count": trigger_count}
+                "integrity": integrity, "foreign_key_violations": len(fk),
+                "append_only_trigger_count": trigger_count,
+                "evidence_payload_global_unique": evidence_payload_global_unique}
     finally:
         con.close()
 
@@ -95,7 +110,11 @@ def migrate(db_path: Path | str, *, write: bool = False) -> dict[str, Any]:
     path = Path(db_path)
     before = inspect_schema(path)
     if not write:
-        return {"write": False, "dry_run": True, "would_create": before["missing_tables"], "before": before}
+        return {
+            "write": False, "dry_run": True, "would_create": before["missing_tables"],
+            "would_repair_evidence_uniqueness": before["schema_state"] == "legacy",
+            "before": before,
+        }
     if before["schema_state"] == "applied":
         return {"write": True, "migrated": False, "no_op": True, "after": before}
     if before["schema_state"] == "invalid":
@@ -103,7 +122,26 @@ def migrate(db_path: Path | str, *, write: bool = False) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     con = connect_rw(path, timeout=30)
     try:
-        con.executescript("BEGIN IMMEDIATE;\n" + FULL_SCHEMA_SQL)
+        if before["schema_state"] == "legacy":
+            con.executescript("""
+BEGIN IMMEDIATE;
+DROP TRIGGER IF EXISTS trg_analysis_evidence_refs_no_update;
+DROP TRIGGER IF EXISTS trg_analysis_evidence_refs_no_delete;
+ALTER TABLE analysis_evidence_refs RENAME TO analysis_evidence_refs_legacy;
+CREATE TABLE analysis_evidence_refs (
+    evidence_ref_id TEXT PRIMARY KEY, claim_id TEXT NOT NULL REFERENCES analysis_claims(claim_id),
+    evidence_ordinal INTEGER NOT NULL CHECK(evidence_ordinal>=0),
+    authority_id TEXT NOT NULL CHECK(authority_id IN ('a.personal_change','s.external_fact')),
+    record_type TEXT NOT NULL, record_id TEXT NOT NULL, record_checksum TEXT NOT NULL CHECK(length(record_checksum)=64),
+    snapshot_id TEXT NOT NULL, snapshot_hash TEXT NOT NULL CHECK(length(snapshot_hash)=64),
+    payload_json TEXT NOT NULL, payload_checksum TEXT NOT NULL CHECK(length(payload_checksum)=64), created_at TEXT NOT NULL,
+    UNIQUE(claim_id,evidence_ordinal), UNIQUE(claim_id,authority_id,record_id)
+);
+INSERT INTO analysis_evidence_refs SELECT * FROM analysis_evidence_refs_legacy;
+DROP TABLE analysis_evidence_refs_legacy;
+""" + _triggers())
+        else:
+            con.executescript("BEGIN IMMEDIATE;\n" + FULL_SCHEMA_SQL)
         if con.execute("PRAGMA foreign_key_check").fetchone() is not None:
             raise sqlite3.IntegrityError("analysis schema foreign key failure")
         con.commit()

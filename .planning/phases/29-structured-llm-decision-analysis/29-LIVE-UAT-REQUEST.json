@@ -4,12 +4,12 @@
   "personal_db": "var/db/personal_system.sqlite",
   "external_db": "var/db/external_context.sqlite",
   "analysis_db": "var/db/decision_analysis.sqlite",
-  "goal": "为阶段30低风险project试点选择本地运行时推进方案：直接采用已核验的Python与Node版本，或先增加兼容性验证再推进。",
+  "goal": "Choose the local runtime path for the low-risk Phase 30 project pilot: adopt the verified Python and Node versions now, or add compatibility validation before proceeding.",
   "constraints": [
-    "不安装或升级依赖",
-    "不部署、不发送消息、不调用外部执行器",
-    "所有建议必须可回滚并经过用户确认",
-    "仅使用清单中绑定的个人与外部证据"
+    "Do not install or upgrade dependencies.",
+    "Do not deploy, send messages, or invoke external executors.",
+    "Every recommendation must be reversible and user-confirmed.",
+    "Use only the Personal and External evidence bound in this manifest."
   ],
   "weights": {
     "safety": 0.6,
@@ -64,7 +64,7 @@
   "region": "global",
   "max_external_age_seconds": 31536000,
   "temperature": 0.0,
-  "max_output_tokens": 3000,
-  "max_total_tokens": 7000,
+  "max_output_tokens": 4096,
+  "max_total_tokens": 27000,
   "timeout_seconds": 120.0
 }

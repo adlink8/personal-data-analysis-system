@@ -176,6 +176,13 @@ def execute_analysis(
             response_manifest=result.response_payload, candidate=candidate,
             claims=claim_items, receipt=provider_receipt,
         )
+    except Exception as exc:
+        return _abstain(
+            "plan", str(getattr(exc, "code", "run_planning_fault")), attempts=attempts,
+            request_checksum=confirmed.request_checksum,
+            response_checksum=result.response_checksum, telemetry=telemetry,
+        )
+    try:
         published = publish_run(
             analysis_db_path, run, policy_path=policy_path, write=write, fault_at=fault_at,
         )

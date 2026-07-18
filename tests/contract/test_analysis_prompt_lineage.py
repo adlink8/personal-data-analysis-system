@@ -59,6 +59,8 @@ def test_prompt_delimits_untrusted_evidence_and_binds_all_lineage(monkeypatch) -
     assert request.request_manifest["schema_checksum"] == request.schema_checksum
     assert request.request_manifest["policy_checksum"] == request.policy_checksum
     assert request.request_manifest["binding_hash"] == _binding().binding_hash
+    assert f'"request_checksum":"{request.request_checksum}"' in request.rendered_prompt
+    assert "request_checksum" not in request.request_manifest
 
 
 def test_prompt_schema_or_policy_drift_changes_request_identity(tmp_path: Path, monkeypatch) -> None:
@@ -89,3 +91,26 @@ def test_frozen_response_schema_closes_every_object_node() -> None:
                 walk(item, f"{path}/{index}")
     walk(schema, "$")
     assert open_paths == []
+
+
+def test_frozen_response_schema_avoids_unsupported_property_count_keywords() -> None:
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    serialized = json.dumps(schema, sort_keys=True)
+    assert "maxProperties" not in serialized
+    assert "minProperties" not in serialized
+
+
+def test_frozen_response_schema_types_const_and_enum_nodes() -> None:
+    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    missing: list[str] = []
+    def walk(value, path: str) -> None:
+        if isinstance(value, dict):
+            if ("const" in value or "enum" in value) and "type" not in value:
+                missing.append(path)
+            for key, item in value.items():
+                walk(item, f"{path}/{key}")
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                walk(item, f"{path}/{index}")
+    walk(schema, "$")
+    assert missing == []

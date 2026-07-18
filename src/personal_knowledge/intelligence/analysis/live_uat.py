@@ -16,7 +16,7 @@ from personal_knowledge.intelligence.decision.context_binding import (
 from .executor import ExecutionReceipt, execute_analysis
 from .inputs import (
     DEFAULT_POLICY_PATH, DEFAULT_PROMPT_PATH, DEFAULT_SCHEMA_PATH,
-    ConfirmationEvent,
+    ConfirmationEvent, build_confirmed_input,
 )
 from .providers import CodexCliProvider, codex_cli_preflight
 from .runs import load_policy
@@ -72,11 +72,15 @@ def load_live_spec(path: Path | str) -> dict[str, Any]:
 
 def authorization_manifest(spec: Mapping[str, Any]) -> dict[str, str]:
     _, policy_checksum = load_policy(DEFAULT_POLICY_PATH)
+    config_path = Path.home() / ".codex" / "config.toml"
+    if not config_path.is_file():
+        raise LiveUatError("codex_config_missing")
     return {
         "spec_checksum": checksum(spec),
         "prompt_checksum": hashlib.sha256(DEFAULT_PROMPT_PATH.read_bytes()).hexdigest(),
         "schema_checksum": hashlib.sha256(DEFAULT_SCHEMA_PATH.read_bytes()).hexdigest(),
         "policy_checksum": policy_checksum,
+        "codex_config_checksum": hashlib.sha256(config_path.read_bytes()).hexdigest(),
         "model": str(spec["model"]),
     }
 
@@ -128,6 +132,21 @@ def run_live_uat(
     external_evidence = tuple(
         from_exact_mapping(EvidenceReference, item) for item in spec["external_evidence"]
     )
+    confirmation_event = ConfirmationEvent(
+        event_id=confirmation_event_id, confirmed_at=confirmed_at, confirmed=True,
+    )
+    prepared = build_confirmed_input(
+        binding=binding, personal_db_path=paths["personal"],
+        external_db_path=paths["external"], goal=str(spec["goal"]),
+        constraints=tuple(str(item) for item in spec["constraints"]),
+        weights={str(key): float(value) for key, value in spec["weights"].items()},
+        risk_budget="low", confirmation=confirmation_event,
+        personal_evidence=personal_evidence, external_evidence=external_evidence,
+        policy_path=DEFAULT_POLICY_PATH, temperature=float(spec["temperature"]),
+        max_output_tokens=int(spec["max_output_tokens"]), now=confirmed_at,
+    )
+    if not prepared.rendered_prompt.isascii():
+        raise LiveUatError("codex_prompt_not_ascii")
     provider = provider_factory(
         model=str(spec["model"]), output_schema_path=DEFAULT_SCHEMA_PATH,
         working_directory=working_directory, enabled=True,
@@ -141,9 +160,7 @@ def run_live_uat(
         constraints=tuple(str(item) for item in spec["constraints"]),
         weights={str(key): float(value) for key, value in spec["weights"].items()},
         risk_budget="low",
-        confirmation=ConfirmationEvent(
-            event_id=confirmation_event_id, confirmed_at=confirmed_at, confirmed=True,
-        ),
+        confirmation=confirmation_event,
         personal_evidence=personal_evidence, external_evidence=external_evidence,
         temperature=float(spec["temperature"]),
         max_output_tokens=int(spec["max_output_tokens"]),

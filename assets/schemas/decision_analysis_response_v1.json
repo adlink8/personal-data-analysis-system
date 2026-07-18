@@ -9,11 +9,11 @@
     "missing_information", "stop_conditions", "abstain_reasons", "claims"
   ],
   "properties": {
-    "schema_version": {"const": "decision_analysis_candidate_v1"},
+    "schema_version": {"type": "string", "const": "decision_analysis_candidate_v1"},
     "binding_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "request_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "domain": {"const": "project"},
-    "status": {"enum": ["candidate", "abstain"]},
+    "domain": {"type": "string", "const": "project"},
+    "status": {"type": "string", "enum": ["candidate", "abstain"]},
     "options": {
       "type": "array", "maxItems": 8,
       "items": {"$ref": "#/$defs/option"}
@@ -31,7 +31,7 @@
         "required": ["claim_id", "claim_type", "statement", "evidence"],
         "properties": {
           "claim_id": {"type": "string", "minLength": 1, "maxLength": 256},
-          "claim_type": {"enum": ["factual", "inference"]},
+          "claim_type": {"type": "string", "enum": ["factual", "inference"]},
           "statement": {"type": "string", "minLength": 1, "maxLength": 1000},
           "evidence": {
             "type": "array", "maxItems": 16,
@@ -54,7 +54,7 @@
         "costs": {"$ref": "#/$defs/textList"},
         "risks": {"$ref": "#/$defs/textList"},
         "opportunity_cost": {"$ref": "#/$defs/textList"},
-        "reversibility": {"enum": ["high", "medium", "low", "irreversible"]}
+        "reversibility": {"type": "string", "enum": ["high", "medium", "low", "irreversible"]}
       }
     },
     "option": {
@@ -70,13 +70,13 @@
         "costs": {"$ref": "#/$defs/textList"},
         "risks": {"$ref": "#/$defs/textList"},
         "opportunity_cost": {"$ref": "#/$defs/textList"},
-        "reversibility": {"enum": ["high", "medium", "low", "irreversible"]}
+        "reversibility": {"type": "string", "enum": ["high", "medium", "low", "irreversible"]}
       }
     },
     "baseline": {
       "anyOf": [
         {"$ref": "#/$defs/tradeoffs"},
-        {"type": "object", "additionalProperties": false, "maxProperties": 0}
+        {"type": "object", "additionalProperties": false, "properties": {}}
       ]
     },
     "evidenceReference": {
@@ -86,7 +86,7 @@
         "snapshot_id", "snapshot_hash"
       ],
       "properties": {
-        "authority_id": {"enum": ["a.personal_change", "s.external_fact"]},
+        "authority_id": {"type": "string", "enum": ["a.personal_change", "s.external_fact"]},
         "record_type": {"type": "string", "minLength": 1, "maxLength": 128},
         "record_id": {"type": "string", "minLength": 1, "maxLength": 256},
         "record_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
