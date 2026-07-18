@@ -90,6 +90,23 @@ Next: activate a bounded Personal Decision Intelligence milestone, beginning wit
 3. ~~Lifecycle adoption~~ **DONE** — 6 events, 2 applied manifests, reversible history
 4. 2026-08-13: domains facade removal (optional follow-up; outside current release gate)
 
+## Deferred Items
+
+Items acknowledged at the v1.1 close audit on 2026-07-18. The GSD scanner
+reported six historical UAT files because their status vocabulary predates the
+current scanner; every file has zero open scenarios. Phase 17 and Phase 27 are
+explicitly passed, and the remaining records are retained as historical
+decision/compatibility evidence rather than active product blockers.
+
+| Category | Item | Status |
+|---|---|---|
+| uat | Phase 14 `14-UAT.md` | acknowledged; zero open scenarios |
+| uat | Phase 17 `17-UAT.md` | passed; zero open scenarios |
+| uat | Phase 18 `18-ARCHIVE-UAT.md` | decisions recorded; zero open scenarios |
+| uat | Phase 18 `18-MIGRATION-UAT.md` | approved empty manifest; zero open scenarios |
+| uat | Phase 20 `20-UAT.md` | acknowledged compatibility record; zero open scenarios |
+| uat | Phase 27 `27-UAT.md` | passed; zero open scenarios |
+
 Phase 17 code complete; historical human checkpoints remain open and are
 preserved as a separate governance record. Phase 24's authorized LLM review
 does not rewrite or impersonate those Phase 17 human checkpoints.

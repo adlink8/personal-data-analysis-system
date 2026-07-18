@@ -173,16 +173,27 @@
 | KU-08 | Phase 14 | **Complete** — contracts + sandbox journal/watermark + prod no-op |
 | SSOT-01..06 | Phase 15 | Complete |
 | GL-01..05 | Phase 16 | Complete |
-| EVAL-01..10 | Phase 17 | Planned |
+| EVAL-01..10 | Phase 17 | Code complete; historical human-checkpoint governance exception open |
 | GOV-01..12 | Phase 18 | Complete |
 | PHY-01..08 | Phase 19 | Complete |
 | DATA-01..08 | Phase 20 | Applied (DATA-08 bak cleanup open) |
+| FOUND-01..05 | Phase 23 | Complete |
+| QUAL-01..02 | Phase 24 | Complete |
+| LIFE-01..02 | Phase 24 | Complete |
+| INTEL-01..02 | Phase 25 | Complete |
+| DEC-01..02 | Phase 26 | Complete |
+| PRO-01..02 | Phase 27 | Complete |
+| TRUST-01 | Phase 27 | Complete |
+| TD-01 | Phase 27 | Complete — Technical Target D + real low-risk chain + Product UAT |
+| PDI-01..08 | Candidate Phase 28..31 | Not activated in v1.1 |
 
 **Coverage:**
-- Current requirements: 71 total（原55 + PHY-01..08 + DATA-01..08）
-- Cancelled: MEMX-01
-- Mapped to phases: all 71
-- Unmapped: 0 ✓
+- v1.1 Target A–D closure requirements: 17/17 complete.
+- Historical EVAL-01..10 code is complete; the original human-only checkpoint
+  remains an explicit governance exception and was not impersonated by the
+  authorized Phase 24 LLM review.
+- Future PDI-01..08 are mapped to candidate Phase 28–31 and are outside v1.1.
+- Unmapped active requirements: 0.
 
 ---
-*Requirements updated: 2026-07-13 — milestone v1.1 Phase 18 governance planning*
+*Requirements updated: 2026-07-18 — v1.1 Target A–D closure reconciled*
