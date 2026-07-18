@@ -6,7 +6,7 @@ score: "2/2"
 requirements:
   INTEL-01: passed
   INTEL-02: passed
-release_status: release_blocked
+release_status: awaiting_product_uat
 verification_scope: technical
 ---
 
@@ -16,7 +16,7 @@ verification_scope: technical
 
 **Phase 25 technical verification: PASSED (2/2 requirements).** The implementation satisfies INTEL-01 and INTEL-02 through immutable, snapshot-bound, typed and privacy-safe analysis contracts. This verdict is independent of the plan summaries and was checked against the current implementation, negative-path tests and live metadata-only acceptance.
 
-**Release status: `release_blocked`.** Phase 24 human Gold/Judge and lifecycle quality gates remain unresolved. This verification does not approve a live analysis migration or publication, lifecycle apply, serving-authority change, label import, review finalization, network call or paid provider call.
+**Current release status: `awaiting_product_uat`.** The original technical verification remains valid; the live-adoption addendum below supersedes its historical Phase 24 blocker snapshot.
 
 ## Requirement verification
 
@@ -65,3 +65,15 @@ The live acceptance resolved active snapshot `ss_1590353394c948b908a5d675` with 
 
 Phase 25 may be treated as technically verified for downstream planning. Live publication/adoption remains blocked until the Phase 24 human and quality gates genuinely pass.
 
+## Live-adoption addendum — 2026-07-18
+
+Phase 24 strict review and lifecycle gates now pass. The Phase 25 schema is
+applied and one real snapshot-bound run is committed and published:
+
+- run `psr_3a28363b9d1c6d9ab656fde5`, publication sequence `1`;
+- Active snapshot `ss_5d816a6bf3ebd0bce9463236`;
+- three assertions and three eligible evidence references, with zero private bodies;
+- live acceptance reports `validated_committed_runs`.
+
+The only overall release blocker is explicit product UAT, not Phase 25 quality
+or schema adoption.

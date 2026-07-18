@@ -1,7 +1,7 @@
 ---
 phase: 24
 plan: 02
-status: llm_review_complete_quality_gate_open
+status: passed
 checkpoint: auditable-llm-review
 updated: 2026-07-18
 ---
@@ -27,3 +27,12 @@ Grounded precision is `0.92` on 50 eligible rows.
 The historical `human_*` artifact names and `grounded_precision_human` metric
 name are retained only for file/schema compatibility. Their manifests carry
 the actual reviewer type, model, run ID, prompt version, timestamp and checksum.
+
+## Closure evidence
+
+The evidence-aware candidate completed the exact full evaluation as run
+`3a4b7f7b85e864b86031a79a0c017fa74c80e5b9908aa7fd73e765343fcc5d99`.
+All strict review gates passed: 67 real Gold, 45 cross-turn Gold, 50 grounded
+labels, 30 x 5 judge calibration, zero privacy disagreement, and grounded
+precision `0.92`. The checkpoint is closed without representing LLM review as
+human review.

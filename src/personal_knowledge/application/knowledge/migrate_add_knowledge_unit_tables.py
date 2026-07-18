@@ -1269,6 +1269,10 @@ def inspect(db_path: Path = UNIFIED_DB) -> dict:
         "decision_runs", "decision_recommendations", "decision_support_refs",
         "decision_confirmations", "decision_actions", "decision_outcomes",
         "decision_effectiveness", "decision_events",
+        # Phase 27 immutable proactive-intelligence authority
+        "proactive_runs", "proactive_coordination_items", "proactive_candidates",
+        "proactive_candidate_support", "proactive_evaluations",
+        "proactive_control_events", "proactive_surface_events",
         # Phase 24 governed lifecycle
         "knowledge_lifecycle_manifests", "knowledge_lifecycle_actions",
         "knowledge_lifecycle_events", "knowledge_unit_corrections",

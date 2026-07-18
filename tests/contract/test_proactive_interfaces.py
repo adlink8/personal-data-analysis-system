@@ -55,6 +55,14 @@ def test_guarded_local_surface_append_is_explicit_and_idempotent(tmp_path) -> No
     assert first["external_actions"] == second["external_actions"] == 0
 
 
+def test_controls_status_cli_preserves_default_as_of(tmp_path) -> None:
+    db, target = _published_candidate(tmp_path)
+    result = _invoke(build_parser().parse_args([
+        "--db", str(db), "controls-status", "--candidate-id", target.record_id,
+    ]))
+    assert result["ok"] and result["data"]["eligible"] is True
+
+
 def test_reads_validate_historical_run_frontier_then_apply_current_overlay(tmp_path) -> None:
     db, target = _published_candidate(tmp_path)
     service = ProactiveIntelligenceService(db)

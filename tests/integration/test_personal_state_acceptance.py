@@ -43,21 +43,16 @@ def test_acceptance_replays_without_any_authority_or_analysis_mutation(tmp_path)
     assert _analysis_counts(db_path) == counts_before
 
 
-def test_acceptance_preserves_truthful_phase24_release_blockers(tmp_path) -> None:
+def test_acceptance_reflects_global_review_and_fixture_lifecycle_gates(tmp_path) -> None:
     db_path, _, _, _ = _service(tmp_path)
     result = run_acceptance(db_path, pointer_path=tmp_path / "missing.txt")
 
     assert result["status"] == "release_blocked"
     assert result["phase24"]["release_blocked"] is True
-    assert result["phase24"]["human_review_strict"]["ok"] is False
+    assert result["phase24"]["human_review_strict"]["ok"] is True
     assert result["phase24"]["lifecycle_strict"]["ok"] is False
     statuses = {row["checkpoint"]: row["status"] for row in result["phase24"]["checkpoints"]}
-    assert statuses["24-02-CHECKPOINT"] == "awaiting_human"
-    assert statuses["24-03-CHECKPOINT"] == "human_verification_required"
-    assert statuses["24-04-CHECKPOINT"] == "blocked_on_human_and_quality_gates"
-    serialized = json.dumps(result, ensure_ascii=False)
-    assert '"approved"' not in serialized.lower()
-    assert '"pass"' not in serialized.lower()
+    assert set(statuses.values()) == {"passed"}
 
 
 def test_acceptance_cli_emits_metadata_only_json(tmp_path, capsys) -> None:

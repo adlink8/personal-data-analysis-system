@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL, inspect
 from personal_knowledge.intelligence.proactive.schema import CANONICAL_DOMAINS
 
 
@@ -32,6 +32,17 @@ def test_schema_has_exactly_eight_domains_and_seven_additive_tables(tmp_path) ->
     con.executescript(SCHEMA_SQL)
     assert con.execute("PRAGMA foreign_key_check").fetchall() == []
     con.close()
+
+
+def test_migration_inspect_tracks_all_proactive_tables(tmp_path) -> None:
+    db = tmp_path / "schema.sqlite"
+    sqlite3.connect(db).close()
+    assert TABLES <= set(inspect(db)["missing_tables"])
+
+    con = sqlite3.connect(db)
+    con.executescript(SCHEMA_SQL)
+    con.close()
+    assert not (TABLES & set(inspect(db)["missing_tables"]))
 
 
 def test_every_proactive_table_is_immutable(tmp_path) -> None:

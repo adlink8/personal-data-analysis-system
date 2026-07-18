@@ -1,7 +1,7 @@
 ---
 phase: 24
 plan: 03
-status: llm_review_complete_no_actions_approved
+status: passed
 updated: 2026-07-18
 ---
 
@@ -28,3 +28,11 @@ manufacturing lifecycle events merely to satisfy coverage.
 The next lifecycle cohort must contain resolvable eligible evidence and pass
 review before any separately authorized live transition.
 
+## Closure evidence
+
+A later evidence-eligible, LLM-reviewed live cohort was applied under manifest
+`klm_8c419af9b7b8d01ff30a6741`, followed by the explicit restore manifest
+`klm_ab26406ea318c16851714412`. The append-only ledger now contains six real
+events covering supersede, rollback, correction, conflict, and restore; two
+reviewed manifests are applied. Strict lifecycle status is PASS, and the
+earlier all-rejected cohort remains preserved as negative audit evidence.

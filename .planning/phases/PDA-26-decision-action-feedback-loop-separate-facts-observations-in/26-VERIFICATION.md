@@ -6,7 +6,7 @@ score: "2/2"
 requirements:
   DEC-01: passed
   DEC-02: passed
-release_status: release_blocked
+release_status: awaiting_product_uat
 verification_scope: independent_technical
 ---
 
@@ -101,3 +101,18 @@ The live acceptance resolved a complete-unapplied decision schema, returned `tec
 - Lifecycle strict: false; applied manifests and lifecycle events remain zero
 
 F-01 is fixed and reverified, so Phase 26 is technically complete and may be used as the verified technical dependency for Phase 27. This pass does not authorize live migration/publication, lifecycle apply, serving changes, external action or REST/MCP writes, and it does not resolve the Phase 24 release blockers.
+
+## Live-adoption addendum — 2026-07-18
+
+The decision schema is applied and one real decision run is committed:
+
+- run `dfr_e367f7689d64ad96a10311bd` and recommendation
+  `drec_a2f1f44dc911765f4b2d531e`;
+- exact seven-event history: publication, user confirmation, three action
+  states, outcome observation, and non-causal effectiveness assessment;
+- outcome assessment `dea_20877fd2ffe58157f8cb6e32` correctly returns
+  `inconclusive` with `insufficient_window` rather than overstating impact;
+- live acceptance reports `validated_committed_runs`.
+
+Phase 24 gates are now closed. The only overall release blocker is explicit
+product UAT.

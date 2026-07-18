@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from personal_knowledge.core.project_paths import KNOWLEDGE_ACTIVE_POINTER, UNIFIED_DB
-from personal_knowledge.intelligence.proactive.cli import build_parser, run_acceptance, _guard, _technical_sandbox
+from personal_knowledge.intelligence.proactive.cli import build_parser, run_acceptance, _guard, _product_uat_status, _technical_sandbox
 
 
 def test_live_target_d_acceptance_is_metadata_only_and_two_verdict() -> None:
@@ -12,8 +12,19 @@ def test_live_target_d_acceptance_is_metadata_only_and_two_verdict() -> None:
     assert result["mutations"] == result["persisted_rows"] == result["private_bodies"] == 0
     assert result["external_actions"] == result["network_calls"] == result["paid_calls"] == 0
     assert set(result["domain_counts"]) == {"learning", "career", "project", "health", "finance", "relationship", "time", "energy"}
-    assert result["phase24"]["human_review_strict"]["ok"] is False
-    assert result["phase24"]["lifecycle_strict"]["ok"] is False
+    assert result["phase24"]["human_review_strict"]["ok"] is True
+    assert result["phase24"]["lifecycle_strict"]["ok"] is True
+    assert result["release_blockers"]["phase24"] == ["product_uat:missing"]
+    assert result["product_uat"]["status"] == "awaiting_user_acceptance"
+    assert result["product_uat"]["accepted"] is False
+
+
+def test_product_uat_requires_an_explicit_accepted_status(tmp_path) -> None:
+    uat = tmp_path / "27-UAT.md"
+    uat.write_text("---\nstatus: awaiting_user_acceptance\n---\n", encoding="utf-8")
+    assert _product_uat_status(uat)["accepted"] is False
+    uat.write_text("---\nstatus: accepted\n---\n", encoding="utf-8")
+    assert _product_uat_status(uat)["accepted"] is True
 
 
 def test_local_write_requires_all_guards() -> None:

@@ -9,7 +9,7 @@ requirements:
   TRUST-01: passed
   TD-01: passed
 technical_status: passed
-release_status: release_blocked
+release_status: awaiting_product_uat
 verification_scope: independent_technical
 ---
 
@@ -19,7 +19,7 @@ verification_scope: independent_technical
 
 **Phase 27 independent technical verification: PASSED (4/4 requirements).** PRO-01, PRO-02, TRUST-01 and TD-01 have direct implementation and positive/negative execution evidence. The independently reproduced TRUST-01 temporal-precedence defect is fixed and covered by mixed-offset, equal-instant, same-target sequence and cross-target regression cases.
 
-**Product release remains `release_blocked`.** Phase 24 still lacks genuine human Gold, groundedness, Judge calibration, reviewed lifecycle adoption and product UAT. This verification did not run any live migration/write/apply, change serving/pointer/watermark state, finalize reviews, dispatch an external action, or make network/paid calls.
+**Current product status: `awaiting_product_uat`.** The historical verification below remains the independent technical record; the live-adoption addendum supersedes its earlier Phase 24 blocker snapshot.
 
 ## Requirement results
 
@@ -110,3 +110,23 @@ The command reported `technical_status=passed`, and independent regression now c
 - Explicit product UAT: absent
 
 No automated evidence in Phase 27 resolves these product blockers.
+
+## Live-adoption and product-UAT addendum — 2026-07-18
+
+The Phase 27 schema is applied and a real proactive run is committed:
+
+- run `pir_065c80888c81723abd43fc4a`, candidate
+  `pcd_d19e768ac127dc5a841a0eea`;
+- importance score `0.7215`, evidence strength `0.95`, evaluation `eligible`;
+- the candidate explains that effectiveness is observational and the window is
+  insufficient, with checksum-verified recommendation and assessment support;
+- one presentation event was recorded; suppress and explicit restore were
+  executed locally, and current eligibility is restored to `true` with full
+  history retained;
+- live acceptance validates committed Phase 25/26/27 runs, unchanged
+  before/after fingerprints, and zero external, network or paid actions.
+
+Phase 24 now reports all three checkpoints passed, strict review passed and
+strict lifecycle passed. Technical blockers are empty. The only remaining
+release blocker is `product_uat:missing`, which deliberately requires the
+user's explicit acceptance after reviewing the live demonstration.

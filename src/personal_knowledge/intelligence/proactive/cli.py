@@ -10,8 +10,8 @@ import sqlite3
 import tempfile
 from typing import Any
 
-from personal_knowledge.core.project_paths import KNOWLEDGE_ACTIVE_POINTER, UNIFIED_DB
-from personal_knowledge.intelligence.cli import _FINGERPRINT_GROUPS, _phase24_dependency_status, _table_fingerprint
+from personal_knowledge.core.project_paths import KNOWLEDGE_ACTIVE_POINTER, ROOT, UNIFIED_DB
+from personal_knowledge.intelligence.cli import _FINGERPRINT_GROUPS, _checkpoint_status, _phase24_dependency_status, _table_fingerprint
 from personal_knowledge.intelligence.decision.cli import _DECISION_TABLES, _sandbox_loop as _decision_sandbox
 from personal_knowledge.intelligence.decision.service import DecisionFeedbackService
 from personal_knowledge.intelligence.service import IntelligenceService
@@ -22,6 +22,19 @@ from .controls import ControlCommand, ControlError, ControlTarget, append_contro
 from .runs import PROACTIVE_TABLES, plan_run, publish_run
 from .schema import CANONICAL_DOMAINS, CandidateDraft, GoalSignal, ResourceClaim, SupportReference, canonical_json, checksum
 from .service import INTERFACE_SCHEMA_VERSION, ProactiveIntelligenceService
+
+
+_PRODUCT_UAT = (
+    ROOT / ".planning" / "phases"
+    / "PDA-27-proactive-multi-domain-intelligence-and-target-d-acceptance-"
+    / "27-UAT.md"
+)
+_ACCEPTED_UAT_STATUSES = frozenset({"accepted", "complete", "completed", "pass", "passed"})
+
+
+def _product_uat_status(path: Path = _PRODUCT_UAT) -> dict[str, Any]:
+    evidence = _checkpoint_status(path)
+    return {**evidence, "accepted": evidence["status"] in _ACCEPTED_UAT_STATUSES}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -368,12 +381,13 @@ def run_acceptance(db_path: Path | str, *, pointer_path: Path = KNOWLEDGE_ACTIVE
     gate = {**gate, **applied_gates.get("phase27", {})}
     technical_blockers = ([] if sandbox["ok"] else ["sandbox:failed"]) + ([f"{name}:{item['reason']}" for name, item in applied_gates.items() if not item.get("ok")]) + ([] if unchanged else ["fingerprints:changed"])
     technical_ok = not technical_blockers
-    # Product release additionally requires strict human review, lifecycle, final gate and explicit product UAT.
+    # Product release additionally requires strict review, lifecycle, final gate and explicit product UAT.
     checkpoint_statuses = {str(c["checkpoint"]): str(c["status"]) for c in phase24.get("checkpoints", ())}
     final_gate = all(status in {"pass", "passed", "complete", "completed"} for status in checkpoint_statuses.values())
-    explicit_uat = False
+    product_uat = _product_uat_status()
+    explicit_uat = bool(product_uat["accepted"])
     release_ready = technical_ok and bool(phase24["human_review_strict"]["ok"]) and bool(phase24["lifecycle_strict"]["ok"]) and final_gate and explicit_uat
-    return {"schema_version": "target_d_acceptance_v1", "operation": "acceptance", "ok": technical_ok, "technical_status": "passed" if technical_ok else "failed", "release_status": "release_ready" if release_ready else "release_blocked", "release_ready": release_ready, "release_blockers": {"technical": technical_blockers, "phase24": list(phase24.get("reason_codes") or []) + ([] if explicit_uat else ["product_uat:missing"])}, "dry_run": True, "metadata_only": True, "snapshot_id": snapshot_id, "snapshot_hash": snapshot_hash, "phase25_binding": {"schema_state": upstream_states["phase25"], **applied_gates.get("phase25", {})}, "phase26_binding": {"schema_state": upstream_states["phase26"], **applied_gates.get("phase26", {})}, "phase27_schema_state": state, "sandbox": sandbox, "candidate_counts": sandbox["candidate_counts"], "suppression_reason_counts": sandbox["suppression_reason_counts"], "domain_counts": sandbox["domain_counts"], "control_and_rollback_results": sandbox["control_and_rollback_results"], "live": {"phase25_schema_state": upstream_states["phase25"], "phase26_schema_state": upstream_states["phase26"], "proactive_schema_state": state, "proactive_status": gate, "applied_validation": applied_gates, "snapshot_id": snapshot_id, "snapshot_hash": snapshot_hash}, "fingerprints": {"before": before, "after": after, "unchanged": unchanged}, "before_fingerprint": before["checksum"], "after_fingerprint": after["checksum"], "unchanged": unchanged, "phase24": phase24, "persisted_rows": 0, "mutations": 0 if unchanged else 1, "private_bodies": 0, "external_actions": 0, "network_calls": 0, "paid_calls": 0}
+    return {"schema_version": "target_d_acceptance_v1", "operation": "acceptance", "ok": technical_ok, "technical_status": "passed" if technical_ok else "failed", "release_status": "release_ready" if release_ready else "release_blocked", "release_ready": release_ready, "release_blockers": {"technical": technical_blockers, "phase24": list(phase24.get("reason_codes") or []) + ([] if explicit_uat else ["product_uat:missing"])}, "product_uat": product_uat, "dry_run": True, "metadata_only": True, "snapshot_id": snapshot_id, "snapshot_hash": snapshot_hash, "phase25_binding": {"schema_state": upstream_states["phase25"], **applied_gates.get("phase25", {})}, "phase26_binding": {"schema_state": upstream_states["phase26"], **applied_gates.get("phase26", {})}, "phase27_schema_state": state, "sandbox": sandbox, "candidate_counts": sandbox["candidate_counts"], "suppression_reason_counts": sandbox["suppression_reason_counts"], "domain_counts": sandbox["domain_counts"], "control_and_rollback_results": sandbox["control_and_rollback_results"], "live": {"phase25_schema_state": upstream_states["phase25"], "phase26_schema_state": upstream_states["phase26"], "proactive_schema_state": state, "proactive_status": gate, "applied_validation": applied_gates, "snapshot_id": snapshot_id, "snapshot_hash": snapshot_hash}, "fingerprints": {"before": before, "after": after, "unchanged": unchanged}, "before_fingerprint": before["checksum"], "after_fingerprint": after["checksum"], "unchanged": unchanged, "phase24": phase24, "persisted_rows": 0, "mutations": 0 if unchanged else 1, "private_bodies": 0, "external_actions": 0, "network_calls": 0, "paid_calls": 0}
 
 
 def _invoke(args: argparse.Namespace) -> dict[str, Any]:
@@ -382,6 +396,9 @@ def _invoke(args: argparse.Namespace) -> dict[str, Any]:
     if args.command in operations:
         values = vars(args).copy()
         for key in ("db", "command", "json"): values.pop(key, None)
+        # Preserve service defaults for optional CLI arguments. Passing an
+        # explicit None would override controls_status' open-ended as_of value.
+        values = {key: value for key, value in values.items() if value is not None}
         return service.invoke(operations[args.command], **values)
     if args.command == "acceptance":
         if not args.dry_run or not args.metadata_only: return _error("acceptance", "dry_run_metadata_only_required")

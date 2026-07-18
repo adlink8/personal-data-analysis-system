@@ -32,13 +32,13 @@ def test_acceptance_preserves_phase24_statuses_and_checksums_verbatim(tmp_path) 
     result = run_acceptance(db, pointer_path=tmp_path / "missing.txt")
     checkpoints = {row["checkpoint"]: row for row in result["phase24"]["checkpoints"]}
     expected = {
-        "24-02-CHECKPOINT": "awaiting_human",
-        "24-03-CHECKPOINT": "human_verification_required",
-        "24-04-CHECKPOINT": "blocked_on_human_and_quality_gates",
+        "24-02-CHECKPOINT": "passed",
+        "24-03-CHECKPOINT": "passed",
+        "24-04-CHECKPOINT": "passed",
     }
     assert {name: row["status"] for name, row in checkpoints.items()} == expected
     assert all(len(row["checksum"]) == 64 for row in checkpoints.values())
-    assert result["phase24"]["human_review_strict"]["ok"] is False
+    assert result["phase24"]["human_review_strict"]["ok"] is True
     assert result["phase24"]["lifecycle_strict"]["ok"] is False
 
 

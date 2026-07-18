@@ -1,7 +1,7 @@
 ---
 phase: 24
 plan: 04
-status: blocked_on_retrieval_quality_and_lifecycle_adoption
+status: passed
 updated: 2026-07-18
 ---
 
@@ -44,3 +44,18 @@ Thresholds were not weakened and source answers were not reused as queries to
 inflate recall. No promotion, rollback, forward-restore, lifecycle apply or
 Active switch was performed. Release remains blocked until retrieval quality
 passes and a valid reviewed lifecycle cohort produces real append-only events.
+
+## Closure evidence
+
+The rebuilt evidence-aware candidate passed the unchanged final gate in run
+`3a4b7f7b85e864b86031a79a0c017fa74c80e5b9908aa7fd73e765343fcc5d99`:
+
+- overall Recall@5 improvement `+10.4478pp`, confidence lower bound `+4.4776pp`;
+- cross-turn improvement `+13.3333pp`, confidence lower bound `+4.4444pp`;
+- privacy/secret failures `0`, citation precision `1.0`, grounded precision `0.92`;
+- final validated snapshot `ss_5d816a6bf3ebd0bce9463236` completed activation,
+  rollback, and forward-restore UAT with Doctor `10/10` after each transition.
+
+The Active pointer is restored to the validated candidate, and the lifecycle
+closure evidence is recorded in the preceding checkpoint. Phase 24 is no
+longer a technical or quality blocker.
