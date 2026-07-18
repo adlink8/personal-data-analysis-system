@@ -44,7 +44,7 @@ None. The INCONCLUSIVE result follows the preregistered rules.
 
 ## Verification
 
-- Full Phase 31 suite: 13 passed.
+- Full Phase 31 suite: 15 passed after deep-review hardening.
 - Metadata-only acceptance: `ok=true`, `unchanged=true`, all side-effect counters zero.
 - Final effect verdict: INCONCLUSIVE, causal claim false, promotions 0.
 

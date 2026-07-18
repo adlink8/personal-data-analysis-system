@@ -47,7 +47,7 @@ promoted. Reject `calpr_11f689605880bd510c3753c4`, rollback
 ## Acceptance
 
 - Calibration schema: integrity `ok`, FK violations 0, append-only triggers 14.
-- Phase 31 suite: 13 passed.
+- Phase 31 suite: 15 passed after deep-review hardening.
 - Metadata-only acceptance: unchanged source/calibration fingerprints.
 - Provider/network/external-action/source-write/promotion counters during acceptance: 0.
 - Governance preflight and `git diff --check`: PASS.
