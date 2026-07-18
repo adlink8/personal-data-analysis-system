@@ -9,8 +9,8 @@ progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
-  percent: 50
+  completed_plans: 3
+  percent: 75
 ---
 
 # Project State
@@ -62,9 +62,9 @@ progress:
 ## Current Position
 
 Phase: 28 of 31 — External Context Authority
-Plan: 2 of 4 complete
-Status: Executing; 28-03 external snapshots and dual binding are next
-Last activity: 2026-07-18 — Plan 28-02 passed 33 adjacent tests and governance 13/13
+Plan: 3 of 4 complete
+Status: Executing; 28-04 real cohort, Doctor and reversible UAT are next
+Last activity: 2026-07-18 — Plan 28-03 passed 44 adjacent tests after independent review fixes
 
 ## Cross-cutting architecture/data governance audit
 

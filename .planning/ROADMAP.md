@@ -38,7 +38,7 @@ Plans:
 
 - [x] 28-01: Authority contract, source registry and append-only schema
 - [x] 28-02: Bounded ingest, canonicalization, freshness and lifecycle
-- [ ] 28-03: External snapshot lifecycle, read APIs and dual-snapshot binding
+- [x] 28-03: External snapshot lifecycle, read APIs and dual-snapshot binding
 - [ ] 28-04: Real project/technology cohort, Doctor, rollback and UAT
 
 ### Phase 29: Structured LLM Decision Analysis Candidate
@@ -90,7 +90,7 @@ Plans:
 
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
-| 28 | PDI-01..04 | 2/4 | Executing |
+| 28 | PDI-01..04 | 3/4 | Executing |
 | 29 | PDI-05..06 | 0/4 | Not started |
 | 30 | PDI-07 | 0/3 | Not started |
 | 31 | PDI-08 | 0/3 | Not started |
