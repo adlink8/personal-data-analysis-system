@@ -73,7 +73,22 @@ def prepare_snapshot(
     eval_gate_ref: str | None = None,
     write: bool = False,
 ) -> dict[str, Any]:
-    ordered = {role: dict(sorted(member.items())) for role, member in sorted(members.items())}
+    definitions = {
+        str(item["authority_role"]): str(item["id"])
+        for item in load_registry().get("artifacts") or []
+    }
+    materialized: dict[str, dict[str, Any]] = {}
+    for role, raw_member in sorted(members.items()):
+        member = dict(raw_member)
+        registry_id = definitions.get(role)
+        version = str(member.get("version") or "")
+        checksum = str(member.get("checksum") or "")
+        if not member.get("artifact_version_id") and registry_id and version and checksum:
+            member["artifact_version_id"] = _id(
+                "av", f"{registry_id}|{version}|{checksum}"
+            )
+        materialized[role] = dict(sorted(member.items()))
+    ordered = materialized
     manifest = {"schema_version": 1, "members": ordered, "eval_gate_ref": eval_gate_ref}
     digest = manifest_hash(manifest)
     snapshot_id = _id("ss", digest)
@@ -162,7 +177,23 @@ def validate_snapshot(
         missing = sorted((required_roles or set()) - roles)
         if missing:
             errors.append(f"missing_roles:{','.join(missing)}")
+        try:
+            manifest = json.loads(str(snap["manifest_json"] or "{}"))
+            declared_members = manifest.get("members") or {}
+        except (json.JSONDecodeError, TypeError):
+            declared_members = {}
+            errors.append("manifest_json_invalid")
+        if set(declared_members) != roles:
+            errors.append("manifest_member_roles")
         for row in members:
+            role = str(row["serving_role"])
+            declared = declared_members.get(role) or {}
+            for key in (
+                "artifact_version_id", "version", "checksum", "location_kind",
+                "location_ref", "watermark_id",
+            ):
+                if str(declared.get(key) or "") != str(row[key] or ""):
+                    errors.append(f"manifest_member_mismatch:{role}:{key}")
             if row["location_kind"] == "chroma_collection":
                 if collection_inspector is None:
                     errors.append(f"collection_unverified:{row['serving_role']}")

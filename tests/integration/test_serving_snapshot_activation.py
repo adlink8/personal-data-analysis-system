@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -38,7 +39,40 @@ def test_prepare_dry_run_and_validation_refusal_do_not_activate(tmp_path: Path) 
     db = _db(tmp_path)
     dry = prepare_snapshot(db, {"knowledge_retrieval": _member("cand")})
     assert dry["written"] is False
+    derived_id = dry["manifest"]["members"]["knowledge_retrieval"]["artifact_version_id"]
+    assert derived_id.startswith("av_")
     assert get_active_snapshot(db) is None
+
+
+def test_validation_refuses_manifest_member_drift(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    written = prepare_snapshot(
+        db,
+        {"knowledge_retrieval": _member("cand")},
+        eval_gate_ref="gate-pass",
+        write=True,
+    )
+    con = sqlite3.connect(db)
+    manifest = json.loads(
+        con.execute(
+            "SELECT manifest_json FROM serving_snapshots WHERE snapshot_id=?",
+            (written["snapshot_id"],),
+        ).fetchone()[0]
+    )
+    manifest["members"]["knowledge_retrieval"]["artifact_version_id"] = "av_drift"
+    con.execute(
+        "UPDATE serving_snapshots SET manifest_json=? WHERE snapshot_id=?",
+        (json.dumps(manifest, sort_keys=True, separators=(",", ":")), written["snapshot_id"]),
+    )
+    con.commit()
+    con.close()
+    result = validate_snapshot(
+        db,
+        written["snapshot_id"],
+        collection_inspector=_inspect,
+        required_roles={"knowledge_retrieval"},
+    )
+    assert "manifest_member_mismatch:knowledge_retrieval:artifact_version_id" in result["errors"]
 
 
 def test_failed_gate_and_evidence_integrity_refuse_snapshot(tmp_path: Path) -> None:

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from personal_knowledge.application.knowledge.doctor_ku import (
+    _check_source_watermarks,
     format_human,
     report_to_dict,
     run_doctor,
@@ -94,6 +95,45 @@ def test_doctor_ok_when_critical_paths_present(tmp_path: Path):
     assert by_id["active_pointer"].ok
     assert by_id["sqlite_foreign_keys"].ok
     assert by_id["active_pointer"].detail["collection"] == "knowledge_units_test_collection"
+
+
+def test_source_watermarks_allow_version_bound_historical_rollback(tmp_path: Path):
+    paths = _composite_layout(tmp_path)
+    active = sqlite3.connect(paths["db"]).execute(
+        "SELECT active_snapshot_id FROM serving_authority WHERE singleton_id=1"
+    ).fetchone()[0]
+    for registry_id, source_key in (
+        ("s.knowledge_unit", "canonical_knowledge"),
+        ("r.knowledge_index", "knowledge_retrieval"),
+    ):
+        record_publication(
+            paths["db"],
+            registry_id=registry_id,
+            version="v2",
+            checksum="ck-v2",
+            location_kind="sqlite_table" if registry_id.startswith("s.") else "chroma_collection",
+            location_ref="new-location",
+            source_key=source_key,
+            watermark_value="wm-v2",
+        )
+    con = sqlite3.connect(paths["db"])
+    con.execute(
+        "UPDATE source_watermarks SET recorded_at='9999-12-31T23:59:59Z' "
+        "WHERE value='wm-v2'"
+    )
+    con.commit()
+    con.close()
+    assert _check_source_watermarks(paths["db"]).ok is False
+    con = sqlite3.connect(paths["db"])
+    con.execute(
+        "INSERT INTO serving_snapshot_events VALUES (?,?,?,?,?,?)",
+        ("se_rollback", active, "rollback", "newer", "{}", "now"),
+    )
+    con.commit()
+    con.close()
+    check = _check_source_watermarks(paths["db"])
+    assert check.ok is True
+    assert check.detail["rollback_active"] is True
 
 
 def test_doctor_fails_on_foreign_key_violations(tmp_path: Path):

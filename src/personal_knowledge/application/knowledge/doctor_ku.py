@@ -292,6 +292,19 @@ def _check_source_watermarks(db_path: Path) -> CheckResult:
     errors: list[str] = []
     try:
         con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+        active_row = con.execute(
+            "SELECT active_snapshot_id FROM serving_authority WHERE singleton_id=1"
+        ).fetchone()
+        latest_event = (
+            con.execute(
+                "SELECT action FROM serving_snapshot_events WHERE snapshot_id=? "
+                "ORDER BY rowid DESC LIMIT 1",
+                (active_row[0],),
+            ).fetchone()
+            if active_row
+            else None
+        )
+        rollback_active = bool(latest_event and str(latest_event[0]) == "rollback")
         rows = con.execute(
             "SELECT m.serving_role,m.watermark_id,w.artifact_version_id,m.artifact_version_id,"
             "w.recorded_at,(SELECT MAX(w2.recorded_at) FROM source_watermarks w2 WHERE w2.registry_id=v.registry_id AND w2.source_key=w.source_key) "
@@ -308,10 +321,16 @@ def _check_source_watermarks(db_path: Path) -> CheckResult:
                 errors.append(f"missing_watermark:{role}")
             elif str(row[2]) != str(row[3]):
                 errors.append(f"watermark_version_mismatch:{role}")
-            elif str(row[4]) != str(row[5]):
+            elif str(row[4]) != str(row[5]) and not rollback_active:
                 errors.append(f"stale_watermark:{role}")
         con.close()
-        return CheckResult("source_watermarks", not errors, "critical", "source watermarks current and version-bound" if not errors else "source watermark drift", {"errors": errors})
+        return CheckResult(
+            "source_watermarks",
+            not errors,
+            "critical",
+            "source watermarks current and version-bound" if not errors else "source watermark drift",
+            {"errors": errors, "rollback_active": rollback_active},
+        )
     except Exception as exc:  # noqa: BLE001
         return CheckResult("source_watermarks", False, "critical", f"source watermark check failed: {exc}", {"error": str(exc)})
 
