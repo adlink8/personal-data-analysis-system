@@ -9,10 +9,11 @@ requirements: [PDI-05, PDI-06]
 
 ## Automated evidence
 
-On 2026-07-18 the focused Phase 29 suite passed `48/48`:
+On 2026-07-18 the focused Phase 29 suite passed `51/51` after adding the guarded
+live-UAT contracts:
 
 ```powershell
-python -m pytest tests/integration/test_analysis_authority_schema.py tests/integration/test_analysis_candidates.py tests/contract/test_analysis_prompt_lineage.py tests/contract/test_analysis_evidence_gates.py tests/security/test_analysis_safety_gates.py tests/e2e/test_structured_llm_analysis.py -q
+python -m pytest tests/integration/test_analysis_authority_schema.py tests/integration/test_analysis_candidates.py tests/contract/test_analysis_prompt_lineage.py tests/contract/test_analysis_evidence_gates.py tests/contract/test_analysis_live_uat.py tests/security/test_analysis_safety_gates.py tests/e2e/test_structured_llm_analysis.py -q
 ```
 
 Governance preflight passed `13/13`, and `git diff --check` passed. Replay,
@@ -25,6 +26,12 @@ present, model catalog membership true, provider calls zero and identical
 Personal/External/Analysis authority fingerprints before and after. A negative
 preflight proves `gpt-5.6-luna` fails before generation and leaves the call
 budget untouched.
+
+The frozen corrected request also passes strict parsing, live dual-snapshot
+binding and presentation of one Personal observation plus four External facts.
+Its prompt is 7,152 bytes. The guarded CLI contract rejects a wrong
+confirmation before preflight and fixes execution to `max_attempts=1`, one
+provider call and zero external actions.
 
 ## Live authority binding
 

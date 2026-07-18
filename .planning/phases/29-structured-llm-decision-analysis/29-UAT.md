@@ -48,6 +48,22 @@ all three authority fingerprints unchanged and `provider_calls=0`. The same
 preflight rejects `gpt-5.6-luna` as `provider_model_unavailable` without
 consuming the one-call budget.
 
+## Frozen corrected request
+
+- Request artifact: `29-LIVE-UAT-REQUEST.json`
+- Request-spec checksum:
+  `b3d5c6c5b00a7ebc49c106574a1355b44f83281c540610193dad0bb828d9dcb8`
+- Exact internal confirmation phrase:
+  `ONE_CHATGPT_CALL:gpt-5.5:b3d5c6c5b00a7ebc49c106574a1355b44f83281c540610193dad0bb828d9dcb8`
+- Prepared prompt size: 7,152 bytes
+- Generation budget: temperature `0.0`, output tokens `3,000`, total tokens
+  `7,000`, timeout `120s`, attempts `1`, provider calls `1` maximum.
+
+The guarded command additionally requires `--write`, a fresh UTC confirmation
+event and the exact phrase above. Before authorization, only parsing, dual
+snapshot/evidence resolution and provider preflight have run; provider calls
+remain zero.
+
 ## Open scenarios
 
 1. Obtain explicit authorization for one corrected bounded `gpt-5.5` call.
