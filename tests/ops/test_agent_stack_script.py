@@ -33,6 +33,8 @@ def test_parser_and_zero_write_check(tmp_path: Path) -> None:
 
 def test_tunnel_has_bounded_extended_readiness_and_early_ownership() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
+    assert "New-LocalUrl $TunnelHealthPort '/readyz'" in source
+    assert "New-LocalUrl $TunnelHealthPort '/healthz'" not in source
     assert "[int]$TunnelStartTimeoutSeconds = 90" in source
     assert "$entries += $entry" in source
     assert source.index("$entries += $entry") < source.index("$entry.Process = New-ManagedProcess $spec")

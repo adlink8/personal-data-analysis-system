@@ -28,7 +28,7 @@
 ### Runtime and Live Acceptance
 
 - [x] **LIVE-01**: 一个命令可启动并检查 REST、MCP 与 HTTPS tunnel，识别端口、代理、路径和进程故障，有限次自动恢复并报告真实 readiness。
-- [ ] **LIVE-02**: 真实 ChatGPT Developer Mode/tunnel ingress E2E 至少完成一次只读解释流和一次显式确认的低风险流程/replay，证明零未授权动作、零权威串写和零自动 promotion。当前本地 HTTP MCP 流与 tunnel readiness 分别通过，但缺少经 tunnel ingress 的 receipt 或 ChatGPT Plugins 工具调用 transcript。
+- [x] **LIVE-02**: 真实 ChatGPT Developer Mode/tunnel ingress E2E 已完成一次只读解释流和一次显式确认的低风险流程/replay；回执证明零未授权动作、零权威串写和零自动 promotion。
 - [x] **LIVE-03**: MCP tool descriptor/contract snapshot 可验证工具名称、schema、annotations、响应边界和 ChatGPT connector 刷新兼容性。
 
 ## Future Requirements
@@ -55,7 +55,7 @@
 | ORCH-01..04 | Phase 33 | Complete |
 | UX-01..02 | Phase 34 | Complete |
 | LIVE-01, LIVE-03 | Phase 35 | Complete |
-| LIVE-02 | Phase 35 | Partial — ingress/UI transcript missing |
+| LIVE-02 | Phase 35 | Complete |
 
 **Coverage:** 13/13 active requirements mapped; unmapped 0.
 

@@ -213,7 +213,9 @@ function Invoke-Preflight {
   }
   $restHealth = New-LocalUrl $RestPort '/health'
   $mcpHealth = New-LocalUrl $McpPort '/health'
-  $tunnelHealth = New-LocalUrl $TunnelHealthPort '/healthz'
+  # /healthz proves only that the daemon is alive. /readyz proves the control
+  # plane and configured MCP channel are both ready to serve requests.
+  $tunnelHealth = New-LocalUrl $TunnelHealthPort '/readyz'
   Write-StructuredLog 'INFO' 'config_loaded' 'agent-stack' (([ordered]@{
     project_root = $ProjectRoot; app_dir = $appDir; tunnel_profile = $TunnelProfile
     services = if ($SkipTunnel) { @('rest','mcp') } else { @('rest','mcp','tunnel') }
@@ -236,7 +238,7 @@ try {
 
   $restHealth = New-LocalUrl $RestPort '/health'
   $mcpHealth = New-LocalUrl $McpPort '/health'
-  $tunnelHealth = New-LocalUrl $TunnelHealthPort '/healthz'
+  $tunnelHealth = New-LocalUrl $TunnelHealthPort '/readyz'
   $healthUrls = @($restHealth, $mcpHealth)
   if (-not $SkipTunnel) { $healthUrls += $tunnelHealth }
   if ($Mode -eq 'Probe') {

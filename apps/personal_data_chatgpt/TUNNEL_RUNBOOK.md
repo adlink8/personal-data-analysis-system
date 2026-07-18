@@ -77,6 +77,7 @@ Expected local checks:
 
 ```powershell
 curl.exe --noproxy "*" http://127.0.0.1:8081/healthz
+curl.exe --noproxy "*" http://127.0.0.1:8081/readyz
 curl.exe --noproxy "*" http://127.0.0.1:8081/ui
 ```
 

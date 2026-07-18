@@ -1,11 +1,11 @@
 ---
 phase: 35-runtime-and-live-e2e
-verified: 2026-07-19T02:20:00Z
-status: gaps_found
-score: 2/3 requirements verified; 1 partial
+verified: 2026-07-18T18:54:00Z
+status: passed
+score: 3/3 requirements verified
 requirements:
   LIVE-01: passed
-  LIVE-02: partial
+  LIVE-02: passed
   LIVE-03: passed
 technical_status: passed
 security_status: passed
@@ -27,21 +27,22 @@ security_status: passed
 | Requirement | Status | Evidence |
 |---|---|---|
 | LIVE-01 | SATISFIED | Run/Check/Probe/Stop/Status, bounded recovery and real tunnel readiness |
-| LIVE-02 | PARTIAL | local HTTP MCP Agent flow and tunnel readiness passed separately; no receipt proves the tool request traversed tunnel ingress, and no new ChatGPT Plugins transcript was obtained |
+| LIVE-02 | SATISFIED | ChatGPT Web/Data connector receipt proves ingress read/explain plus prepare/confirm/exact replay; authority fingerprints unchanged and orchestration delta +1/+1/+1/+0 |
 | LIVE-03 | SATISFIED | reviewed descriptor snapshot and live exact parity test |
 
 ## Automated evidence
 
-- Python focused/runtime/security: 67 passed.
+- Python cross-stage/focused/runtime/security: 69 passed; final focused gate 23 passed.
 - Node ChatGPT MCP: 23 passed.
 - Production script audit: PASS, 0/0/0/0 findings.
-- Live MCP: 44 tools; list 2010 bytes; explain 3562 bytes.
-- Live replay: same event, `replayed=true`, no provider/external/promotion side effects.
+- Local live MCP: 44 tools; list 2010 bytes; explain 3562 bytes.
+- ChatGPT ingress: list 1917 bytes; explain 3375 bytes; compact envelopes valid.
+- ChatGPT ingress replay: same event, `replayed=true`, orchestration delta +1/+1/+1/+0, no provider/external/promotion side effects.
 
-## Human/UI boundary
+## ChatGPT/UI evidence
 
-The existing Chrome session was logged in and ChatGPT routed connector settings to the current Plugins surface. Chrome automation could not read that settings DOM or visible tree within its timeout, so no new UI-click transcript is claimed. The transport/runtime requirement is verified by the real tunnel and MCP calls; the exact current ChatGPT settings presentation remains a manual visibility check.
+The existing logged-in ChatGPT Web session refreshed the current Data connector, then returned two receipt tables: `decision_analysis_list` → `decision_analysis_explain`, followed by `agent_session_prepare` → `agent_session_confirm` → same-parameter confirm replay. The sanitized machine-readable receipt is `ops/reports/evidence/plan35-chatgpt-ingress-receipt.json`; it stores no account, tunnel, credential, raw record or full business identifier.
 
 ## Verdict
 
-Phase 35 implementation is production-ready locally, but milestone acceptance has one blocking evidence gap: prove one read/explain and confirmed replay through ChatGPT or the tunnel ingress itself.
+Phase 35 and LIVE-01..03 pass. Runtime, descriptor, ChatGPT ingress, authority-safety and exact-replay gates are closed.

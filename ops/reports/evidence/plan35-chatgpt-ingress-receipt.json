@@ -1,0 +1,115 @@
+{
+  "schema_version": "chatgpt_ingress_receipt_v1",
+  "observed_at": "2026-07-18T18:51:23.886466Z",
+  "channel": "chatgpt_web",
+  "connector": "Data",
+  "connector_refresh": "performed_before_acceptance",
+  "transport": {
+    "control_plane": "https://api.openai.com",
+    "tunnel_ready": true,
+    "main_channel_probe": "ok",
+    "mcp_transport": "http-streamable",
+    "raw_http_logging": false
+  },
+  "acceptance_prompt_constraints": {
+    "shared": {
+      "data_connector_only": true,
+      "local_direct_access_forbidden": true
+    },
+    "read_segment": {
+      "read_only": true
+    },
+    "confirmed_segment": {
+      "domain": "project",
+      "risk_budget": "low",
+      "allowed_write": "append-only orchestration confirmation",
+      "forbidden_operations": [
+        "generate",
+        "publish",
+        "decide",
+        "observe",
+        "calibrate"
+      ]
+    }
+  },
+  "tool_receipts": [
+    {
+      "tool": "decision_analysis_list",
+      "arguments": {
+        "limit": 1
+      },
+      "run_id": "dar_...274",
+      "ok": true,
+      "schema_version": "agent_compact_envelope_v1",
+      "response_bytes": 1917
+    },
+    {
+      "tool": "decision_analysis_explain",
+      "run_id": "dar_...274",
+      "ok": true,
+      "schema_version": "agent_compact_envelope_v1",
+      "response_bytes": 3375
+    }
+  ],
+  "confirmed_replay": {
+    "tools": [
+      "agent_session_prepare",
+      "agent_session_confirm",
+      "agent_session_confirm"
+    ],
+    "session_id": "ors_6f1b...e1d",
+    "event_id": "ore_49c8...b583",
+    "state": "confirmed",
+    "sequence": 1,
+    "second_call_replayed": true,
+    "same_event_id": true,
+    "provider_calls": 0,
+    "external_actions": 0,
+    "automatic_promotions": 0
+  },
+  "orchestration_counts": {
+    "before": {
+      "orchestration_sessions": 1,
+      "orchestration_events": 1,
+      "orchestration_confirmations": 1,
+      "orchestration_invocations": 0
+    },
+    "after": {
+      "orchestration_sessions": 2,
+      "orchestration_events": 2,
+      "orchestration_confirmations": 2,
+      "orchestration_invocations": 0
+    },
+    "delta": {
+      "orchestration_sessions": 1,
+      "orchestration_events": 1,
+      "orchestration_confirmations": 1,
+      "orchestration_invocations": 0
+    }
+  },
+  "authority_fingerprints": {
+    "before": {
+      "personal": "4fe681687f8fa233140637c8f5e491fa0605e4c41c84c5169946475e70cc17b8",
+      "external": "cd92689329c8a235b99fd11a82b3933b1a210191f0d140443a4278fc59964c4e",
+      "analysis": "b0831ecb37505cee9f5a07cef92b19fea2e454399a7390f3df985f574ac9afbd",
+      "pilot": "9b697a618a81ff6c69606c5943ab710db64d9bb6c405134058e52d4ac1171289",
+      "calibration": "4e87bdfe1cb7e63f822f83d32aa3e1ad6e889bb4c3f30d85e9a67e37ee570490"
+    },
+    "after": {
+      "personal": "4fe681687f8fa233140637c8f5e491fa0605e4c41c84c5169946475e70cc17b8",
+      "external": "cd92689329c8a235b99fd11a82b3933b1a210191f0d140443a4278fc59964c4e",
+      "analysis": "b0831ecb37505cee9f5a07cef92b19fea2e454399a7390f3df985f574ac9afbd",
+      "pilot": "9b697a618a81ff6c69606c5943ab710db64d9bb6c405134058e52d4ac1171289",
+      "calibration": "4e87bdfe1cb7e63f822f83d32aa3e1ad6e889bb4c3f30d85e9a67e37ee570490"
+    }
+  },
+  "authority_fingerprints_unchanged": true,
+  "evidence_basis": [
+    "ChatGPT web receipt tables after refreshing the existing Data connector",
+    "ChatGPT web prepare, confirm, and same-parameter replay receipt",
+    "tunnel /readyz response and main-channel probe",
+    "before/after SHA-256 fingerprints for all five authority databases",
+    "before/after row counts for all four orchestration tables"
+  ],
+  "redaction": "No account identifier, tunnel identifier, credential, raw record, or full run identifier is stored."
+}
