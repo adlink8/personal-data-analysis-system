@@ -1,15 +1,16 @@
 ---
 phase: 27-proactive-multi-domain-intelligence-and-target-d-acceptance
-status: issues_found
+status: clean
 depth: deep
 files_reviewed: 22
 findings:
-  critical: 3
-  warning: 3
+  critical: 0
+  warning: 0
   info: 0
-  total: 6
+  total: 0
+resolved_findings: 6
 release_status: release_blocked
-technical_status: failed
+technical_status: passed
 reviewed_at: 2026-07-18
 ---
 
@@ -17,77 +18,71 @@ reviewed_at: 2026-07-18
 
 ## Verdict
 
-Phase 27 的既有 77 项 proactive/Target D 测试全部通过，但深度审查发现 3 个 Critical 与 3 个 Warning。当前实现不能据此声明 Target D 技术验收完成；Phase 24 的人工质量与 lifecycle 门禁仍保持原状，产品发布继续为 `release_blocked`。
+Phase 27 深度审查发现的 3 个 Critical 与 3 个 Warning 已全部修复并由对应负向回归测试证明。复核状态为 `clean`，Target D 技术状态为 `passed`。
 
-## Critical findings
+产品发布仍为 `release_blocked`：Phase 24 的人工 Gold/Judge/UAT 与 lifecycle 质量门未完成。本次修复未运行 live migration/write/apply，未修改 serving/pointer/watermark、KU/lifecycle 或 Phase 24 checkpoint，未执行网络、付费或外部动作。
 
-### CR-01 — Target D sandbox 用硬编码布尔值替代了所声明的端到端证明
+## Resolved Findings
 
-**位置：** `src/personal_knowledge/intelligence/proactive/cli.py:110-121,136-148`
+### CR-01 — RESOLVED: Target D acceptance 执行真实 disposable SQLite 全链
 
-`_technical_sandbox()` 只调用 Phase 26 sandbox，然后在内存中执行 `rank_candidates()` / `evaluate_candidates()`。它没有创建 disposable SQLite authority、没有调用八域 `coordinate_goals()`、没有发布 Phase 27 run、没有追加/恢复 control、没有触发 stale append，也没有经过 shared read/explain。尽管如此，`state_change_history`、`ranking_and_noise`、`trust_control_and_restore`、`future_run_after_restore`、`shared_read_explain` 及 control rollback 结果均被直接写成 `True`。同时，live acceptance 对已应用的 Phase 25/26 只检查表是否齐全；没有验证其 manifest/checksum/snapshot/event frontier，Phase 27 已应用但零候选时也可由空 inbox 返回成功。
+- `_technical_sandbox()` 现在在同一个临时 SQLite authority 内实际执行 Phase 25 → 26 → 27：状态 current/history、accepted/rejected recommendation history、action/outcome/non-causal assessment、八域 coordination、ranking/noise、run publication、suppress/status/restore、stale append、restore 后 future run，以及 shared get/explain。
+- 所有 `stage_results` 都由真实调用结果计算；逐 stage 故障注入会使 `ok=false` 和对应 stage=false。
+- live applied 三态校验不再以表存在或空 inbox 作为通过证据。Phase 25/26/27 applied 状态必须存在 committed run，并验证 active snapshot/hash、manifest/checksum、publication/event/control frontier 与完整 child manifests；零 run、partial、corrupt 或 mixed binding 技术失败。
 
-**影响：** coordination、controls、publication 或上游 authority 即使损坏，`technical_status` 仍可能是 `passed`。这直接违反 TD-01 的“完整 disposable sandbox + partial/corrupt/mixed-version fail closed”退出条件。
+### CR-02 — RESOLVED: ResourceClaim 身份与 source 进入 canonical support
 
-**要求：** sandbox 必须实际建立并执行完整 Phase 25→26→27 链，所有 stage result 从执行结果计算；live applied 状态必须验证上游 run/manifest/checksum/snapshot/frontier，不能只按表存在性判定。补充故障注入测试，证明任一阶段失败会令 `technical_status=failed`。
+- `ResourceClaim` 新增显式 `resource_id`；共享资源不仅比较 type/unit/horizon，还必须具有相同可验证身份。
+- 每个决定性 resource source 必须与 goal source 使用同一 snapshot/run binding，并进入 `CoordinationDraft.source_refs`。
+- `plan_run()` 与发布事务内对 resource source 复用 authority/type/record checksum/source run/snapshot 校验；跨 snapshot、伪造、不一致 identity 与缺失 decisive support 均 fail closed。
 
-### CR-02 — 形成冲突的 ResourceClaim 证据从未做 snapshot/run/record 校验
+### CR-03 — RESOLVED: exact replay 完整校验 proactive_candidate_support
 
-**位置：** `src/personal_knowledge/intelligence/proactive/coordination.py:90-110`; `src/personal_knowledge/intelligence/proactive/runs.py:173-190`
+- `_validate_existing()` 重建每个候选的完整 support 集合，逐列比较 canonical payload/checksum 与 deterministic support ID，并重新验证 source record/run/snapshot binding。
+- 缺行、额外行、payload tamper 和 record checksum drift 四类回归均被 `existing_support_tampered` 拒绝。
 
-协调逻辑使用 `ResourceClaim.source` 证明共享资源与超额容量，但 cross-snapshot/cross-version 检查只比较 `GoalSignal.support`。生成 `CoordinationDraft` 时，`source_refs` 也只包含两个 goal support；`plan_run()` 仅 `_validate_ref()` 这些 `source_refs`，并未校验 `resource_manifest[*].source`。
+### WR-01 — RESOLVED: restore 遵守历史 as_of
 
-一次性 fixture 已复现：两个 goal support 都在 `ss1`，两个 resource source 均改为不存在的 `other-snapshot` 记录，`coordinate_goals()` 仍产出 `goal_conflict`，且 draft 的已验证 `source_refs` 不包含这些资源记录。
+- restore 只有在 `created_at <= as_of` 时才撤销原控制。
+- 回归覆盖 restore 前、边界时刻和 restore 后，未来补偿事件不再追溯修改历史 projection。
 
-**影响：** 缺失、陈旧、跨快照甚至伪造的资源声明可以成为“目标冲突”的决定性依据并进入不可变发布，破坏 PRO-01 的证据谱系、隐私与 fail-closed 合同。
+### WR-02 — RESOLVED: target specificity 为主排序维度
 
-**要求：** 将每个决定性 ResourceClaim source 纳入 canonical support manifest，并在协调和事务内发布阶段验证 authority/type/record checksum/source run/snapshot；同一共享资源还应有可验证的资源身份，而不只是相同 type/unit/horizon。
+- precedence 从 `max(target_rank, scope_rank)` 改为 `(target_rank, scope_rank)` 字典序。
+- exact target 始终高于 policy/domain/global target，scope specificity 仅作为次级维度；同级 denial 规则保持 fail closed。
+- 矩阵回归覆盖 exact/global、exact/domain、policy/domain 及不同 scope specificity。
 
-### CR-03 — exact replay 完整性检查遗漏 proactive_candidate_support
+### WR-03 — RESOLVED: immutable run frontier 与 current control overlay 分离
 
-**位置：** `src/personal_knowledge/intelligence/proactive/runs.py:321-339`
+- 每个新 run 持久化 immutable `control_frontier_manifest`；读取时逐项验证历史 event identity/sequence/checksum，额外的新控制不会使旧 run lineage 失效。
+- get/inbox/explain 在历史 run 校验通过后投影当前 global/policy/domain/exact overlay，并公开历史 frontier 与 current frontier 两个 checksum。
+- append 后 get/status/explain、restore 后 status 均可用；旧 run 的 lineage checksum 保持不变，future run 绑定新的 frontier。
 
-`_validate_existing()` 校验 run、coordination、candidate 与 evaluation，却完全不读取 `proactive_candidate_support`。一次性 fixture 已复现：发布合法 run 后仅移除 support immutable-delete trigger 并删除全部 support 行，再次 `publish_run(..., write=True)` 返回 `ok=True, existing=True`。
+## Commits
 
-**影响：** 证据链缺失或被篡改的既有 run 会被 exact replay 错误接受；摘要中“support/evaluation atomic publication and tamper checks”的保证不成立。
+- `48cc568` — 添加六项审查缺口的 RED 回归测试。
+- `206da27` — 修复资源谱系、support replay、时点/优先级与 current overlay。
+- `7b50c44` — 实现真实 Target D disposable sandbox 与 live applied 完整性校验。
 
-**要求：** replay 时重建每个候选的完整 support 集合，逐项校验 payload/column/checksum、source record 及 run/snapshot 绑定，并与 `run.candidates[*].support_refs` 精确比较。增加缺行、额外行、payload tamper、record drift 四类回归测试。
+## Verification Evidence
 
-## Warning findings
+- 审查新增及直接受影响测试：**49 passed**。
+- Phase 27 全量：**86 passed**。
+- Phase 25/26 相邻回归：**78 passed**。
+- Apps SDK、knowledge search、serving snapshot：**33 passed**。
+- Governance preflight：**13/13 PASS**。
+- 全仓：**PASS，2 skipped**；仅 2 条既有 `SyntaxWarning`。
+- `git diff --check`：PASS。
+- live `acceptance --dry-run --metadata-only --json`：`technical_status=passed`、`release_status=release_blocked`；before/after fingerprint 均为 `4dd84122a832d593006f6f7107d96abe80fb6c77dfa7c2144cc06f0ec898476c`。
+- live side effects：`persisted_rows=0`、`mutations=0`、`private_bodies=0`、`external_actions=0`、`network_calls=0`、`paid_calls=0`。
 
-### WR-01 — 未来 restore 会追溯性撤销历史 `as_of` 状态
+## Preserved Release Boundary
 
-**位置：** `src/personal_knowledge/intelligence/proactive/controls.py:240-247`
+- `24-02-CHECKPOINT`: `awaiting_human`
+- `24-03-CHECKPOINT`: `human_verification_required`
+- `24-04-CHECKPOINT`: `blocked_on_human_and_quality_gates`
+- Human review strict: false
+- Lifecycle strict: false
+- Explicit product UAT: absent
 
-`restored` 收集所有 restore event，不先按 `created_at <= as_of` 过滤。复现中 suppress 发生于 12:00、restore 发生于 13:00；查询 12:30 却返回 `eligible=True`，历史 suppression 被未来补偿事件抹除。
-
-**影响：** 显式 `as_of`、审计历史与“restore 只改变未来 projection”的合同被破坏。
-
-**要求：** 只让投影时点已经生效的 restore 撤销原事件，并补充 restore 前、边界时刻、restore 后三点测试。
-
-### WR-02 — scope specificity 可把 global target 提升到 exact-target 同级
-
-**位置：** `src/personal_knowledge/intelligence/proactive/controls.py:234-237`
-
-specificity 使用 `max(target_rank, scope_rank)`。因此 `global` target 配普通具体 scope 会得到 4，与 exact candidate target 相同；同级 denial 优先后，global suppression 可覆盖 exact candidate allow/limit。一次性 fixture 已复现该结果。
-
-**影响：** 违反 TRUST-01 明确要求的 exact-target > policy/domain/global precedence，用户的精确控制可能被较宽控制错误覆盖。
-
-**要求：** 用 target specificity 作为首要排序维度，scope specificity 仅作为次级维度；覆盖 exact-vs-global、exact-vs-domain、policy-vs-domain 及同级 denial 的矩阵测试。
-
-### WR-03 — 任一 control append 后，现有候选的所有读接口立即失效
-
-**位置：** `src/personal_knowledge/intelligence/proactive/service.py:102-127,220-227`
-
-`_run()` 要求当前全局 control frontier 与候选所属 run 的历史 frontier 完全相等。control 追加后，`controls.status` 先调用 `_candidate()`，因此连刚写入的控制历史也无法读取。复现中合法 suppress append 后，`controls.status` 返回 `control_frontier_changed`。
-
-**影响：** 本地 CLI 允许用户写控制，但写完后 inbox/get/explain/controls-status 全部不可用，直到另行生成新 proactive run；runbook 未说明此强制重算，shared trust-control 接口无法形成可用闭环。
-
-**要求：** 区分“历史 run 自身绑定已验证”和“当前 control overlay”。读取候选时验证其 immutable frontier 内容未被篡改，再在当前 frontier 上投影 controls；至少 `controls.status` 必须能读取并校验当前 append-only stream。增加 append 后 get/status、restore 后 status、旧 run lineage 保留测试。
-
-## Evidence
-
-- 自动化回归：`python -m pytest` 覆盖全部 proactive/Target D 指定测试，**77 passed**。
-- 额外一次性 fixture：确认 CR-02、CR-03、WR-01、WR-02、WR-03 均可复现。
-- 未运行 live migration，未执行 live write，未修改 Phase 24 checkpoints、KU/lifecycle、serving、pointer 或 watermark。
-
+因此 Phase 27 / Target D 的技术代码审查已 clean，但产品级 Target D 仍未签署完成，也不授权 live schema migration/publication、lifecycle apply、serving 变更或外部执行。
