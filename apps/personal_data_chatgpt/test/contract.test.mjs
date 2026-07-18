@@ -203,6 +203,19 @@ function makeFakeFetch() {
 test("tool descriptors expose the read-only Apps SDK metadata", () => {
   const names = toolDescriptors.map((tool) => tool.name).sort();
   assert.deepEqual(names, [
+    "agent_session_action_complete",
+    "agent_session_action_start",
+    "agent_session_calibrate",
+    "agent_session_confirm",
+    "agent_session_decide",
+    "agent_session_explain",
+    "agent_session_generate",
+    "agent_session_observe",
+    "agent_session_prepare",
+    "agent_session_preregister",
+    "agent_session_preview",
+    "agent_session_publish",
+    "agent_session_resume",
     "data_aggregate",
     "data_export",
     "data_get_event_by_id",
@@ -241,8 +254,13 @@ test("tool descriptors expose the read-only Apps SDK metadata", () => {
   // heavy export is app/widget-facing under core profile
   assert.deepEqual(exportTool._meta.ui.visibility, ["app"]);
 
+  const guardedWrites = new Set([
+    "agent_session_confirm", "agent_session_generate", "agent_session_publish",
+    "agent_session_decide", "agent_session_preregister", "agent_session_action_start",
+    "agent_session_action_complete", "agent_session_observe", "agent_session_calibrate"
+  ]);
   for (const tool of toolDescriptors) {
-    assert.equal(tool.annotations.readOnlyHint, true, `${tool.name} should be read-only`);
+    assert.equal(tool.annotations.readOnlyHint, !guardedWrites.has(tool.name), `${tool.name} read-only annotation mismatch`);
     assert.equal(tool.annotations.destructiveHint, false, `${tool.name} should not be destructive`);
     assert.equal(tool.outputSchema.type, "object", `${tool.name} should declare outputSchema`);
   }
@@ -304,7 +322,7 @@ test("JSON-RPC lists and calls tools", async () => {
   assert.equal(init.result.serverInfo.name, "personal-data-chatgpt-app");
 
   const listed = await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
-  assert.equal(listed.result.tools.length, 31);
+  assert.equal(listed.result.tools.length, 44);
 
   const called = await handleRpc({
     jsonrpc: "2.0",
@@ -382,7 +400,7 @@ test("HTTP server serves health and /mcp", async () => {
     });
     const body = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(body.result.tools.length, 31);
+    assert.equal(body.result.tools.length, 44);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
