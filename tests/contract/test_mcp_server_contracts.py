@@ -41,6 +41,14 @@ FULL_ONLY_TOOLS = {
     "data_timeline",
 }
 
+AGENT_READ_TOOLS = {
+    "external_context_list", "external_context_get", "external_context_explain",
+    "decision_analysis_list", "decision_analysis_get", "decision_analysis_explain",
+    "project_pilot_list", "project_pilot_get", "project_pilot_explain",
+    "recommendation_calibration_list", "recommendation_calibration_get",
+    "recommendation_calibration_explain",
+}
+
 
 def test_tools_list_has_required_names_and_schemas() -> None:
     names = {t.name for t in mcp.active_tools()}
@@ -51,6 +59,7 @@ def test_tools_list_has_required_names_and_schemas() -> None:
     assert "data_export_all" not in names
     assert "data_export_query" not in names
     assert len(names) >= 14
+    assert AGENT_READ_TOOLS <= names
     ku = next(t for t in mcp.active_tools() if t.name == "knowledge_status")
     assert "active" in (ku.description or "").lower() or "知识" in (ku.description or "")
 
