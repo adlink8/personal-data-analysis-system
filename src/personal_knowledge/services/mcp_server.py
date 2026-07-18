@@ -88,6 +88,9 @@ from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
 from personal_knowledge.intelligence.service import IntelligenceService  # noqa: E402
 from personal_knowledge.intelligence.decision.service import DecisionFeedbackService  # noqa: E402
 from personal_knowledge.intelligence.proactive.service import ProactiveIntelligenceService  # noqa: E402
+from personal_knowledge.services.decision_intelligence_reads import (  # noqa: E402
+    DecisionIntelligenceReadService,
+)
 
 SEMANTIC_API_URL = semantic_api_url()
 
@@ -143,6 +146,18 @@ CORE_TOOL_NAMES = frozenset({
     "proactive_candidate_explain",
     "proactive_controls_status",
     "proactive_metrics",
+    "external_context_list",
+    "external_context_get",
+    "external_context_explain",
+    "decision_analysis_list",
+    "decision_analysis_get",
+    "decision_analysis_explain",
+    "project_pilot_list",
+    "project_pilot_get",
+    "project_pilot_explain",
+    "recommendation_calibration_list",
+    "recommendation_calibration_get",
+    "recommendation_calibration_explain",
 })
 
 FULL_ONLY_TOOL_NAMES = frozenset({
@@ -621,6 +636,18 @@ ALL_TOOLS = [
     types.Tool(name="proactive_candidate_explain", description="解释候选的理由、不确定性和校验链。", inputSchema={"type":"object","properties":{"candidate_id":{"type":"string"}},"required":["candidate_id"]}),
     types.Tool(name="proactive_controls_status", description="读取用户控制投影及不可变历史。", inputSchema={"type":"object","properties":{"candidate_id":{"type":"string"},"as_of":{"type":"string"}},"required":["candidate_id"]}),
     types.Tool(name="proactive_metrics", description="读取主动情报可观测性元数据；外部动作恒为零。", inputSchema={"type":"object","properties":{}}),
+    types.Tool(name="external_context_list", description="列出校验后的外部来源、active snapshot 与受控事实；只读。", inputSchema={"type":"object","properties":{"limit":{"type":"integer","default":50,"minimum":1,"maximum":100}}}),
+    types.Tool(name="external_context_get", description="读取一个外部 source、fact 或 snapshot；只读。", inputSchema={"type":"object","properties":{"resource_type":{"type":"string","enum":["source","fact","snapshot"]},"resource_id":{"type":"string"}},"required":["resource_type"]}),
+    types.Tool(name="external_context_explain", description="解释一个外部资源的 lineage、限制和下钻入口；只读。", inputSchema={"type":"object","properties":{"resource_type":{"type":"string","enum":["source","fact","snapshot"]},"resource_id":{"type":"string"}},"required":["resource_type"]}),
+    types.Tool(name="decision_analysis_list", description="列出结构化决策分析 run 元数据；不返回 provider 正文。", inputSchema={"type":"object","properties":{"limit":{"type":"integer","default":50,"minimum":1,"maximum":100}}}),
+    types.Tool(name="decision_analysis_get", description="读取一个校验后的决策分析 candidate、claims 与 evidence refs。", inputSchema={"type":"object","properties":{"run_id":{"type":"string"}},"required":["run_id"]}),
+    types.Tool(name="decision_analysis_explain", description="解释一个决策分析 run 的证据、限制和非权威边界。", inputSchema={"type":"object","properties":{"run_id":{"type":"string"}},"required":["run_id"]}),
+    types.Tool(name="project_pilot_list", description="列出低风险 project pilot cases；无外部动作。", inputSchema={"type":"object","properties":{"limit":{"type":"integer","default":50,"minimum":1,"maximum":100}}}),
+    types.Tool(name="project_pilot_get", description="读取一个 pilot case、recommendation 与 protocol。", inputSchema={"type":"object","properties":{"case_id":{"type":"string"}},"required":["case_id"]}),
+    types.Tool(name="project_pilot_explain", description="解释 pilot history、controls 和 outcome；系统动作恒为零。", inputSchema={"type":"object","properties":{"case_id":{"type":"string"},"as_of":{"type":"string"}},"required":["case_id"]}),
+    types.Tool(name="recommendation_calibration_list", description="列出 calibration protocols；只读。", inputSchema={"type":"object","properties":{"limit":{"type":"integer","default":50,"minimum":1,"maximum":100}}}),
+    types.Tool(name="recommendation_calibration_get", description="读取 calibration protocol、arms、measurements 与 verdict。", inputSchema={"type":"object","properties":{"protocol_id":{"type":"string"}},"required":["protocol_id"]}),
+    types.Tool(name="recommendation_calibration_explain", description="解释 calibration 限制；保持 causal_claim=false 且不可自动 promotion。", inputSchema={"type":"object","properties":{"protocol_id":{"type":"string"}},"required":["protocol_id"]}),
 ]
 
 
@@ -892,6 +919,26 @@ def proactive_tool_contract(name: str, arguments: dict, *, db_path: Path | None 
     return ProactiveIntelligenceService(db_path or UNIFIED_DB).invoke(operation, **values)
 
 
+def agent_read_tool_contract(
+    name: str, arguments: dict, *, service: DecisionIntelligenceReadService | None = None,
+) -> dict:
+    """Thin stdio MCP adapter over the Phase 32 shared read service."""
+    operation = {
+        "external_context_list": "external.list", "external_context_get": "external.get",
+        "external_context_explain": "external.explain", "decision_analysis_list": "analysis.list",
+        "decision_analysis_get": "analysis.get", "decision_analysis_explain": "analysis.explain",
+        "project_pilot_list": "pilot.list", "project_pilot_get": "pilot.get",
+        "project_pilot_explain": "pilot.explain", "recommendation_calibration_list": "calibration.list",
+        "recommendation_calibration_get": "calibration.get",
+        "recommendation_calibration_explain": "calibration.explain",
+    }.get(name)
+    target = service or DecisionIntelligenceReadService()
+    if operation is None:
+        return target._error("unknown", "unknown_operation", name)
+    values = {key: value for key, value in arguments.items() if value not in {None, ""}}
+    return target.invoke(operation, **values)
+
+
 # === MCP Server ===========================================================
 
 server = Server("personal-data")
@@ -1108,6 +1155,15 @@ async def handle_call_tool(
             "proactive_candidate_explain", "proactive_controls_status", "proactive_metrics",
         }:
             text = _json_contract(proactive_tool_contract(name, arguments))
+
+        elif name in {
+            "external_context_list", "external_context_get", "external_context_explain",
+            "decision_analysis_list", "decision_analysis_get", "decision_analysis_explain",
+            "project_pilot_list", "project_pilot_get", "project_pilot_explain",
+            "recommendation_calibration_list", "recommendation_calibration_get",
+            "recommendation_calibration_explain",
+        }:
+            text = _json_contract(agent_read_tool_contract(name, arguments))
 
         else:
             text = f"未知工具: {name}"
