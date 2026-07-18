@@ -823,6 +823,137 @@ CREATE TRIGGER IF NOT EXISTS trg_decision_effectiveness_immutable_update BEFORE 
 CREATE TRIGGER IF NOT EXISTS trg_decision_effectiveness_immutable_delete BEFORE DELETE ON decision_effectiveness BEGIN SELECT RAISE(ABORT, 'decision effectiveness is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_decision_events_immutable_update BEFORE UPDATE ON decision_events BEGIN SELECT RAISE(ABORT, 'decision events are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_decision_events_immutable_delete BEFORE DELETE ON decision_events BEGIN SELECT RAISE(ABORT, 'decision events are immutable'); END;
+
+-- === Phase 27: independent immutable proactive-intelligence authority (A layer only) ===
+CREATE TABLE IF NOT EXISTS proactive_runs (
+    run_id TEXT PRIMARY KEY,
+    registry_id TEXT NOT NULL REFERENCES artifact_registry_entries(registry_id),
+    source_run_id TEXT NOT NULL REFERENCES personal_state_runs(run_id),
+    source_run_checksum TEXT NOT NULL CHECK(length(source_run_checksum)=64),
+    source_publication_sequence INTEGER NOT NULL CHECK(source_publication_sequence>0),
+    decision_run_id TEXT REFERENCES decision_runs(run_id),
+    decision_run_checksum TEXT,
+    decision_event_frontier_checksum TEXT NOT NULL CHECK(length(decision_event_frontier_checksum)=64),
+    snapshot_id TEXT NOT NULL REFERENCES serving_snapshots(snapshot_id),
+    snapshot_hash TEXT NOT NULL,
+    control_frontier_checksum TEXT NOT NULL CHECK(length(control_frontier_checksum)=64),
+    coordination_policy TEXT NOT NULL,
+    ranking_policy TEXT NOT NULL,
+    noise_policy TEXT NOT NULL,
+    input_manifest_json TEXT NOT NULL,
+    input_manifest_checksum TEXT NOT NULL CHECK(length(input_manifest_checksum)=64),
+    output_manifest_json TEXT NOT NULL,
+    output_manifest_checksum TEXT NOT NULL CHECK(length(output_manifest_checksum)=64),
+    run_checksum TEXT NOT NULL UNIQUE CHECK(length(run_checksum)=64),
+    status TEXT NOT NULL CHECK(status='committed'),
+    created_at TEXT NOT NULL,
+    CHECK((decision_run_id IS NULL AND decision_run_checksum IS NULL) OR
+          (decision_run_id IS NOT NULL AND length(decision_run_checksum)=64)),
+    UNIQUE(snapshot_id, snapshot_hash, input_manifest_checksum)
+);
+
+CREATE TABLE IF NOT EXISTS proactive_coordination_items (
+    coordination_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES proactive_runs(run_id),
+    relation_type TEXT NOT NULL CHECK(relation_type IN ('goal_support','goal_conflict','dependency','resource_competition','risk_propagation','opportunity')),
+    subject TEXT NOT NULL, scope TEXT NOT NULL, domains_json TEXT NOT NULL,
+    valid_from TEXT NOT NULL, valid_to TEXT, observed_at TEXT NOT NULL,
+    rule_id TEXT NOT NULL, rule_version TEXT NOT NULL,
+    confidence REAL NOT NULL CHECK(confidence>=0 AND confidence<=1),
+    uncertainty TEXT NOT NULL, resource_manifest_json TEXT NOT NULL,
+    source_manifest_json TEXT NOT NULL, payload_json TEXT NOT NULL,
+    payload_checksum TEXT NOT NULL UNIQUE CHECK(length(payload_checksum)=64),
+    created_at TEXT NOT NULL, UNIQUE(run_id, coordination_id)
+);
+
+CREATE TABLE IF NOT EXISTS proactive_candidates (
+    candidate_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES proactive_runs(run_id),
+    candidate_class TEXT NOT NULL CHECK(candidate_class IN ('important_change','goal_conflict','deadline_risk','stalled_project','cross_domain_opportunity','outcome_followup','trust_attention')),
+    presentation_kind TEXT NOT NULL CHECK(presentation_kind IN ('inbox_item','digest_item')),
+    subject TEXT NOT NULL, scope TEXT NOT NULL, domains_json TEXT NOT NULL,
+    dedup_key TEXT NOT NULL, valid_from TEXT NOT NULL, expires_at TEXT NOT NULL,
+    policy_id TEXT NOT NULL, policy_version TEXT NOT NULL,
+    importance_json TEXT NOT NULL, uncertainty TEXT NOT NULL, reason_codes_json TEXT NOT NULL,
+    payload_json TEXT NOT NULL, payload_checksum TEXT NOT NULL UNIQUE CHECK(length(payload_checksum)=64),
+    created_at TEXT NOT NULL, UNIQUE(run_id, candidate_id)
+);
+
+CREATE TABLE IF NOT EXISTS proactive_candidate_support (
+    support_id TEXT PRIMARY KEY, candidate_id TEXT NOT NULL REFERENCES proactive_candidates(candidate_id),
+    authority_id TEXT NOT NULL CHECK(authority_id IN ('a.personal_change','a.decision_feedback','a.proactive_intelligence')),
+    record_type TEXT NOT NULL, record_id TEXT NOT NULL, record_checksum TEXT NOT NULL CHECK(length(record_checksum)=64),
+    source_run_id TEXT NOT NULL, source_run_checksum TEXT NOT NULL CHECK(length(source_run_checksum)=64),
+    snapshot_id TEXT NOT NULL REFERENCES serving_snapshots(snapshot_id), snapshot_hash TEXT NOT NULL,
+    payload_json TEXT NOT NULL, payload_checksum TEXT NOT NULL CHECK(length(payload_checksum)=64),
+    created_at TEXT NOT NULL, UNIQUE(candidate_id, authority_id, record_type, record_id)
+);
+
+CREATE TABLE IF NOT EXISTS proactive_evaluations (
+    evaluation_id TEXT PRIMARY KEY, candidate_id TEXT NOT NULL REFERENCES proactive_candidates(candidate_id),
+    policy_id TEXT NOT NULL, policy_version TEXT NOT NULL, window_start TEXT NOT NULL, window_end TEXT NOT NULL,
+    result TEXT NOT NULL CHECK(result IN ('eligible','suppressed','deferred','expired','abstained')),
+    reason_codes_json TEXT NOT NULL, state_checksum TEXT NOT NULL CHECK(length(state_checksum)=64),
+    payload_json TEXT NOT NULL, payload_checksum TEXT NOT NULL CHECK(length(payload_checksum)=64),
+    created_at TEXT NOT NULL, UNIQUE(candidate_id, policy_id, policy_version, window_start, window_end)
+);
+
+CREATE TABLE IF NOT EXISTS proactive_control_events (
+    event_id TEXT PRIMARY KEY, target_authority TEXT NOT NULL, target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL, target_checksum TEXT NOT NULL CHECK(length(target_checksum)=64),
+    sequence INTEGER NOT NULL CHECK(sequence>0),
+    operation TEXT NOT NULL CHECK(operation IN ('limit_scope','suppress','snooze','revoke','correct','mark_not_useful','mark_wrong_timing','restore')),
+    scope TEXT NOT NULL, actor_class TEXT NOT NULL CHECK(actor_class='user'),
+    actor_identity_hash TEXT NOT NULL CHECK(length(actor_identity_hash)=64), expected_sequence INTEGER NOT NULL,
+    idempotency_key TEXT NOT NULL, previous_event_checksum TEXT NOT NULL,
+    reason_code TEXT NOT NULL, expires_at TEXT, rollback_of_event_id TEXT REFERENCES proactive_control_events(event_id),
+    payload_json TEXT NOT NULL, payload_checksum TEXT NOT NULL UNIQUE CHECK(length(payload_checksum)=64),
+    created_at TEXT NOT NULL,
+    UNIQUE(target_authority,target_type,target_id,sequence),
+    UNIQUE(target_authority,target_type,target_id,actor_identity_hash,idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS proactive_surface_events (
+    event_id TEXT PRIMARY KEY, candidate_id TEXT NOT NULL REFERENCES proactive_candidates(candidate_id),
+    sequence INTEGER NOT NULL CHECK(sequence>0), event_type TEXT NOT NULL CHECK(event_type IN ('presented','acknowledged','dismissed')),
+    actor_class TEXT NOT NULL CHECK(actor_class='user'), actor_identity_hash TEXT NOT NULL CHECK(length(actor_identity_hash)=64),
+    previous_event_checksum TEXT NOT NULL, payload_json TEXT NOT NULL,
+    payload_checksum TEXT NOT NULL UNIQUE CHECK(length(payload_checksum)=64), created_at TEXT NOT NULL,
+    UNIQUE(candidate_id,sequence)
+);
+
+CREATE INDEX IF NOT EXISTS idx_proactive_runs_source ON proactive_runs(source_run_id,decision_run_id,snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_proactive_coordination_run ON proactive_coordination_items(run_id,relation_type);
+CREATE INDEX IF NOT EXISTS idx_proactive_candidates_run ON proactive_candidates(run_id,candidate_class,dedup_key);
+CREATE INDEX IF NOT EXISTS idx_proactive_support_record ON proactive_candidate_support(authority_id,record_type,record_id);
+CREATE INDEX IF NOT EXISTS idx_proactive_control_target ON proactive_control_events(target_authority,target_type,target_id,sequence);
+
+CREATE TRIGGER IF NOT EXISTS trg_proactive_runs_source_binding BEFORE INSERT ON proactive_runs WHEN NOT EXISTS (
+ SELECT 1 FROM personal_state_runs r JOIN personal_state_publications p ON p.run_id=r.run_id
+ WHERE r.run_id=NEW.source_run_id AND r.output_manifest_checksum=NEW.source_run_checksum
+ AND p.publication_sequence=NEW.source_publication_sequence AND r.snapshot_id=NEW.snapshot_id AND r.snapshot_hash=NEW.snapshot_hash
+) BEGIN SELECT RAISE(ABORT,'proactive source binding mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS trg_proactive_runs_decision_binding BEFORE INSERT ON proactive_runs
+WHEN NEW.decision_run_id IS NOT NULL AND NOT EXISTS (
+ SELECT 1 FROM decision_runs d WHERE d.run_id=NEW.decision_run_id AND d.run_checksum=NEW.decision_run_checksum
+ AND d.source_run_id=NEW.source_run_id AND d.source_run_checksum=NEW.source_run_checksum
+ AND d.snapshot_id=NEW.snapshot_id AND d.snapshot_hash=NEW.snapshot_hash
+) BEGIN SELECT RAISE(ABORT,'proactive decision binding mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS trg_proactive_runs_immutable_update BEFORE UPDATE ON proactive_runs BEGIN SELECT RAISE(ABORT,'proactive runs are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_runs_immutable_delete BEFORE DELETE ON proactive_runs BEGIN SELECT RAISE(ABORT,'proactive runs are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_coordination_items_immutable_update BEFORE UPDATE ON proactive_coordination_items BEGIN SELECT RAISE(ABORT,'proactive coordination items are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_coordination_items_immutable_delete BEFORE DELETE ON proactive_coordination_items BEGIN SELECT RAISE(ABORT,'proactive coordination items are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_candidates_immutable_update BEFORE UPDATE ON proactive_candidates BEGIN SELECT RAISE(ABORT,'proactive candidates are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_candidates_immutable_delete BEFORE DELETE ON proactive_candidates BEGIN SELECT RAISE(ABORT,'proactive candidates are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_candidate_support_immutable_update BEFORE UPDATE ON proactive_candidate_support BEGIN SELECT RAISE(ABORT,'proactive candidate support is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_candidate_support_immutable_delete BEFORE DELETE ON proactive_candidate_support BEGIN SELECT RAISE(ABORT,'proactive candidate support is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_evaluations_immutable_update BEFORE UPDATE ON proactive_evaluations BEGIN SELECT RAISE(ABORT,'proactive evaluations are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_evaluations_immutable_delete BEFORE DELETE ON proactive_evaluations BEGIN SELECT RAISE(ABORT,'proactive evaluations are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_control_events_immutable_update BEFORE UPDATE ON proactive_control_events BEGIN SELECT RAISE(ABORT,'proactive control events are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_control_events_immutable_delete BEFORE DELETE ON proactive_control_events BEGIN SELECT RAISE(ABORT,'proactive control events are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_surface_events_immutable_update BEFORE UPDATE ON proactive_surface_events BEGIN SELECT RAISE(ABORT,'proactive surface events are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_proactive_surface_events_immutable_delete BEFORE DELETE ON proactive_surface_events BEGIN SELECT RAISE(ABORT,'proactive surface events are immutable'); END;
 """
 
 
