@@ -48,8 +48,8 @@
 | PDI-02 | Phase 28 | Complete — 28-02/04 |
 | PDI-03 | Phase 28 | Complete — 28-03 |
 | PDI-04 | Phase 28 | Complete — 28-03 |
-| PDI-05 | Phase 29 | Planned |
-| PDI-06 | Phase 29 | Planned |
+| PDI-05 | Phase 29 | In progress — 29-01 |
+| PDI-06 | Phase 29 | In progress — 29-01 |
 | PDI-07 | Phase 30 | Planned |
 | PDI-08 | Phase 31 | Planned |
 

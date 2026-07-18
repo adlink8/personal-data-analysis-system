@@ -1,0 +1,33 @@
+version: decision-analysis-policy-v1
+authority:
+  registry_id: a.decision_analysis
+  authority_role: decision_analysis
+  layer: A
+  privacy: R4
+  evidence_parents: [a.personal_change, s.external_fact]
+domain:
+  allow: [project]
+  deny: [health, medical, finance, investment, relationship]
+evidence:
+  allowed_authorities: [a.personal_change, s.external_fact]
+  require_every_factual_claim: true
+  require_exact_snapshot_membership: true
+sampling:
+  temperature_min: 0.0
+  temperature_max: 0.3
+  max_output_tokens: 4096
+  max_candidates: 8
+  max_claims_per_candidate: 64
+abstention:
+  fail_closed: true
+  reasons:
+    - schema_invalid
+    - evidence_missing
+    - binding_drift
+    - privacy_risk
+    - stale_context
+    - unresolved_conflict
+    - region_mismatch
+    - prompt_injection
+    - forbidden_domain
+    - external_action_intent
