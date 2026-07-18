@@ -369,8 +369,8 @@ Plans:
 **Goal:** 在隐私与信任控制下协调多领域目标，主动呈现真正重要的变化而不制造噪声，并通过完整 Target D 端到端验收。
 **Requirements**: PRO-01, PRO-02, TRUST-01, TD-01
 **Depends on:** Phase 26
-**Status:** Executing — 2/4 plans complete; product release remains blocked on Phase 24
-**Plans:** 2/4 complete
+**Status:** Executing — 3/4 plans complete; product release remains blocked on Phase 24
+**Plans:** 3/4 complete
 
 Plans:
 **Wave 1**
@@ -380,7 +380,7 @@ Plans:
 - [x] 27-02: Importance, novelty, deduplication, cooldown, quiet periods and noise budgets
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 27-03: User corrections, constraints, revocation, scope, snooze, restore and rollback
+- [x] 27-03: User corrections, constraints, revocation, scope, snooze, restore and rollback
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 27-04: Shared read interfaces, guarded local control and Target D dual-verdict acceptance
