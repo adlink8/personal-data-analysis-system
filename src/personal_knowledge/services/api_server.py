@@ -82,6 +82,9 @@ from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
 from personal_knowledge.intelligence.service import IntelligenceService  # noqa: E402
 from personal_knowledge.intelligence.decision.service import DecisionFeedbackService  # noqa: E402
 from personal_knowledge.intelligence.proactive.service import ProactiveIntelligenceService  # noqa: E402
+from personal_knowledge.services.decision_intelligence_reads import (  # noqa: E402
+    DecisionIntelligenceReadService,
+)
 
 # AI 长期上下文文档路径(给 /profile 用)
 ROOT = _THIS_DIR.parents[1]
@@ -183,6 +186,14 @@ def proactive_rest_contract(operation: str, params: dict, *, db_path: Path | Non
         except (TypeError, ValueError):
             return ProactiveIntelligenceService._error(operation, "invalid_limit", str(values["limit"]))
     return ProactiveIntelligenceService(db_path or UNIFIED_DB).invoke(operation, **values)
+
+
+def agent_read_rest_contract(
+    operation: str, params: dict, *, service: DecisionIntelligenceReadService | None = None,
+) -> dict:
+    """Thin REST adapter for Phase 28-31 read authorities."""
+    values = {key: value for key, value in params.items() if value not in {None, ""}}
+    return (service or DecisionIntelligenceReadService()).invoke(operation, **values)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -310,6 +321,37 @@ class Handler(BaseHTTPRequestHandler):
                 elif path == "/proactive/metrics":
                     params = {}
                 data = proactive_rest_contract(proactive_routes[path], params)
+                self._send(_contract(data), 200 if data.get("ok") else 400)
+                return
+
+            agent_routes = {
+                "/agent/external": "external.list",
+                "/agent/external/item": "external.get",
+                "/agent/external/explain": "external.explain",
+                "/agent/analysis": "analysis.list",
+                "/agent/analysis/item": "analysis.get",
+                "/agent/analysis/explain": "analysis.explain",
+                "/agent/pilot": "pilot.list",
+                "/agent/pilot/item": "pilot.get",
+                "/agent/pilot/explain": "pilot.explain",
+                "/agent/calibration": "calibration.list",
+                "/agent/calibration/item": "calibration.get",
+                "/agent/calibration/explain": "calibration.explain",
+            }
+            if path in agent_routes:
+                operation = agent_routes[path]
+                params = {"limit": qs.get("limit", "50")}
+                if operation.startswith("external.") and operation != "external.list":
+                    params = {"resource_type": qs.get("resource_type"), "resource_id": qs.get("resource_id")}
+                elif operation.startswith("analysis.") and operation != "analysis.list":
+                    params = {"run_id": qs.get("run_id")}
+                elif operation.startswith("pilot.") and operation != "pilot.list":
+                    params = {"case_id": qs.get("case_id"), "as_of": qs.get("as_of")}
+                    if operation == "pilot.get":
+                        params.pop("as_of")
+                elif operation.startswith("calibration.") and operation != "calibration.list":
+                    params = {"protocol_id": qs.get("protocol_id")}
+                data = agent_read_rest_contract(operation, params)
                 self._send(_contract(data), 200 if data.get("ok") else 400)
                 return
 
