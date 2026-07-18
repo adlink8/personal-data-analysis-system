@@ -124,6 +124,91 @@ class CoordinationItem:
 
 
 @dataclass(frozen=True)
+class CandidateDraft:
+    candidate_class: str
+    presentation_kind: str
+    subject: str
+    scope: str
+    domains: tuple[str, ...]
+    target_group: tuple[str, ...]
+    valid_from: str
+    expires_at: str
+    support_refs: tuple[SupportReference, ...]
+    severity: float
+    urgency: float
+    goal_impact: float
+    cross_domain_impact: float
+    evidence_strength: float
+    user_relevance: float
+    outcome_signal: float
+    uncertainty: str
+    reason_codes: tuple[str, ...]
+    evidence_eligible: bool = True
+    trust_eligible: bool = True
+    sensitive: bool = False
+    goal_relation_version: str = "v1"
+    metadata: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class ImportanceVector:
+    severity: float
+    urgency: float
+    goal_impact: float
+    cross_domain_impact: float
+    novelty: float
+    evidence_strength: float
+    user_relevance: float
+    outcome_signal: float
+    final_score: float
+
+
+@dataclass(frozen=True)
+class ProactiveCandidate:
+    candidate_id: str
+    run_id: str
+    candidate_class: str
+    presentation_kind: str
+    subject: str
+    scope: str
+    domains: tuple[str, ...]
+    target_group: tuple[str, ...]
+    dedup_key: str
+    material_change_signature: str
+    valid_from: str
+    expires_at: str
+    policy_id: str
+    policy_version: str
+    importance: ImportanceVector
+    novelty: float
+    uncertainty: str
+    reason_codes: tuple[str, ...]
+    evidence_eligible: bool
+    trust_eligible: bool
+    sensitive: bool
+    support_refs: tuple[SupportReference, ...]
+    fixture_label: str
+    payload: Mapping[str, Any]
+    payload_checksum: str
+
+
+@dataclass(frozen=True)
+class ProactiveEvaluation:
+    evaluation_id: str
+    candidate_id: str
+    policy_id: str
+    policy_version: str
+    window_start: str
+    window_end: str
+    result: str
+    reason_codes: tuple[str, ...]
+    deferred_until: str | None
+    state_checksum: str
+    payload: Mapping[str, Any]
+    payload_checksum: str
+
+
+@dataclass(frozen=True)
 class ProactiveRun:
     run_id: str
     registry_id: str

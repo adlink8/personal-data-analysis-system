@@ -30,3 +30,13 @@ def test_canonical_payload_rejects_private_or_action_authority() -> None:
             assert "forbidden_payload" in str(exc)
         else:
             raise AssertionError(canonical_json(payload))
+
+
+def test_candidate_contract_has_no_truth_or_delivery_authority() -> None:
+    from dataclasses import fields
+    from personal_knowledge.intelligence.proactive.schema import CandidateDraft, ProactiveCandidate
+
+    prohibited = {"fact", "knowledge_unit", "approved", "executed", "command", "connector",
+                  "recipient", "credential", "webhook", "send_target", "external_action"}
+    assert not ({field.name for field in fields(CandidateDraft)} & prohibited)
+    assert not ({field.name for field in fields(ProactiveCandidate)} & prohibited)
