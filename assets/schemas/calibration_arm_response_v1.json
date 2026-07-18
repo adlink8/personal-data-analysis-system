@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_checksum", "blind_label", "status", "recommendation", "rationale", "limitations", "confidence"],
+  "properties": {
+    "protocol_checksum": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "blind_label": {"type": "string", "pattern": "^arm_[ab]$"},
+    "status": {"type": "string", "enum": ["candidate", "abstain"]},
+    "recommendation": {"type": "string", "maxLength": 2000},
+    "rationale": {"type": "array", "maxItems": 8, "items": {"type": "string", "maxLength": 1000}},
+    "limitations": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "string", "maxLength": 1000}},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+  }
+}
