@@ -89,7 +89,7 @@ def _append_surface(args: argparse.Namespace) -> dict[str, Any]:
         if args.expected_sequence != len(rows): raise ValueError("stale_sequence")
         sequence = len(rows) + 1; event_id = f"pse_{checksum({**identity, 'sequence': sequence, 'previous_event_checksum': previous})[:24]}"
         payload = {**identity, "event_id": event_id, "sequence": sequence, "previous_event_checksum": previous}; payload_checksum = checksum(payload)
-        con.execute("INSERT INTO proactive_surface_events VALUES (?,?,?,?,?,?,?,?,?)", (event_id, args.candidate_id, sequence, args.event_type, "user", args.actor_identity_hash, previous, canonical_json(payload), payload_checksum, args.occurred_at))
+        con.execute("INSERT INTO proactive_surface_events VALUES (?,?,?,?,?,?,?,?,?,?)", (event_id, args.candidate_id, sequence, args.event_type, "user", args.actor_identity_hash, previous, canonical_json(payload), payload_checksum, args.occurred_at))
         con.commit(); return {"schema_version": INTERFACE_SCHEMA_VERSION, "operation": "surface", "ok": True, "status": "written", "receipt": {**payload, "payload_checksum": payload_checksum}, "external_actions": 0}
     except Exception as exc:
         con.rollback(); return _error("surface", str(exc))
@@ -168,6 +168,10 @@ def _invoke(args: argparse.Namespace) -> dict[str, Any]:
     if blocked: return blocked
     if args.command == "surface": return _append_surface(args)
     try:
+        read = service.invoke("candidates.get", candidate_id=args.candidate_id)
+        if not read.get("ok"): return read
+        if read["data"]["candidate_checksum"] != args.candidate_checksum:
+            return _error("control", "candidate_checksum_mismatch")
         command = ControlCommand(ControlTarget("a.proactive_intelligence", "candidate", args.candidate_id, args.candidate_checksum), args.operation, args.scope, args.actor_class, args.actor_identity_hash, args.expected_sequence, args.idempotency_key, args.reason_code, args.created_at, args.expires_at, args.rollback_of_event_id, json.loads(args.details_json))
         receipt = append_control(args.db, command, write=True)
         return {"schema_version": INTERFACE_SCHEMA_VERSION, "operation": "control", "ok": True, "status": "written" if receipt.written else "existing", "receipt": asdict(receipt), "privacy": {"metadata_only": True, "private_bodies": 0}, "external_actions": 0}
