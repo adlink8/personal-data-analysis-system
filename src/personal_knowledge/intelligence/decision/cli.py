@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import sqlite3
 import tempfile
-from typing import Any
+from typing import Any, Callable, Mapping
 
 from personal_knowledge.application.knowledge.lifecycle_events import ensure_lifecycle_schema
 from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
@@ -210,7 +210,7 @@ class _SandboxResolver:
         }
 
 
-def _sandbox_loop() -> dict[str, Any]:
+def _sandbox_loop(extension: Callable[..., Mapping[str, Any]] | None = None) -> dict[str, Any]:
     """Exercise writes only in a disposable database and return checksums/counts."""
     with tempfile.TemporaryDirectory(prefix="phase26-acceptance-") as temp:
         db = Path(temp) / "decision.sqlite"
@@ -340,7 +340,7 @@ def _sandbox_loop() -> dict[str, Any]:
         )
         accepted_state = project_history(db, accepted.recommendation_id)
         rejected_state = project_history(db, rejected.recommendation_id)
-        return {
+        result = {
             "ok": (
                 [event.sequence for event in accepted_state.events] == list(range(1, 8))
                 and accepted_state.confirmation_state == "accepted"
@@ -357,6 +357,13 @@ def _sandbox_loop() -> dict[str, Any]:
             "causal_claim": assessment.causal_claim,
             "external_actions": 0,
         }
+        if extension is not None:
+            result["extension"] = dict(extension(
+                db=db, resolver=resolver, source_run=source, decision_run=run,
+                accepted=accepted, rejected=rejected, assessment=assessment,
+            ))
+            result["ok"] = bool(result["ok"] and result["extension"].get("ok"))
+        return result
 
 
 _DECISION_TABLES = (
