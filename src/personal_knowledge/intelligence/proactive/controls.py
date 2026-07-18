@@ -209,6 +209,14 @@ def _load_stream(con: sqlite3.Connection, target: ControlTarget) -> tuple[Contro
         if event.sequence != index or event.expected_sequence != index - 1 or event.previous_event_checksum != previous:
             raise ControlError("control_chain_tampered", event.event_id)
         previous = event.payload_checksum
+    for index, event in enumerate(events):
+        prior = events[:index]
+        before = _project(prior, as_of=event.created_at, scope=event.scope,
+                          domains=frozenset(), policies=frozenset())
+        after = _project(prior + (event,), as_of=event.created_at, scope=event.scope,
+                         domains=frozenset(), policies=frozenset())
+        if before.checksum != event.before_projected_checksum or after.checksum != event.after_projected_checksum:
+            raise ControlError("control_projection_tampered", event.event_id)
     return events
 
 

@@ -109,3 +109,10 @@ def test_frontier_is_deterministic_and_changes_only_on_append(tmp_path) -> None:
     append_control(db, _command(target, "mark_not_useful", "f"), write=True)
     assert active_control_frontier(db) != before
 
+
+def test_human_actor_and_timezone_are_mandatory(tmp_path) -> None:
+    db, target = _published_candidate(tmp_path)
+    with pytest.raises(ValueError, match="human_actor_required"):
+        append_control(db, replace(_command(target, "suppress", "bot"), actor_class="agent"), write=True)
+    with pytest.raises(ValueError, match="timezone_required"):
+        append_control(db, replace(_command(target, "suppress", "time"), created_at="2026-07-18T12:00:00"), write=True)

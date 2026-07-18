@@ -55,3 +55,19 @@ def test_tampered_chain_fails_closed_without_new_event(tmp_path) -> None:
         append_control(db, _command(target, "two", expected=1), write=True)
     assert _count(db) == 1
 
+
+def test_semantically_rechecks_projected_restore_receipts(tmp_path) -> None:
+    db, target = _published_candidate(tmp_path)
+    append_control(db, _command(target, "one"), write=True)
+    con = sqlite3.connect(db)
+    row = con.execute("SELECT payload_json FROM proactive_control_events").fetchone()
+    import json
+    payload = json.loads(row[0])
+    payload["after_projected_checksum"] = "0" * 64
+    con.execute("DROP TRIGGER trg_proactive_control_events_immutable_update")
+    con.execute("UPDATE proactive_control_events SET payload_json=?,payload_checksum=?",
+                (json.dumps(payload, sort_keys=True, separators=(",", ":")), checksum(payload)))
+    con.commit(); con.close()
+    with pytest.raises(ValueError, match="control_projection_tampered"):
+        append_control(db, _command(target, "two", expected=1), write=True)
+    assert _count(db) == 1
