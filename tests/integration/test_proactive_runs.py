@@ -10,7 +10,8 @@ import pytest
 from personal_knowledge.intelligence.decision.runs import plan_run as plan_decision_run, publish_run as publish_decision_run
 from personal_knowledge.intelligence.proactive.runs import ProactiveValidationError, plan_run, publish_run
 from personal_knowledge.intelligence.proactive.ranking import EvaluationContext
-from personal_knowledge.intelligence.proactive.schema import CandidateDraft, CoordinationDraft, SupportReference
+from personal_knowledge.intelligence.proactive.schema import CandidateDraft, CoordinationDraft, SupportReference, checksum
+from personal_knowledge.intelligence.proactive.controls import ControlCommand, ControlTarget, append_control
 from tests.integration.test_decision_feedback_runs import _database, _draft
 
 
@@ -54,6 +55,14 @@ def _candidate(draft: CoordinationDraft, *, subject: str = "user") -> CandidateD
         tuple(f"{ref.record_type}:{ref.record_id}" for ref in draft.source_refs),
         draft.valid_from, draft.valid_to or "2026-08-01T00:00:00Z", draft.source_refs,
         .8, .8, .8, .8, .9, .8, 0, "fixture contract only", ("fixture_only",),
+    )
+
+
+def _global_control(operation: str, key: str, *, expected: int = 0, rollback_of: str | None = None) -> ControlCommand:
+    target = ControlTarget("a.proactive_intelligence", "global", "proactive", checksum({"global": "proactive"}))
+    return ControlCommand(
+        target, operation, "global", "user", checksum({"user": "fixture-owner"}),
+        expected, key, "user_declared", "2026-07-18T12:00:00Z", None, rollback_of, {},
     )
 
 
@@ -225,4 +234,43 @@ def test_concurrent_candidate_replay_converges_to_one_immutable_bundle(tmp_path:
     assert tuple(con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in (
         "proactive_runs", "proactive_candidates", "proactive_candidate_support", "proactive_evaluations"
     )) == (1, 1, 1, 1)
+    con.close()
+
+
+def test_control_frontier_change_rejects_stale_run_and_trust_veto_beats_importance(tmp_path: Path) -> None:
+    db, state_id, state_checksum, seq, decision, draft = _upstream(tmp_path)
+    common = dict(
+        source_run_id=state_id, source_run_checksum=state_checksum,
+        source_publication_sequence=seq, decision_run_id=decision.run_id,
+        decision_run_checksum=decision.run_checksum, coordination_policy="c",
+        ranking_policy="r", noise_policy="n", candidate_drafts=(_candidate(draft),),
+    )
+    stale = plan_run(db, [draft], input_manifest={"cycle": "stale"}, **common)
+    before = _protected(db)
+    suppression = append_control(db, _global_control("suppress", "suppress"), write=True).event
+    assert _protected(db) == before
+    with pytest.raises(ProactiveValidationError, match="control_frontier_changed"):
+        publish_run(db, stale, write=True)
+    controlled = plan_run(db, [draft], input_manifest={"cycle": "controlled"}, **common)
+    assert controlled.control_frontier_checksum != stale.control_frontier_checksum
+    assert controlled.evaluations[0].result == "abstained"
+    assert controlled.evaluations[0].reason_codes == ("trust_veto",)
+    assert controlled.candidates[0].importance.final_score >= .8
+
+    append_control(db, _global_control("restore", "restore", expected=1, rollback_of=suppression.event_id), write=True)
+    restored = plan_run(db, [draft], input_manifest={"cycle": "restored"}, **common)
+    assert restored.control_frontier_checksum != controlled.control_frontier_checksum
+    assert restored.evaluations[0].result == "eligible"
+    assert _protected(db) == before
+
+
+def test_correction_request_never_mutates_canonical_or_lifecycle_authority(tmp_path: Path) -> None:
+    db, *_ = _upstream(tmp_path)
+    before = _protected(db)
+    receipt = append_control(db, _global_control("correct", "correction"), write=True)
+    assert receipt.event.outcome == "canonical_correction_requested"
+    assert _protected(db) == before
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT COUNT(*) FROM knowledge_lifecycle_manifests").fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM knowledge_lifecycle_events").fetchone()[0] == 0
     con.close()

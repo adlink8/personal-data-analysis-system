@@ -282,14 +282,27 @@ def project_controls(db_path: Path, *, targets: tuple[ControlTarget, ...], as_of
     con = sqlite3.connect(f"file:{Path(db_path).resolve().as_posix()}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     try:
-        events: list[ControlEvent] = []
-        for target in targets:
-            _validate_target(con, target)
-            events.extend(_load_stream(con, target))
-        return _project(tuple(events), as_of=as_of, scope=scope,
-                        domains=frozenset(domains), policies=frozenset(policies))
+        return project_controls_connection(con, targets=targets, as_of=as_of, scope=scope,
+                                           domains=domains, policies=policies)
     finally:
         con.close()
+
+
+def project_controls_connection(con: sqlite3.Connection, *, targets: tuple[ControlTarget, ...],
+                                as_of: str, scope: str = "global",
+                                domains: tuple[str, ...] = (), policies: tuple[str, ...] = ()) -> ControlProjection:
+    """Project controls using the caller's consistent SQLite snapshot/transaction."""
+    events: list[ControlEvent] = []
+    seen: set[tuple[str, str, str]] = set()
+    for target in targets:
+        key = _target_key(target)
+        if key in seen:
+            continue
+        seen.add(key)
+        _validate_target(con, target)
+        events.extend(_load_stream(con, target))
+    return _project(tuple(events), as_of=as_of, scope=scope,
+                    domains=frozenset(domains), policies=frozenset(policies))
 
 
 def append_control(db_path: Path, command: ControlCommand, *, write: bool,

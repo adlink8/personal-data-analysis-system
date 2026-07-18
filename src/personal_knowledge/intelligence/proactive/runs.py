@@ -1,7 +1,7 @@
 """Read-first planning and atomic publication for proactive intelligence runs."""
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -19,6 +19,7 @@ from .ranking import (
     DEFAULT_NOISE_POLICY, DEFAULT_RANKING_POLICY, EvaluationContext, NoisePolicy,
     RankingPolicy, SurfaceRecord, evaluate_candidates, rank_candidates,
 )
+from .controls import ControlTarget, project_controls_connection
 
 REGISTRY_ID = "a.proactive_intelligence"
 REGISTRY_AUTHORITY_ROLE = "proactive_intelligence"
@@ -150,6 +151,7 @@ def plan_run(
     con = sqlite3.connect(f"file:{Path(db_path).resolve().as_posix()}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     try:
+        con.execute("BEGIN")
         _assert_schema(con)
         source = _source_context(con, source_run_id)
         if str(source["output_manifest_checksum"]) != source_run_checksum or int(source["publication_sequence"]) != source_publication_sequence:
@@ -186,9 +188,37 @@ def plan_run(
                 _validate_ref(con, ref, snapshot_id=snapshot_id, snapshot_hash=snapshot_hash,
                               source_run_id=source_run_id, source_run_checksum=source_run_checksum,
                               decision_run_id=decision_run_id, decision_run_checksum=decision_run_checksum)
+        context = evaluation_context or EvaluationContext.fixed()
+        controlled_candidates: list[CandidateDraft] = []
+        for candidate in candidate_inputs:
+            targets = [ControlTarget(ref.authority_id, ref.record_type, ref.record_id, ref.record_checksum)
+                       for ref in candidate.support_refs]
+            targets.append(ControlTarget("a.proactive_intelligence", "global", "proactive",
+                                         checksum({"global": "proactive"})))
+            targets.append(ControlTarget("a.proactive_intelligence", "policy", ranking_config.policy_id,
+                                         checksum({"policy": ranking_config.policy_id})))
+            targets.extend(ControlTarget("a.proactive_intelligence", "domain", domain,
+                                         checksum({"domain": domain})) for domain in candidate.domains)
+            projection = project_controls_connection(
+                con, targets=tuple(targets), as_of=context.as_of, scope=candidate.scope,
+                domains=candidate.domains, policies=(ranking_config.policy_id,),
+            )
+            metadata = dict(candidate.metadata or {})
+            metadata["trust_control"] = {
+                "frontier_checksum": control_frontier,
+                "projection_checksum": projection.checksum,
+                "active_event_ids": list(projection.active_event_ids),
+                "correction_requested": projection.correction_requested,
+            }
+            controlled_candidates.append(replace(
+                candidate,
+                trust_eligible=candidate.trust_eligible and projection.eligible,
+                reason_codes=tuple(sorted(set(candidate.reason_codes) | set(projection.reason_codes))),
+                metadata=metadata,
+            ))
+        candidate_inputs = tuple(controlled_candidates)
     finally:
         con.close()
-    context = evaluation_context or EvaluationContext.fixed()
     manifest = {
         "schema_version": "proactive_run_v1", "registry_id": REGISTRY_ID,
         "source_run_id": source_run_id, "source_run_checksum": source_run_checksum,
@@ -258,6 +288,14 @@ def _candidate_draft(value: Mapping[str, Any]) -> CandidateDraft:
 
 
 def validate_run(db_path: Path, run: ProactiveRun) -> ProactiveRun:
+    con = sqlite3.connect(f"file:{Path(db_path).resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        if _control_frontier(con) != run.control_frontier_checksum:
+            raise ProactiveValidationError("control_frontier_changed")
+        if _event_frontier(con, run.decision_run_id) != run.decision_event_frontier_checksum:
+            raise ProactiveValidationError("decision_frontier_changed")
+    finally:
+        con.close()
     request = run.input_manifest.get("request_input")
     drafts = tuple(item.draft for item in run.coordination_items)
     candidate_values = run.input_manifest.get("candidate_drafts", [])
