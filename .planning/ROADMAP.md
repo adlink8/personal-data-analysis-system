@@ -112,7 +112,7 @@ Plans:
 | 28 | PDI-01..04 | 4/4 | Complete |
 | 29 | PDI-05..06 | 4/4 | Complete |
 | 30 | 3/3 | Complete    | 2026-07-18 |
-| 31 | 3/3 | Complete   | 2026-07-18 |
+| 31 | 3/3 | Complete    | 2026-07-18 |
 
 ---
 *Updated 2026-07-18 — Phase 29 complete; Phase 30 is next*
