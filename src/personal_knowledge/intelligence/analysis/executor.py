@@ -83,6 +83,7 @@ def execute_analysis(
             weights=weights, risk_budget=risk_budget, confirmation=confirmation,
             personal_evidence=personal_evidence, external_evidence=external_evidence,
             domain=domain, policy_path=policy_path, now=now,
+            temperature=temperature, max_output_tokens=max_output_tokens,
         )
         provider_request = ProviderRequest(
             prompt=confirmed.rendered_prompt, request_checksum=confirmed.request_checksum,
@@ -113,7 +114,8 @@ def execute_analysis(
         return _abstain("provider", last_error, attempts=attempts,
                         request_checksum=confirmed.request_checksum)
     telemetry = asdict(result.telemetry)
-    if result.telemetry.input_tokens + result.telemetry.output_tokens > max_total_tokens:
+    if (result.telemetry.output_tokens > max_output_tokens
+            or result.telemetry.input_tokens + result.telemetry.output_tokens > max_total_tokens):
         return _abstain(
             "provider", "usage_limit_exceeded", attempts=attempts,
             request_checksum=confirmed.request_checksum,

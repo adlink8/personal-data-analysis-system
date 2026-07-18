@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import time
 from typing import Any, Callable, Mapping, Protocol
@@ -251,7 +252,7 @@ class CodexCliProvider:
             raise ProviderError("provider_runtime_path_invalid")
         self.calls += 1
         command = [
-            "codex", "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+            shutil.which("codex") or "codex", "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
             "--skip-git-repo-check", "--sandbox", "read-only", "--model", self.model,
             "--output-schema", str(self.output_schema_path.resolve()), "--json",
             "--color", "never", "--cd", str(self.working_directory.resolve()), "-",

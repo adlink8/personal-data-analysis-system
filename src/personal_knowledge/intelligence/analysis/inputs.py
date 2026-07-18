@@ -160,6 +160,8 @@ def build_confirmed_input(
     policy_path: Path | str = DEFAULT_POLICY_PATH,
     now: str | None = None,
     max_request_bytes: int = 32_768,
+    temperature: float = 0.0,
+    max_output_tokens: int = 4096,
 ) -> ConfirmedAnalysisInput:
     """Revalidate both authorities read-only and build an exact provider allowlist."""
     if not goal.strip() or len(goal) > 2_000:
@@ -172,6 +174,15 @@ def build_confirmed_input(
         raise AnalysisInputError("risk_budget_forbidden", risk_budget)
     event = confirmation if isinstance(confirmation, ConfirmationEvent) else from_exact_mapping(ConfirmationEvent, confirmation)
     policy, policy_checksum = load_policy(policy_path)
+    sampling = policy.get("sampling") if isinstance(policy.get("sampling"), Mapping) else {}
+    if (isinstance(temperature, bool) or not isinstance(temperature, (int, float))
+            or not math.isfinite(float(temperature))
+            or not float(sampling.get("temperature_min", 0.0)) <= float(temperature)
+            <= float(sampling.get("temperature_max", 0.3))):
+        raise AnalysisInputError("temperature_forbidden")
+    if (isinstance(max_output_tokens, bool) or not isinstance(max_output_tokens, int)
+            or not 1 <= max_output_tokens <= int(sampling.get("max_output_tokens", 4096))):
+        raise AnalysisInputError("output_token_budget_forbidden")
     if domain not in policy.get("domain", {}).get("allow", ()):
         raise AnalysisInputError("domain_forbidden", domain)
     try:
@@ -209,6 +220,9 @@ def build_confirmed_input(
         "weights": _normalized_weights(weights),
         "risk_budget": risk_budget,
         "confirmation": asdict(event),
+        "generation": {
+            "temperature": float(temperature), "max_output_tokens": max_output_tokens,
+        },
     }
     evidence = {
         "personal": [asdict(item) for item in personal],
