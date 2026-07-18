@@ -33,6 +33,7 @@ release_status: release_blocked
 1. `801112e` — shared proactive reads and guarded local CLI
 2. `d12264f` — read-only REST/MCP adapters and runbook
 3. `27e9296` — metadata-only Target D acceptance and two-verdict tests
+4. `521304b` — final guarded surface-write validation and idempotency regression
 
 ## Acceptance Evidence
 
@@ -48,7 +49,7 @@ release_status: release_blocked
 - Phase 25/26 adjacent regression: 78 passed.
 - Apps SDK, knowledge search and serving snapshot regression: 33 passed.
 - Governance preflight: 13/13 PASS.
-- Full repository suite: 868 passed, 2 skipped; two pre-existing `SyntaxWarning` messages.
+- Full repository suite before the final one-line surface placeholder fix: 868 passed, 2 skipped; two pre-existing `SyntaxWarning` messages. The impacted interfaces/concurrency/privacy/acceptance set was then rerun after the fix: 21 passed.
 - `git diff --check`: PASS.
 
 ## Preserved Product Boundary
