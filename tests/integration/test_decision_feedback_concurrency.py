@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 import sqlite3
 from typing import Any
@@ -361,3 +362,45 @@ def test_assessment_is_immutable_non_causal_and_tamper_checked(tmp_path: Path) -
     con.commit(); con.close()
     with pytest.raises(ValueError, match="outcome_checksum_mismatch"):
         load_outcome(db, outcome_receipt.record_id)
+
+
+@pytest.mark.parametrize(
+    ("outcome_changes", "assessment_changes"),
+    (
+        ({"observed_value": None}, {"verdict": "effective", "limitations": (), "confidence": .8}),
+        ({"confounders": ("seasonality",)}, {"verdict": "effective", "limitations": (), "confidence": .8}),
+    ),
+)
+def test_assessment_write_rejects_forged_derivation(tmp_path, outcome_changes, assessment_changes) -> None:
+    db, rec = _published(tmp_path)
+    _complete(db, rec)
+    outcome_receipt = _outcome(db, rec, **outcome_changes)
+    outcome = load_outcome(db, outcome_receipt.record_id)
+    rule = EffectivenessRule("observed_goal_attainment", "1", "focus_blocks", "count/week", "increase", 86400)
+    derived = assess_outcome(outcome, rule, action_state="completed")
+    forged = replace(derived, **assessment_changes)
+
+    with pytest.raises(DecisionStateError, match="assessment_derivation_mismatch"):
+        record_assessment(
+            db, assessment=forged, expected_sequence=6, idempotency_key="assessment-forged",
+            occurred_at="2026-07-25T01:02:00Z",
+        )
+    assert sqlite3.connect(db).execute("SELECT COUNT(*) FROM decision_effectiveness").fetchone()[0] == 0
+
+
+def test_assessment_write_rejects_unknown_rule_version(tmp_path: Path) -> None:
+    db, rec = _published(tmp_path)
+    _complete(db, rec)
+    outcome_receipt = _outcome(db, rec)
+    outcome = load_outcome(db, outcome_receipt.record_id)
+    assessment = assess_outcome(
+        outcome,
+        EffectivenessRule("unregistered", "999", "focus_blocks", "count/week", "increase", 86400),
+        action_state="completed",
+    )
+
+    with pytest.raises(DecisionStateError, match="unknown_effectiveness_rule"):
+        record_assessment(
+            db, assessment=assessment, expected_sequence=6, idempotency_key="assessment-unknown",
+            occurred_at="2026-07-25T01:02:00Z",
+        )

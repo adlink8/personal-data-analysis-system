@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import sqlite3
 
+import pytest
+
+import personal_knowledge.intelligence.decision.cli as decision_cli
 from personal_knowledge.intelligence.decision.cli import main as cli_main, run_acceptance
 from tests.integration.test_decision_feedback_concurrency import _published
 
@@ -69,6 +72,24 @@ def test_schema_unapplied_is_allowlisted_without_migration(tmp_path) -> None:
     assert result["live"]["decision_status"]["reason"] == "decision_schema_unapplied"
 
 
+@pytest.mark.parametrize("missing_table", decision_cli._DECISION_TABLES)
+def test_partial_decision_schema_fails_closed_for_each_missing_table(tmp_path, missing_table) -> None:
+    db, _ = _published(tmp_path)
+    con = sqlite3.connect(db)
+    con.execute("PRAGMA foreign_keys=OFF")
+    con.execute(f"DROP TABLE {missing_table}")
+    con.commit(); con.close()
+
+    result = run_acceptance(db, pointer_path=tmp_path / "missing.txt")
+
+    assert result["ok"] is False
+    assert result["technical_status"] == "failed"
+    assert result["release_status"] == "release_blocked"
+    assert result["live"]["decision_status"]["reason"] == "decision_schema_partial"
+    assert missing_table in result["live"]["decision_status"]["missing_tables"]
+    assert result["live"]["decision_rows_present"] is True
+
+
 def test_corrupted_live_decision_chain_blocks_technical_status(tmp_path) -> None:
     db, rec = _published(tmp_path)
     con = sqlite3.connect(db)
@@ -84,3 +105,27 @@ def test_corrupted_live_decision_chain_blocks_technical_status(tmp_path) -> None
     assert result["release_status"] == "release_blocked"
     assert result["live"]["decision_status"]["ok"] is False
     assert result["live"]["decision_status"]["reason"] == "event_checksum_mismatch"
+
+
+def test_technical_failure_blocks_release_after_phase24_is_resolved(tmp_path, monkeypatch) -> None:
+    db, rec = _published(tmp_path)
+    con = sqlite3.connect(db)
+    con.execute("DROP TRIGGER trg_decision_events_immutable_update")
+    con.execute(
+        "UPDATE decision_events SET payload_json='{}' WHERE recommendation_id=? AND sequence=1",
+        (rec.recommendation_id,),
+    )
+    con.commit(); con.close()
+    monkeypatch.setattr(decision_cli, "_phase24_dependency_status", lambda _path: {
+        "status": "release_ready", "release_blocked": False, "checkpoints": [],
+        "human_review_strict": {"ok": True, "checks": {}},
+        "lifecycle_strict": {"ok": True, "checks": {}, "applied_manifests": 1, "event_count": 1},
+        "reason_codes": [],
+    })
+
+    result = run_acceptance(db, pointer_path=tmp_path / "missing.txt")
+
+    assert result["technical_status"] == "failed"
+    assert result["release_status"] == "release_blocked"
+    assert result["release_blockers"]["technical"]
+    assert result["release_blockers"]["phase24"] == []
