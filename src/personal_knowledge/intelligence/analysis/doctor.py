@@ -193,12 +193,16 @@ def doctor(
     provider_preflight = codex_cli_preflight(codex_model) if codex_model else None
     if provider_preflight and not provider_preflight["ok"]:
         findings.extend(provider_preflight["findings"])
+    public_preflight = (
+        {key: value for key, value in provider_preflight.items() if key != "command_path"}
+        if provider_preflight else None
+    )
     return {
         "ok": not findings, "status": "ready" if not findings else "blocked",
         "findings": sorted(set(findings)), "schema_state": schema_state,
         "lineage": lineage, "authority_fingerprints_before": before,
         "authority_fingerprints_after": after, "unchanged": unchanged,
-        "provider_preflight": provider_preflight,
+        "provider_preflight": public_preflight,
         "network_calls": 1 if provider_preflight else 0, "provider_calls": 0,
     }
 

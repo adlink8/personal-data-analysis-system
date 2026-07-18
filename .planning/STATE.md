@@ -64,7 +64,7 @@ progress:
 Phase: 29 of 31 — Structured LLM Decision Analysis Candidate
 Plan: 3 of 4 complete
 Status: Phase 29 executing; 29-04 technical path passes, but corrected real LLM execution and exact user UAT remain open
-Last activity: 2026-07-18 — Phase 29 focused suite passed 51/51 and governance 13/13; a frozen gpt-5.5 request and exact one-call/no-retry CLI are ready with zero provider calls; Phases 30–31 planned
+Last activity: 2026-07-18 — one authorized gpt-5.4 attempt failed safely on the old PATH CLI with zero authority writes; provider selection now locks to direct codex-cli 0.145.0 and redacted failure codes; Phase 29 live output/UAT remains open
 
 ## Cross-cutting architecture/data governance audit
 

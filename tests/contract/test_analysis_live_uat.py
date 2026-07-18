@@ -28,7 +28,7 @@ def _spec(tmp_path: Path) -> dict:
         "snapshot_hash": snap_hash,
     }
     spec = {
-        "schema_version": SPEC_VERSION, "model": "gpt-5.5",
+        "schema_version": SPEC_VERSION, "model": "gpt-5.4",
         "personal_db": paths["personal"], "external_db": paths["external"],
         "analysis_db": paths["analysis"], "goal": "choose rollout",
         "constraints": ["no external action"], "weights": {"safety": 1.0},
@@ -61,7 +61,7 @@ def test_live_uat_executes_once_and_reports_source_isolation(tmp_path: Path, mon
     monkeypatch.setattr(
         "personal_knowledge.intelligence.analysis.live_uat.codex_cli_preflight",
         lambda model: {"ok": True, "credential_present": True, "findings": (),
-                       "provider_calls": 0},
+                       "provider_calls": 0, "command_path": "codex"},
     )
     draft = DecisionContextBinding(
         "ps", "1" * 64, "es", "2" * 64,
@@ -102,7 +102,7 @@ def test_frozen_live_request_is_strict_and_uses_only_bound_evidence() -> None:
     spec = load_live_spec(
         root / ".planning/phases/29-structured-llm-decision-analysis/29-LIVE-UAT-REQUEST.json"
     )
-    assert spec["model"] == "gpt-5.5" and spec["risk_budget"] == "low"
+    assert spec["model"] == "gpt-5.4" and spec["risk_budget"] == "low"
     assert len(spec["personal_evidence"]) == 1 and len(spec["external_evidence"]) == 4
     assert all(item["snapshot_id"] == "exs_a7770b7d4e9e2727e359befc"
                for item in spec["external_evidence"])

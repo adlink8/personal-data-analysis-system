@@ -14,7 +14,7 @@ from personal_knowledge.intelligence.analysis.inputs import ConfirmedAnalysisInp
 from personal_knowledge.intelligence.analysis.migrate import migrate
 from personal_knowledge.intelligence.analysis.providers import (
     CodexCliProvider, OpenAICompatibleProvider, ProviderError, ProviderRequest,
-    ProviderTimeout, ReplayProvider, codex_cli_preflight,
+    ProviderTimeout, ReplayProvider, codex_cli_preflight, resolve_codex_command,
 )
 from personal_knowledge.intelligence.analysis.runs import load_policy
 from personal_knowledge.intelligence.analysis.schema import SCHEMA_VERSION, checksum
@@ -221,7 +221,7 @@ def test_codex_cli_provider_parses_jsonl_and_enforces_single_call(tmp_path: Path
     provider = CodexCliProvider(
         model="gpt-5.5", output_schema_path=schema,
         working_directory=tmp_path, enabled=True, credential_present=True,
-        runner=runner, preflight_runner=preflight_runner,
+        runner=runner, preflight_runner=preflight_runner, command_path="codex",
     )
     result = provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
     assert result.response_payload == payload
@@ -251,8 +251,45 @@ def test_codex_cli_preflight_rejects_missing_model_without_generation(tmp_path: 
     provider = CodexCliProvider(
         model="gpt-5.6-luna", output_schema_path=schema,
         working_directory=tmp_path, enabled=True, credential_present=True,
-        runner=runner, preflight_runner=preflight_runner,
+        runner=runner, preflight_runner=preflight_runner, command_path="codex",
     )
     with pytest.raises(ProviderError, match="provider_model_unavailable"):
         provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
     assert provider.calls == 0 and not generated
+
+
+def test_codex_command_resolver_prefers_newest_direct_runtime() -> None:
+    def runner(command, **kwargs):
+        version = "0.144.5" if str(command[0]).endswith("codex.exe") else "0.142.4"
+        return subprocess.CompletedProcess(command, 0, stdout=f"codex-cli {version}", stderr="")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, "is_dir", lambda self: True)
+        patch.setattr(Path, "glob", lambda self, pattern: iter((Path("C:/direct/codex.exe"),)))
+        patch.setattr("personal_knowledge.intelligence.analysis.providers.shutil.which",
+                      lambda name: "C:/npm/codex.CMD")
+        command, version = resolve_codex_command(runner=runner)
+    assert Path(str(command)) == Path("C:/direct/codex.exe") and version == "0.144.5"
+
+
+def test_codex_cli_failure_is_classified_without_stderr_disclosure(tmp_path: Path) -> None:
+    schema = tmp_path / "schema.json"
+    schema.write_text("{}", encoding="utf-8")
+    def preflight_runner(command, **kwargs):
+        if command[1:3] == ["login", "status"]:
+            return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps([{"slug": "gpt-5.4"}]), stderr="",
+        )
+    def runner(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command, 1, stdout="", stderr="Invalid response_format schema: private detail",
+        )
+    provider = CodexCliProvider(
+        model="gpt-5.4", output_schema_path=schema, working_directory=tmp_path,
+        enabled=True, credential_present=True, runner=runner,
+        preflight_runner=preflight_runner, command_path="codex",
+    )
+    with pytest.raises(ProviderError) as captured:
+        provider.generate(ProviderRequest("prompt", "0" * 64, 0.0, 100, 5.0))
+    assert captured.value.code == "codex_output_schema_rejected"
+    assert "private detail" not in str(captured.value)

@@ -9,8 +9,8 @@ requirements: [PDI-05, PDI-06]
 
 ## Automated evidence
 
-On 2026-07-18 the focused Phase 29 suite passed `51/51` after adding the guarded
-live-UAT contracts:
+On 2026-07-18 the focused Phase 29 suite passed `53/53` after adding guarded
+live-UAT, direct-runtime selection and redacted failure-classification contracts:
 
 ```powershell
 python -m pytest tests/integration/test_analysis_authority_schema.py tests/integration/test_analysis_candidates.py tests/contract/test_analysis_prompt_lineage.py tests/contract/test_analysis_evidence_gates.py tests/contract/test_analysis_live_uat.py tests/security/test_analysis_safety_gates.py tests/e2e/test_structured_llm_analysis.py -q
@@ -21,11 +21,12 @@ strict parsing, evidence allowlists, deterministic safety gates, bounded usage,
 timeout/fault abstention and zero source-authority mutation are technically
 verified.
 
-The real read-only provider preflight for `gpt-5.5` also passed: ChatGPT login
-present, model catalog membership true, provider calls zero and identical
-Personal/External/Analysis authority fingerprints before and after. A negative
-preflight proves `gpt-5.6-luna` fails before generation and leaves the call
-budget untouched.
+The real read-only provider preflight for `gpt-5.4` passes on the corrected
+direct `codex-cli 0.145.0` runtime: ChatGPT login present, model catalog
+membership true, provider calls zero and identical Personal/External/Analysis
+authority fingerprints before and after. Resolver tests prove the newer direct
+runtime wins over the older npm wrapper, and failure-classification tests prove
+stderr is reduced to stable codes without diagnostic disclosure.
 
 The frozen corrected request also passes strict parsing, live dual-snapshot
 binding and presentation of one Personal observation plus four External facts.
@@ -41,12 +42,13 @@ provider call and zero external actions.
   `612dbb3d6ffda4f1c4be1aa7eabba177d53f4da3eb1e02f040f69096bbfa149e`
 - External authority sequence: `1`
 
-The first explicitly authorized non-stub attempt used this confirmed context
-but failed before producing a response. It recorded one provider call,
-request checksum
-`1484cf6d0d4217c0008139bcfd0e6d19646aaafcf4377ed5ac7a171d6c716d3a`,
-reason `codex_cli_failed`, no run/candidate, and unchanged Analysis, Personal and
-External authorities.
+Two explicitly authorized non-stub attempts used this confirmed context but
+failed before producing a response. The latest `gpt-5.4` receipt recorded
+binding hash `eeb9221568a4abcf9b6b60ffa619f437c60128b5c16a5befece62c9f870655ca`,
+request checksum `b85f8fd1aea282e44bc43f47d1206e716745fa512678658a636ce3ecb5553755`,
+one provider call, reason `codex_cli_failed`, no response/run/candidate and
+unchanged Analysis, Personal and External authorities. The attempt used the
+older PATH npm wrapper; no retry was made after correcting runtime selection.
 
 ## Verdict
 

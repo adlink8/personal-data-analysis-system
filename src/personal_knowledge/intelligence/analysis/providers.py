@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import time
@@ -179,6 +180,36 @@ class OpenAICompatibleProvider:
 CodexRunner = Callable[..., subprocess.CompletedProcess[str]]
 
 
+def resolve_codex_command(*, runner: CodexRunner = subprocess.run) -> tuple[str | None, str | None]:
+    """Prefer the newest direct executable over an older npm cmd wrapper."""
+    candidates: list[str] = []
+    vscode_root = Path.home() / ".vscode" / "extensions"
+    if vscode_root.is_dir():
+        candidates.extend(str(path) for path in vscode_root.glob(
+            "openai.chatgpt-*-win32-x64/bin/windows-x86_64/codex.exe"
+        ))
+    on_path = shutil.which("codex")
+    if on_path:
+        candidates.append(on_path)
+    versions: list[tuple[tuple[int, ...], str, str]] = []
+    for command in dict.fromkeys(candidates):
+        try:
+            completed = runner(
+                [command, "--version"], text=True, capture_output=True, timeout=5,
+                encoding="utf-8", errors="replace",
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        match = re.search(r"codex-cli\s+(\d+(?:\.\d+)+)", completed.stdout)
+        if completed.returncode == 0 and match:
+            version = match.group(1)
+            versions.append((tuple(int(item) for item in version.split(".")), command, version))
+    if not versions:
+        return None, None
+    _, command, version = max(versions, key=lambda item: item[0])
+    return command, version
+
+
 def codex_cli_preflight(
     model: str,
     *,
@@ -187,7 +218,11 @@ def codex_cli_preflight(
     timeout_seconds: float = 15.0,
 ) -> dict[str, Any]:
     """Check ChatGPT login and the public model catalog without generating."""
-    command = command_path or shutil.which("codex")
+    resolved_version: str | None = None
+    if command_path:
+        command = command_path
+    else:
+        command, resolved_version = resolve_codex_command(runner=runner)
     findings: list[str] = []
     available_models: tuple[str, ...] = ()
     credential_present = False
@@ -229,6 +264,8 @@ def codex_cli_preflight(
         "model": model,
         "credential_present": credential_present,
         "model_available": model in available_models,
+        "command_path": command,
+        "cli_version": resolved_version,
         "available_models": available_models,
         "findings": tuple(sorted(set(findings))),
         "provider_calls": 0,
@@ -249,6 +286,7 @@ class CodexCliProvider:
         max_calls: int = 1,
         runner: CodexRunner = subprocess.run,
         preflight_runner: CodexRunner = subprocess.run,
+        command_path: str | None = None,
     ) -> None:
         self.model = model
         self.output_schema_path = Path(output_schema_path)
@@ -258,6 +296,7 @@ class CodexCliProvider:
         self.max_calls = max_calls
         self.runner = runner
         self.preflight_runner = preflight_runner
+        self.command_path = command_path
         self.calls = 0
 
     @staticmethod
@@ -310,14 +349,15 @@ class CodexCliProvider:
             raise ProviderError("provider_runtime_path_invalid")
         preflight = codex_cli_preflight(
             self.model, runner=self.preflight_runner,
-            command_path=shutil.which("codex") or "codex",
+            command_path=self.command_path,
             timeout_seconds=min(request.timeout_seconds, 15.0),
         )
         if not preflight["ok"]:
             raise ProviderError(str(preflight["findings"][0]))
         self.calls += 1
+        command_path = str(preflight["command_path"])
         command = [
-            shutil.which("codex") or "codex", "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+            command_path, "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
             "--skip-git-repo-check", "--sandbox", "read-only", "--model", self.model,
             "--output-schema", str(self.output_schema_path.resolve()), "--json",
             "--color", "never", "--cd", str(self.working_directory.resolve()), "-",
@@ -334,7 +374,18 @@ class CodexCliProvider:
             raise ProviderError("codex_cli_unavailable", type(exc).__name__) from exc
         latency = int((time.monotonic() - started) * 1000)
         if completed.returncode != 0:
-            raise ProviderError("codex_cli_failed", f"exit={completed.returncode}")
+            error_text = completed.stderr.lower()
+            if "schema" in error_text or "response_format" in error_text:
+                code = "codex_output_schema_rejected"
+            elif "model" in error_text and any(token in error_text for token in ("not found", "unsupported", "unavailable")):
+                code = "provider_model_unavailable"
+            elif any(token in error_text for token in ("unauthorized", "authentication", "login required")):
+                code = "provider_credential_missing"
+            elif "unexpected argument" in error_text or "unrecognized option" in error_text:
+                code = "codex_cli_argument_invalid"
+            else:
+                code = "codex_cli_failed"
+            raise ProviderError(code, f"exit={completed.returncode}")
         payload, usage = self._events(completed.stdout)
         return ProviderResult(
             response_payload=payload, response_checksum=checksum(payload),
@@ -351,6 +402,6 @@ class CodexCliProvider:
 __all__ = [
     "AnalysisProvider", "OpenAICompatibleProvider", "ProviderError", "ProviderRequest",
     "CodexCliProvider", "ProviderResult", "ProviderTelemetry", "ProviderTimeout",
-    "codex_cli_preflight",
+    "codex_cli_preflight", "resolve_codex_command",
     "ReplayProvider",
 ]

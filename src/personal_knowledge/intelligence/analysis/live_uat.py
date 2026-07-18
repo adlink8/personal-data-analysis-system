@@ -20,6 +20,7 @@ from .schema import EvidenceReference, canonical_json, checksum, from_exact_mapp
 
 
 SPEC_VERSION = "decision_analysis_live_uat_v1"
+APPROVED_LIVE_MODELS = frozenset({"gpt-5.4"})
 SPEC_KEYS = frozenset({
     "schema_version", "model", "personal_db", "external_db", "analysis_db",
     "goal", "constraints", "weights", "risk_budget", "personal_evidence",
@@ -52,7 +53,7 @@ def load_live_spec(path: Path | str) -> dict[str, Any]:
         raise LiveUatError("live_spec_shape_invalid")
     if raw.get("schema_version") != SPEC_VERSION or raw.get("risk_budget") != "low":
         raise LiveUatError("live_spec_policy_invalid")
-    if raw.get("model") != "gpt-5.5":
+    if raw.get("model") not in APPROVED_LIVE_MODELS:
         raise LiveUatError("live_model_not_approved", str(raw.get("model")))
     for key in ("personal_db", "external_db", "analysis_db"):
         if not Path(str(raw[key])).is_file():
@@ -116,6 +117,7 @@ def run_live_uat(
         model=str(spec["model"]), output_schema_path=DEFAULT_SCHEMA_PATH,
         working_directory=working_directory, enabled=True,
         credential_present=bool(preflight["credential_present"]), max_calls=1,
+        command_path=str(preflight["command_path"]),
     )
     receipt: ExecutionReceipt = execute_analysis(
         provider=provider, binding=binding, personal_db_path=paths["personal"],
@@ -185,6 +187,6 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "LiveUatError", "SPEC_VERSION", "confirmation_phrase", "load_live_spec",
-    "main", "run_live_uat",
+    "APPROVED_LIVE_MODELS", "LiveUatError", "SPEC_VERSION",
+    "confirmation_phrase", "load_live_spec", "main", "run_live_uat",
 ]

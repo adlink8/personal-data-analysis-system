@@ -1,6 +1,6 @@
 {
   "schema_version": "decision_analysis_live_uat_v1",
-  "model": "gpt-5.5",
+  "model": "gpt-5.4",
   "personal_db": "var/db/personal_system.sqlite",
   "external_db": "var/db/external_context.sqlite",
   "analysis_db": "var/db/decision_analysis.sqlite",
