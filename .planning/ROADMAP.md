@@ -369,10 +369,21 @@ Plans:
 **Goal:** 在隐私与信任控制下协调多领域目标，主动呈现真正重要的变化而不制造噪声，并通过完整 Target D 端到端验收。
 **Requirements**: PRO-01, PRO-02, TRUST-01, TD-01
 **Depends on:** Phase 26
-**Plans:** 0 plans
+**Status:** Planned — 4 plans in 4 serial waves; product release remains blocked on Phase 24
+**Plans:** 4 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 27 to break down)
+**Wave 1**
+- [ ] 27-01: Eight-domain goals, constraints, resource budgets and conflict coordination
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 27-02: Importance, novelty, deduplication, cooldown, quiet periods and noise budgets
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 27-03: User corrections, constraints, revocation, scope, snooze, restore and rollback
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 27-04: Shared read interfaces, guarded local control and Target D dual-verdict acceptance
 
 ---
 *Roadmap migrated from `.gsd/phases/` on 2026-07-10. Updated 2026-07-17 for Phase 22 close-out and governance audit remediation.*
