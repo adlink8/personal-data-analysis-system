@@ -8,6 +8,12 @@ from personal_knowledge.intelligence.proactive.ranking import DEFAULT_RANKING_PO
 from personal_knowledge.intelligence.proactive.schema import CandidateDraft, SupportReference, checksum
 
 
+def test_transport_contract_has_no_delivery_or_write_operations() -> None:
+    from personal_knowledge.intelligence.proactive.service import ProactiveIntelligenceService
+    forbidden = ("notify", "send", "schedule", "execute", "dispatch", "write")
+    assert not any(token in operation for operation in ProactiveIntelligenceService.READ_OPERATIONS for token in forbidden)
+
+
 def _draft() -> CandidateDraft:
     ref = SupportReference("a.personal_change", "change", "chg-1", "1" * 64,
                            "psr-1", "2" * 64, "ss-1", "3" * 64)
