@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "policy_id": "preflight-baseline-v1",
+  "allowed_non_p0_findings": [],
+  "rule": "Only listed non-P0 finding IDs are grandfathered; P0 is never exempt."
+}

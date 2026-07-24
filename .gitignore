@@ -116,3 +116,4 @@ src/*.egg-info/
 .migration-backup/
 .migration-backup-recovery/
 
+!governance/baselines/preflight.json
