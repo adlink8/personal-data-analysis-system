@@ -117,3 +117,4 @@ src/*.egg-info/
 .migration-backup-recovery/
 
 !governance/baselines/preflight.json
+!apps/personal_data_chatgpt/test/widget-fixtures/*.json
