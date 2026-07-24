@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import NamedTuple
 
 
+DEFAULT_VERTEX_LOCATION = "global"
+DEFAULT_VERTEX_MODEL = "gemini-3.5-flash-lite"
+
+
 def _env_path(name: str) -> Path | None:
     value = os.environ.get(name, "").strip()
     return Path(value).expanduser().resolve() if value else None
@@ -33,11 +37,28 @@ def vertex_config() -> VertexConfig:
     executable = executable or "gcloud"
     return VertexConfig(
         project=os.environ.get("PERSONAL_DATA_GCP_PROJECT", "project-c5cbd608-1b00-454e-80f"),
-        location=os.environ.get("PERSONAL_DATA_VERTEX_LOCATION", "us-central1"),
-        model=os.environ.get("PERSONAL_DATA_VERTEX_MODEL", "gemini-3.5-flash"),
+        location=os.environ.get("PERSONAL_DATA_VERTEX_LOCATION", DEFAULT_VERTEX_LOCATION),
+        model=os.environ.get("PERSONAL_DATA_VERTEX_MODEL", DEFAULT_VERTEX_MODEL),
         gcloud=executable,
         sdk_root=_env_path("CLOUDSDK_ROOT_DIR"),
     )
+
+
+def vertex_generate_content_url(config: VertexConfig, model: str | None = None) -> str:
+    selected_model = model or config.model
+    return (
+        f"https://aiplatform.googleapis.com/v1/projects/{config.project}"
+        f"/locations/{config.location}/publishers/google/models/"
+        f"{selected_model}:generateContent"
+    )
+
+
+def vertex_generation_config(model: str, max_output_tokens: int) -> dict[str, object]:
+    """Return generation settings accepted by the selected Vertex model."""
+    config: dict[str, object] = {"maxOutputTokens": max_output_tokens}
+    if not model.lower().startswith("gemini-3.5-flash-lite"):
+        config.update({"temperature": 0, "thinkingConfig": {"thinkingBudget": 0}})
+    return config
 
 
 def gcloud_access_token(config: VertexConfig | None = None) -> str:

@@ -28,7 +28,12 @@ ROOT = Path(__file__).resolve().parents[4]
 SCRIPTS = ROOT / "integration" / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
-from personal_knowledge.core.runtime_config import gcloud_access_token, vertex_config  # noqa: E402
+from personal_knowledge.core.runtime_config import (  # noqa: E402
+    gcloud_access_token,
+    vertex_config,
+    vertex_generate_content_url,
+    vertex_generation_config,
+)
 
 SAMPLES_PATH = ROOT / "integration" / "analysis" / "ai_context" / "knowledge_unit_llm_samples.jsonl"
 OUTPUT_PATH = ROOT / "integration" / "analysis" / "ai_context" / "knowledge_unit_llm_test_results.json"
@@ -95,18 +100,13 @@ def call_gemini(content: str, api_key: str = "", proxy: str = "") -> dict:
     api_key 和 proxy 参数保留兼容但不再使用（Vertex AI 用 gcloud token）。
     """
     token = _get_gcloud_token()
-    url = (f"https://aiplatform.googleapis.com/v1/projects/{GCP_PROJECT}"
-           f"/locations/{_VERTEX.location}/publishers/google/models/{VERTEX_MODEL}:generateContent")
+    url = vertex_generate_content_url(_VERTEX)
 
     user_text = (f"{SYSTEM_PROMPT}\n\n---\n用户对话证据（role=user）：\n{content}\n"
                  f"\n---\n请提取知识单元，输出JSON：")
     body = json.dumps({
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
-        "generationConfig": {
-            "maxOutputTokens": 2048,
-            "temperature": 0,
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "generationConfig": vertex_generation_config(VERTEX_MODEL, 2048),
     }).encode()
 
     for attempt in range(3):

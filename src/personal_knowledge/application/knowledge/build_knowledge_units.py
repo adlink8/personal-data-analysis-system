@@ -43,7 +43,12 @@ if str(_SCRIPTS_DIR) not in sys.path:
 _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 from personal_knowledge.core.project_paths import UNIFIED_DB, AGENT_CONVERSATIONS_DB  # noqa: E402
-from personal_knowledge.core.runtime_config import gcloud_access_token, vertex_config  # noqa: E402
+from personal_knowledge.core.runtime_config import (  # noqa: E402
+    gcloud_access_token,
+    vertex_config,
+    vertex_generate_content_url,
+    vertex_generation_config,
+)
 from personal_knowledge.application.knowledge.knowledge_unit_pipeline import RunManifest, StagingPublisher  # noqa: E402
 
 # Vertex AI 配置
@@ -124,16 +129,11 @@ def _extract_text(candidate: dict) -> str:
 def call_llm(system_prompt: str, user_content: str) -> dict:
     """调用 Vertex AI Gemini。返回 {"text": ..., "usage": ...} 或 {"error": ...}。"""
     token = _get_gcloud_token()
-    url = (f"https://aiplatform.googleapis.com/v1/projects/{GCP_PROJECT}"
-           f"/locations/{_VERTEX.location}/publishers/google/models/{VERTEX_MODEL}:generateContent")
+    url = vertex_generate_content_url(_VERTEX)
     user_text = f"{system_prompt}\n\n---\n用户对话证据（role=user）：\n{user_content}\n\n---\n请提取知识单元，输出JSON："
     body = json.dumps({
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
-        "generationConfig": {
-            "maxOutputTokens": 2048,
-            "temperature": 0,
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "generationConfig": vertex_generation_config(VERTEX_MODEL, 2048),
     }).encode()
 
     for attempt in range(3):
@@ -259,7 +259,7 @@ def run(dry_run: bool, write: bool, limit: int | None = None,
     print("Phase 14 Wave 2：Knowledge Unit 抽取")
     print(f"{'='*60}")
     print(f"evidence bundles: {len(evidence)}")
-    print(f"model: {VERTEX_MODEL} (temperature 0)")
+    print(f"model: {VERTEX_MODEL}")
     print(f"prompt: {PROMPT_VERSION}")
     print()
 

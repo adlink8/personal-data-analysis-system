@@ -21,6 +21,16 @@ POST /search/query          精确查询(结构化条件过滤 sqlite)
 GET  /event/<event_id>      单条事件全字段
 GET  /profile               返回 AI 长期上下文文档内容(RAG 注入用)
 GET  /health                健康检查(含 knowledge.active_collection)
+GET  /ui/overview           Personal Decision Cockpit 总览投影(五权威只读聚合)
+GET  /ui/system/status      Cockpit 系统状态(端口探活 / 知识索引 / 权威 DB 可读性)
+GET  /ui/personal-state     Cockpit 个人状态投影(八域断言 / 生命周期 / 近期变化)
+GET  /ui/external/delta     Cockpit 外部数据增量投影(source / fact / delta 分类)
+GET  /ui/decision-queue     Cockpit 决策队列投影(六 stage 看板分组)
+GET  /ui/decision/workspace Cockpit 决策工作区投影(?recommendation_id=<id>,四节聚合)
+GET  /ui/actions/recent     Cockpit 近期行动投影(最近推荐的全链六阶段时间线)
+GET  /ui/proactive/summary  Cockpit 主动情报摘要(inbox 分组 + 噪声指标)
+GET  /ui/calibration/overview Cockpit 校准总览(逐 protocol verdict 摘要)
+GET  /app[/<path>]          Cockpit 前端静态托管(apps/personal_decision_cockpit/dist,SPA fallback)
 
 GET  接口也可改用 POST(方便前端统一处理),参数走 query string。
 POST 接口参数走 JSON body。
@@ -89,10 +99,58 @@ from personal_knowledge.services.orchestration_service import (  # noqa: E402
     GuardedOrchestrationInterface,
 )
 from personal_knowledge.services.agent_contract import compact_envelope  # noqa: E402
+from personal_knowledge.services.ui_projection import (  # noqa: E402
+    CockpitProjectionService,
+)
 
 # AI 长期上下文文档路径(给 /profile 用)
 ROOT = _THIS_DIR.parents[1]
 PROFILE_MD = ROOT / "integration" / "analysis" / "ai_context" / "person_profile.md"
+
+# Personal Decision Cockpit 前端构建产物(SPA, npm run build 生成)
+COCKPIT_DIST = ROOT / "apps" / "personal_decision_cockpit" / "dist"
+
+_COCKPIT_ASSET_TYPES = {
+    ".html": "text/html",
+    ".js": "text/javascript",
+    ".css": "text/css",
+    ".json": "application/json",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".woff2": "font/woff2",
+    ".map": "application/json",
+}
+
+
+def _resolve_cockpit_asset(url_path: str) -> Path | None:
+    """把 /app/... URL 映射到 COCKPIT_DIST 内的文件;越界 / 缺失返回 None。
+
+    /app、/app/ 与无扩展名子路径一律回退 index.html(SPA fallback);
+    有扩展名的路径做 resolve() 后校验仍位于 COCKPIT_DIST 内(防 ../ 穿越)。
+    """
+    if not (url_path == "/app" or url_path.startswith("/app/")):
+        return None
+    if not COCKPIT_DIST.is_dir():
+        return None
+    rel = unquote(url_path[len("/app"):]).lstrip("/")
+    segments = [seg for seg in rel.split("/") if seg and seg != "."]
+    index = COCKPIT_DIST / "index.html"
+    if not segments:
+        return index if index.is_file() else None
+    if any(seg == ".." for seg in segments):
+        return None
+    candidate = COCKPIT_DIST.joinpath(*segments)
+    if not candidate.suffix:
+        return index if index.is_file() else None
+    try:
+        resolved = candidate.resolve()
+        root = COCKPIT_DIST.resolve()
+    except OSError:
+        return None
+    if resolved != root and root not in resolved.parents:
+        return None
+    return resolved if resolved.is_file() else None
 
 
 def _seal_payload(data):
@@ -212,6 +270,13 @@ def orchestration_rest_contract(
     return compact_envelope(target.invoke(operation, **params))
 
 
+def ui_rest_contract(
+    operation: str, params: dict, *, service: CockpitProjectionService | None = None,
+) -> dict:
+    """Thin read-only REST adapter over the cockpit UI projection."""
+    return (service or CockpitProjectionService()).invoke(operation, **params)
+
+
 class Handler(BaseHTTPRequestHandler):
     # 静音默认日志(太吵),自己打一行精简的
     def log_message(self, fmt, *args):
@@ -219,7 +284,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, body: bytes, code: int = 200, ctype: str = "application/json"):
         self.send_response(code)
-        self.send_header("Content-Type", f"{ctype}; charset=utf-8")
+        # 文本类响应声明 charset;二进制资源(图片/字体等)不追加
+        if ctype.startswith("text/") or ctype in {
+            "application/json", "application/javascript", "image/svg+xml",
+        }:
+            ctype = f"{ctype}; charset=utf-8"
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         # 允许本地前端/平台跨域调用
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -250,6 +320,37 @@ class Handler(BaseHTTPRequestHandler):
         qs = {k: v[0] for k, v in parse_qs(url.query).items()}
 
         try:
+            # Cockpit 前端静态托管(用未 rstrip 的 url.path 区分 /app 与 /app/)
+            if url.path == "/app" or url.path.startswith("/app/"):
+                if url.path == "/app":
+                    self.send_response(301)
+                    self.send_header("Location", "/app/")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                asset = _resolve_cockpit_asset(url.path)
+                if asset is not None:
+                    ctype = _COCKPIT_ASSET_TYPES.get(
+                        asset.suffix.lower(), "application/octet-stream"
+                    )
+                    self._send(asset.read_bytes(), 200, ctype)
+                    return
+                if not COCKPIT_DIST.is_dir():
+                    self._send(
+                        _contract(
+                            {
+                                "ok": False,
+                                "error": "cockpit_not_built",
+                                "hint": "cd apps/personal_decision_cockpit && npm run build",
+                            }
+                        ),
+                        404,
+                    )
+                    return
+                body, code = _err(f"cockpit asset not found: {url.path}", 404)
+                self._send(body, code)
+                return
+
             if path == "/health":
                 ku = backend.get_knowledge_status(probe_chroma=False)
                 self._send(
@@ -379,6 +480,25 @@ class Handler(BaseHTTPRequestHandler):
                 data = orchestration_rest_contract(
                     session_read_routes[path], {"session_id": qs.get("session_id"), "now": qs.get("now")},
                 )
+                self._send(_contract(data), 200 if data.get("ok") else 400)
+                return
+
+            ui_routes = {
+                "/ui/overview": "overview.get",
+                "/ui/system/status": "system.status.get",
+                "/ui/personal-state": "personal_state.get",
+                "/ui/external/delta": "external_delta.get",
+                "/ui/decision-queue": "decision_queue.get",
+                "/ui/decision/workspace": "decision_workspace.get",
+                "/ui/actions/recent": "actions_recent.get",
+                "/ui/proactive/summary": "proactive_summary.get",
+                "/ui/calibration/overview": "calibration_overview.get",
+            }
+            if path in ui_routes:
+                params = {}
+                if path == "/ui/decision/workspace":
+                    params = {"recommendation_id": qs.get("recommendation_id")}
+                data = ui_rest_contract(ui_routes[path], params)
                 self._send(_contract(data), 200 if data.get("ok") else 400)
                 return
 

@@ -40,6 +40,11 @@ def test_prepare_requires_model():
         p.parse_args(["prepare"])  # missing --model
 
 
+def test_extract_defaults_to_gemini_35_flash_lite():
+    args = build_parser().parse_args(["extract", "--run", "ir_test"])
+    assert args.model == "gemini-3.5-flash-lite"
+
+
 def test_inspect_uses_committed_watermark_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

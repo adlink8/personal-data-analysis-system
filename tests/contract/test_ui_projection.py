@@ -1,0 +1,110 @@
+import personal_knowledge.services.api_server as api_server
+from personal_knowledge.intelligence.proactive.service import ProactiveIntelligenceService
+from personal_knowledge.services.api_server import ui_rest_contract
+from personal_knowledge.services.ui_projection import (
+    INTERFACE_SCHEMA_VERSION,
+    CockpitProjectionService,
+)
+
+OVERVIEW_SECTIONS = {"personal", "decision", "proactive", "external", "knowledge"}
+
+
+def test_overview_envelope_shape():
+    result = CockpitProjectionService().invoke("overview.get")
+    assert result["schema_version"] == INTERFACE_SCHEMA_VERSION
+    assert result["schema_version"] == "decision_cockpit_projection_v1"
+    assert result["ok"] is True
+    assert set(result["snapshot_bindings"]) == {"personal", "external", "serving"}
+    assert isinstance(result["limitations"], list)
+    assert set(result["authorities"]) == OVERVIEW_SECTIONS
+    assert set(result["authorities"].values()) <= {"ok", "empty", "error"}
+    assert result["generated_at"]
+    assert set(result["data"]) == OVERVIEW_SECTIONS
+
+
+def test_overview_personal_section_shape():
+    personal = CockpitProjectionService().invoke("overview.get")["data"]["personal"]
+    if personal is None:
+        return  # authority 故障时该节允许为 None(由 authorities/limitations 表达)
+    assert {
+        "snapshot_id", "as_of", "total_available", "domains", "status_counts", "top_items",
+    } <= set(personal)
+    assert isinstance(personal["domains"], dict)
+    assert isinstance(personal["status_counts"], dict)
+    assert len(personal["top_items"]) <= 10
+    for item in personal["top_items"]:
+        assert set(item) == {"key", "status", "confidence", "provenance_class"}
+
+
+def test_proactive_failure_isolated_as_partial(monkeypatch):
+    def boom(self, operation, **params):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ProactiveIntelligenceService, "invoke", boom)
+    result = CockpitProjectionService().invoke("overview.get")
+    assert result["ok"] is True
+    assert result["partial"] is True
+    assert result["authorities"]["proactive"] == "error"
+    assert any("proactive" in item for item in result["limitations"])
+    assert result["data"]["proactive"] is None
+    # 其余节不受 proactive 故障影响
+    for name in OVERVIEW_SECTIONS - {"proactive"}:
+        assert result["authorities"][name] in {"ok", "empty"}
+        assert result["data"][name] is not None
+
+
+def test_system_status_shape():
+    result = CockpitProjectionService().invoke("system.status.get")
+    assert result["schema_version"] == INTERFACE_SCHEMA_VERSION
+    assert result["ok"] is True
+    ports = result["data"]["ports"]
+    assert set(ports) == {"rest", "mcp", "tunnel"}
+    assert ports["rest"]["up"] is True
+    # mcp / tunnel 为非常驻服务,只断言类型不断言实际 up/down
+    assert isinstance(ports["mcp"]["up"], bool)
+    assert isinstance(ports["tunnel"]["up"], bool)
+    assert "active_collection" in result["data"]["knowledge"]
+    authority_dbs = result["data"]["authority_dbs"]
+    assert len(authority_dbs) == 4
+    for entry in authority_dbs.values():
+        assert "exists" in entry
+        assert "readable" in entry
+
+
+def test_rest_adapter_delegates_to_identical_service():
+    service = CockpitProjectionService()
+    rest = ui_rest_contract("overview.get", {}, service=service)
+    direct = service.invoke("overview.get")
+    # generated_at 按调用生成(含 freshness 内的同源副本),pop 掉再比较其余字段
+    for envelope in (rest, direct):
+        envelope.pop("generated_at")
+        envelope["freshness"].pop("generated_at")
+    assert rest == direct
+
+
+def test_unknown_operation_returns_typed_error():
+    result = CockpitProjectionService().invoke("nope")
+    assert result["ok"] is False
+    assert result["error"]["code"] == "unknown_operation"
+
+
+def test_cockpit_asset_resolution(monkeypatch, tmp_path):
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    index = dist / "index.html"
+    index.write_text("<html></html>", encoding="utf-8")
+    script = dist / "assets" / "x.js"
+    script.write_text("console.log(1)", encoding="utf-8")
+    monkeypatch.setattr(api_server, "COCKPIT_DIST", dist)
+
+    assert api_server._resolve_cockpit_asset("/app") == index
+    assert api_server._resolve_cockpit_asset("/app/") == index
+    # 无扩展名子路径 → SPA fallback
+    assert api_server._resolve_cockpit_asset("/app/decisions") == index
+    assert api_server._resolve_cockpit_asset("/app/assets/x.js") == script.resolve()
+    # 显式 / 编码后的穿越段一律拒绝
+    assert api_server._resolve_cockpit_asset("/app/../etc/passwd") is None
+    assert api_server._resolve_cockpit_asset("/app/%2e%2e/x") is None
+    # dist 未构建 → None
+    monkeypatch.setattr(api_server, "COCKPIT_DIST", tmp_path / "missing")
+    assert api_server._resolve_cockpit_asset("/app") is None

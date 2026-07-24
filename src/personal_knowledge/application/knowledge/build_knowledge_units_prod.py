@@ -14,10 +14,10 @@ production backfill engine，支持 --start / --resume、item ledger 状态机�
 用法::
 
     # 新 run
-    python build_knowledge_units_prod.py --start --inventory <id> --model gemini-3.5-flash --limit 50
+    python build_knowledge_units_prod.py --start --inventory <id> --model gemini-3.5-flash-lite --limit 50
 
     # 恢复（默认 8 路并发）
-    python build_knowledge_units_prod.py --resume <run_id> --model gemini-3.5-flash --workers 8
+    python build_knowledge_units_prod.py --resume <run_id> --model gemini-3.5-flash-lite --workers 8
 
     # 检查状态
     python build_knowledge_units_prod.py --status <run_id>
@@ -51,7 +51,12 @@ if str(_SCRIPTS_DIR) not in sys.path:
 _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 from personal_knowledge.core.project_paths import UNIFIED_DB, AGENT_CONVERSATIONS_DB  # noqa: E402
-from personal_knowledge.core.runtime_config import gcloud_access_token, vertex_config  # noqa: E402
+from personal_knowledge.core.runtime_config import (  # noqa: E402
+    gcloud_access_token,
+    vertex_config,
+    vertex_generate_content_url,
+    vertex_generation_config,
+)
 from personal_knowledge.application.knowledge.knowledge_unit_pipeline import RunManifest  # noqa: E402
 from personal_knowledge.application.knowledge.build_knowledge_units import (  # noqa: E402
     KnowledgeUnit, ExtractionResult, strip_system_injections, is_meaningful,
@@ -200,12 +205,11 @@ def call_llm_with_retry(
     rate_limiter: RequestRateLimiter | None = None,
 ) -> dict:
     """调用 Vertex AI，分类 retry。返回 {"text":..., "usage":...} 或 {"error":..., "error_class":...}。"""
-    url = (f"https://aiplatform.googleapis.com/v1/projects/{GCP_PROJECT}"
-           f"/locations/us-central1/publishers/google/models/{model}:generateContent")
+    url = vertex_generate_content_url(_VERTEX, model)
     user_text = f"{system_prompt}\n\n---\n用户对话证据（role=user）：\n{user_content}\n\n---\n请提取知识单元，输出JSON："
     body = json.dumps({
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
-        "generationConfig": {"maxOutputTokens": 2048, "temperature": 0, "thinkingConfig": {"thinkingBudget": 0}},
+        "generationConfig": vertex_generation_config(model, 2048),
     }).encode()
 
     for attempt in range(max_retries + 1):
@@ -826,7 +830,7 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--status", metavar="RUN_ID", help="查看 run 状态")
     p.add_argument("--inventory", help="inventory ID（--start 时必须）")
     p.add_argument("--pilot-manifest", help="pilot manifest JSON 路径（--start 时用分层 sample positions）")
-    p.add_argument("--model", required=False, default="gemini-3.5-flash", help="模型 ID")
+    p.add_argument("--model", required=False, default=_VERTEX.model, help="模型 ID")
     p.add_argument("--limit", type=int, default=None, help="只处理前 N 条")
     p.add_argument("--batch-size", type=int, default=50)
     p.add_argument("--max-items", type=int, default=None, help="单次最多处理 N 条（分批模式）")

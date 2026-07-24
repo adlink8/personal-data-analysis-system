@@ -1835,6 +1835,23 @@ export function createAppServer(options = {}) {
         return;
       }
 
+      if (req.method === "GET" && url.pathname === "/mcp") {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.write("event: endpoint\n");
+        res.write(`data: ${DEFAULT_REST_BASE_URL}/mcp\n\n`);
+        res.write(": keepalive\n\n");
+        const keepalive = setInterval(() => {
+          try { res.write(": keepalive\n\n"); } catch { clearInterval(keepalive); }
+        }, 15000);
+        req.on("close", () => { clearInterval(keepalive); });
+        return;
+      }
+
       if (url.pathname === "/mcp") {
         sendJson(res, 405, jsonRpcError(null, -32000, "Use POST /mcp for JSON-RPC requests"));
         return;

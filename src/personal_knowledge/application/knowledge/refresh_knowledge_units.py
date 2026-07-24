@@ -254,7 +254,7 @@ def _build_incremental_pipeline_commands(
         "description": f"对 {len(new_refs)} 个新增 evidence refs 执行 LLM 抽取",
         "command": (
             f"pk-ku extract --run {run_id} "
-            f"--model gemini-3.5-flash --max-items {len(new_refs)}"
+            f"--model gemini-3.5-flash-lite --max-items {len(new_refs)}"
         ),
         "requires_approval": True,
         "run_id": run_id,

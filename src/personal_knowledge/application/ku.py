@@ -6,9 +6,9 @@ calling long module paths or editing code to change extract policy.
 Usage::
 
     pk-ku inspect
-    pk-ku prepare --model gemini-3.5-flash --provider vertex_google \\
+    pk-ku prepare --model gemini-3.5-flash-lite --provider vertex_google \\
         --endpoint https://aiplatform.googleapis.com --auth-mode gcloud
-    pk-ku extract --run <fresh_run_id> --model gemini-3.5-flash --max-items 50
+    pk-ku extract --run <fresh_run_id> --model gemini-3.5-flash-lite --max-items 50
     pk-ku status --run <run_id>
     pk-ku canonical --run <run_id> --write
     pk-ku publish --run <run_id> --write          # staging → current (additive)
@@ -142,7 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Paid LLM extract: resume an incremental run from prepare (not full inventory)",
     )
     ext.add_argument("--run", required=True, metavar="RUN_ID", help="fresh_run_id from prepare")
-    ext.add_argument("--model", default="gemini-3.5-flash")
+    ext.add_argument("--model", default="gemini-3.5-flash-lite")
     ext.add_argument("--max-items", type=int, default=None, help="Process at most N items this call")
     ext.add_argument("--workers", type=int, default=None)
     ext.add_argument("--min-request-interval", type=float, default=None)

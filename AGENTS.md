@@ -19,6 +19,7 @@
 | 流程说明 / 体检 | `pk-ku workflow` · `pk-ku doctor` |
 | 成长线 / 生命周期（不删行） | `pk-ku history --subject …` · `pk-ku reconcile --dry-run` |
 | 启动 REST + MCP + Tunnel | `apps/personal_data_chatgpt/scripts/启动服务.bat` 或 `start-services.ps1` |
+| Decision Cockpit（新前端） | `cd apps/personal_decision_cockpit && npm run build` 后由 rag-api 托管 `http://127.0.0.1:8000/app/`；开发用 `npm run dev`（代理到 8000） |
 | 检索 CLI | `rag-search …` |
 
 **已退役：** `rag-pipeline`（exit 2 → 改用 `pk-sync` / `pk-ku`）。取证：`PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated`。
@@ -80,6 +81,7 @@ pk-ku doctor --skip-ports
 | `src/personal_knowledge/evaluation/` | **canonical** 评测 |
 | `src/personal_knowledge/domains/` | 可选 re-export facade（application 已 0 引用） |
 | `apps/personal_data_chatgpt/` | ChatGPT MCP Apps |
+| `apps/personal_decision_cockpit/` | Decision Cockpit 前端（React/TS/Vite；构建产物由 rag-api 托管 `/app`，后端只读投影 `services/ui_projection.py` → `/ui/overview`、`/ui/system/status`） |
 | `data/` | 私有数据（勿提交内容） |
 | `var/` | DB / runtime / reports / active pointer |
 | `docs/AGENTS.md` | **Agent 全流程手册** |

@@ -1,0 +1,561 @@
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import type { ApiError } from '../../api/client';
+import { useDecisionWorkspace } from '../../api/hooks';
+import type {
+  DecisionWorkspaceEnvelope,
+  HistoryEvent,
+  RecommendationDetail,
+  SupportEntry,
+  TypedRecord,
+} from '../../api/schemas';
+import { shortId, SnapshotChip } from '../../components/authority/SnapshotChip';
+import {
+  ActionStateBadge,
+  ConfirmationStateBadge,
+  ExpiryText,
+} from '../../components/decision/stateBadges';
+import { StatePanel } from '../../components/feedback/StatePanel';
+import {
+  IconAlertTriangle,
+  IconArrowLeft,
+  IconCheckCircle,
+  IconChevronRight,
+  IconInfo,
+  IconSparkles,
+} from '../../components/icons';
+import { fmtConfidence, fmtNumber, fmtTime } from '../../utils/format';
+
+/**
+ * 决策工作区（spec §7.3）：头部 + 三栏（决策条件 / 方案与证据 / 建议与限制）
+ * + 底部标签页（历史 / 结果 / 效果）。
+ * 节级降级：某一 Authority 失败只降级该节（authorities 四键
+ * recommendation/history/outcomes/effectiveness），不拖垮整页。
+ * causal_claim==false 的效果评估必须显著标注"非因果评估"。
+ */
+
+type TabKey = 'history' | 'outcomes' | 'effectiveness';
+
+const TABS: ReadonlyArray<{ key: TabKey; label: string }> = [
+  { key: 'history', label: '历史' },
+  { key: 'outcomes', label: '结果' },
+  { key: 'effectiveness', label: '效果' },
+];
+
+function errorAuthorities(envelope: DecisionWorkspaceEnvelope): Record<string, boolean> {
+  const result: Record<string, boolean> = {};
+  for (const [name, value] of Object.entries(envelope.authorities)) {
+    result[name] = value === 'error';
+  }
+  return result;
+}
+
+/** 从 support[] 尽力提取 case_id（透传字段，可能没有）；找不到返回 null，绝不臆造 */
+function deriveCaseId(recommendation: RecommendationDetail): string | null {
+  for (const entry of recommendation.support) {
+    const candidate = (entry as Record<string, unknown>)['case_id'];
+    if (typeof candidate === 'string' && candidate) return candidate;
+  }
+  return null;
+}
+
+/* ---------------- 三栏 ---------------- */
+
+function FieldRow({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
+  return (
+    <div className="break-words">
+      <dt className="inline text-muted">{label}：</dt>
+      <dd className={`inline ${mono ? 'font-mono text-xs' : ''}`}>{value ?? '未提供'}</dd>
+    </div>
+  );
+}
+
+function ConditionsColumn({ recommendation }: { recommendation: RecommendationDetail }) {
+  return (
+    <section className="card h-full" aria-labelledby="ws-conditions-title">
+      <h2 id="ws-conditions-title" className="font-semibold">
+        决策条件
+      </h2>
+      <dl className="mt-3 space-y-2 text-sm">
+        <FieldRow label="policy_id" value={recommendation.policy_id} mono />
+        <FieldRow label="时间窗口" value={recommendation.horizon} />
+        <FieldRow label="置信度" value={fmtConfidence(recommendation.confidence)} />
+        <FieldRow
+          label="不确定性"
+          value={
+            recommendation.uncertainty === null || recommendation.uncertainty === undefined
+              ? null
+              : String(recommendation.uncertainty)
+          }
+        />
+        <FieldRow label="主体" value={recommendation.subject} />
+      </dl>
+      <div className="mt-3">
+        <h3 className="text-sm font-medium">rationale_codes</h3>
+        {recommendation.rationale_codes.length === 0 ? (
+          <p className="mt-1 text-sm text-muted">未提供</p>
+        ) : (
+          <ul className="mt-1 flex flex-wrap gap-1.5">
+            {recommendation.rationale_codes.map((code) => (
+              <li key={code} className="badge border-line bg-panel font-mono text-xs text-muted">
+                {code}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SupportRow({ entry }: { entry: SupportEntry }) {
+  return (
+    <li className="rounded-lg border border-line bg-surface p-2.5 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="badge border-line bg-panel text-muted">{entry.cognitive_type ?? '未提供'}</span>
+        {entry.evidence_status ? (
+          <span className="badge border-line bg-panel text-muted">{entry.evidence_status}</span>
+        ) : null}
+        <span className="font-mono text-xs text-muted" title={entry.authority_id ?? undefined}>
+          {entry.authority_id ?? '未提供'}
+        </span>
+      </div>
+      <dl className="mt-1.5 space-y-1 text-xs text-muted">
+        <div className="break-all">
+          <dt className="inline">record_id：</dt>
+          <dd className="inline font-mono" title={entry.record_id ?? undefined}>
+            {entry.record_id ? shortId(entry.record_id, 28) : '未提供'}
+          </dd>
+        </div>
+        <div className="break-all">
+          <dt className="inline">source_run_id：</dt>
+          <dd className="inline font-mono" title={entry.source_run_id ?? undefined}>
+            {entry.source_run_id ? shortId(entry.source_run_id, 28) : '未提供'}
+          </dd>
+        </div>
+      </dl>
+    </li>
+  );
+}
+
+function EvidenceColumn({
+  recommendation,
+  linkedAnalysisRunId,
+}: {
+  recommendation: RecommendationDetail;
+  linkedAnalysisRunId: string | null;
+}) {
+  return (
+    <section className="card h-full" aria-labelledby="ws-evidence-title">
+      <h2 id="ws-evidence-title" className="font-semibold">
+        方案与证据
+      </h2>
+      {linkedAnalysisRunId ? (
+        <p className="mt-2 text-sm">
+          <span className="badge border-candidate bg-candidate-soft text-candidate">
+            <IconSparkles className="h-3.5 w-3.5" />
+            关联分析 run
+          </span>{' '}
+          <span className="font-mono text-xs break-all" title={linkedAnalysisRunId}>
+            {shortId(linkedAnalysisRunId, 28)}
+          </span>
+        </p>
+      ) : null}
+      {recommendation.support.length === 0 ? (
+        // AbstentionPanel 风格（spec §8）：信息不足时给出拒绝/谨慎原因
+        <div className="mt-3 rounded-lg border border-uncertainty bg-uncertainty-soft p-3" role="note">
+          <p className="flex items-start gap-1.5 text-sm text-uncertainty">
+            <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              缺少支撑证据：该建议当前没有关联的支撑证据记录，信息不足。
+              请谨慎对待其置信度，必要时先补充证据再确认。
+            </span>
+          </p>
+        </div>
+      ) : (
+        <ul className="section-stack mt-3">
+          {recommendation.support.map((entry, index) => (
+            <SupportRow key={entry.record_id ?? `support-${index}`} entry={entry} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function AdviceColumn({
+  recommendation,
+  limitations,
+}: {
+  recommendation: RecommendationDetail;
+  limitations: string[];
+}) {
+  // 缺失信息说明：关键字段为空的如实列出
+  const missing: string[] = [];
+  if (!recommendation.run_id) missing.push('run_id');
+  if (!recommendation.expires_at) missing.push('expires_at');
+  if (!recommendation.uncertainty && recommendation.uncertainty !== 0) missing.push('uncertainty');
+  if (recommendation.rationale_codes.length === 0) missing.push('rationale_codes');
+
+  return (
+    <section className="card h-full" aria-labelledby="ws-advice-title">
+      <h2 id="ws-advice-title" className="font-semibold">
+        建议与限制
+      </h2>
+      <p className="mt-3">
+        <span className="badge border-candidate bg-candidate-soft text-candidate">
+          <IconSparkles className="h-3.5 w-3.5" />
+          建议候选：{recommendation.recommendation_kind ?? '未提供'}
+        </span>
+      </p>
+      {limitations.length > 0 ? (
+        <div className="mt-3">
+          <h3 className="text-sm font-medium">限制</h3>
+          <ul className="mt-1 list-disc pl-5 text-sm text-muted">
+            {limitations.map((limitation, i) => (
+              <li key={i}>{limitation}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <div className="mt-3">
+        <h3 className="text-sm font-medium">缺失信息</h3>
+        {missing.length === 0 ? (
+          <p className="mt-1 flex items-center gap-1 text-sm text-verified">
+            <IconCheckCircle className="h-3.5 w-3.5" />
+            关键字段齐全
+          </p>
+        ) : (
+          <p className="mt-1 text-sm text-muted">
+            以下字段未提供：<span className="font-mono text-xs">{missing.join('、')}</span>
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* ---------------- 标签页 ---------------- */
+
+function HistoryPanel({ events }: { events: HistoryEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <StatePanel
+        variant="empty"
+        title="暂无历史事件"
+        description="该建议的事件链为空。"
+      />
+    );
+  }
+  return (
+    <>
+      <p className="mb-3 flex items-center gap-1.5 text-xs text-muted">
+        <IconInfo className="h-3.5 w-3.5 shrink-0" />
+        recommendations.history 不暴露事件时间戳 / status，仅展示链上校验字段。
+      </p>
+      <ol className="section-stack">
+        {events.map((event, index) => (
+          <li
+            key={event.event_id ?? `event-${index}`}
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-surface p-3 text-sm"
+          >
+            <span className="font-mono text-xs text-muted">#{fmtNumber(event.sequence)}</span>
+            <span className="badge border-line bg-panel text-ink">{event.event_type ?? '未提供'}</span>
+            <span className="font-mono text-xs break-all" title={event.event_id ?? undefined}>
+              事件 {event.event_id ? shortId(event.event_id, 20) : '未提供'}
+            </span>
+            <span className="font-mono text-xs text-muted break-all" title={event.payload_checksum ?? undefined}>
+              校验 {event.payload_checksum ? shortId(event.payload_checksum, 16) : '未提供'}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}
+
+function TypedRecordList({ records, idKey }: { records: TypedRecord[]; idKey: 'outcome_id' | 'assessment_id' }) {
+  return (
+    <ul className="section-stack">
+      {records.map((record, index) => (
+        <li key={(record[idKey] as string | undefined) ?? `record-${index}`} className="rounded-lg border border-line bg-surface p-3 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs" title={(record[idKey] as string | undefined) ?? undefined}>
+              {typeof record[idKey] === 'string' ? shortId(record[idKey] as string, 24) : '（无 ID）'}
+            </span>
+            {record.record_type ? <span className="badge border-line bg-panel text-muted">{record.record_type}</span> : null}
+            {record.verdict ? <span className="badge border-line bg-panel text-ink">{record.verdict}</span> : null}
+            {record.adherence_status ? (
+              <span className="badge border-line bg-panel text-muted">{record.adherence_status}</span>
+            ) : null}
+          </div>
+          <dl className="mt-2 grid gap-x-6 gap-y-1 text-xs text-muted sm:grid-cols-2">
+            <div>
+              <dt className="inline">metric：</dt>
+              <dd className="inline font-mono">{record.metric === null || record.metric === undefined ? '未提供' : String(record.metric)}</dd>
+            </div>
+            <div>
+              <dt className="inline">unit：</dt>
+              <dd className="inline">{record.unit ?? '未提供'}</dd>
+            </div>
+            <div>
+              <dt className="inline">rule：</dt>
+              <dd className="inline font-mono">
+                {record.rule_id ?? '未提供'}
+                {record.rule_version ? `@${record.rule_version}` : ''}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline">uncertainty：</dt>
+              <dd className="inline">
+                {record.uncertainty === null || record.uncertainty === undefined ? '未提供' : String(record.uncertainty)}
+              </dd>
+            </div>
+          </dl>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function OutcomesPanel({ outcomes }: { outcomes: TypedRecord[] }) {
+  if (outcomes.length === 0) {
+    return (
+      <StatePanel
+        variant="empty"
+        title="尚未记录 Outcome"
+        description="行动完成后的真实结果会记录在这里。"
+        nextStep="可通过会话推进视图的 observe 步骤记录结果观察。"
+      />
+    );
+  }
+  return (
+    <>
+      <p className="mb-3 flex items-center gap-1.5 text-xs text-uncertainty">
+        <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        结果记录不自动证明建议导致了结果。
+      </p>
+      <TypedRecordList records={outcomes} idKey="outcome_id" />
+    </>
+  );
+}
+
+function EffectivenessPanel({ effectiveness }: { effectiveness: TypedRecord[] }) {
+  if (effectiveness.length === 0) {
+    return (
+      <StatePanel
+        variant="empty"
+        title="尚未进行效果评估"
+        description="校准规则运行后，非因果效果评估会显示在这里。"
+      />
+    );
+  }
+  const allNonCausal = effectiveness.every((record) => record.causal_claim === false);
+  return (
+    <>
+      {allNonCausal ? (
+        // spec §7.3：causal_claim==false 必须显著标注
+        <div className="mb-3 rounded-lg border border-uncertainty bg-uncertainty-soft p-3" role="note">
+          <p className="flex items-start gap-1.5 text-sm font-medium text-uncertainty">
+            <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            非因果评估：结果不证明建议导致了结果。
+          </p>
+        </div>
+      ) : null}
+      <TypedRecordList records={effectiveness} idKey="assessment_id" />
+    </>
+  );
+}
+
+/* ---------------- 页面 ---------------- */
+
+function WorkspaceBody({ envelope, recommendationId }: { envelope: DecisionWorkspaceEnvelope; recommendationId: string }) {
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<TabKey>('history');
+  const { data } = envelope;
+  const authorityError = errorAuthorities(envelope);
+  const recommendation = data.recommendation;
+
+  if (!recommendation) {
+    return (
+      <StatePanel
+        variant="partial"
+        title="建议详情暂不可用"
+        unavailableAuthorities={authorityError['recommendation'] ? ['决策分析 · recommendation'] : []}
+        description={
+          authorityError['recommendation']
+            ? 'recommendation Authority 本次未返回数据。'
+            : `未找到 recommendation_id 为 ${recommendationId} 的建议。`
+        }
+      />
+    );
+  }
+
+  const caseId = deriveCaseId(recommendation);
+
+  return (
+    <>
+      <header className="card">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="font-mono text-lg font-semibold break-all" title={`完整 ID：${recommendation.recommendation_id ?? recommendationId}`}>
+            {shortId(recommendation.recommendation_id ?? recommendationId, 24)}
+          </h1>
+          <span className="badge border-line bg-panel text-muted">{recommendation.domain ?? '未提供'}</span>
+          {recommendation.scope ? (
+            <span className="badge border-line bg-panel text-muted">范围 {recommendation.scope}</span>
+          ) : null}
+          <ConfirmationStateBadge state={recommendation.confirmation_state} />
+          <ActionStateBadge state={recommendation.action_state} />
+          <SnapshotChip label="Personal" snapshotId={recommendation.snapshot_id ?? null} />
+        </div>
+        <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
+          <span>决策工作区</span>
+          <ExpiryText expiresAt={recommendation.expires_at} />
+          <span>
+            当前序号 <span className="font-mono">{fmtNumber(recommendation.current_sequence)}</span>
+          </span>
+          <span>投影生成于 {fmtTime(envelope.generated_at)}</span>
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              void navigate(
+                `/sessions/new?intent=action&from=${encodeURIComponent(recommendationId)}${caseId ? `&case_id=${encodeURIComponent(caseId)}` : ''}`,
+              )
+            }
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <IconChevronRight className="h-4 w-4" />
+            记录行动/结果
+          </button>
+          <p className="text-xs text-muted">
+            决策确认写入 Pilot 权威案例；记录行动/结果需要编排会话与 case_id
+            {caseId ? '（已从支撑证据预填）' : '（工作区投影未暴露，需手动输入，不臆造）'}。
+          </p>
+        </div>
+      </header>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <ConditionsColumn recommendation={recommendation} />
+        <EvidenceColumn recommendation={recommendation} linkedAnalysisRunId={data.linked_analysis_run_id} />
+        <AdviceColumn recommendation={recommendation} limitations={envelope.limitations} />
+      </div>
+
+      <section className="card" aria-label="历史、结果与效果">
+        <div role="tablist" aria-label="工作区标签页" className="flex gap-1 border-b border-line">
+          {TABS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              role="tab"
+              aria-selected={tab === item.key}
+              onClick={() => setTab(item.key)}
+              className={`rounded-t-md px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary ${
+                tab === item.key ? 'bg-primary-soft font-medium text-primary' : 'text-muted hover:bg-surface'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div role="tabpanel" className="pt-4">
+          {tab === 'history' ? (
+            authorityError['history'] ? (
+              <StatePanel variant="partial" title="历史暂不可用" unavailableAuthorities={['决策分析 · history']} />
+            ) : (
+              <HistoryPanel events={data.history} />
+            )
+          ) : null}
+          {tab === 'outcomes' ? (
+            authorityError['outcomes'] ? (
+              <StatePanel variant="partial" title="结果暂不可用" unavailableAuthorities={['决策分析 · outcomes']} />
+            ) : (
+              <OutcomesPanel outcomes={data.outcomes} />
+            )
+          ) : null}
+          {tab === 'effectiveness' ? (
+            authorityError['effectiveness'] ? (
+              <StatePanel variant="partial" title="效果暂不可用" unavailableAuthorities={['决策分析 · effectiveness']} />
+            ) : (
+              <EffectivenessPanel effectiveness={data.effectiveness} />
+            )
+          ) : null}
+        </div>
+      </section>
+    </>
+  );
+}
+
+export function DecisionWorkspacePage() {
+  const { id } = useParams<{ id: string }>();
+  const query = useDecisionWorkspace(id);
+
+  if (!id) {
+    return (
+      <StatePanel
+        variant="empty"
+        title="缺少 recommendation_id"
+        description="工作区需要建议 ID 才能加载。"
+        nextStep="返回决策中心选择一条建议。"
+      />
+    );
+  }
+
+  if (query.isPending) {
+    return (
+      <div className="section-stack" aria-label="决策工作区加载中">
+        <StatePanel variant="loading" />
+        <StatePanel variant="loading" />
+        <StatePanel variant="loading" />
+      </div>
+    );
+  }
+
+  if (query.isError) {
+    const err = query.error as ApiError;
+    return (
+      <StatePanel
+        variant="error"
+        title="决策工作区加载失败"
+        errorMessage={err.message}
+        onRetry={() => void query.refetch()}
+      />
+    );
+  }
+
+  const envelope = query.data;
+
+  return (
+    <div className="section-stack">
+      <p>
+        <Link
+          to="/decisions"
+          className="inline-flex items-center gap-1 text-sm text-primary transition-colors hover:underline focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <IconArrowLeft className="h-4 w-4" />
+          返回决策中心
+        </Link>
+      </p>
+
+      {/* 部分失败提示条：不伪装完整成功（spec §11.3） */}
+      {envelope.partial || envelope.limitations.length > 0 ? (
+        <div className="card border-uncertainty bg-uncertainty-soft" role="status">
+          <p className="flex items-center gap-2 text-sm font-medium text-uncertainty">
+            <IconAlertTriangle />
+            本次投影为部分可用
+          </p>
+          {envelope.limitations.length > 0 ? (
+            <ul className="mt-1 list-disc pl-8 text-sm text-muted">
+              {envelope.limitations.map((limitation, i) => (
+                <li key={i}>{limitation}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      <WorkspaceBody envelope={envelope} recommendationId={id} />
+    </div>
+  );
+}

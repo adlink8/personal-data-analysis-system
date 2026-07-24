@@ -1,0 +1,420 @@
+"""Phase 39:actions_recent.get / proactive_summary.get / calibration_overview.get 投影契约测试。"""
+import json
+import threading
+import urllib.request
+from http.server import ThreadingHTTPServer
+
+import pytest
+
+from personal_knowledge.intelligence.decision.service import DecisionFeedbackService
+from personal_knowledge.intelligence.proactive.ranking import DEFAULT_RANKING_POLICY
+from personal_knowledge.intelligence.proactive.service import ProactiveIntelligenceService
+from personal_knowledge.services import api_server
+from personal_knowledge.services.api_server import ui_rest_contract
+from personal_knowledge.services.decision_intelligence_reads import (
+    DecisionIntelligenceReadService,
+)
+from personal_knowledge.services.ui_projection import (
+    INTERFACE_SCHEMA_VERSION,
+    CockpitProjectionService,
+    _build_timeline,
+)
+
+ENVELOPE_KEYS = {
+    "schema_version", "operation", "ok", "generated_at", "snapshot_bindings",
+    "freshness", "authorities", "partial", "limitations", "data",
+}
+TIMELINE_STAGES = (
+    "recommendation", "decision", "action_start",
+    "action_complete", "outcome", "effectiveness",
+)
+ACTION_ITEM_KEYS = {
+    "recommendation_id", "domain", "recommendation_kind", "confirmation_state",
+    "action_state", "expires_at", "timeline", "outcomes", "effectiveness",
+}
+TIMELINE_ENTRY_KEYS = {"stage", "present", "event_id", "sequence", "checksum"}
+PROACTIVE_CARD_KEYS = {
+    "candidate_id", "domains", "candidate_class", "presentation_kind", "importance",
+    "expires_at", "valid_from", "reason_codes",
+    "current_control_eligible", "current_control_reason_codes",
+}
+PROTOCOL_ITEM_KEYS = {
+    "protocol_id", "status", "verdict", "causal_claim",
+    "inconclusive_reasons", "sample_size", "summary_limitations",
+}
+
+
+def _event(sequence, event_type, typed_record_id):
+    return {
+        "event_id": f"e{sequence}",
+        "sequence": sequence,
+        "event_type": event_type,
+        "typed_record_id": typed_record_id,
+        "previous_event_checksum": f"p{sequence}",
+        "payload_checksum": f"c{sequence}",
+    }
+
+
+def _full_chain():
+    """真实链形状(读自 state_machine):published → confirmation →
+    action(planned→started→completed)→ outcome → assessment。"""
+    return [
+        _event(1, "recommendation_published", "r1"),
+        _event(2, "confirmation", "cf1"),
+        _event(3, "action", "a1"),
+        _event(4, "action", "a2"),
+        _event(5, "action", "a3"),
+        _event(6, "outcome", "o1"),
+        _event(7, "assessment", "ef1"),
+    ], {"a1": "planned", "a2": "started", "a3": "completed"}
+
+
+# --- _build_timeline 纯函数:六阶段恒在 + event_type→stage 映射 ----------------
+
+
+def test_build_timeline_six_stages_always_present():
+    timeline = _build_timeline([], {})
+    assert tuple(entry["stage"] for entry in timeline) == TIMELINE_STAGES
+    for entry in timeline:
+        assert set(entry) == TIMELINE_ENTRY_KEYS
+        assert entry["present"] is False
+        assert entry["event_id"] is None
+        assert entry["sequence"] is None
+        assert entry["checksum"] is None
+
+
+def test_build_timeline_full_chain_maps_all_stages():
+    history, action_states = _full_chain()
+    timeline = {entry["stage"]: entry for entry in _build_timeline(history, action_states)}
+    assert all(entry["present"] for entry in timeline.values())
+    assert timeline["recommendation"]["event_id"] == "e1"
+    assert timeline["decision"]["event_id"] == "e2"
+    # action 事件按 typed record 的 action_state 细分
+    assert timeline["action_start"]["event_id"] == "e4"
+    assert timeline["action_complete"]["event_id"] == "e5"
+    assert timeline["outcome"]["event_id"] == "e6"
+    assert timeline["effectiveness"]["event_id"] == "e7"
+    # checksum 取事件的 payload_checksum
+    assert timeline["outcome"]["checksum"] == "c6"
+    assert timeline["effectiveness"]["sequence"] == 7
+
+
+def test_build_timeline_non_started_completed_actions_occupy_no_stage():
+    history = [
+        _event(1, "recommendation_published", "r1"),
+        _event(2, "confirmation", "cf1"),
+        _event(3, "action", "a1"),
+    ]
+    for state in ("planned", "abandoned", "not_taken"):
+        timeline = {entry["stage"]: entry for entry in _build_timeline(history, {"a1": state})}
+        assert timeline["action_start"]["present"] is False
+        assert timeline["action_complete"]["present"] is False
+        assert timeline["recommendation"]["present"] is True
+        assert timeline["decision"]["present"] is True
+
+
+def test_build_timeline_unknown_event_type_ignored():
+    history = [_event(1, "recommendation_published", "r1"), _event(2, "mystery", "x1")]
+    timeline = {entry["stage"]: entry for entry in _build_timeline(history, {})}
+    assert timeline["recommendation"]["present"] is True
+    assert all(
+        entry["present"] is False
+        for stage, entry in timeline.items() if stage != "recommendation"
+    )
+
+
+# --- actions_recent.get -----------------------------------------------------
+
+
+def test_actions_recent_envelope_and_shape():
+    result = CockpitProjectionService().invoke("actions_recent.get")
+    assert set(result) == ENVELOPE_KEYS
+    assert result["schema_version"] == INTERFACE_SCHEMA_VERSION
+    assert result["ok"] is True
+    assert result["operation"] == "actions_recent.get"
+    assert set(result["authorities"]) == {"decision"}
+    data = result["data"]
+    assert set(data) == {
+        "total_available", "shown", "with_outcome", "awaiting_outcome", "items",
+    }
+    assert data["shown"] == len(data["items"])
+    assert data["shown"] <= 10
+    assert data["shown"] <= data["total_available"]
+    assert data["with_outcome"] + data["awaiting_outcome"] <= data["shown"]
+    for item in data["items"]:
+        assert ACTION_ITEM_KEYS <= set(item)
+        assert tuple(entry["stage"] for entry in item["timeline"]) == TIMELINE_STAGES
+        for entry in item["timeline"]:
+            assert set(entry) == TIMELINE_ENTRY_KEYS
+            if entry["present"]:
+                assert entry["event_id"] is not None
+                assert entry["sequence"] is not None
+                assert entry["checksum"] is not None
+            else:
+                assert entry["event_id"] is None
+                assert entry["sequence"] is None
+                assert entry["checksum"] is None
+        assert isinstance(item["outcomes"], list)
+        assert isinstance(item["effectiveness"], list)
+
+
+def test_actions_recent_real_chain_genesis_always_present():
+    result = CockpitProjectionService().invoke("actions_recent.get")
+    items = [item for item in result["data"]["items"] if "error" not in item]
+    if not items:
+        pytest.skip("库中无真实 recommendation")
+    for item in items:
+        # genesis(recommendation_published)由状态机强制存在
+        timeline = {entry["stage"]: entry for entry in item["timeline"]}
+        assert timeline["recommendation"]["present"] is True
+        assert timeline["recommendation"]["sequence"] == 1
+    # with_outcome 计数与 outcomes 明细一致
+    data = result["data"]
+    assert data["with_outcome"] == sum(1 for item in items if item["outcomes"])
+
+
+def test_actions_recent_failure_degrades_to_zero_shape(monkeypatch):
+    def boom(self, operation, **params):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(DecisionFeedbackService, "invoke", boom)
+    result = CockpitProjectionService().invoke("actions_recent.get")
+    assert result["ok"] is True
+    assert result["partial"] is True
+    assert result["authorities"]["decision"] == "error"
+    assert any("decision" in item for item in result["limitations"])
+    data = result["data"]
+    assert data == {
+        "total_available": 0, "shown": 0,
+        "with_outcome": 0, "awaiting_outcome": 0, "items": [],
+    }
+
+
+def test_actions_recent_single_item_failure_isolated(monkeypatch):
+    original = DecisionFeedbackService.invoke
+
+    def boom(self, operation, **params):
+        if operation == "recommendations.history":
+            raise RuntimeError("boom")
+        return original(self, operation, **params)
+
+    monkeypatch.setattr(DecisionFeedbackService, "invoke", boom)
+    result = CockpitProjectionService().invoke("actions_recent.get")
+    if not result["data"]["total_available"]:
+        pytest.skip("库中无真实 recommendation")
+    # 节本身成功(list 未失败),不标 partial
+    assert result["ok"] is True
+    assert result["partial"] is False
+    assert result["authorities"]["decision"] == "ok"
+    assert any("全链组装失败" in item for item in result["limitations"])
+    for item in result["data"]["items"]:
+        assert "error" in item
+        # 失败条目仍保持完整形状,六阶段键恒在
+        assert tuple(entry["stage"] for entry in item["timeline"]) == TIMELINE_STAGES
+        assert all(entry["present"] is False for entry in item["timeline"])
+        assert item["outcomes"] == []
+        assert item["effectiveness"] == []
+
+
+# --- proactive_summary.get ---------------------------------------------------
+
+
+def test_proactive_summary_envelope_and_shape():
+    result = CockpitProjectionService().invoke("proactive_summary.get")
+    assert set(result) == ENVELOPE_KEYS
+    assert result["schema_version"] == INTERFACE_SCHEMA_VERSION
+    assert result["ok"] is True
+    assert result["operation"] == "proactive_summary.get"
+    assert set(result["authorities"]) == {"inbox", "metrics"}
+    data = result["data"]
+    assert set(data) == {"total_available", "groups", "metrics", "notes"}
+    assert set(data["groups"]) == {"now", "deferrable"}
+    assert isinstance(data["notes"], list) and data["notes"]
+    assert any("controls/status" in note for note in data["notes"])
+    if result["authorities"]["metrics"] == "ok":
+        metrics = data["metrics"]
+        # metrics.get 真实字段(读自 proactive/service.py metrics_get)
+        for key in (
+            "candidate_counts", "domain_counts", "evaluation_counts",
+            "suppression_reason_counts", "feedback_counts",
+            "control_frontier_checksum", "external_actions",
+            "network_calls", "paid_calls",
+        ):
+            assert key in metrics
+
+
+def test_proactive_summary_grouping_is_conservative():
+    result = CockpitProjectionService().invoke("proactive_summary.get")
+    if result["authorities"]["inbox"] != "ok":
+        pytest.skip("inbox 节不可用")
+    groups = result["data"]["groups"]
+    total = len(groups["now"]) + len(groups["deferrable"])
+    assert total <= result["data"]["total_available"]
+    for card in groups["now"] + groups["deferrable"]:
+        assert PROACTIVE_CARD_KEYS <= set(card)
+    # now 组每条都必须有达阈值的真实 final_score;不达标/缺分一律 deferrable
+    threshold = DEFAULT_RANKING_POLICY.threshold
+    for card in groups["now"]:
+        score = (card.get("importance") or {}).get("final_score")
+        assert isinstance(score, (int, float)) and not isinstance(score, bool)
+        assert score >= threshold
+    for card in groups["deferrable"]:
+        score = (card.get("importance") or {}).get("final_score")
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            assert score < threshold
+
+
+def test_proactive_summary_inbox_failure_partial(monkeypatch):
+    original = ProactiveIntelligenceService.invoke
+
+    def boom(self, operation, **params):
+        if operation == "inbox.list":
+            raise RuntimeError("boom")
+        return original(self, operation, **params)
+
+    monkeypatch.setattr(ProactiveIntelligenceService, "invoke", boom)
+    result = CockpitProjectionService().invoke("proactive_summary.get")
+    assert result["ok"] is True
+    assert result["partial"] is True
+    assert result["authorities"]["inbox"] == "error"
+    assert any("inbox" in item for item in result["limitations"])
+    # inbox 失败退化为空分组,metrics 节不受影响
+    assert result["data"]["total_available"] == 0
+    assert result["data"]["groups"] == {"now": [], "deferrable": []}
+    assert result["authorities"]["metrics"] == "ok"
+    assert isinstance(result["data"]["metrics"], dict)
+
+
+def test_proactive_summary_metrics_failure_partial(monkeypatch):
+    original = ProactiveIntelligenceService.invoke
+
+    def boom(self, operation, **params):
+        if operation == "metrics.get":
+            raise RuntimeError("boom")
+        return original(self, operation, **params)
+
+    monkeypatch.setattr(ProactiveIntelligenceService, "invoke", boom)
+    result = CockpitProjectionService().invoke("proactive_summary.get")
+    assert result["ok"] is True
+    assert result["partial"] is True
+    assert result["authorities"]["metrics"] == "error"
+    assert any("metrics" in item for item in result["limitations"])
+    assert result["data"]["metrics"] is None
+    assert result["authorities"]["inbox"] == "ok"
+    assert set(result["data"]["groups"]) == {"now", "deferrable"}
+
+
+# --- calibration_overview.get -------------------------------------------------
+
+
+def test_calibration_overview_envelope_and_shape():
+    result = CockpitProjectionService().invoke("calibration_overview.get")
+    assert set(result) == ENVELOPE_KEYS
+    assert result["schema_version"] == INTERFACE_SCHEMA_VERSION
+    assert result["ok"] is True
+    assert result["operation"] == "calibration_overview.get"
+    assert set(result["authorities"]) == {"calibration"}
+    data = result["data"]
+    assert set(data) == {"total", "shown", "protocols"}
+    assert data["shown"] == len(data["protocols"])
+    assert data["shown"] <= 10
+    assert data["shown"] <= data["total"]
+    for item in data["protocols"]:
+        assert PROTOCOL_ITEM_KEYS <= set(item)
+        assert isinstance(item["inconclusive_reasons"], list)
+        assert isinstance(item["summary_limitations"], list)
+        assert isinstance(item["sample_size"], int)
+
+
+def test_calibration_overview_real_protocol_fields():
+    result = CockpitProjectionService().invoke("calibration_overview.get")
+    items = [item for item in result["data"]["protocols"] if "error" not in item]
+    if not items:
+        pytest.skip("库中无真实 calibration protocol")
+    for item in items:
+        assert item["protocol_id"]
+        assert item["status"] == "frozen"
+        assert item["verdict"] in {"PASS", "FAIL", "INCONCLUSIVE", None}
+        # explain 视图恒 causal_claim=False(读自 calibration/service.py)
+        assert item["causal_claim"] is False
+        assert item["sample_size"] >= 0
+        assert item["summary_limitations"]
+
+
+def test_calibration_overview_failure_degrades_to_zero_shape(monkeypatch):
+    def boom(self, operation, **params):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(DecisionIntelligenceReadService, "invoke", boom)
+    result = CockpitProjectionService().invoke("calibration_overview.get")
+    assert result["ok"] is True
+    assert result["partial"] is True
+    assert result["authorities"]["calibration"] == "error"
+    assert any("calibration" in item for item in result["limitations"])
+    assert result["data"] == {"total": 0, "shown": 0, "protocols": []}
+
+
+def test_calibration_overview_single_protocol_failure_isolated(monkeypatch):
+    original = DecisionIntelligenceReadService.invoke
+
+    def boom(self, operation, **params):
+        if operation == "calibration.explain":
+            raise RuntimeError("boom")
+        return original(self, operation, **params)
+
+    monkeypatch.setattr(DecisionIntelligenceReadService, "invoke", boom)
+    result = CockpitProjectionService().invoke("calibration_overview.get")
+    if not result["data"]["total"]:
+        pytest.skip("库中无真实 calibration protocol")
+    # 节本身成功(list 未失败),不标 partial
+    assert result["ok"] is True
+    assert result["partial"] is False
+    assert result["authorities"]["calibration"] == "ok"
+    assert any("explain 失败" in item for item in result["limitations"])
+    for item in result["data"]["protocols"]:
+        assert "error" in item
+        assert PROTOCOL_ITEM_KEYS <= set(item)
+
+
+# --- REST parity / 路由 --------------------------------------------------------
+
+
+def _pop_generated_at(envelope):
+    envelope.pop("generated_at")
+    envelope["freshness"].pop("generated_at")
+
+
+def test_rest_adapter_parity_phase39_operations():
+    service = CockpitProjectionService()
+    for operation in (
+        "actions_recent.get", "proactive_summary.get", "calibration_overview.get",
+    ):
+        rest = ui_rest_contract(operation, {}, service=service)
+        direct = service.invoke(operation)
+        for envelope in (rest, direct):
+            _pop_generated_at(envelope)
+        assert rest == direct
+
+
+def test_ui_routes_serve_phase39_endpoints():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), api_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    # 本机请求不走任何 HTTP_PROXY 环境变量
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        port = server.server_address[1]
+        for path, operation in (
+            ("/ui/actions/recent", "actions_recent.get"),
+            ("/ui/proactive/summary", "proactive_summary.get"),
+            ("/ui/calibration/overview", "calibration_overview.get"),
+        ):
+            with opener.open(f"http://127.0.0.1:{port}{path}") as resp:
+                body = json.loads(resp.read())
+            assert resp.status == 200
+            assert body["ok"] is True
+            assert body["operation"] == operation
+            assert body["schema_version"] == INTERFACE_SCHEMA_VERSION
+    finally:
+        server.shutdown()
+        server.server_close()

@@ -97,6 +97,8 @@ Thumbs.db
 # Allow package manifests under apps (otherwise blocked by *.json)
 !apps/**/package.json
 !apps/**/package-lock.json
+!apps/**/tsconfig.json
+!apps/**/src/test/fixtures/*.json
 !apps/**/*.mjs
 !apps/**/*.html
 !apps/**/*.md

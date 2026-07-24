@@ -1,0 +1,88 @@
+...................................................................F.... [ 14%]
+........F.F..F.s..........................F......s..FFFFFF.............. [ 28%]
+........................................................................ [ 42%]
+........................................................................ [ 57%]
+........................................................................ [ 71%]
+............................................FFFFF....................... [ 85%]
+........................................................................ [100%]
+================================== FAILURES ===================================
+E   AttributeError: 'Namespace' object has no attribute 'agentsview_only'. Did you mean: 'agentsview_write'?
+D:\ADLINK\鏁版嵁鍒嗘瀽\src\personal_knowledge\application\run_pipeline.py:300: AttributeError: 'Namespace' object has no attribute 'agentsview_only'. Did you mean: 'agentsview_write'?
+E   KeyError: 'recycle-quarantine'
+C:\Users\li\Desktop\鏁版嵁鍒嗘瀽\tests\governance\test_governance_artifacts.py:74: KeyError: 'recycle-quarantine'
+E   jsonschema.exceptions.ValidationError: 'rolled-back-legacy' is not one of ['active', 'candidate', 'deprecated', 'quarantined', 'archived', 'orphaned', 'excluded']
+    
+    Failed validating 'enum' in schema['properties']['nodes']['items']['properties']['status']:
+        {'enum': ['active',
+                  'candidate',
+                  'deprecated',
+                  'quarantined',
+                  'archived',
+                  'orphaned',
+                  'excluded']}
+    
+    On instance['nodes'][12]['status']:
+        'rolled-back-legacy'
+C:\Users\li\AppData\Local\Programs\Python\Python314\Lib\site-packages\jsonschema\validators.py:450: jsonschema.exceptions.ValidationError: 'rolled-back-legacy' is not one of ['active', 'candidate', 'deprecated', 'quarantined', 'archived', 'orphaned', 'excluded']
+E   AssertionError: assert 'private-runtime-legacy' == 'private-runtime'
+      
+      - private-runtime
+      + private-runtime-legacy
+      ?                +++++++
+C:\Users\li\Desktop\鏁版嵁鍒嗘瀽\tests\governance\test_governance_inventory.py:74: AssertionError: assert 'private-runtime-legacy' == 'private-runtime'
+E   AssertionError: assert 85 == 86
+     +  where 85 = len([{'consumer': 'legacy CLI callers (unknown until telemetry)', 'deprecated': True, 'owner': 'personal_knowledge', 'path...elemetry)', 'deprecated': True, 'owner': 'personal_knowledge', 'path': 'tools/compat/v1_1/backfill_loop.py', ...}, ...])
+C:\Users\li\Desktop\鏁版嵁鍒嗘瀽\tests\governance\test_governance_shims.py:21: AssertionError: assert 85 == 86
+E   assert False
+     +  where False = any(<generator object test_manifest_records_consumers_dirty_overlap_and_excludes_private_data.<locals>.<genexpr> at 0x0000026B194A72A0>)
+D:\ADLINK\鏁版嵁鍒嗘瀽\tests\governance\test_physical_source_layout.py:65: assert False
+E   AssertionError: assert {'pk-ku', 'pk...ipeline', ...} == {'rag-api', '... 'rag-search'}
+      
+      Extra items in the left set:
+      'pk-ku'
+      'pk-sync'
+      Use -v to get more diff
+D:\ADLINK\鏁版嵁鍒嗘瀽\tests\governance\test_physical_source_layout.py:72: AssertionError: assert {'pk-ku', 'pk...ipeline', ...} == {'rag-api', '... 'rag-search'}
+E   assert False
+     +  where False = all(<generator object test_canonical_preview_is_exact_and_records_phase17_conflicts.<locals>.<genexpr> at 0x0000026B19407300>)
+D:\ADLINK\鏁版嵁鍒嗘瀽\tests\governance\test_physical_source_layout.py:77: assert False
+E   assert False
+     +  where False = any(<generator object test_canonical_preview_records_exact_consumer_prestate_and_windows_checks.<locals>.<genexpr> at 0x0000026B1942B2E0>)
+D:\ADLINK\鏁版嵁鍒嗘瀽\tests\governance\test_physical_source_layout.py:105: assert False
+E   assert ('source missing or non-file' in 'Traceback (most recent call last):\n  File "D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\scripts\\governance\\apply_source_migratio...ack_coverage.py\', \'integration/scripts/_tools/_audit_test_gaps.py\', \'integration/scripts/_tools/_fix_shims.py\']\n' or 'dirty source requires a newly approved manifest' in 'Traceback (most recent call last):\n  File "D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\scripts\\governance\\apply_source_migratio...ack_coverage.py\', \'integration/scripts/_tools/_audit_test_gaps.py\', \'integration/scripts/_tools/_fix_shims.py\']\n')
+     +  where 'Traceback (most recent call last):\n  File "D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\scripts\\governance\\apply_source_migratio...ack_coverage.py\', \'integration/scripts/_tools/_audit_test_gaps.py\', \'integration/scripts/_tools/_fix_shims.py\']\n' = CompletedProcess(args=['C:\\Users\\li\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', 'integration/scripts/...ck_coverage.py\', \'integration/scripts/_tools/_audit_test_gaps.py\', \'integration/scripts/_tools/_fix_shims.py\']\n').stderr
+     +  and   'Traceback (most recent call last):\n  File "D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\scripts\\governance\\apply_source_migratio...ack_coverage.py\', \'integration/scripts/_tools/_audit_test_gaps.py\', \'integration/scripts/_tools/_fix_shims.py\']\n' = CompletedProcess(args=['C:\\Users\\li\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', 'integration/scripts/...ck_coverage.py\', \'integration/scripts/_tools/_audit_test_gaps.py\', \'integration/scripts/_tools/_fix_shims.py\']\n').stderr
+D:\ADLINK\鏁版嵁鍒嗘瀽\tests\governance\test_physical_source_layout.py:168: assert ('source missing or non-file' in 'Traceback (most recent call last):\n  File "D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\scripts\\governance\\apply_source_migratio...ack_coverage.py\', \'integration/scripts/_tools/_audit_test_gaps.py\', \'integration/scripts/_tools/_fix_shims.py\']\n' or 'dirty source requires a newly approved manifest' in 'Traceback (most recent call last):\n  File "D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\scripts\\governance\\apply_source_migratio...ack_coverage.py\', \'integration/scripts/_tools/_audit_test_gaps.py\', \'integration/scripts/_tools/_fix_shims.py\']\n')
+E   AssertionError: assert {'forensics',..., 'supported'} == {'documentati..., 'supported'}
+      
+      Extra items in the right set:
+      'documentation'
+      Use -v to get more diff
+D:\ADLINK\鏁版嵁鍒嗘瀽\tests\governance\test_physical_source_layout.py:178: AssertionError: assert {'forensics',..., 'supported'} == {'documentati..., 'supported'}
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\analysis\\ai_context\\memory_decomplexity_plan.json'
+C:\Users\li\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:771: FileNotFoundError: [Errno 2] No such file or directory: 'D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\analysis\\ai_context\\memory_decomplexity_plan.json'
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\analysis\\ai_context\\memory_decomplexity_plan.json'
+C:\Users\li\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:771: FileNotFoundError: [Errno 2] No such file or directory: 'D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\analysis\\ai_context\\memory_decomplexity_plan.json'
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\analysis\\ai_context\\memory_decomplexity_plan.json'
+C:\Users\li\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:771: FileNotFoundError: [Errno 2] No such file or directory: 'D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\analysis\\ai_context\\memory_decomplexity_plan.json'
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\analysis\\ai_context\\memory_decomplexity_plan.json'
+C:\Users\li\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:771: FileNotFoundError: [Errno 2] No such file or directory: 'D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\analysis\\ai_context\\memory_decomplexity_plan.json'
+E   FileNotFoundError: [Errno 2] No such file or directory: 'D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\analysis\\ai_context\\memory_decomplexity_plan.json'
+C:\Users\li\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:771: FileNotFoundError: [Errno 2] No such file or directory: 'D:\\ADLINK\\鏁版嵁鍒嗘瀽\\integration\\analysis\\ai_context\\memory_decomplexity_plan.json'
+=========================== short test summary info ===========================
+FAILED tests/contract/test_run_pipeline_contracts.py::test_dry_run_main_prints_without_executing
+FAILED tests/governance/test_governance_artifacts.py::test_preview_has_approval_owner_reason_size_privacy_and_rollback
+FAILED tests/governance/test_governance_inventory.py::test_schema_accepts_complete_inventory
+FAILED tests/governance/test_governance_inventory.py::test_ordered_policy_is_unique_for_all_fixture_types
+FAILED tests/governance/test_governance_shims.py::test_all_legacy_shims_resolve_to_existing_static_targets
+FAILED tests/governance/test_physical_source_layout.py::test_manifest_records_consumers_dirty_overlap_and_excludes_private_data
+FAILED tests/governance/test_physical_source_layout.py::test_manifest_declares_five_stable_console_scripts
+FAILED tests/governance/test_physical_source_layout.py::test_canonical_preview_is_exact_and_records_phase17_conflicts
+FAILED tests/governance/test_physical_source_layout.py::test_canonical_preview_records_exact_consumer_prestate_and_windows_checks
+FAILED tests/governance/test_physical_source_layout.py::test_legacy_executor_entry_runs_from_uninstalled_checkout
+FAILED tests/governance/test_physical_source_layout.py::test_root_shim_and_tool_cohorts_are_fully_applied
+FAILED tests/unit/test_memory_decomplexity_plan.py::TestMemoryDecomplexityPlan::test_active_reader_objects_are_not_direct_remove_candidates
+FAILED tests/unit/test_memory_decomplexity_plan.py::TestMemoryDecomplexityPlan::test_counts_match_classification_rows
+FAILED tests/unit/test_memory_decomplexity_plan.py::TestMemoryDecomplexityPlan::test_deprecated_archive_and_remove_candidates_have_required_fields
+FAILED tests/unit/test_memory_decomplexity_plan.py::TestMemoryDecomplexityPlan::test_plan_is_plan_only_and_protects_active_surfaces
+FAILED tests/unit/test_memory_decomplexity_plan.py::TestMemoryDecomplexityPlan::test_plan_states_mechanism_consolidation_not_result_winner

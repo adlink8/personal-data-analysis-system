@@ -6,7 +6,7 @@ from personal_knowledge.core.project_paths import UNIFIED_DB
 from personal_knowledge.application.knowledge.build_knowledge_units_prod import resume_run, process_run
 
 run_id = '731a6a8a0994ae9a5ae94a117b58dd1e'
-model = 'gemini-3.5-flash'
+model = 'gemini-3.5-flash-lite'
 
 for batch in range(1, 50):
     resume_run(run_id, model)

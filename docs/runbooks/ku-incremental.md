@@ -105,7 +105,7 @@ Record:
 
 ```powershell
 pk-ku prepare `
-  --model gemini-3.5-flash `
+  --model gemini-3.5-flash-lite `
   --provider vertex_google `
   --endpoint "https://aiplatform.googleapis.com" `
   --auth-mode gcloud `
@@ -128,12 +128,12 @@ Examples:
 
 ```powershell
 # Only user messages since 2026-07-13, cap 100
-pk-ku prepare --model gemini-3.5-flash --provider vertex_google `
+pk-ku prepare --model gemini-3.5-flash-lite --provider vertex_google `
   --endpoint "https://aiplatform.googleapis.com" --auth-mode gcloud `
   --roles user --since 2026-07-13 --max-extract-items 100
 
 # Include modified + no watermark date floor
-pk-ku prepare --model gemini-3.5-flash --provider vertex_google `
+pk-ku prepare --model gemini-3.5-flash-lite --provider vertex_google `
   --endpoint "https://aiplatform.googleapis.com" --auth-mode gcloud `
   --no-extract-new-only --no-extract-since-watermark
 ```
@@ -157,7 +157,7 @@ Known implementation note (2026-07): when a committed watermark exists, `prepare
 **Preferred (when prepare produced a fresh run bound to delta):**
 
 ```powershell
-pk-ku extract --run <fresh_run_id> --model gemini-3.5-flash `
+pk-ku extract --run <fresh_run_id> --model gemini-3.5-flash-lite `
   --max-items <batch> --workers 4 --min-request-interval 2.5
 ```
 
@@ -193,7 +193,7 @@ pk-ku canary --candidate-override <collection> --queries 30 `
 
 # Labels: human OR LLM (Vertex if no OPENAI_API_KEY)
 pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json `
-  --label-with-llm --backend vertex_google --model gemini-3.5-flash
+  --label-with-llm --backend vertex_google --model gemini-3.5-flash-lite
 pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --check-label-completeness
 pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --strict
 ```
@@ -217,7 +217,7 @@ pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --list
 
 # 2) Optional: re-call LLM only for wrong/stale (and empty)
 pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json `
-  --label-with-llm --only-critical --backend vertex_google --model gemini-3.5-flash
+  --label-with-llm --only-critical --backend vertex_google --model gemini-3.5-flash-lite
 
 # 3–4) Completeness then strict
 pk-ku canary --report var\reports\analysis\ai_context\ku_canary_<id>.json --check-label-completeness

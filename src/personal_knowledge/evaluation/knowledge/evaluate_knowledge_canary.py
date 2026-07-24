@@ -363,25 +363,22 @@ def _llm_label_one(
     import urllib.request
 
     from personal_knowledge.application.knowledge.build_knowledge_units_prod import (
-        GCP_PROJECT,
         TokenProvider,
+    )
+    from personal_knowledge.core.runtime_config import (
+        vertex_config,
+        vertex_generate_content_url,
+        vertex_generation_config,
     )
 
     token = TokenProvider().get()
-    url = (
-        f"https://aiplatform.googleapis.com/v1/projects/{GCP_PROJECT}"
-        f"/locations/us-central1/publishers/google/models/{model}:generateContent"
-    )
+    url = vertex_generate_content_url(vertex_config(), model)
     body = json.dumps({
         "contents": [{
             "role": "user",
             "parts": [{"text": system + "\n\n" + user}],
         }],
-        "generationConfig": {
-            "maxOutputTokens": 256,
-            "temperature": 0,
-            "thinkingConfig": {"thinkingBudget": 0},
-        },
+        "generationConfig": vertex_generation_config(model, 256),
     }).encode()
     req = urllib.request.Request(
         url,
@@ -409,7 +406,7 @@ def _llm_label_one(
 def label_canary_report_with_llm(
     report_path: Path,
     *,
-    model: str = "gemini-3.5-flash",
+    model: str = "gemini-3.5-flash-lite",
     backend: str = "auto",
     db_path: Path = UNIFIED_DB,
     only_unlabeled: bool = True,
@@ -697,7 +694,7 @@ def main(argv: list[str] | None = None) -> int:
             print("[error] --label-with-llm requires existing --report", file=sys.stderr)
             return 2
         model = args.model or (
-            "gemini-3.5-flash" if args.backend in ("auto", "vertex_google") else "gpt-4o-mini"
+            "gemini-3.5-flash-lite" if args.backend in ("auto", "vertex_google") else "gpt-4o-mini"
         )
         result = label_canary_report_with_llm(
             report_path,

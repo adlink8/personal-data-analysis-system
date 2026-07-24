@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Agent Productization
-status: Awaiting next milestone
-last_updated: "2026-07-18T18:59:38.313Z"
-last_activity: 2026-07-18 — Milestone v1.3 completed and archived
+milestone: v1.4
+milestone_name: Decision Cockpit UI
+status: executing
+last_updated: "2026-07-22T15:52:54.458Z"
+last_activity: 2026-07-22 -- Phase 36 planning complete
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 12
-  completed_plans: 12
-  percent: 100
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 17
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -61,23 +61,27 @@ progress:
 
 ## Current Position
 
-Phase: Milestone v1.3 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-18 — Milestone v1.3 completed and archived
+Phase: 36 — Secure Projection and Cockpit Baseline
+Plan: 4 closure plans documented; 0 executed
+Status: Planned — existing Cockpit/Projection WIP audited, not yet secured or accepted
+Last activity: 2026-07-22 -- v1.4 implementation/plan reconciliation complete
 
 ## Project Reference
 
 See: `.planning/PROJECT.md` (updated 2026-07-19)
 
 **Core value:** Local, evidence-bound and uncertainty-aware personal decision support.
-**Current focus:** no active milestone; await authorization for fresh requirements
+**Current focus:** v1.4 Decision Cockpit UI planning reconciliation; Phase 36–40 execution is not yet authorized, and the existing Cockpit/Projection code remains unaudited WIP rather than a shipped milestone.
 
 ## Cross-cutting architecture/data governance audit
 
 - **2026-07-18 live closure:** Phase 24 strict review, final retrieval gate and lifecycle adoption pass; Active snapshot is `ss_5d816a6bf3ebd0bce9463236`. Phase 25–27 schemas are applied with one validated committed real run per phase. Technical blockers are empty and explicit Product UAT passed.
 
 - **Corrected product vision and current status:** [`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md) — final target is decision intelligence based on long-term personal data plus external environment, not a project-status Agent.
+- **Candidate product frontend:** [`PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md`](./PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md) — independent decision cockpit for current state, decisions, actions/outcomes, external context, proactive signals, evidence and runtime health; not activated as a milestone.
+- **v1.4 implementation/plan reconciliation:** [`V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md`](./V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md) — existing Cockpit and Projection WIP is real but uncommitted; records the CORS, safe-error, evidence, feedback-history and browser-UAT closure work that remains before v1.5 can activate.
+- **Candidate personal knowledge projection:** [`PERSONAL-WIKI-PROJECTION-SPEC-2026-07-22.md`](./PERSONAL-WIKI-PROJECTION-SPEC-2026-07-22.md) — a post-Cockpit, read-only topic Wiki for Project/Goal/Decision pages; distinct from `docs/wiki/`, which remains developer/operator documentation. Not activated as a milestone.
+- **v1.5 Wiki preplanning package:** [`future-milestones/v1.5-personal-knowledge-wiki-projection/README.md`](./future-milestones/v1.5-personal-knowledge-wiki-projection/README.md) — normal GSD requirements, roadmap, phase contexts/research/plans/verification for WIKI-01..04; explicitly `preplanned_not_active` until v1.4 implementation and audit complete.
 - **Authoritative issue inventory:** [`ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md`](./ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md)
 - **Current expected-target gap:** [`TARGET-GAP-ANALYSIS-2026-07-18.md`](./TARGET-GAP-ANALYSIS-2026-07-18.md) — current authoritative distance analysis for PDI-T0..T4, Phase 24 blockers, External Context, LLM decision analysis and real outcome calibration.
 - **Historical target-gap snapshot:** [`TARGET-GAP-ANALYSIS-2026-07-17.md`](./TARGET-GAP-ANALYSIS-2026-07-17.md) — retained for historical comparison only.
@@ -135,6 +139,7 @@ python -m personal_knowledge.governance.preflight
 - Phase 25 added: Target D personal state and change intelligence
 - Phase 26 added: Target D decision/action feedback loop
 - Phase 27 added: Target D proactive multi-domain acceptance
+- Phase 36-40 added: v1.4 Decision Cockpit UI: secure projection baseline, authority-aware state/evidence, guarded project decision workspace, truthful feedback/runtime, and browser UAT; Wiki deferred to v1.5.
 
 ## Operator Next Steps
 

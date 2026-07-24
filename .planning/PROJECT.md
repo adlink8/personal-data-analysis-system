@@ -16,6 +16,8 @@
 
 当前预期目标差距：[`TARGET-GAP-ANALYSIS-2026-07-18.md`](./TARGET-GAP-ANALYSIS-2026-07-18.md)。
 
+v1.4 前端产品契约：[`PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md`](./PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md)。
+
 ```text
 长期个人数据 + 当前个人状态 + 外部环境 + 历史决策结果
 → 状态与变化建模
@@ -27,7 +29,20 @@
 
 LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执行权限。
 
-## Current State: v1.3 Agent Productization — Shipped
+## Current Milestone: v1.4 Decision Cockpit UI — Requirements Defined
+
+**Goal:** 把已验证的 Personal State、External、Decision、Action/Outcome、Proactive、Evidence 与 Guarded Orchestration 变成可每日使用、可追溯且不突破用户主权的本地 Web 驾驶舱。
+
+**Target features:**
+
+- 版本化、只读且同源安全的 Cockpit Projection 与静态 `/app`；
+- 当前状态、External、证据、决策、反馈、主动提醒与系统状态的真实 UI；
+- 仅限低风险 `project` 域的 `prepare → exact preview → confirm → replay`；
+- 真实浏览器、无障碍、降级和隐私验收。
+
+正式需求见 [`REQUIREMENTS.md`](./REQUIREMENTS.md)，研究结论见 [`research/v1.4-decision-cockpit-ui/SUMMARY.md`](./research/v1.4-decision-cockpit-ui/SUMMARY.md)。
+
+## Previous Milestone: v1.3 Agent Productization — Shipped
 
 **Shipped:** 2026-07-18. 独立审计通过 13/13 requirements、12/12 integrations、4/4 flows。
 
@@ -40,9 +55,9 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 
 **Previous:** v1.2 shipped 2026-07-18（Phases 28–31），完成 External Authority、真实 `gpt-5.4` 决策链和诚实 `INCONCLUSIVE` 校准。见 [v1.2 audit](milestones/v1.2-MILESTONE-AUDIT.md)。
 
-## Next Milestone Goals
+## Deferred Next Direction
 
-当前没有 active milestone。下一里程碑需先重新定义需求；候选方向仅保留为 future requirements：learning/career 低风险扩域、更强视觉比较，以及达到预注册样本量后的真实 calibration cohort。不会从这些候选自动创建或执行新范围。
+**Personal Knowledge Wiki Projection** 仅作为 v1.5 候选，依赖 Cockpit 的 Projection、Evidence 和 stale 语义完成正式验收。规格见 [`PERSONAL-WIKI-PROJECTION-SPEC-2026-07-22.md`](./PERSONAL-WIKI-PROJECTION-SPEC-2026-07-22.md)。它不新建个人事实 SSOT，也不会从本轮规划自动激活。learning/career 低风险扩域和达到预注册样本量后的 calibration cohort 同样后置。
 
 ## Current Reality — 2026-07-19
 
@@ -94,6 +109,14 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 - ✓ 真实 ChatGPT/tunnel ingress read/explain 与 confirmed exact replay — LIVE-02
 - ✓ 44-tool descriptor/contract 快照与 live 本地 MCP parity — LIVE-03
 
+### Active (v1.4 Decision Cockpit UI)
+
+- [ ] Projection-only、同源安全、safe error 与可审计基线 — CCK-01..04
+- [ ] 当前状态、External、snapshot/evidence 与 truthful degraded UI — STATE-01..03、EVID-01
+- [ ] 低风险 project 决策工作区与 explicit confirm/exact replay — DEC-01..03
+- [ ] Action/Outcome/Calibration/Proactive 与 runtime truthfulness — FDB-01..02、RUN-01
+- [ ] 响应式、无障碍、隐私和真实浏览器验收 — UX-01..02、QA-01..02
+
 ### Optional backlog (not Active)
 
 - 真实源增量付费 promote；非主路径测试覆盖补齐  
@@ -106,6 +129,9 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 - 让 LLM 输出绕过 schema、evidence、privacy 和 evaluation gate — 所有 AI 产物先进入 staging
 - 在核心管道引入大型 Agent/RAG 编排框架 — 优先使用现有 Python、SQLite 和轻量接口
 - 硬删除 `_recycle/` 归档（仅软归档；恢复靠 MANIFEST）
+- 在 Cockpit 中新建或复制 Personal/External/Decision 事实权威 — 只允许版本化只读 Projection
+- Personal Knowledge Wiki、Topic Page、backlinks 或 LLM Wiki 叙述 — 明确后置至 v1.5 候选
+- 健康、财务、关系等高风险写入，或任何自动外部动作/promotion — v1.4 仅限既有 `project + low` 受控路径
 
 ## Context
 
@@ -159,10 +185,12 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 | Agent 写入只接受 exact preview + explicit confirmation + idempotency | 保留用户最终权力并使网络重试安全 | ✓ Good (v1.3) |
 | MCP 默认使用 compact envelope，完整证据显式下钻 | 控制上下文、隐私与恢复语义 | ✓ Good (v1.3) |
 | Runtime 只管理可证明 owned 的进程 | 防止端口冲突时误杀用户进程 | ✓ Good (v1.3) |
+| Cockpit 只消费 server-owned Projection | 防止浏览器形成影子 SSOT、复制生命周期/风险裁决 | — Pending (v1.4) |
+| Cockpit mutation 仅限 same-origin `project + low` | wildcard CORS 与 UI 确认不能替代 transport security | — Pending (v1.4 P0) |
 
 ## Evolution
 
 本文件在阶段转换和里程碑边界持续更新。每次阶段完成时核对需求、关键决策、范围和真实运行状态；每次里程碑结束时重新检查 Core Value、Out of Scope 与已验证能力。
 
 ---
-*Last updated: 2026-07-19 after v1.3 milestone*
+*Last updated: 2026-07-22 after v1.4 requirements definition*

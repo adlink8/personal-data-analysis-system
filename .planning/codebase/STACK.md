@@ -151,7 +151,7 @@ Path SSOT: `src/personal_knowledge/core/project_paths.py` (Phase 20 prefers `dat
 
 | Provider key | Auth | Endpoint pattern | Default model | Config |
 |--------------|------|------------------|---------------|--------|
-| **`vertex_google`** | gcloud access token | `https://aiplatform.googleapis.com` | `gemini-3.5-flash` | `PERSONAL_DATA_GCP_PROJECT`, `PERSONAL_DATA_VERTEX_LOCATION` (default `us-central1`), `PERSONAL_DATA_VERTEX_MODEL`, `PERSONAL_DATA_GCLOUD` |
+| **`vertex_google`** | gcloud access token | `https://aiplatform.googleapis.com` | `gemini-3.5-flash-lite` | `PERSONAL_DATA_GCP_PROJECT`, `PERSONAL_DATA_VERTEX_LOCATION` (default `global`), `PERSONAL_DATA_VERTEX_MODEL`, `PERSONAL_DATA_GCLOUD` |
 | **`openai`** | API key | OpenAI-compatible / `api.openai.com` | gpt-*/o* models (allowlist) | `OPENAI_API_KEY` or `MEM0_API_KEY`, `OPENAI_BASE_URL` |
 | **`google_free`** | API key | `generativelanguage.googleapis.com` | gemini* | Provider validation in `refresh_knowledge_units.py` |
 
@@ -162,7 +162,7 @@ Vertex call path (prod extract):
 - Token: `gcloud_access_token()` in `core/runtime_config.py`
 - HTTP: `urllib` POST `…/publishers/google/models/{model}:generateContent` in `application/knowledge/build_knowledge_units_prod.py` (and related build/test modules)
 - Example product flags:  
-  `pk-ku prepare --model gemini-3.5-flash --provider vertex_google --endpoint https://aiplatform.googleapis.com --auth-mode gcloud`
+  `pk-ku prepare --model gemini-3.5-flash-lite --provider vertex_google --endpoint https://aiplatform.googleapis.com --auth-mode gcloud`
 
 OpenAI-compatible path:
 

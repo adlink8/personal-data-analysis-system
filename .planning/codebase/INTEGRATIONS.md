@@ -85,7 +85,7 @@ Privacy: raw activity is personal (R4); light assertions are derived and must re
 | Purpose | Knowledge-unit extraction, repair/judge paths that call Gemini on Vertex |
 | Auth | `gcloud auth print-access-token` via `runtime_config.gcloud_access_token()` |
 | Config | `PERSONAL_DATA_GCLOUD`, `PERSONAL_DATA_GCP_PROJECT`, `PERSONAL_DATA_VERTEX_LOCATION`, `PERSONAL_DATA_VERTEX_MODEL` |
-| Defaults | location `us-central1`; model `gemini-3.5-flash` |
+| Defaults | location `global`; model `gemini-3.5-flash-lite` |
 | Endpoint | `https://aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent` |
 | Primary callers | `application/knowledge/build_knowledge_units_prod.py`, `build_knowledge_units.py`, `test_knowledge_unit_llm.py`, prepare validation in `refresh_knowledge_units.py` |
 | Product entry | **`pk-ku prepare` / `pk-ku extract`** (not auto-paid on bare inspect) |

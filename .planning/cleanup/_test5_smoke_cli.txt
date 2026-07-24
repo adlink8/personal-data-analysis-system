@@ -1,0 +1,103 @@
+=== ku workflow EXIT=0 ===
+pk-ku daily workflow (incremental only)
+=====================================
+1. pk-sync conversations [--write]     # dialogue SSOT if chats grew
+2. pk-ku inspect                       # free; record new_refs / source_changed
+3. pk-ku prepare --model 鈥?--provider 鈥?--endpoint 鈥?--auth-mode 鈥?
+     Policy flags (no code edits):
+       --extract-new-only / --no-extract-new-only
+       --extract-since-watermark / --no-extract-since-watermark
+       --since YYYY-MM-DD
+       --roles user[,assistant]
+       --skip-succeeded / --no-skip-succeeded
+       --baseline-inventory ID
+       --max-extract-items N
+     Read extract_item_count + fresh_run_id from JSON. If inspect has delta but
+     prepare no_op 鈫?STOP (prepare defect). Do NOT invent full inventory path.
+4. pk-ku extract --run <fresh_run_id> --max-items N --workers 4
+5. pk-ku extract-gate --run <run_id> [--min-yield 0.7]
+6. pk-ku canonical --run <run_id> --write
+7. pk-ku publish --run <run_id> --write   # additive staging鈫抍urrent (not full demote)
+8. pk-ku vector --write                   # candidate index only
+9. pk-ku canary --candidate-override <coll> --report path.json
+   # after human labels:
+   pk-ku canary --report path.json --check-label-completeness
+   pk-ku canary --report path.json --strict
+10. pk-ku promote --collection <cand> --require-eval-pass --eval-summary 鈥?--eval-gate 鈥?
+11. pk-ku watermark --advance --from-canonical --write   # only after promote OK
+
+Forbidden as daily ops:
+  - build_knowledge_inventory --write + prod --start on full inventory
+  - resume mistaken full-inventory run until pending=0
+  - promote mid-run / without eval when gate required
+  - advance watermark before promote
+  - rag-pipeline for knowledge
+
+Docs: docs/runbooks/ku-incremental.md
+
+=== ku watermark EXIT=0 ===
+{
+  "committed": "90c63110aeff71a6c790713a21dbcd60",
+  "committed_updated_at": "2026-07-11T09:00:00Z",
+  "current_source_checksum": "87e24e2aa2e9f167989b4e4724ae9cd3",
+  "source_matches_watermark": false,
+  "write": false
+}
+=== sync --help EXIT=0 ===
+usage: pk-sync [-h] {conversations,help-legacy} ...
+
+Product data sync (canonical paths). Does NOT run legacy integrated steps 1鈥?2
+(personal_events / memory batch).
+
+positional arguments:
+  {conversations,help-legacy}
+    conversations       AgentsView 鈫?normalized 鈫?canonical conversation SSOT
+    help-legacy         Show how to invoke the retired integrated pipeline if
+                        ever needed
+
+options:
+  -h, --help            show this help message and exit
+=== pk-ku --help EXIT=0 ===
+usage: pk-ku [-h]
+             {inspect,prepare,extract,status,canonical,publish,vector,extract-gate,canary,promote,watermark,workflow}
+             ...
+
+Knowledge Unit product CLI (incremental only). Policy knobs live on subcommands 鈥?do not change code for daily ops.
+
+positional arguments:
+  {inspect,prepare,extract,status,canonical,publish,vector,extract-gate,canary,promote,watermark,workflow}
+    inspect             Free delta report (no LLM, no writes)
+    prepare             Freeze delta inventory + extract queue (no LLM).
+                        Policy via flags.
+    extract             Paid LLM extract: resume an incremental run from
+                        prepare (not full inventory)
+    status              Show item ledger stats for a run
+    canonical           Build canonical units from an extraction run
+    publish             Promote this incremental run's staging units/canonical
+                        鈫?current (no demote)
+    vector              Build candidate KU vector store (does not touch
+                        active)
+    extract-gate        Strict extraction gate for a run (writes gate row)
+    canary              Run / check / strict-gate knowledge canary (does not
+                        touch active by default)
+    promote             List or promote candidate index (active last)
+    watermark           Show or advance knowledge_source_watermark (after
+                        successful promote)
+    workflow            Print canonical daily KU workflow + forbidden paths
+
+options:
+  -h, --help            show this help message and exit
+
+Daily order:
+  1) pk-sync conversations [--write]
+  2) pk-ku inspect
+  3) pk-ku prepare --model 鈥?--provider 鈥?--endpoint 鈥?--auth-mode 鈥?
+  4) pk-ku extract --run ir_* --max-items N
+  5) pk-ku extract-gate / canonical / publish / vector
+  6) pk-ku canary --candidate-override 鈥?--report 鈥?
+  7) pk-ku promote --collection 鈥?--require-eval-pass 鈥?
+  8) pk-ku watermark --advance --from-canonical --write
+
+Full inventory backfill is intentionally NOT a pk-ku subcommand.
+See docs/runbooks/ku-incremental.md
+SMOKE_DURATION=2.0854986s

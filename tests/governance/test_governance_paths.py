@@ -42,6 +42,24 @@ def test_runtime_config_honors_environment_without_machine_defaults(monkeypatch)
     assert runtime.vertex_config().project == "test-project"
 
 
+def test_vertex_defaults_and_flash_lite_request_are_compatible(monkeypatch) -> None:
+    runtime = _load(RUNTIME, "portable_runtime_config_vertex_defaults")
+    monkeypatch.delenv("PERSONAL_DATA_VERTEX_LOCATION", raising=False)
+    monkeypatch.delenv("PERSONAL_DATA_VERTEX_MODEL", raising=False)
+    config = runtime.vertex_config()
+    assert config.location == "global"
+    assert config.model == "gemini-3.5-flash-lite"
+    assert "/locations/global/" in runtime.vertex_generate_content_url(config)
+    assert runtime.vertex_generation_config(config.model, 16) == {"maxOutputTokens": 16}
+
+
+def test_vertex_legacy_model_keeps_existing_generation_settings() -> None:
+    runtime = _load(RUNTIME, "portable_runtime_config_vertex_legacy")
+    generation = runtime.vertex_generation_config("gemini-3.5-flash", 256)
+    assert generation["temperature"] == 0
+    assert generation["thinkingConfig"] == {"thinkingBudget": 0}
+
+
 def test_runtime_config_missing_embedding_has_actionable_error(monkeypatch) -> None:
     runtime = _load(RUNTIME, "portable_runtime_config_missing")
     monkeypatch.delenv("PERSONAL_DATA_EMBED_MODEL_PATH", raising=False)
