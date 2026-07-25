@@ -11,8 +11,11 @@
   - secret match 正文
 
 脱敏规则：
-  1. 源库 ``secret_leak_count > 0`` 的 session → session 行保留
+  1. 源库 ``secret_leak_count > 0``、命中 ``excluded_sessions``、或已删除
+     （``deleted_at`` 非空）的 session → session 行保留
      ``evidence_eligible=0`` 和原因计数，**messages 正文完全不写**。
+     另：``excluded_sessions`` 非空却 0 行能 JOIN 上 ``sessions.id`` 时
+     fail-closed（抛 RevisionGateError，不发布）。
   2. 对允许写入的 message content 再跑本地敏感信息正则；二次命中时整条
      message 进隔离统计且不落正文（报告只留规则名+计数，不留 match）。
   3. system/sidechain/subagent 消息保留关系元数据，标记 evidence_scope，
@@ -188,6 +191,11 @@ class NormalizationStats:
     messages_with_content: int = 0
     messages_quarantined_local: int = 0  # 二次扫描命中正文落库数（必须=0）
     secret_session_messages_written: int = 0  # 必须为 0
+    messages_skipped_secret: int = 0  # secret session 整条不写的消息数
+    messages_skipped_excluded: int = 0  # excluded session 整条不写的消息数
+    messages_skipped_deleted: int = 0  # deleted session 整条不写的消息数
+    excluded_matched: int = 0  # excluded_sessions.id 能 JOIN 上 sessions.id 的行数
+    excluded_unmatched: int = 0  # 匹配不上的行数（会话可能已物理删除，属正常）
     protected_field_copies: int = 0  # thinking/input_json/result 复制数（必须=0）
     tool_events_total: int = 0
     usage_events_total: int = 0
@@ -311,6 +319,21 @@ def build_normalized(
             )
         }
 
+        # fail-closed gate：excluded_sessions 非空却一条都 JOIN 不上 sessions.id
+        # → schema 假设（id == session id）不成立，宁可不发布。
+        # 部分匹配属正常（会话可能已物理删除），只记 stats。
+        stats.excluded_matched = src.execute(
+            "SELECT COUNT(*) FROM excluded_sessions e "
+            "JOIN sessions s ON e.id = s.id"
+        ).fetchone()[0]
+        stats.excluded_unmatched = len(excluded_session_ids) - stats.excluded_matched
+        if excluded_session_ids and stats.excluded_matched == 0:
+            raise RevisionGateError(
+                stats,
+                f"excluded_sessions 有 {len(excluded_session_ids)} 行但 0 行能 "
+                f"JOIN 上 sessions.id（schema 假设不成立，拒绝发布）",
+            )
+
         dst = sqlite3.connect(str(staging_path))
         _create_schema(dst)
         dcur = dst.cursor()
@@ -395,8 +418,16 @@ def build_normalized(
             stats.messages_total += 1
             src_sid = mrow["session_id"]
 
-            # secret session 的正文完全不写（Revision gate 强制）
+            # secret/excluded/deleted session 的正文完全不写（Revision gate 强制，
+            # 三类对称：整条不写，不是 content 置空）
             if src_sid in secret_session_ids:
+                stats.messages_skipped_secret += 1
+                continue
+            if src_sid in excluded_session_ids:
+                stats.messages_skipped_excluded += 1
+                continue
+            if src_sid in deleted_session_ids:
+                stats.messages_skipped_deleted += 1
                 continue
 
             norm_sid = sid_map.get(src_sid, src_sid)
@@ -515,11 +546,18 @@ def build_normalized(
                  t["detail"], t["created_at"]),
             )
 
-        # --- source_ref 回查率（写入的 message + secret session 跳过的 message）/ 总数 ---
-        total_msgs = stats.messages_total
-        if total_msgs:
+        # --- source_ref 回查率：写入数 /（总数 - 三类 ineligible 跳过数）---
+        # ineligible（secret/excluded/deleted）会话的消息按设计整条不写，
+        # 对账期望值同步排除，避免误伤 backfill 率。
+        skipped_msgs = (
+            stats.messages_skipped_secret
+            + stats.messages_skipped_excluded
+            + stats.messages_skipped_deleted
+        )
+        expected_msgs = stats.messages_total - skipped_msgs
+        if expected_msgs:
             stats.source_ref_backfill_rate = round(
-                len(messages_written) / total_msgs, 4
+                len(messages_written) / expected_msgs, 4
             )
         else:
             stats.source_ref_backfill_rate = 1.0
@@ -574,17 +612,19 @@ def build_normalized(
 
 
 class RevisionGateError(RuntimeError):
-    """normalized Revision gate 失败（protected 字段复制或 secret 正文落库）。"""
+    """normalized Revision gate 失败（protected 字段复制、secret 正文落库、
+    或排除表 schema 假设不成立等 fail-closed 检查）。"""
 
-    def __init__(self, stats: NormalizationStats) -> None:
+    def __init__(self, stats: NormalizationStats, reason: str | None = None) -> None:
         self.stats = stats
-        super().__init__(
-            f"Revision gate failed: protected_field_copies="
-            f"{stats.protected_field_copies}, "
-            f"messages_quarantined_local={stats.messages_quarantined_local}, "
-            f"secret_session_messages_written="
-            f"{stats.secret_session_messages_written}"
-        )
+        if reason is None:
+            reason = (
+                f"protected_field_copies={stats.protected_field_copies}, "
+                f"messages_quarantined_local={stats.messages_quarantined_local}, "
+                f"secret_session_messages_written="
+                f"{stats.secret_session_messages_written}"
+            )
+        super().__init__(f"Revision gate failed: {reason}")
 
 
 def main(argv: list[str] | None = None) -> int:

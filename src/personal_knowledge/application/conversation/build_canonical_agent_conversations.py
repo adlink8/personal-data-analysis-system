@@ -511,10 +511,16 @@ def _write_canonical_store(
             avcon.row_factory = sqlite3.Row
             # normalized messages.session_id → sessions.source_session_id → AV id
             av_msg_sessions: dict[str, str] = {}
+            # eligible session 集合（与 legacy 路径对称：ineligible session
+            # 正文不进 canonical，即使旧版 normalized 库里还留着正文）
+            av_eligible_sessions: set[str] = set()
             for r in avcon.execute(
-                "SELECT session_id, source_session_id FROM sessions"
+                "SELECT session_id, source_session_id, evidence_eligible "
+                "FROM sessions"
             ):
                 av_msg_sessions[r["session_id"]] = r["source_session_id"]
+                if r["evidence_eligible"]:
+                    av_eligible_sessions.add(r["session_id"])
 
             if has_av_messages:
                 for m in avcon.execute(
@@ -523,6 +529,9 @@ def _write_canonical_store(
                     "content_hash, evidence_scope FROM messages "
                     "ORDER BY session_id, ordinal"
                 ):
+                    # ineligible（secret/excluded/deleted）session 正文不可检索
+                    if m["session_id"] not in av_eligible_sessions:
+                        continue
                     av_src = av_msg_sessions.get(m["session_id"])
                     csid = av_to_cs.get(av_src)
                     if not csid:

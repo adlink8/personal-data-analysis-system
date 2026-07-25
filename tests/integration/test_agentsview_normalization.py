@@ -16,6 +16,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import pytest
+
 _THIS_DIR = Path(__file__).resolve().parent
 _ROOT = _THIS_DIR.parent
 _SCRIPTS = _ROOT / "integration" / "scripts"
@@ -28,6 +30,9 @@ from personal_knowledge.domains.conversation.build_agentsview_normalized import 
     RevisionGateError,
     build_normalized,
     local_secret_scan,
+)
+from personal_knowledge.domains.conversation.build_canonical_agent_conversations import (  # noqa: E402
+    run as build_canonical_run,
 )
 
 
@@ -385,3 +390,183 @@ def test_revision_gate_stats() -> None:
     assert s.gate_passed
     s.protected_field_copies = 1
     assert not s.gate_passed
+
+
+def test_excluded_session_messages_not_written(tmp_path: Path) -> None:
+    """excluded session：session 行保留 eligible=0 + tombstone，消息不写入。"""
+    src = _make_source_fixture(tmp_path / "src.db")
+    dest = tmp_path / "normalized.db"
+
+    stats, final = build_normalized(src, dest_db=dest, dry_run=False)
+    assert final is not None
+    con = sqlite3.connect(str(final))
+
+    # s3 excluded：session 行保留 evidence_eligible=0
+    row = con.execute(
+        "SELECT evidence_eligible, excluded FROM sessions "
+        "WHERE source_session_id='s3'"
+    ).fetchone()
+    assert row is not None
+    assert row[0] == 0
+    assert row[1] == 1
+
+    # s3 的消息整条不写入（旧行为会把 'excluded content' 写进 normalized）
+    n = con.execute(
+        "SELECT COUNT(*) FROM messages m JOIN sessions s "
+        "ON m.session_id=s.session_id WHERE s.source_session_id='s3'"
+    ).fetchone()[0]
+    assert n == 0, "excluded session 的消息被写入了！"
+
+    # tombstone 存在
+    tom = con.execute(
+        "SELECT COUNT(*) FROM source_tombstones WHERE reason='excluded'"
+    ).fetchone()[0]
+    assert tom == 1
+
+    assert stats.messages_skipped_excluded == 1
+    con.close()
+
+
+def test_deleted_session_messages_not_written(tmp_path: Path) -> None:
+    """deleted session：session 行保留 eligible=0 + tombstone，消息不写入。"""
+    src = _make_source_fixture(tmp_path / "src.db")
+    dest = tmp_path / "normalized.db"
+
+    stats, final = build_normalized(src, dest_db=dest, dry_run=False)
+    assert final is not None
+    con = sqlite3.connect(str(final))
+
+    row = con.execute(
+        "SELECT evidence_eligible, deleted_at FROM sessions "
+        "WHERE source_session_id='s4'"
+    ).fetchone()
+    assert row is not None
+    assert row[0] == 0
+    assert row[1] == "2026-01-05"
+
+    n = con.execute(
+        "SELECT COUNT(*) FROM messages m JOIN sessions s "
+        "ON m.session_id=s.session_id WHERE s.source_session_id='s4'"
+    ).fetchone()[0]
+    assert n == 0, "deleted session 的消息被写入了！"
+
+    tom = con.execute(
+        "SELECT COUNT(*) FROM source_tombstones WHERE reason='deleted'"
+    ).fetchone()[0]
+    assert tom == 1
+
+    assert stats.messages_skipped_deleted == 1
+    con.close()
+
+
+def test_excluded_sessions_zero_match_fail_closed(tmp_path: Path) -> None:
+    """excluded_sessions 有行但 0 行能 JOIN sessions.id → RevisionGateError，不发布。"""
+    src = _make_source_fixture(tmp_path / "src.db")
+    con = sqlite3.connect(str(src))
+    con.execute("DELETE FROM excluded_sessions")
+    con.execute(
+        "INSERT INTO excluded_sessions (id, created_at) VALUES ('ghost','2026-01-03')"
+    )
+    con.commit()
+    con.close()
+
+    dest = tmp_path / "normalized.db"
+    with pytest.raises(RevisionGateError):
+        build_normalized(src, dest_db=dest, dry_run=False)
+    assert not dest.exists(), "fail-closed gate 触发后不应发布"
+
+
+def test_excluded_sessions_partial_match_ok(tmp_path: Path) -> None:
+    """excluded_sessions 部分匹配（会话已物理删除）→ 正常发布，stats 记 unmatched。"""
+    src = _make_source_fixture(tmp_path / "src.db")
+    con = sqlite3.connect(str(src))
+    con.execute(
+        "INSERT INTO excluded_sessions (id, created_at) VALUES ('ghost','2026-01-06')"
+    )
+    con.commit()
+    con.close()
+
+    dest = tmp_path / "normalized.db"
+    stats, final = build_normalized(src, dest_db=dest, dry_run=False)
+    assert final is not None and final.exists()
+    assert stats.excluded_matched == 1  # s3
+    assert stats.excluded_unmatched == 1  # ghost
+    assert stats.gate_passed
+
+
+def _make_normalized_fixture(dest: Path) -> Path:
+    """手工造 normalized 库：eligible + ineligible 会话都带消息正文。
+
+    模拟旧版 normalized 库（ineligible 会话正文已落库），验证 canonical
+    的防御纵深过滤。
+    """
+    con = sqlite3.connect(str(dest))
+    cur = con.cursor()
+    cur.execute(
+        """CREATE TABLE sessions (
+            session_id TEXT PRIMARY KEY, source_session_id TEXT, agent TEXT,
+            started_at TEXT, ended_at TEXT, message_count INTEGER,
+            user_message_count INTEGER, file_hash TEXT, parent_session_id TEXT,
+            relationship_type TEXT, cwd TEXT, git_branch TEXT,
+            evidence_eligible INTEGER, evidence_scope TEXT
+        )"""
+    )
+    cur.execute(
+        """CREATE TABLE messages (
+            message_id TEXT PRIMARY KEY, session_id TEXT,
+            source_message_id INTEGER, ordinal INTEGER, role TEXT,
+            content TEXT, content_length INTEGER, timestamp TEXT, model TEXT,
+            is_system INTEGER, is_sidechain INTEGER, content_hash TEXT,
+            evidence_scope TEXT
+        )"""
+    )
+    cur.execute(
+        "INSERT INTO sessions VALUES ('ns-e1','e1','codex','2026-01-01',NULL,"
+        "1,1,NULL,NULL,NULL,NULL,NULL,1,'user')"
+    )
+    cur.execute(
+        "INSERT INTO messages VALUES ('m-e1','ns-e1',1,1,'user',"
+        "'eligible content',16,'2026-01-01',NULL,0,0,NULL,'user')"
+    )
+    cur.execute(
+        "INSERT INTO sessions VALUES ('ns-x1','x1','codex','2026-01-02',NULL,"
+        "1,1,NULL,NULL,NULL,NULL,NULL,0,'user')"
+    )
+    cur.execute(
+        "INSERT INTO messages VALUES ('m-x1','ns-x1',2,1,'user',"
+        "'should not leak',15,'2026-01-02',NULL,0,0,NULL,'user')"
+    )
+    con.commit()
+    con.close()
+    return dest
+
+
+def test_canonical_av_path_skips_ineligible_sessions(tmp_path: Path) -> None:
+    """canonical AV 路径：evidence_eligible=0 的 normalized 会话消息不进
+    canonical_messages（回归：eligible=1 正常进入）。"""
+    av = _make_normalized_fixture(tmp_path / "normalized.db")
+    dest = tmp_path / "canonical.db"
+
+    rc = build_canonical_run(
+        dry_run=False, write=True,
+        av_db=av, legacy_db=tmp_path / "no-legacy.db", dest_db=dest,
+    )
+    assert rc == 0
+
+    con = sqlite3.connect(str(dest))
+    contents = {
+        r[0] for r in con.execute("SELECT content FROM canonical_messages")
+    }
+    assert "eligible content" in contents, "eligible=1 的消息未进入 canonical"
+    assert "should not leak" not in contents, "ineligible 会话正文泄漏进 canonical"
+
+    # ineligible session 本身仍在 canonical_sessions，标记 eligible=0
+    x = con.execute(
+        "SELECT cs.evidence_eligible FROM canonical_sessions cs "
+        "JOIN session_source_links l "
+        "ON l.canonical_session_id=cs.canonical_session_id "
+        "WHERE l.source='agentsview' AND l.source_session_id='x1'"
+    ).fetchone()
+    assert x is not None
+    assert x[0] == 0
+    con.close()
