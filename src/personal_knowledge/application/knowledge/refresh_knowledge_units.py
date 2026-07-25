@@ -460,6 +460,7 @@ def _empty_delta_result() -> dict:
         "modified_count": 0,
         "deleted_count": 0,
         "extract_item_count": 0,
+        "floor_excluded": 0,
     }
 
 
@@ -591,6 +592,7 @@ def _materialize_delta_run(
         con.commit()
 
     extract_item_count = 0
+    floor_excluded = 0
     if init_run_items:
         existing_items = con.execute(
             "SELECT COUNT(*) FROM knowledge_run_items WHERE run_id=?", (fresh_run_id,)
@@ -624,11 +626,13 @@ def _materialize_delta_run(
             # Optional time gate: only sessions on/after watermark (or given floor)
             if extract_min_started_at and extract_order_keys is not None:
                 floor = extract_min_started_at
-                extractable = [
+                kept = [
                     (ref, ct)
                     for ref, ct in extractable
                     if (extract_order_keys.get(ref) or "") >= floor
                 ]
+                floor_excluded = len(extractable) - len(kept)
+                extractable = kept
 
             # Prefer recent sessions first when canonical timestamps available
             if extractable and extract_order_keys:
@@ -671,6 +675,7 @@ def _materialize_delta_run(
         "modified_count": modified_count,
         "deleted_count": deleted_count,
         "extract_item_count": extract_item_count,
+        "floor_excluded": floor_excluded,
     }
 
 
@@ -1542,7 +1547,7 @@ def prepare_production_delta(
     artifact_path: Path | None = None,
     *,
     extract_new_only: bool = True,
-    extract_since_watermark: bool = True,
+    extract_since_watermark: bool = False,
     extract_min_started_at: str = "",
     skip_succeeded: bool = True,
     roles: list[str] | None = None,
@@ -1564,11 +1569,18 @@ def prepare_production_delta(
     Extract queue policy (CLI-controllable):
     - extract_new_only: queue only change_type=new (not modified)
     - extract_since_watermark: floor session date at watermark.updated_at
+      (default off — the floor silently drops late-synced historical sessions
+      whose refs are genuinely new; once the watermark advances they enter the
+      baseline inventory and would never be extracted)
     - extract_min_started_at: explicit YYYY-MM-DD floor (wins over watermark floor)
     - skip_succeeded: drop refs already succeeded in any run
     - roles: optional role allow-list (user/assistant)
     - baseline_inventory_id_override: force before inventory
     - max_extract_items: cap seeded queue after filters (newest first)
+
+    When a floor is in effect (extract_since_watermark or extract_min_started_at),
+    the number of refs filtered out by it is reported as ``floor_excluded`` in
+    the returned artifact (0 when nothing was excluded).
     """
     if not model:
         raise ValueError("model is required — fail closed")
@@ -1716,6 +1728,7 @@ def prepare_production_delta(
         "deleted_count": delta.get("deleted_count", 0),
         "delta_count": delta.get("delta_count", 0),
         "extract_item_count": extract_calls,
+        "floor_excluded": int(delta.get("floor_excluded") or 0),
         "extract_new_only": extract_new_only,
         "extract_since_watermark": extract_since_watermark,
         "extract_min_started_at": extract_floor,
@@ -1787,8 +1800,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--extract-since-watermark",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Floor session date at watermark updated_at (default true). Use --no-extract-since-watermark to disable.",
+        default=False,
+        help="Floor session date at watermark updated_at (default off: the floor excludes "
+        "late-synced historical sessions by session date, risking permanent skips). "
+        "Use --extract-since-watermark to enable.",
     )
     p.add_argument(
         "--since",

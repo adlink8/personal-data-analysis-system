@@ -102,8 +102,9 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument(
         "--extract-since-watermark",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Floor session date at watermark day (default true)",
+        default=False,
+        help="Floor session date at watermark day (default off: the floor excludes "
+        "late-synced historical sessions by session date, risking permanent skips)",
     )
     prep.add_argument(
         "--since",

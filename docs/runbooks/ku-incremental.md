@@ -117,7 +117,7 @@ pk-ku prepare `
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `--extract-new-only` / `--no-extract-new-only` | new only | Include `modified` only with `--no-extract-new-only` |
-| `--extract-since-watermark` / `--no-extract-since-watermark` | on | Floor session date at watermark day |
+| `--extract-since-watermark` / `--no-extract-since-watermark` | off | Floor session date at watermark day. Off by default: the floor drops late-synced historical sessions (device migration / catch-up sync) whose refs are genuinely new, and they would be permanently skipped after the watermark advances. Enable explicitly with `--extract-since-watermark`; excluded refs are reported as `floor_excluded` in the artifact |
 | `--since YYYY-MM-DD` | (none) | Explicit floor; **overrides** watermark floor |
 | `--skip-succeeded` / `--no-skip-succeeded` | skip | Drop refs already `succeeded` in any run |
 | `--roles user` or `user,assistant` | all eligible | Role allow-list |
@@ -132,10 +132,11 @@ pk-ku prepare --model gemini-3.5-flash-lite --provider vertex_google `
   --endpoint "https://aiplatform.googleapis.com" --auth-mode gcloud `
   --roles user --since 2026-07-13 --max-extract-items 100
 
-# Include modified + no watermark date floor
+# Include modified (watermark date floor is off by default; add
+# --extract-since-watermark to re-enable it explicitly)
 pk-ku prepare --model gemini-3.5-flash-lite --provider vertex_google `
   --endpoint "https://aiplatform.googleapis.com" --auth-mode gcloud `
-  --no-extract-new-only --no-extract-since-watermark
+  --no-extract-new-only
 ```
 
 Read `extract_item_count` / `fresh_run_id` from the JSON artifact before any paid extract.
