@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import sqlite3
 import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -16,6 +20,7 @@ _ROOT = _THIS_DIR.parent
 from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
 from personal_knowledge.domains.knowledge.build_knowledge_units_prod import (  # noqa: E402
     classify_error,
+    call_llm_with_retry,
     compute_cache_key,
     get_cached_response,
     put_cached_response,
@@ -62,11 +67,87 @@ def test_classify_retryable_503() -> None:
 def test_classify_terminal_400() -> None:
     assert classify_error(400, None) == "terminal"
 
-def test_classify_terminal_401() -> None:
-    assert classify_error(401, None) == "terminal"
+def test_classify_retryable_401() -> None:
+    """401 归 retryable（token 过期，call_llm_with_retry 刷新后重试）。"""
+    assert classify_error(401, None) == "retryable"
 
 def test_classify_timeout_retryable() -> None:
     assert classify_error(None, TimeoutError()) == "retryable"
+
+
+# === 401 token refresh 重试 ===
+
+class _FakeTokenProvider:
+    """记录 refresh 次数的假 provider。"""
+
+    def __init__(self) -> None:
+        self.refresh_count = 0
+
+    def get(self) -> str:
+        return "fake-token"
+
+    def refresh(self) -> str:
+        self.refresh_count += 1
+        return "fake-token"
+
+
+def _http_error(code: int) -> urllib.error.HTTPError:
+    from email.message import Message
+    return urllib.error.HTTPError(
+        "http://x", code, "err", hdrs=Message(), fp=io.BytesIO(b"")
+    )
+
+
+def _ok_response() -> io.BytesIO:
+    body = json.dumps({
+        "candidates": [{"content": {"parts": [{"text": "ok text"}]}}],
+        "usageMetadata": {},
+    }).encode()
+    return io.BytesIO(body)
+
+
+def test_401_refreshes_token_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """401 → token_provider.refresh() 被调用，刷新后重试成功。"""
+    calls = {"n": 0}
+
+    def fake_urlopen(req: object, timeout: int = 0) -> io.BytesIO:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _http_error(401)
+        return _ok_response()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+
+    provider = _FakeTokenProvider()
+    result = call_llm_with_retry(
+        "sys", "content", "model", provider,
+        max_retries=2, base_backoff=0.0,
+    )
+    assert provider.refresh_count == 1
+    assert result.get("text") == "ok text"
+
+
+def test_401_bounded_retries_no_infinite_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """连续 401 超过 max_retries 后返回 error，刷新/重试均有界，不死循环。"""
+    calls = {"n": 0}
+
+    def fake_urlopen(req: object, timeout: int = 0) -> io.BytesIO:
+        calls["n"] += 1
+        raise _http_error(401)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+
+    provider = _FakeTokenProvider()
+    result = call_llm_with_retry(
+        "sys", "content", "model", provider,
+        max_retries=2, base_backoff=0.0,
+    )
+    assert "error" in result
+    assert calls["n"] == 3  # max_retries + 1 次尝试，有界
+    assert provider.refresh_count == 2  # 每次重试前刷新一次，有界
+    assert result["attempts"] == 3
 
 
 # === Cache 测试 ===

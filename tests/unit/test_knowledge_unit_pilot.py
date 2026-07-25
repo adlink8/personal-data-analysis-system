@@ -341,7 +341,7 @@ def test_error_classification_matrix() -> None:
     assert classify_error(502, None) == "retryable"
     assert classify_error(503, None) == "retryable"
     assert classify_error(400, None) == "terminal"
-    assert classify_error(401, None) == "terminal"
+    assert classify_error(401, None) == "retryable"  # token 过期，刷新后重试
     assert classify_error(403, None) == "terminal"
     assert classify_error(404, None) == "terminal"
     assert classify_error(None, TimeoutError()) == "retryable"

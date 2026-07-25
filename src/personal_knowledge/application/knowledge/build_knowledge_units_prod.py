@@ -1,7 +1,7 @@
 """Phase 14 Plan 02 Task 2：可恢复 batch + 分类 retry + 内容寻址 cache。
 
 production backfill engine，支持 --start / --resume、item ledger 状态机、
-内容寻址 response cache、分类 retry（429/500/503 重试，400 fail-fast）。
+内容寻址 response cache、分类 retry（401 刷新 token 后重试，429/500/503 重试，400/403/404 fail-fast）。
 
 核心契约（RESEARCH）：
   - 新建 run 与恢复 run 分成两个显式入口
@@ -74,12 +74,13 @@ MAX_ITEM_ATTEMPTS = 6
 
 # === 错误分类 ===
 
-RETRYABLE_STATUS = {429, 500, 502, 503}
-TERMINAL_STATUS = {400, 401, 403, 404}
+# 401 归 retryable：gcloud token 约 1h 过期，刷新后可重试（call_llm_with_retry 内 refresh）
+RETRYABLE_STATUS = {401, 429, 500, 502, 503}
+TERMINAL_STATUS = {400, 403, 404}
 
 
 def classify_error(status: int | None, exc: Exception | None) -> str:
-    """分类 HTTP 错误为 retryable / terminal。"""
+    """分类 HTTP 错误为 retryable / terminal。401 归 retryable（token 过期，刷新后重试）。"""
     if status and status in RETRYABLE_STATUS:
         return "retryable"
     if status and status in TERMINAL_STATUS:
