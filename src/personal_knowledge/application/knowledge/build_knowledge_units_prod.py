@@ -342,6 +342,22 @@ def get_pending_items(con: sqlite3.Connection, run_id: str, batch_size: int = 50
              "status": r[3], "attempt_count": r[4]} for r in rows]
 
 
+def _claim_item(con: sqlite3.Connection, row_id: int, now: str) -> bool:
+    """test-and-set 认领 item：仅 pending/retryable 可被 claim。
+
+    并发进程已 claim（in_flight/succeeded/...）时 UPDATE 不命中，
+    返回 False，调用方应跳过该 item（Finding F-10）。
+    """
+    cur = con.execute(
+        "UPDATE knowledge_run_items SET status='in_flight', "
+        "lease_started_at=?, attempt_count=attempt_count+1, updated_at=? "
+        "WHERE id=? AND status IN ('pending','retryable')",
+        (now, now, row_id),
+    )
+    con.commit()
+    return cur.rowcount > 0
+
+
 def get_run_stats(con: sqlite3.Connection, run_id: str) -> dict:
     """run 的 item 状态统计。"""
     counts = {}
@@ -635,7 +651,7 @@ def process_run(
         "processed": 0, "succeeded": 0, "abstained": 0, "failed": 0,
         "cache_hits": 0, "units": 0, "units_dropped_no_evidence": 0,
         "workers": max(1, workers),
-        "rate_limited": 0, "stopped_reason": "",
+        "rate_limited": 0, "stopped_reason": "", "claim_skipped": 0,
     }
     workers = max(1, int(workers))
     # claim 窗口与并发对齐，避免一次挂起过多 in_flight
@@ -696,13 +712,10 @@ def process_run(
             llm_payloads: list[dict] = []
             for item in items:
                 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                con.execute(
-                    "UPDATE knowledge_run_items SET status='in_flight', "
-                    "lease_started_at=?, attempt_count=attempt_count+1, updated_at=? "
-                    "WHERE id=?",
-                    (now, now, item["row_id"]),
-                )
-                con.commit()
+                if not _claim_item(con, item["row_id"], now):
+                    # 已被并发进程 claim（F-10）：不读 content、不进 payload
+                    stats["claim_skipped"] += 1
+                    continue
 
                 row = canon_con.execute(
                     "SELECT m.content, m.canonical_session_id, s.agent "

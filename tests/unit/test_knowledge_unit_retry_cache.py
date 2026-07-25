@@ -30,6 +30,7 @@ from personal_knowledge.domains.knowledge.build_knowledge_units_prod import (  #
     get_run_stats,
     start_run,
     resume_run,
+    _claim_item,
 )
 
 
@@ -364,3 +365,114 @@ def test_resume_run_recovers_and_reports(tmp_path: Path) -> None:
     info = resume_run(run_id, "gemini-3.5-flash", db_path=db)
     assert info["recovered_leases"] == 1
     assert info["stats"].get("retryable") == 1
+
+
+# === Finding F-10：claim test-and-set（并发不重复认领）===
+
+def test_claim_pending_item_succeeds(tmp_path: Path) -> None:
+    """pending item 可正常 claim：置 in_flight 且 attempt_count+1。"""
+    db = tmp_path / "test.sqlite"
+    inv_id = _setup_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "INSERT INTO knowledge_build_runs VALUES "
+        "('run1','extraction','2026-01-01','cs','h','v1','v1','m',NULL,NULL,NULL,NULL,'staging',NULL,NULL)"
+    )
+    con.commit()
+    init_run_items(con, "run1", inv_id)
+    row_id = con.execute(
+        "SELECT id FROM knowledge_run_items WHERE run_id='run1' AND position=0"
+    ).fetchone()[0]
+
+    assert _claim_item(con, row_id, "2026-01-02T00:00:00Z") is True
+    status, attempts = con.execute(
+        "SELECT status, attempt_count FROM knowledge_run_items WHERE id=?", (row_id,)
+    ).fetchone()
+    assert (status, attempts) == ("in_flight", 1)
+    con.close()
+
+
+def test_claim_skips_item_already_in_flight(tmp_path: Path) -> None:
+    """已被并发进程 claim 的 in_flight item 不会被重复 claim（F-10）。"""
+    db = tmp_path / "test.sqlite"
+    inv_id = _setup_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "INSERT INTO knowledge_build_runs VALUES "
+        "('run1','extraction','2026-01-01','cs','h','v1','v1','m',NULL,NULL,NULL,NULL,'staging',NULL,NULL)"
+    )
+    con.commit()
+    init_run_items(con, "run1", inv_id)
+    row_id = con.execute(
+        "SELECT id FROM knowledge_run_items WHERE run_id='run1' AND position=0"
+    ).fetchone()[0]
+    # 模拟另一个进程已 claim
+    con.execute(
+        "UPDATE knowledge_run_items SET status='in_flight', attempt_count=1 WHERE id=?",
+        (row_id,),
+    )
+    con.commit()
+
+    assert _claim_item(con, row_id, "2026-01-02T00:00:00Z") is False
+    status, attempts = con.execute(
+        "SELECT status, attempt_count FROM knowledge_run_items WHERE id=?", (row_id,)
+    ).fetchone()
+    assert status == "in_flight"  # 不被改写
+    assert attempts == 1  # 不双重递增
+    con.close()
+
+
+def test_claim_skips_succeeded_item(tmp_path: Path) -> None:
+    """succeeded item 不会被重复 claim（F-10）。"""
+    db = tmp_path / "test.sqlite"
+    inv_id = _setup_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "INSERT INTO knowledge_build_runs VALUES "
+        "('run1','extraction','2026-01-01','cs','h','v1','v1','m',NULL,NULL,NULL,NULL,'staging',NULL,NULL)"
+    )
+    con.commit()
+    init_run_items(con, "run1", inv_id)
+    row_id = con.execute(
+        "SELECT id FROM knowledge_run_items WHERE run_id='run1' AND position=0"
+    ).fetchone()[0]
+    con.execute(
+        "UPDATE knowledge_run_items SET status='succeeded', attempt_count=1 WHERE id=?",
+        (row_id,),
+    )
+    con.commit()
+
+    assert _claim_item(con, row_id, "2026-01-02T00:00:00Z") is False
+    status, attempts = con.execute(
+        "SELECT status, attempt_count FROM knowledge_run_items WHERE id=?", (row_id,)
+    ).fetchone()
+    assert (status, attempts) == ("succeeded", 1)
+    con.close()
+
+
+def test_claim_retryable_item_succeeds(tmp_path: Path) -> None:
+    """retryable item 仍可被 claim（重试路径不回归）。"""
+    db = tmp_path / "test.sqlite"
+    inv_id = _setup_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "INSERT INTO knowledge_build_runs VALUES "
+        "('run1','extraction','2026-01-01','cs','h','v1','v1','m',NULL,NULL,NULL,NULL,'staging',NULL,NULL)"
+    )
+    con.commit()
+    init_run_items(con, "run1", inv_id)
+    row_id = con.execute(
+        "SELECT id FROM knowledge_run_items WHERE run_id='run1' AND position=0"
+    ).fetchone()[0]
+    con.execute(
+        "UPDATE knowledge_run_items SET status='retryable', attempt_count=2 WHERE id=?",
+        (row_id,),
+    )
+    con.commit()
+
+    assert _claim_item(con, row_id, "2026-01-02T00:00:00Z") is True
+    status, attempts = con.execute(
+        "SELECT status, attempt_count FROM knowledge_run_items WHERE id=?", (row_id,)
+    ).fetchone()
+    assert (status, attempts) == ("in_flight", 3)
+    con.close()
