@@ -153,3 +153,38 @@ def test_all_dropped_item_still_succeeded(tmp_path: Path) -> None:
     ).fetchone()
     assert (status, unit_count) == ("succeeded", 0)
     con.close()
+
+
+# === Finding F-02：knowledge_units 溯源字段 ===
+
+def test_source_provenance_written(tmp_path: Path) -> None:
+    """work 携带 source_session_id/source_agent 时写入 knowledge_units。"""
+    con, row_id = _setup_db(tmp_path / "t.sqlite")
+    stats = _stats()
+    raw_text = json.dumps(
+        {"units": [_unit("只喝无糖可乐")], "abstain": False, "abstain_reason": ""}
+    )
+    work = _work(raw_text)
+    work["source_session_id"] = "cs-abc"
+    work["source_agent"] = "codex"
+    item = {"row_id": row_id, "position": 0, "evidence_ref": "cm0",
+            "status": "in_flight", "attempt_count": 1}
+    _commit_item_result(con, "run1", item, work, "m", "ph", "sh", "ch", stats)
+
+    sid, agent = con.execute(
+        "SELECT source_session_id, source_agent FROM knowledge_units"
+    ).fetchone()
+    assert (sid, agent) == ("cs-abc", "codex")
+    con.close()
+
+
+def test_source_provenance_missing_stays_empty(tmp_path: Path) -> None:
+    """work 无溯源字段（查不到会话）时保持空串，不报错。"""
+    con, row_id = _setup_db(tmp_path / "t.sqlite")
+    _commit(con, row_id, [_unit("只喝无糖可乐")])
+
+    sid, agent = con.execute(
+        "SELECT source_session_id, source_agent FROM knowledge_units"
+    ).fetchone()
+    assert (sid, agent) == ("", "")
+    con.close()

@@ -570,7 +570,8 @@ def _commit_item_result(
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (unit_id, run_id, unit.unit_type, unit.subject, unit.question,
                  unit.answer, unit.confidence, unit.evidence_quote, lifecycle,
-                 "", item["evidence_ref"], "", "user", "staging", 1, now),
+                 work.get("source_session_id", ""), item["evidence_ref"],
+                 work.get("source_agent", ""), "user", "staging", 1, now),
             )
             con.execute(
                 "INSERT OR IGNORE INTO knowledge_unit_evidence (unit_id, evidence_ref) VALUES (?,?)",
@@ -673,6 +674,8 @@ def process_run(
             "cleaned": payload["cleaned"],
             "cache_key": payload["cache_key"],
             "input_hash": payload["input_hash"],
+            "source_session_id": payload["source_session_id"],
+            "source_agent": payload["source_agent"],
             "write_cache": True,
         }
 
@@ -701,7 +704,10 @@ def process_run(
                 con.commit()
 
                 row = canon_con.execute(
-                    "SELECT content FROM canonical_messages WHERE canonical_message_id=?",
+                    "SELECT m.content, m.canonical_session_id, s.agent "
+                    "FROM canonical_messages m LEFT JOIN canonical_sessions s "
+                    "ON m.canonical_session_id=s.canonical_session_id "
+                    "WHERE m.canonical_message_id=?",
                     (item["evidence_ref"],),
                 ).fetchone()
                 if not row or not row["content"]:
@@ -725,6 +731,9 @@ def process_run(
                     continue
 
                 input_hash = hashlib.sha256(cleaned.encode()).hexdigest()[:32]
+                # 溯源：evidence_ref → canonical session/agent（查不到保持空串）
+                source_session_id = row["canonical_session_id"] or ""
+                source_agent = row["agent"] or ""
                 cache_key = compute_cache_key(
                     model, prompt_hash, schema_hash, input_hash, config_hash
                 )
@@ -737,6 +746,8 @@ def process_run(
                         "cleaned": cleaned,
                         "cache_key": cache_key,
                         "input_hash": input_hash,
+                        "source_session_id": source_session_id,
+                        "source_agent": source_agent,
                         "write_cache": False,
                     }))
                 else:
@@ -746,6 +757,8 @@ def process_run(
                         "cleaned": cleaned,
                         "cache_key": cache_key,
                         "input_hash": input_hash,
+                        "source_session_id": source_session_id,
+                        "source_agent": source_agent,
                     })
 
             # 2) 主线程先消化 cache hit
