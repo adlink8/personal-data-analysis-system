@@ -238,7 +238,10 @@ pk-ku watermark --advance --from-canonical --write # persist
 ```
 
 **Gate E:** No promote while canary `gate.status=pending_labels`, **`--strict` FAIL**, or extract-gate critical fail without human waiver. Snapshot activation is the final authority write; the text pointer is projected afterward.
-**Gate F:** Do **not** advance watermark before promote.
+**Gate F:** Do **not** advance watermark before promote. Code-level enforcement:
+advance is refused while any run has unfinished (pending/in_flight/retryable)
+items, and terminal_failed items must be explicitly acknowledged via
+`--acknowledge-failures` (recorded in `knowledge_dead_refs`) before advancing.
 
 After successful activation, KU canonical/index publication metadata is
 appended to `artifact_versions` and `source_watermarks`. It is not written for

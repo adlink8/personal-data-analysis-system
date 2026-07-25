@@ -257,12 +257,14 @@ def build_parser() -> argparse.ArgumentParser:
     # --- watermark ---
     wm = sub.add_parser(
         "watermark",
-        help="Show or advance knowledge_source_watermark (after successful promote)",
+        help="Show or advance knowledge_source_watermark (after successful promote; "
+        "fail-closed on unfinished/failed extraction items)",
     )
     wm.add_argument(
         "--advance",
         action="store_true",
-        help="Advance committed watermark (requires --write + checksum source)",
+        help="Advance committed watermark (requires --write + checksum source; "
+        "blocked by unfinished items or unacknowledged terminal_failed)",
     )
     wm.add_argument(
         "--from-canonical",
@@ -278,6 +280,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--write",
         action="store_true",
         help="Persist advance (default dry-run / show only)",
+    )
+    wm.add_argument(
+        "--acknowledge-failures",
+        action="store_true",
+        help="With --advance --write: record terminal_failed items into "
+        "knowledge_dead_refs, then advance (ignored without --write)",
     )
     wm.add_argument("--db", type=Path, default=None)
     wm.add_argument("--canonical-db", type=Path, default=None)
@@ -832,12 +840,20 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def _cmd_watermark(args: argparse.Namespace) -> int:
-    """Show or advance source watermark. Advance is opt-in and fail-closed."""
+    """Show or advance source watermark. Advance is opt-in and fail-closed.
+
+    --advance --write refuses (exit 2) while any extraction run still has
+    pending/in_flight/retryable items, and requires --acknowledge-failures to
+    record terminal_failed items into knowledge_dead_refs before advancing, so
+    unprocessed refs are never silently dropped from the next delta.
+    """
     import json
     import sqlite3
 
     from personal_knowledge.application.knowledge.refresh_knowledge_units import (
+        acknowledge_dead_refs,
         advance_watermark,
+        check_watermark_advance_preconditions,
         compute_source_checksum,
         get_committed_watermark,
     )
@@ -890,20 +906,50 @@ def _cmd_watermark(args: argparse.Namespace) -> int:
         )
         return 2
 
+    preconditions = check_watermark_advance_preconditions(db_path)
     preview = {
         "action": "advance",
         "before": committed,
         "after": new_cs,
         "changed": committed != new_cs,
         "write": bool(args.write),
+        "preconditions": preconditions,
     }
     if not args.write:
-        preview["note"] = "dry-run only; pass --write to persist"
+        note = "dry-run only; pass --write to persist"
+        if args.acknowledge_failures:
+            note += " (--acknowledge-failures ignored without --write)"
+        preview["note"] = note
         print(json.dumps(preview, ensure_ascii=False, indent=2))
         return 0
 
+    unfinished = preconditions["unfinished"]
+    if unfinished:
+        detail = ", ".join(
+            f"{u['run_id']}:{u['status']}={u['count']}" for u in unfinished
+        )
+        print(
+            f"[error] unfinished extraction items block watermark advance: {detail}; "
+            "finish or clean up these runs first",
+            file=sys.stderr,
+        )
+        return 2
+    failed = preconditions["failed"]
+    if failed and not args.acknowledge_failures:
+        detail = ", ".join(f"{f['run_id']}={f['count']}" for f in failed)
+        print(
+            f"[error] terminal_failed items block watermark advance: {detail}; "
+            "rerun with --acknowledge-failures to record them as dead refs and advance",
+            file=sys.stderr,
+        )
+        return 2
+    dead_refs_recorded = acknowledge_dead_refs(db_path) if failed else 0
+
     result = advance_watermark(db_path, new_cs)
-    print(json.dumps({**preview, **result, "write": True}, ensure_ascii=False, indent=2))
+    out = {**preview, **result, "write": True}
+    if failed:
+        out["dead_refs_recorded"] = dead_refs_recorded
+    print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0
 
 

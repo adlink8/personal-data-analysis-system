@@ -152,6 +152,121 @@ def test_watermark_advance_dry_run_from_canonical(capsys):
     assert "dry-run" in out or '"write": false' in out.lower() or '"write": false' in out
 
 
+_RUN_ITEMS_SCHEMA = (
+    "CREATE TABLE knowledge_run_items ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, "
+    "inventory_id TEXT NOT NULL, position INTEGER NOT NULL, "
+    "evidence_ref TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', "
+    "attempt_count INTEGER NOT NULL DEFAULT 0, lease_started_at TEXT, "
+    "last_error_class TEXT, cache_key TEXT, response_hash TEXT, "
+    "unit_count INTEGER NOT NULL DEFAULT 0, updated_at TEXT, "
+    "UNIQUE(run_id, position))"
+)
+
+
+def _add_run_item(
+    db: Path, run_id: str, position: int, evidence_ref: str,
+    status: str, error_class: str | None = None,
+) -> None:
+    con = sqlite3.connect(db)
+    con.executescript(_RUN_ITEMS_SCHEMA.replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS"))
+    con.execute(
+        "INSERT INTO knowledge_run_items "
+        "(run_id, inventory_id, position, evidence_ref, status, last_error_class) "
+        "VALUES (?,?,?,?,?,?)",
+        (run_id, "inv_test", position, evidence_ref, status, error_class),
+    )
+    con.commit()
+    con.close()
+
+
+def _watermark_value(db: Path) -> str:
+    con = sqlite3.connect(db)
+    try:
+        row = con.execute(
+            "SELECT value FROM knowledge_source_watermark WHERE key='committed'"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        row = None
+    con.close()
+    return row[0] if row else ""
+
+
+def test_watermark_advance_blocked_by_pending(tmp_path: Path, capsys):
+    db = tmp_path / "ku.db"
+    _add_run_item(db, "ir_a", 1, "sess:1", "pending")
+    code = main(["watermark", "--advance", "--checksum", "cs1", "--db", str(db), "--write"])
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "ir_a" in err and "unfinished" in err
+    assert _watermark_value(db) == ""
+
+
+def test_watermark_advance_terminal_failed_requires_acknowledge(tmp_path: Path, capsys):
+    db = tmp_path / "ku.db"
+    _add_run_item(db, "ir_a", 1, "sess:1", "terminal_failed", "llm_timeout")
+    code = main(["watermark", "--advance", "--checksum", "cs1", "--db", str(db), "--write"])
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "terminal_failed" in err and "--acknowledge-failures" in err
+    assert _watermark_value(db) == ""
+
+    code = main([
+        "watermark", "--advance", "--checksum", "cs1", "--db", str(db),
+        "--write", "--acknowledge-failures",
+    ])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert '"dead_refs_recorded": 1' in out
+    assert _watermark_value(db) == "cs1"
+    con = sqlite3.connect(db)
+    rows = con.execute(
+        "SELECT evidence_ref, run_id, error_class FROM knowledge_dead_refs"
+    ).fetchall()
+    con.close()
+    assert rows == [("sess:1", "ir_a", "llm_timeout")]
+
+
+def test_watermark_advance_not_blocked_by_acknowledged_dead_ref(tmp_path: Path, capsys):
+    db = tmp_path / "ku.db"
+    _add_run_item(db, "ir_a", 1, "sess:1", "terminal_failed", "llm_timeout")
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE knowledge_dead_refs (evidence_ref TEXT, run_id TEXT, "
+        "error_class TEXT, acknowledged_at TEXT, PRIMARY KEY (evidence_ref, run_id))"
+    )
+    con.execute(
+        "INSERT INTO knowledge_dead_refs VALUES ('sess:1', 'ir_a', 'llm_timeout', 'now')"
+    )
+    con.commit()
+    con.close()
+    code = main(["watermark", "--advance", "--checksum", "cs1", "--db", str(db), "--write"])
+    assert code == 0
+    capsys.readouterr()
+    assert _watermark_value(db) == "cs1"
+
+
+def test_watermark_advance_dry_run_reports_preconditions(tmp_path: Path, capsys):
+    db = tmp_path / "ku.db"
+    _add_run_item(db, "ir_a", 1, "sess:1", "pending")
+    code = main(["watermark", "--advance", "--checksum", "cs1", "--db", str(db)])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert '"preconditions"' in out and '"ok": false' in out
+    assert _watermark_value(db) == ""
+
+
+def test_watermark_advance_ok_when_all_done(tmp_path: Path, capsys):
+    db = tmp_path / "ku.db"
+    _add_run_item(db, "ir_a", 1, "sess:1", "succeeded")
+    _add_run_item(db, "ir_a", 2, "sess:2", "abstained")
+    code = main(["watermark", "--advance", "--checksum", "cs1", "--db", str(db), "--write"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert '"ok": true' in out and '"changed": true' in out
+    assert _watermark_value(db) == "cs1"
+
+
 def test_reconcile_write_requires_i_know(capsys):
     code = main(["reconcile", "--write"])
     assert code == 2

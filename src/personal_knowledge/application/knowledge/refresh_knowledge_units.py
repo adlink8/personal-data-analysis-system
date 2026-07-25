@@ -1101,6 +1101,13 @@ CREATE TABLE IF NOT EXISTS knowledge_incremental_journals (
     rolled_back_at TEXT,
     detail_json TEXT
 );
+CREATE TABLE IF NOT EXISTS knowledge_dead_refs (
+    evidence_ref TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    error_class TEXT,
+    acknowledged_at TEXT NOT NULL,
+    PRIMARY KEY (evidence_ref, run_id)
+);
 """
 
 
@@ -1146,6 +1153,85 @@ def advance_watermark(db_path: Path, checksum: str, *, key: str = "committed") -
     con.commit()
     con.close()
     return {"key": key, "before": before, "after": checksum, "changed": before != checksum}
+
+
+def check_watermark_advance_preconditions(db_path: Path) -> dict:
+    """Read-only preflight for watermark advance (fail-closed at CLI level).
+
+    Advancing the watermark drops unprocessed refs from the next delta, so it
+    must only happen when no extraction work is unfinished and every
+    terminal_failed item has been explicitly acknowledged as a dead ref.
+
+    Returns {"ok": bool, "unfinished": [...], "failed": [...]} where unfinished
+    aggregates pending/in_flight/retryable items per (run_id, status) and
+    failed aggregates terminal_failed items per run_id that are not yet
+    recorded in knowledge_dead_refs.
+    """
+    result: dict = {"ok": False, "unfinished": [], "failed": []}
+    if not db_path.exists():
+        result["ok"] = True
+        return result
+    con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        tables = {
+            r[0]
+            for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if "knowledge_run_items" not in tables:
+            result["ok"] = True
+            return result
+        result["unfinished"] = [
+            {"run_id": run_id, "status": status, "count": count}
+            for run_id, status, count in con.execute(
+                "SELECT run_id, status, COUNT(*) FROM knowledge_run_items "
+                "WHERE status IN ('pending','in_flight','retryable') "
+                "GROUP BY run_id, status ORDER BY run_id, status"
+            )
+        ]
+        exclusion = ""
+        if "knowledge_dead_refs" in tables:
+            exclusion = (
+                "AND NOT EXISTS (SELECT 1 FROM knowledge_dead_refs d "
+                "WHERE d.evidence_ref=i.evidence_ref AND d.run_id=i.run_id) "
+            )
+        result["failed"] = [
+            {"run_id": run_id, "count": count}
+            for run_id, count in con.execute(
+                "SELECT i.run_id, COUNT(*) FROM knowledge_run_items i "
+                "WHERE i.status='terminal_failed' " + exclusion +
+                "GROUP BY i.run_id ORDER BY i.run_id"
+            )
+        ]
+    finally:
+        con.close()
+    result["ok"] = not result["unfinished"] and not result["failed"]
+    return result
+
+
+def acknowledge_dead_refs(db_path: Path) -> int:
+    """Record unacknowledged terminal_failed items into knowledge_dead_refs.
+
+    Returns the number of dead-ref rows newly recorded.
+    """
+    ensure_journal_schema(db_path)
+    con = connect_rw(db_path)
+    tables = {
+        r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    if "knowledge_run_items" not in tables:
+        con.close()
+        return 0
+    cur = con.execute(
+        "INSERT OR IGNORE INTO knowledge_dead_refs "
+        "(evidence_ref, run_id, error_class, acknowledged_at) "
+        "SELECT evidence_ref, run_id, COALESCE(last_error_class, ''), ? "
+        "FROM knowledge_run_items WHERE status='terminal_failed'",
+        (_utc_now(),),
+    )
+    recorded = cur.rowcount
+    con.commit()
+    con.close()
+    return recorded
 
 
 def prepare_incremental_journal(
