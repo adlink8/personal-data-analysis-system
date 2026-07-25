@@ -163,6 +163,39 @@ def test_merge_multiple_takes_min_confidence(tmp_path: Path) -> None:
     assert len(result["members"]) == 2
 
 
+def _merge_unit(unit_id: str, lifecycle: str) -> dict:
+    return {"unit_id": unit_id, "subject": "Shell", "unit_type": "preference",
+            "question": "q", "answer": "a", "confidence": 0.9, "lifecycle": lifecycle}
+
+
+def test_merge_lifecycle_all_current() -> None:
+    """全 current 成员合并 → current。"""
+    result = merge_group([_merge_unit("u1", "current"), _merge_unit("u2", "current")])
+    assert result["lifecycle"] == "current"
+
+
+def test_merge_lifecycle_inherits_superseded() -> None:
+    """含 superseded 成员 → 合并结果 superseded（不被静默复活为 current）。"""
+    result = merge_group([_merge_unit("u1", "current"), _merge_unit("u2", "superseded")])
+    assert result["lifecycle"] == "superseded"
+
+
+def test_merge_lifecycle_conflict_wins() -> None:
+    """含 conflict 成员（即使有 superseded）→ conflict（最严重者优先）。"""
+    result = merge_group([
+        _merge_unit("u1", "current"),
+        _merge_unit("u2", "superseded"),
+        _merge_unit("u3", "conflict"),
+    ])
+    assert result["lifecycle"] == "conflict"
+
+
+def test_merge_single_keeps_deprecated() -> None:
+    """单成员 deprecated → 保持 deprecated（现有行为回归）。"""
+    result = merge_group([_merge_unit("u1", "deprecated")])
+    assert result["lifecycle"] == "deprecated"
+
+
 def test_canonical_id_stable() -> None:
     """相同 subject+type+answer 产生相同 canonical ID。"""
     id1 = _canonical_id("Shell", "preference", "use PowerShell")

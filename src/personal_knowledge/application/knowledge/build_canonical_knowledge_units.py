@@ -153,10 +153,17 @@ def find_merge_proposals(bucket: list[dict]) -> list[list[dict]]:
     return groups
 
 
+# lifecycle 严重程度（越大越保守），多成员合并时取最严重的值。
+_LIFECYCLE_SEVERITY = {"current": 0, "deprecated": 1, "superseded": 2, "conflict": 3}
+
+
 def merge_group(group: list[dict]) -> dict:
     """把一组 units 合并为一个 canonical unit。
 
-    merge 后 confidence 取 members 最小值。
+    merge 后 confidence 取 members 最小值；lifecycle 取 members 中最保守的值
+    （conflict > superseded > deprecated > current），避免 deprecated/superseded/
+    conflict 的 unit 被合并静默"复活"为 current（"标 lifecycle / supersede，不硬删"）。
+    单成员 group 保留 unit 原 lifecycle。
     """
     if len(group) == 1:
         u = group[0]
@@ -175,6 +182,11 @@ def merge_group(group: list[dict]) -> dict:
     # 多 member 合并：取最长 answer 作为代表
     best = max(group, key=lambda u: len(u["answer"]))
     min_conf = min(u["confidence"] for u in group)
+    # lifecycle 取 members 中最保守的值，任何非 current 成员都会体现在合并结果上
+    lifecycle = max(
+        (u["lifecycle"] for u in group),
+        key=lambda lc: _LIFECYCLE_SEVERITY[lc],
+    )
 
     return {
         "canonical_unit_id": _canonical_id(best["subject"], best["unit_type"], best["answer"]),
@@ -183,7 +195,7 @@ def merge_group(group: list[dict]) -> dict:
         "question": best["question"],
         "answer": best["answer"],
         "confidence": min_conf,
-        "lifecycle": "current",
+        "lifecycle": lifecycle,
         "members": [u["unit_id"] for u in group],
         "merge_reason": "similar_merge",
     }
