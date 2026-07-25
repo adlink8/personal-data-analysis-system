@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sqlite3
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
@@ -93,17 +94,33 @@ def build_buckets(units: list[dict]) -> dict[str, list[dict]]:
 
 
 def compute_similarity(text_a: str, text_b: str) -> float:
-    """简单 Jaccard 相似度（基于词集）。
+    """字符级 n-gram Jaccard 相似度（n=4）。
 
-    生产环境应改用 embedding cosine，但 pilot 阶段用词级 Jaccard 足够验证逻辑。
+    去空白/小写后取字符 n-gram 集合做 Jaccard，短文本（< n 个字符）降级为整串；
+    与 application/graph/build_merge_layer.py 的 ngrams() 同款逻辑。
+    词级 Jaccard 对中文无效（无空格分词，整句成一个"词"），故改用 char n-gram。
+
+    注意：下游阈值（MERGE_SIMILARITY_THRESHOLD、ANSWER_SIM、SUBJECT_SIM）是
+    词级 Jaccard 时代的历史经验值，本次未改动；后续需用 eval 集
+    （见 evaluate_merge_gate：20 positives / 20 hard negatives）重新校准。
+
+    空输入返回 0.0。
     """
-    words_a = set(text_a.lower().split())
-    words_b = set(text_b.lower().split())
-    if not words_a or not words_b:
+    grams_a = _char_ngrams(text_a)
+    grams_b = _char_ngrams(text_b)
+    if not grams_a or not grams_b:
         return 0.0
-    intersection = words_a & words_b
-    union = words_a | words_b
+    intersection = grams_a & grams_b
+    union = grams_a | grams_b
     return len(intersection) / len(union)
+
+
+def _char_ngrams(text: str, n: int = 4) -> set[str]:
+    """字符级 n-gram 集合（去空白、小写后）。短文本降级到整串。"""
+    s = re.sub(r"\s+", "", (text or "").lower())
+    if len(s) < n:
+        return {s} if s else set()
+    return {s[i : i + n] for i in range(len(s) - n + 1)}
 
 
 def find_merge_proposals(bucket: list[dict]) -> list[list[dict]]:

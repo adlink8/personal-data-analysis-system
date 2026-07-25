@@ -109,6 +109,36 @@ def test_similarity_partial() -> None:
     assert 0 < sim < 1
 
 
+def test_similarity_chinese_near_duplicate() -> None:
+    """中文近重复（差几个字）相似度应显著 >0（旧词级 Jaccard 下=0）。"""
+    sim = compute_similarity(
+        "用户偏好使用 PowerShell 作为默认终端",
+        "用户偏好使用 PowerShell 作为默认命令行终端",
+    )
+    assert sim > 0.5
+
+
+def test_similarity_chinese_unrelated() -> None:
+    """完全无关的两句中文相似度应接近 0。"""
+    sim = compute_similarity(
+        "用户偏好使用 PowerShell 作为默认终端",
+        "数据库迁移脚本在每周日凌晨自动执行",
+    )
+    assert sim < 0.1
+
+
+def test_similarity_empty() -> None:
+    """空输入返回 0.0。"""
+    assert compute_similarity("", "hello") == 0.0
+    assert compute_similarity("hello", "") == 0.0
+    assert compute_similarity("", "") == 0.0
+
+
+def test_similarity_english_identical_words() -> None:
+    """英文行为不退化：相同词集仍=1.0。"""
+    assert compute_similarity("hello world", "hello world") == 1.0
+
+
 # === Merge 测试 ===
 
 def test_merge_single_unit(tmp_path: Path) -> None:
