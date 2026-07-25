@@ -28,7 +28,11 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
-from personal_knowledge.core.project_paths import UNIFIED_DB, AGENT_CONVERSATIONS_DB  # noqa: E402
+from personal_knowledge.core.project_paths import (  # noqa: E402
+    UNIFIED_DB,
+    AGENT_CONVERSATIONS_DB,
+    KNOWLEDGE_ACTIVE_POINTER,
+)
 
 
 def _utc_now() -> str:
@@ -974,43 +978,95 @@ def compute_affected_subjects(db_path: Path, delta_refs: list[str]) -> list[str]
     return [r[0] for r in rows]
 
 
+# F-13: chroma get 分页大小（避免单次 limit=10000 截断大集合）。
+_CANDIDATE_GET_PAGE_SIZE = 5000
+
+
+def _get_all_collection_ids(coll, page_size: int | None = None) -> list[str]:
+    """Paginate coll.get(limit/offset) to read the FULL ID list (no 10000 truncation)."""
+    if page_size is None:
+        page_size = _CANDIDATE_GET_PAGE_SIZE
+    ids: list[str] = []
+    offset = 0
+    while True:
+        batch = coll.get(limit=page_size, offset=offset, include=[])
+        got = batch.get("ids", [])
+        ids.extend(got)
+        if len(got) < page_size:
+            break
+        offset += page_size
+    return ids
+
+
+def _resolve_active_knowledge_collection(db_path: Path) -> str:
+    """Resolve the active knowledge collection via the serving snapshot resolver.
+
+    SQLite snapshot authority first, legacy pointer file as fallback (drift
+    detected inside the resolver). Returns "" when nothing is resolvable.
+    """
+    from personal_knowledge.retrieval.serving import ServingSnapshotResolver
+    state = ServingSnapshotResolver(db_path, KNOWLEDGE_ACTIVE_POINTER).resolve()
+    return str((state.member("knowledge_retrieval") or {}).get("location_ref") or "")
+
+
 def build_incremental_candidate(
     db_path: Path,
     run_id: str,
     chroma_client=None,
     collection_name: str = "",
+    active_collection_name: str | None = None,
 ) -> dict:
-    """Build an immutable candidate Chroma collection from a run's units.
+    """Build an immutable candidate Chroma collection over ALL current units.
 
-    Reads units from knowledge_units WHERE run_id=?, builds a new Chroma collection,
-    then reads ACTUAL IDs from the collection (not input IDs) for reconcile.
+    F-13 修复：eligible 集是 ``knowledge_units`` 中全部
+    ``status='current' AND lifecycle='current'`` 的单元（跨所有 run、所有 pass 族
+    v1|/l2|/ku|；F-06 后多族 current 共存是正式语义），不再按 run_id 过滤。
+    candidate 可被 promote 为 active；旧实现只含单 run 子集，promote 后检索召回
+    会静默塌缩。也因此 reconcile_knowledge_index.py 的 "actual < eligible 视为
+    自洽子集" 放行路径（legacy checkpoint 语义，本次不改）不再被增量流程触发——
+    candidate 不再产出子集。
+
+    效率：已存在于 active collection 的单元直接复用其 embedding（不重新计算），
+    但 documents/metadatas 用 DB 最新值重生成（lifecycle/subject 可能已变）；
+    仅 active 中不存在的新 id 走正常 embedding。active 缺失或读失败时降级为全量
+    embedding。actual_ids 通过 limit/offset 分页拉全量，不再截断于 10000。
 
     Returns: collection_name, actual_count, actual_ids, actual_checksum,
     missing/orphan/duplicate/deleted_residue/deprecated_residue/excluded_residue,
-    gate_passed.
+    reused_embeddings/embedded_new, active_collection, gate_passed.
     """
     if not collection_name:
         collection_name = f"candidate_{run_id[:12]}"
 
-    # Read units from DB
+    # Eligible set: ALL current units across every run / pass family (F-13).
     con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     units = con.execute(
-        "SELECT unit_id, subject, question, answer, unit_type, confidence, "
-        "lifecycle, source_message_ref FROM knowledge_units WHERE run_id=?",
-        (run_id,),
+        "SELECT unit_id, run_id, subject, question, answer, unit_type, confidence, "
+        "lifecycle, source_message_ref FROM knowledge_units "
+        "WHERE status='current' AND lifecycle='current'",
     ).fetchall()
-    eligible_ids = {u["unit_id"] for u in units if u["lifecycle"] == "current"}
-    eligible_count = len(eligible_ids)
+    # Residue reference sets span the whole DB (candidate must not contain them).
+    deleted_ids = {r[0] for r in con.execute(
+        "SELECT unit_id FROM knowledge_units WHERE lifecycle='deleted'")}
+    deprecated_ids = {r[0] for r in con.execute(
+        "SELECT unit_id FROM knowledge_units WHERE lifecycle='deprecated'")}
+    excluded_ids = {r[0] for r in con.execute(
+        "SELECT unit_id FROM knowledge_units WHERE status != 'current'")}
     con.close()
+
+    eligible_ids = {u["unit_id"] for u in units}
+    eligible_count = len(eligible_ids)
 
     if not units:
         return {
             "collection_name": collection_name,
             "actual_count": 0, "actual_ids": [], "actual_checksum": "",
+            "eligible_count": 0,
             "missing": 0, "orphan": 0, "duplicate": 0,
             "deleted_residue": 0, "deprecated_residue": 0, "excluded_residue": 0,
-            "gate_passed": False, "reason": "no units found for run",
+            "reused_embeddings": 0, "embedded_new": 0, "active_collection": "",
+            "gate_passed": False, "reason": "no eligible current units",
         }
 
     # Build Chroma collection
@@ -1020,24 +1076,67 @@ def build_incremental_candidate(
 
     coll = chroma_client.get_or_create_collection(collection_name)
 
-    # Add units to collection
-    ids = [u["unit_id"] for u in units if u["lifecycle"] == "current"]
-    documents = [f"{u['question']} {u['answer']}" for u in units if u["lifecycle"] == "current"]
-    metadatas = [{
+    # documents/metadatas always regenerated from the latest DB rows.
+    ids = [u["unit_id"] for u in units]
+    doc_by_id = {u["unit_id"]: f"{u['question']} {u['answer']}" for u in units}
+    meta_by_id = {u["unit_id"]: {
         "subject": u["subject"],
         "unit_type": u["unit_type"],
         "confidence": u["confidence"],
         "lifecycle": u["lifecycle"],
         "source_message_ref": u["source_message_ref"] or "",
-        "run_id": run_id,
-    } for u in units if u["lifecycle"] == "current"]
+        "run_id": u["run_id"],
+    } for u in units}
 
-    if ids:
-        coll.add(ids=ids, documents=documents, metadatas=metadatas)
+    # Try to reuse embeddings from the active collection for units already indexed.
+    reused: dict[str, list[float]] = {}
+    active_name = active_collection_name
+    if active_name is None:
+        try:
+            active_name = _resolve_active_knowledge_collection(db_path)
+        except Exception:
+            active_name = ""
+    if active_name and active_name != collection_name:
+        try:
+            active_coll = chroma_client.get_or_create_collection(active_name)
+            offset = 0
+            while True:
+                batch = active_coll.get(
+                    limit=_CANDIDATE_GET_PAGE_SIZE, offset=offset,
+                    include=["embeddings"],
+                )
+                got = batch.get("ids", [])
+                embeddings = batch.get("embeddings") or []
+                for rid, emb in zip(got, embeddings):
+                    if rid in eligible_ids and emb is not None:
+                        reused[rid] = emb
+                if len(got) < _CANDIDATE_GET_PAGE_SIZE:
+                    break
+                offset += _CANDIDATE_GET_PAGE_SIZE
+        except Exception:
+            # active unreadable → degrade to full embedding for all units.
+            reused = {}
 
-    # Read ACTUAL IDs from collection (not input IDs)
-    actual_result = coll.get(limit=10000, include=[])
-    actual_ids = set(actual_result.get("ids", []))
+    reused_ids = [i for i in ids if i in reused]
+    new_ids = [i for i in ids if i not in reused]
+
+    if reused_ids:
+        coll.add(
+            ids=reused_ids,
+            embeddings=[reused[i] for i in reused_ids],
+            documents=[doc_by_id[i] for i in reused_ids],
+            metadatas=[meta_by_id[i] for i in reused_ids],
+        )
+    if new_ids:
+        coll.add(
+            ids=new_ids,
+            documents=[doc_by_id[i] for i in new_ids],
+            metadatas=[meta_by_id[i] for i in new_ids],
+        )
+
+    # Read ACTUAL IDs from collection (not input IDs), paginated to avoid truncation.
+    actual_id_list = _get_all_collection_ids(coll)
+    actual_ids = set(actual_id_list)
     actual_count = len(actual_ids)
 
     # Compute actual ID-set checksum
@@ -1045,26 +1144,16 @@ def build_incremental_candidate(
         "".join(sorted(actual_ids)).encode()
     ).hexdigest()
 
-    # Reconcile: six residue checks
+    # Reconcile: six residue checks (missing now enforced against the FULL eligible set)
     missing = len(eligible_ids - actual_ids)
     orphan = len(actual_ids - eligible_ids)
-    # duplicate: actual_count should equal unique ID count
-    duplicate = actual_count - len(actual_ids)
+    # duplicate: fetched row count should equal unique ID count
+    duplicate = len(actual_id_list) - len(actual_ids)
 
-    # deleted residue: units with lifecycle='deleted' in candidate
-    deleted_residue = sum(1 for u in units if u["lifecycle"] == "deleted")
-
-    # deprecated residue: units with lifecycle='deprecated' in candidate
-    deprecated_residue = sum(1 for u in units if u["lifecycle"] == "deprecated")
-
-    # excluded residue: units with status != 'current' (excluded from indexing)
-    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
-    excluded = con.execute(
-        "SELECT COUNT(*) FROM knowledge_units WHERE run_id=? AND status != 'current'",
-        (run_id,),
-    ).fetchone()[0]
-    con.close()
-    excluded_residue = excluded
+    # deleted/deprecated/excluded residue: such units present in the candidate
+    deleted_residue = len(actual_ids & deleted_ids)
+    deprecated_residue = len(actual_ids & deprecated_ids)
+    excluded_residue = len(actual_ids & excluded_ids)
 
     gate_passed = (
         missing == 0 and orphan == 0 and duplicate == 0
@@ -1084,6 +1173,9 @@ def build_incremental_candidate(
         "deleted_residue": deleted_residue,
         "deprecated_residue": deprecated_residue,
         "excluded_residue": excluded_residue,
+        "reused_embeddings": len(reused_ids),
+        "embedded_new": len(new_ids),
+        "active_collection": active_name or "",
         "gate_passed": gate_passed,
     }
 

@@ -93,33 +93,45 @@ class FakeChromaCollection:
         self._ids: list[str] = []
         self._documents: list[str] = []
         self._metadatas: list[dict] = []
+        self._embeddings: list[list[float] | None] = []
         self._distances: list[float] = []
+        self.add_calls: list[dict] = []
+        self.get_calls: list[dict] = []
 
     def add(self, ids, documents, metadatas, embeddings=None):
+        embeddings = embeddings or [None] * len(ids)
+        self.add_calls.append({"ids": list(ids), "with_embeddings": any(e is not None for e in embeddings)})
         for i, (rid, doc, meta) in enumerate(zip(ids, documents, metadatas)):
             self._ids.append(rid)
             self._documents.append(doc)
             self._metadatas.append(meta)
+            self._embeddings.append(embeddings[i])
         return len(ids)
 
-    def get(self, ids=None, limit=None, include=None):
+    def get(self, ids=None, limit=None, offset=0, include=None):
+        self.get_calls.append({"ids": ids, "limit": limit, "offset": offset, "include": include})
         if ids is not None:
             idx_set = set(ids)
             indices = [i for i, rid in enumerate(self._ids) if rid in idx_set]
         else:
-            indices = list(range(min(limit or len(self._ids), len(self._ids))))
+            indices = list(range(offset, min(offset + (limit or len(self._ids)), len(self._ids))))
         inc = include or []
         result = {"ids": [self._ids[i] for i in indices]}
         if "documents" in inc:
             result["documents"] = [self._documents[i] for i in indices]
         if "metadatas" in inc:
             result["metadatas"] = [self._metadatas[i] for i in indices]
+        if "embeddings" in inc:
+            result["embeddings"] = [self._embeddings[i] for i in indices]
         if "distances" in inc:
             result["distances"] = [self._distances[i] if i < len(self._distances) else 0.0 for i in indices]
         if not inc:
             # default: just ids
             pass
         return result
+
+    def embedding_of(self, rid: str):
+        return self._embeddings[self._ids.index(rid)]
 
     def query(self, query_embeddings=None, n_results=5, include=None):
         n = min(n_results, len(self._ids))
@@ -1057,6 +1069,7 @@ def test_candidate_old_active_unchanged(tmp_path: Path):
         run_id="run1",
         chroma_client=fake_chroma,
         collection_name="test_candidate_003",
+        active_collection_name="old_active",
     )
 
     # Old active still exists and unchanged
@@ -1064,4 +1077,185 @@ def test_candidate_old_active_unchanged(tmp_path: Path):
     assert active_coll.actual_ids() == {"old1"}
     # Candidate is separate
     assert result["actual_count"] == 3
-    assert result["collection_name"] == "test_candidate_003"
+
+
+# ---------------------------------------------------------------------------
+# F-13: candidate covers ALL current units across runs (not a single-run subset)
+# ---------------------------------------------------------------------------
+
+def _insert_units(db: Path, run_id: str, units: list[dict]) -> None:
+    """Insert extra knowledge_units rows for an additional run into an existing test DB."""
+    con = sqlite3.connect(str(db))
+    for u in units:
+        con.execute(
+            "INSERT INTO knowledge_units (unit_id, run_id, unit_type, subject, question, answer, "
+            "confidence, evidence_quote, lifecycle, evidence_scope, status, created_at, source_message_ref) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                u["unit_id"], run_id, u.get("unit_type", "preference"),
+                u.get("subject", "test"), u.get("question", "q"), u.get("answer", "a"),
+                u.get("confidence", 0.9), u.get("evidence_quote", "ev"),
+                u.get("lifecycle", "current"), u.get("evidence_scope", "user"),
+                u.get("status", "current"), "2026-01-01",
+                u.get("source_message_ref", f"cm|{u['unit_id']}"),
+            ),
+        )
+    con.commit()
+    con.close()
+
+
+def test_candidate_covers_all_runs_current_units(tmp_path: Path):
+    """F-13①: DB 里两个 run 的 current units 都进 candidate（旧行为只含参数 run）。"""
+    db = tmp_path / "unified.sqlite"
+    build_unified_db(db, run_id="run1", units=[
+        {"unit_id": "r1u0", "question": "Q1", "answer": "A1"},
+    ])
+    _insert_units(db, "run2", [
+        {"unit_id": "r2u0", "question": "Q2", "answer": "A2"},
+        {"unit_id": "r2u1", "question": "Q3", "answer": "A3"},
+    ])
+
+    from personal_knowledge.domains.knowledge.refresh_knowledge_units import build_incremental_candidate
+    fake_chroma = FakeChromaClient()
+
+    result = build_incremental_candidate(
+        db_path=db,
+        run_id="run2",  # 旧实现只会包含 run2 的 units
+        chroma_client=fake_chroma,
+        collection_name="cand_f13_all_runs",
+        active_collection_name="",  # 跳过 resolver / 复用
+    )
+
+    assert set(result["actual_ids"]) == {"r1u0", "r2u0", "r2u1"}
+    assert result["eligible_count"] == 3
+    assert result["missing"] == 0
+    assert result["orphan"] == 0
+    assert result["gate_passed"] is True
+    # metadata.run_id 是每个 unit 自己的 run_id，不是参数 run_id 一刀切
+    coll = fake_chroma.get_or_create_collection("cand_f13_all_runs")
+    got = coll.get(include=["metadatas"])
+    run_by_id = dict(zip(got["ids"], (m["run_id"] for m in got["metadatas"])))
+    assert run_by_id == {"r1u0": "run1", "r2u0": "run2", "r2u1": "run2"}
+
+
+def test_candidate_reuses_active_embeddings(tmp_path: Path):
+    """F-13②: active 已有的 unit 复用 embedding（不重新计算），新 unit 走新 embedding。"""
+    db = tmp_path / "unified.sqlite"
+    build_unified_db(db, units=[
+        {"unit_id": "u_old", "question": "Qold", "answer": "Aold"},
+        {"unit_id": "u_new", "question": "Qnew", "answer": "Anew"},
+    ])
+
+    from personal_knowledge.domains.knowledge.refresh_knowledge_units import build_incremental_candidate
+    fake_chroma = FakeChromaClient()
+    active_coll = fake_chroma.get_or_create_collection("old_active")
+    active_coll.add(ids=["u_old"], documents=["stale doc"], metadatas=[{"subject": "stale"}],
+                    embeddings=[[0.1, 0.2, 0.3]])
+
+    result = build_incremental_candidate(
+        db_path=db,
+        run_id="run1",
+        chroma_client=fake_chroma,
+        collection_name="cand_f13_reuse",
+        active_collection_name="old_active",
+    )
+
+    assert result["reused_embeddings"] == 1
+    assert result["embedded_new"] == 1
+    assert result["gate_passed"] is True
+
+    cand = fake_chroma.get_or_create_collection("cand_f13_reuse")
+    # 复用路径：u_old 带 active 的 embedding 写入，未走新 embedding
+    assert cand.embedding_of("u_old") == [0.1, 0.2, 0.3]
+    # 新 id：走正常 embedding 路径（fake 不计算 embedding → None）
+    assert cand.embedding_of("u_new") is None
+    reuse_call = [c for c in cand.add_calls if "u_old" in c["ids"]][0]
+    assert reuse_call["with_embeddings"] is True
+    new_call = [c for c in cand.add_calls if "u_new" in c["ids"]][0]
+    assert new_call["with_embeddings"] is False
+    # documents/metadatas 用 DB 最新值重生成，不是 active 里的旧值
+    got = cand.get(ids=["u_old"], include=["documents", "metadatas"])
+    assert got["documents"] == ["Qold Aold"]
+    assert got["metadatas"][0]["subject"] == "test"
+
+
+def test_candidate_active_missing_degrades_to_full_embed(tmp_path: Path):
+    """F-13②b: active collection 为空/不存在时降级为全量 embedding。"""
+    db = tmp_path / "unified.sqlite"
+    build_unified_db(db, units=[
+        {"unit_id": "u0", "question": "Q0", "answer": "A0"},
+        {"unit_id": "u1", "question": "Q1", "answer": "A1"},
+    ])
+
+    from personal_knowledge.domains.knowledge.refresh_knowledge_units import build_incremental_candidate
+    fake_chroma = FakeChromaClient()
+
+    result = build_incremental_candidate(
+        db_path=db,
+        run_id="run1",
+        chroma_client=fake_chroma,
+        collection_name="cand_f13_no_active",
+        active_collection_name="nonexistent_active",
+    )
+
+    assert result["reused_embeddings"] == 0
+    assert result["embedded_new"] == 2
+    assert result["gate_passed"] is True
+
+
+def test_candidate_actual_ids_paginated(tmp_path: Path, monkeypatch):
+    """F-13③: actual_ids 分页拉全量（小 page size 下循环多次，无截断）。"""
+    db = tmp_path / "unified.sqlite"
+    build_unified_db(db, units=[
+        {"unit_id": f"p{i}", "question": f"Q{i}", "answer": f"A{i}"}
+        for i in range(7)
+    ])
+
+    import personal_knowledge.domains.knowledge.refresh_knowledge_units as rku
+    monkeypatch.setattr(rku, "_CANDIDATE_GET_PAGE_SIZE", 3)
+    fake_chroma = FakeChromaClient()
+
+    result = rku.build_incremental_candidate(
+        db_path=db,
+        run_id="run1",
+        chroma_client=fake_chroma,
+        collection_name="cand_f13_paged",
+        active_collection_name="",
+    )
+
+    assert result["actual_count"] == 7
+    assert result["missing"] == 0
+    assert result["gate_passed"] is True
+    # candidate 读取走了多页（7 条 / page 3 → 3 次 get）
+    coll = fake_chroma.get_or_create_collection("cand_f13_paged")
+    assert len(coll.get_calls) == 3
+    assert [c["offset"] for c in coll.get_calls] == [0, 3, 6]
+
+
+def test_candidate_excludes_non_current_units(tmp_path: Path):
+    """F-13④: status/lifecycle 非 current 的 units 不进 candidate（回归）。"""
+    db = tmp_path / "unified.sqlite"
+    build_unified_db(db, units=[
+        {"unit_id": "cur", "question": "Qc", "answer": "Ac"},
+        {"unit_id": "dep", "question": "Qp", "answer": "Ap", "lifecycle": "deprecated"},
+        {"unit_id": "sup", "question": "Qs", "answer": "As", "lifecycle": "superseded"},
+        {"unit_id": "rej", "question": "Qe", "answer": "Ae", "status": "rejected"},
+    ])
+
+    from personal_knowledge.domains.knowledge.refresh_knowledge_units import build_incremental_candidate
+    fake_chroma = FakeChromaClient()
+
+    result = build_incremental_candidate(
+        db_path=db,
+        run_id="run1",
+        chroma_client=fake_chroma,
+        collection_name="cand_f13_excl",
+        active_collection_name="",
+    )
+
+    assert result["actual_ids"] == ["cur"]
+    assert result["eligible_count"] == 1
+    assert result["deleted_residue"] == 0
+    assert result["deprecated_residue"] == 0
+    assert result["excluded_residue"] == 0
+    assert result["gate_passed"] is True
