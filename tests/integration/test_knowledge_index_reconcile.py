@@ -24,20 +24,23 @@ def _ids_checksum(ids: list[str] | set[str]) -> str:
     return hashlib.sha256("".join(sorted(ids)).encode()).hexdigest()
 
 
-def _setup_db(db: Path, *, canonical: list[tuple[str, str]], checksum: str | None, build_id: str = "run1") -> None:
+def _setup_db(db: Path, *, canonical: list[tuple], checksum: str | None, build_id: str = "run1") -> None:
     con = sqlite3.connect(str(db))
     con.executescript(SCHEMA_SQL)
     con.execute(
         "INSERT INTO knowledge_build_runs VALUES "
         "('run1','extraction','2026-01-01',NULL,'h','v1','v1','m',NULL,NULL,NULL,NULL,'current',NULL,NULL)"
     )
-    for cuid, status in canonical:
+    for row in canonical:
+        # (cuid, status) 或 (cuid, status, lifecycle)
+        cuid, status = row[0], row[1]
+        lifecycle = row[2] if len(row) > 2 else "current"
         con.execute(
             "INSERT INTO canonical_knowledge_units "
             "(canonical_unit_id, subject, unit_type, question, answer, confidence, "
             "lifecycle, status, version, run_id, created_at) VALUES "
             "(?,?,?,?,?,?,?,?,?,?,?)",
-            (cuid, "s", "preference", "q", "a", 0.9, "current", status, 1, "run1", "2026-01-01"),
+            (cuid, "s", "preference", "q", "a", 0.9, lifecycle, status, 1, "run1", "2026-01-01"),
         )
     if checksum is not None:
         con.execute(
@@ -195,3 +198,45 @@ def test_reconcile_pages_large_id_set(tmp_path: Path) -> None:
     assert report.actual_count == 4500
     assert report.checksum_match is True
     assert report.passed is True
+
+
+def test_reconcile_residue_superseded_lifecycle_current_status(tmp_path: Path) -> None:
+    """F-09①：status=current 但 lifecycle=superseded 的 KU 出现在索引里 → residue=1。
+
+    lifecycle reconcile 只改 lifecycle 列、不动 status，旧实现只看 status 会漏报。
+    """
+    ids = ["cu_cur", "cu_sup"]
+    ck = _ids_checksum(ids)
+    db = tmp_path / "db.sqlite"
+    _setup_db(
+        db,
+        canonical=[("cu_cur", "current"), ("cu_sup", "current", "superseded")],
+        checksum=ck,
+    )
+
+    client = _FakeClient(_FakeColl(ids))
+    with patch("personal_knowledge.core.chroma_client.ChromaClient", return_value=client):
+        report = reconcile(db, "ku_test")
+
+    assert report.deprecated_residue == 1
+    assert report.passed is False
+
+
+def test_reconcile_residue_beyond_500_ids(tmp_path: Path) -> None:
+    """F-09②：ID 集超过 500 时，第 501+ 位的违规 ID 也能被检出（旧实现只采样前 500）。"""
+    ids = [f"cu{i:04d}" for i in range(600)]
+    ck = _ids_checksum(ids)
+    db = tmp_path / "db.sqlite"
+    # sorted 顺序下 cu0599 是最后一个，确保落在旧实现的 500 采样之外
+    _setup_db(
+        db,
+        canonical=[("cu0599", "current", "superseded")],
+        checksum=ck,
+    )
+
+    client = _FakeClient(_FakeColl(ids))
+    with patch("personal_knowledge.core.chroma_client.ChromaClient", return_value=client):
+        report = reconcile(db, "ku_test")
+
+    assert report.deprecated_residue == 1
+    assert report.passed is False

@@ -143,27 +143,38 @@ def reconcile(db_path: Path, collection_name: str, port: int = 8001) -> Reconcil
             report.missing = 0
     report.duplicate = len(actual_ids) - len(actual_ids)
 
-    # deprecated residue：检查 collection 中是否有 deprecated lifecycle 的 metadata
+    # deprecated residue：检查 collection 中是否有不应出现的 ID
+    # 应被排除的行 = status 非 current 或 lifecycle 非 current
+    # （lifecycle reconcile 只改 lifecycle 列、不动 status，所以必须两列都看）
     # 对 canonical collections 检查 canonical_knowledge_units，
     # 对 legacy collections 检查 knowledge_units
     if actual_ids:
         con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
-        placeholders = ",".join("?" * min(len(actual_ids), 500))
-        # 先查 canonical，再 fallback 到 knowledge_units
-        deprecated_in_index = con.execute(
-            f"SELECT COUNT(*) FROM canonical_knowledge_units "
-            f"WHERE canonical_unit_id IN ({placeholders}) "
-            f"AND status != 'current'",
-            tuple(list(actual_ids)[:500]),
-        ).fetchone()[0]
+        # 全量比对，IN 查询按 1000/批分块（SQLite 变量上限）
+        id_list = sorted(actual_ids)
+        batch = 1000
+        deprecated_in_index = 0
+        for i in range(0, len(id_list), batch):
+            chunk = id_list[i : i + batch]
+            placeholders = ",".join("?" * len(chunk))
+            # 先查 canonical，再 fallback 到 knowledge_units
+            deprecated_in_index += con.execute(
+                f"SELECT COUNT(*) FROM canonical_knowledge_units "
+                f"WHERE canonical_unit_id IN ({placeholders}) "
+                f"AND (status != 'current' OR lifecycle != 'current')",
+                chunk,
+            ).fetchone()[0]
         if deprecated_in_index == 0:
             # legacy fallback
-            deprecated_in_index = con.execute(
-                f"SELECT COUNT(*) FROM knowledge_units "
-                f"WHERE unit_id IN ({placeholders}) "
-                f"AND lifecycle != 'current'",
-                tuple(list(actual_ids)[:500]),
-            ).fetchone()[0]
+            for i in range(0, len(id_list), batch):
+                chunk = id_list[i : i + batch]
+                placeholders = ",".join("?" * len(chunk))
+                deprecated_in_index += con.execute(
+                    f"SELECT COUNT(*) FROM knowledge_units "
+                    f"WHERE unit_id IN ({placeholders}) "
+                    f"AND (status != 'current' OR lifecycle != 'current')",
+                    chunk,
+                ).fetchone()[0]
         con.close()
         report.deprecated_residue = deprecated_in_index
 
