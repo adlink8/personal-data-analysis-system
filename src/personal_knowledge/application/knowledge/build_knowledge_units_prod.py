@@ -6,7 +6,8 @@ production backfill engine，支持 --start / --resume、item ledger 状态机�
 核心契约（RESEARCH）：
   - 新建 run 与恢复 run 分成两个显式入口
   - resume 不调用 begin_staging()（不删除已完成结果）
-  - cache hit 仍重跑当前 Pydantic/evidence/privacy gate
+  - cache hit 仍重跑当前 Pydantic/evidence gate
+    （evidence_quote 对不上原文的 unit 丢弃并计入 units_dropped_no_evidence）
   - SQLite 单 writer：worker 只返回纯响应，主线程提交
   - model 从 CLI/config 注入，写 manifest，不可用则 abort
   - 多线程并行：ThreadPoolExecutor 并发 LLM，主线程串行写库
@@ -453,6 +454,23 @@ def resume_run(run_id: str, model: str, db_path: Path = UNIFIED_DB,
     return {"run_id": run_id, "recovered_leases": recovered, "stats": stats}
 
 
+def _evidence_supported(quote: str, source: str) -> bool:
+    """quote 是否有 ≥10 字连续片段出现在 source 中（与 L2 同规则）。"""
+    if not quote or not source:
+        return False
+    if quote in source:
+        return True
+    q = quote.strip()
+    if len(q) < 10:
+        return q in source
+    # any contiguous 10-char window of quote in source
+    for i in range(0, max(1, len(q) - 9)):
+        frag = q[i : i + 10]
+        if frag in source:
+            return True
+    return False
+
+
 def _commit_item_result(
     con: sqlite3.Connection,
     run_id: str,
@@ -530,7 +548,13 @@ def _commit_item_result(
         )
         stats["abstained"] += 1
     else:
+        source = work.get("cleaned", "")
+        kept = 0
         for ordinal, unit in enumerate(result.units, 1):
+            if not _evidence_supported(unit.evidence_quote, source):
+                stats["units_dropped_no_evidence"] += 1
+                continue
+            kept += 1
             ev_ref = item["evidence_ref"]
             unit_id = "v1|" + hashlib.sha256(
                 f"{run_id}|{ev_ref}|{ordinal}".encode()
@@ -555,10 +579,10 @@ def _commit_item_result(
         con.execute(
             "UPDATE knowledge_run_items SET status='succeeded', cache_key=?, "
             "response_hash=?, unit_count=?, updated_at=? WHERE id=?",
-            (cache_key, response_hash, len(result.units), now, row_id),
+            (cache_key, response_hash, kept, now, row_id),
         )
         stats["succeeded"] += 1
-        stats["units"] += len(result.units)
+        stats["units"] += kept
 
     stats["processed"] += 1
     con.commit()
@@ -607,7 +631,8 @@ def process_run(
 
     stats = {
         "processed": 0, "succeeded": 0, "abstained": 0, "failed": 0,
-        "cache_hits": 0, "units": 0, "workers": max(1, workers),
+        "cache_hits": 0, "units": 0, "units_dropped_no_evidence": 0,
+        "workers": max(1, workers),
         "rate_limited": 0, "stopped_reason": "",
     }
     workers = max(1, int(workers))
@@ -645,6 +670,7 @@ def process_run(
             "row_id": payload["row_id"],
             "kind": "ok",
             "raw_text": resp["text"],
+            "cleaned": payload["cleaned"],
             "cache_key": payload["cache_key"],
             "input_hash": payload["input_hash"],
             "write_cache": True,
@@ -708,6 +734,7 @@ def process_run(
                     ready_cache.append((item, {
                         "kind": "ok",
                         "raw_text": cached,
+                        "cleaned": cleaned,
                         "cache_key": cache_key,
                         "input_hash": input_hash,
                         "write_cache": False,
@@ -762,6 +789,7 @@ def process_run(
                             f"[progress] done≈{done} "
                             f"ok={stats['succeeded']} fail={stats['failed']} "
                             f"abs={stats['abstained']} units={stats['units']} "
+                            f"dropped={stats['units_dropped_no_evidence']} "
                             f"cache_hit={stats['cache_hits']} "
                             f"elapsed={elapsed:.0f}s "
                             f"interval={rate_limiter._min_interval:.1f}s",
