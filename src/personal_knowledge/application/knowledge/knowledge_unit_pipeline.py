@@ -114,7 +114,7 @@ class StagingPublisher:
       1. begin_staging()：在 knowledge_build_runs 写 status='staging' 的 manifest
       2. （调用方写 staging rows，status='staging'）
       3. promote()：gate 通过后，把当前 run 的 units 从 staging → current，
-         同时把旧 current units 标记为 superseded
+         同时把同 pass 族（unit_id 前缀相同）的旧 current units 降级回 staging
       4. abort()：gate 失败，标记 status='aborted'，不清旧 current
     """
 
@@ -161,17 +161,35 @@ class StagingPublisher:
             con.close()
 
     def promote(self, dataset_hash: str = "", stats: dict | None = None) -> None:
-        """gate 通过：manifest → current，旧 current units → superseded。"""
+        """gate 通过：manifest → current，同 pass 族的旧 current units → staging。
+
+        demote 范围按 unit_id 前缀（v1|/l2|/ku| 等 pass 族）收窄：
+        只降级与本 run units 前缀相同的旧 current units，不触碰其他 pass 族
+        （如 L2 的 l2| current）。被降级行保持 supersedes_id 原值，不自引用。
+
+        注意：ku| 旧世代 units 不被任何新 run 的 promote 触碰——这是刻意的，
+        其清理由独立的数据迁移任务处理。
+        """
         con = self._connect()
         try:
             assert_foreign_key_integrity(con)
-            # 旧 current units 标记 superseded
-            con.execute(
-                "UPDATE knowledge_units SET status='staging', "
-                "supersedes_id=unit_id WHERE status='current' "
-                "AND run_id != ?",
-                (self.manifest.run_id,),
-            )
+            # 本 run units 的 pass 族前缀（v1|/l2|/ku| 等）
+            prefixes = [
+                row[0]
+                for row in con.execute(
+                    "SELECT DISTINCT substr(unit_id,1,3) FROM knowledge_units WHERE run_id=?",
+                    (self.manifest.run_id,),
+                )
+            ]
+            if prefixes:
+                # 旧 current units → staging（同族新一代接任），不改 supersedes_id
+                placeholders = ",".join("?" for _ in prefixes)
+                con.execute(
+                    "UPDATE knowledge_units SET status='staging' "
+                    "WHERE status='current' AND run_id != ? "
+                    f"AND substr(unit_id,1,3) IN ({placeholders})",
+                    (self.manifest.run_id, *prefixes),
+                )
             # 当前 run 的 units → current
             con.execute(
                 "UPDATE knowledge_units SET status='current' WHERE run_id=?",

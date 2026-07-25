@@ -23,12 +23,13 @@ def _setup_db(db: Path) -> None:
 
 
 def _insert_unit(con: sqlite3.Connection, unit_id: str, run_id: str,
-                 status: str = "staging") -> None:
+                 status: str = "staging", supersedes_id: str | None = None) -> None:
     con.execute(
         "INSERT INTO knowledge_units (unit_id, run_id, unit_type, subject, "
-        "question, answer, confidence, evidence_quote, created_at, status) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (unit_id, run_id, "preference", "test", "q?", "a", 0.9, "ev", "2026-01-01", status),
+        "question, answer, confidence, evidence_quote, created_at, status, "
+        "supersedes_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (unit_id, run_id, "preference", "test", "q?", "a", 0.9, "ev",
+         "2026-01-01", status, supersedes_id),
     )
 
 
@@ -66,7 +67,7 @@ def test_staging_begin_writes_manifest(tmp_path: Path) -> None:
 
 
 def test_promote_upgrades_staging_to_current(tmp_path: Path) -> None:
-    """promote：staging units → current，旧 current → superseded。"""
+    """promote：staging units → current，同族旧 current → staging。"""
     db = tmp_path / "test.sqlite"
     _setup_db(db)
 
@@ -75,7 +76,7 @@ def test_promote_upgrades_staging_to_current(tmp_path: Path) -> None:
     old_pub = StagingPublisher(old_manifest, db_path=db)
     old_pub.begin_staging()
     con = sqlite3.connect(str(db))
-    _insert_unit(con, "u-old", old_manifest.run_id, status="current")
+    _insert_unit(con, "v1|old", old_manifest.run_id, status="current")
     con.commit()
     con.close()
 
@@ -84,7 +85,7 @@ def test_promote_upgrades_staging_to_current(tmp_path: Path) -> None:
     publisher = StagingPublisher(manifest, db_path=db)
     publisher.begin_staging()
     con = sqlite3.connect(str(db))
-    _insert_unit(con, "u-new", manifest.run_id, status="staging")
+    _insert_unit(con, "v1|new", manifest.run_id, status="staging")
     con.commit()
     con.close()
 
@@ -94,12 +95,12 @@ def test_promote_upgrades_staging_to_current(tmp_path: Path) -> None:
     con = sqlite3.connect(str(db))
     # 新 unit → current
     new_status = con.execute(
-        "SELECT status FROM knowledge_units WHERE unit_id='u-new'"
+        "SELECT status FROM knowledge_units WHERE unit_id='v1|new'"
     ).fetchone()[0]
     assert new_status == "current"
-    # 旧 unit → staging（superseded）
+    # 旧 unit（同 v1| 族）→ staging
     old_status = con.execute(
-        "SELECT status FROM knowledge_units WHERE unit_id='u-old'"
+        "SELECT status FROM knowledge_units WHERE unit_id='v1|old'"
     ).fetchone()[0]
     assert old_status == "staging"
     # manifest → current
@@ -220,3 +221,147 @@ def test_table_reconciliation(tmp_path: Path) -> None:
     assert counts["current"] == 0
     assert counts["rejected"] == 1
     assert counts["orphan_evidence"] == 1
+
+
+def test_promote_demotes_only_same_pass_family(tmp_path: Path) -> None:
+    """F-06：v1| run promote 只降级同族旧 current，不碰 l2| / ku| current。"""
+    db = tmp_path / "test.sqlite"
+    _setup_db(db)
+
+    # run A（v1|）+ 旁路 run（l2| / ku|），均为 current
+    run_a = RunManifest.create("extraction", "build-0", {"run": "a"})
+    pub_a = StagingPublisher(run_a, db_path=db)
+    pub_a.begin_staging()
+    run_l2 = RunManifest.create("extraction", "build-0", {"run": "l2"})
+    StagingPublisher(run_l2, db_path=db).begin_staging()
+    run_ku = RunManifest.create("extraction", "build-0", {"run": "ku"})
+    StagingPublisher(run_ku, db_path=db).begin_staging()
+    con = sqlite3.connect(str(db))
+    _insert_unit(con, "v1|a1", run_a.run_id, status="current")
+    _insert_unit(con, "l2|x1", run_l2.run_id, status="current")
+    _insert_unit(con, "ku|x1", run_ku.run_id, status="current")
+    con.commit()
+    con.close()
+
+    # run B（v1|）promote
+    run_b = RunManifest.create("extraction", "build-1", {"run": "b"})
+    pub_b = StagingPublisher(run_b, db_path=db)
+    pub_b.begin_staging()
+    con = sqlite3.connect(str(db))
+    _insert_unit(con, "v1|b1", run_b.run_id, status="staging")
+    con.commit()
+    con.close()
+    pub_b.promote(dataset_hash="h")
+
+    con = sqlite3.connect(str(db))
+    statuses = dict(
+        con.execute("SELECT unit_id, status FROM knowledge_units").fetchall()
+    )
+    con.close()
+    # 同族旧 current → staging
+    assert statuses["v1|a1"] == "staging"
+    # 其他 pass 族不受影响
+    assert statuses["l2|x1"] == "current"
+    assert statuses["ku|x1"] == "current"
+    # 本 run units → current
+    assert statuses["v1|b1"] == "current"
+
+
+def test_promote_demote_keeps_supersedes_id(tmp_path: Path) -> None:
+    """F-06：被 demote 的行 supersedes_id 不被改写（保持 NULL/原值）。"""
+    db = tmp_path / "test.sqlite"
+    _setup_db(db)
+
+    run_a = RunManifest.create("extraction", "build-0", {"run": "a"})
+    pub_a = StagingPublisher(run_a, db_path=db)
+    pub_a.begin_staging()
+    con = sqlite3.connect(str(db))
+    _insert_unit(con, "v1|a1", run_a.run_id, status="current")
+    _insert_unit(con, "v1|a2", run_a.run_id, status="current",
+                 supersedes_id="v1|ancestor")
+    con.commit()
+    con.close()
+
+    run_b = RunManifest.create("extraction", "build-1", {"run": "b"})
+    pub_b = StagingPublisher(run_b, db_path=db)
+    pub_b.begin_staging()
+    con = sqlite3.connect(str(db))
+    _insert_unit(con, "v1|b1", run_b.run_id, status="staging")
+    con.commit()
+    con.close()
+    pub_b.promote(dataset_hash="h")
+
+    con = sqlite3.connect(str(db))
+    rows = dict(
+        con.execute(
+            "SELECT unit_id, supersedes_id FROM knowledge_units WHERE run_id=?",
+            (run_a.run_id,),
+        ).fetchall()
+    )
+    con.close()
+    assert rows["v1|a1"] is None
+    assert rows["v1|a2"] == "v1|ancestor"
+
+
+def test_promote_with_no_units_skips_demote(tmp_path: Path) -> None:
+    """F-06：本 run 无 units → 不发生 demote，旧 current 原样保留。"""
+    db = tmp_path / "test.sqlite"
+    _setup_db(db)
+
+    run_a = RunManifest.create("extraction", "build-0", {"run": "a"})
+    pub_a = StagingPublisher(run_a, db_path=db)
+    pub_a.begin_staging()
+    con = sqlite3.connect(str(db))
+    _insert_unit(con, "v1|a1", run_a.run_id, status="current")
+    _insert_unit(con, "l2|x1", run_a.run_id, status="current")
+    con.commit()
+    con.close()
+
+    # 空 run（begin_staging 后不写任何 units）
+    run_b = RunManifest.create("extraction", "build-1", {"run": "b"})
+    pub_b = StagingPublisher(run_b, db_path=db)
+    pub_b.begin_staging()
+    pub_b.promote(dataset_hash="h")
+
+    con = sqlite3.connect(str(db))
+    statuses = dict(
+        con.execute("SELECT unit_id, status FROM knowledge_units").fetchall()
+    )
+    con.close()
+    assert statuses["v1|a1"] == "current"
+    assert statuses["l2|x1"] == "current"
+
+
+def test_promote_then_rollback_restores_old_run(tmp_path: Path) -> None:
+    """回归：B promote 降级 A 后，checkpoint_rollback 到 A 仍恢复其 units 为 current。"""
+    db = tmp_path / "test.sqlite"
+    _setup_db(db)
+
+    run_a = RunManifest.create("extraction", "build-0", {"run": "a"})
+    pub_a = StagingPublisher(run_a, db_path=db)
+    pub_a.begin_staging()
+    con = sqlite3.connect(str(db))
+    _insert_unit(con, "v1|a1", run_a.run_id, status="staging")
+    con.commit()
+    con.close()
+    pub_a.promote(dataset_hash="h")
+
+    run_b = RunManifest.create("extraction", "build-1", {"run": "b"})
+    pub_b = StagingPublisher(run_b, db_path=db)
+    pub_b.begin_staging()
+    con = sqlite3.connect(str(db))
+    _insert_unit(con, "v1|b1", run_b.run_id, status="staging")
+    con.commit()
+    con.close()
+    pub_b.promote(dataset_hash="h")
+
+    result = pub_b.checkpoint_rollback(run_a.run_id)
+    assert result["rolled_back_to"] == run_a.run_id
+
+    con = sqlite3.connect(str(db))
+    statuses = dict(
+        con.execute("SELECT unit_id, status FROM knowledge_units").fetchall()
+    )
+    con.close()
+    assert statuses["v1|a1"] == "current"
+    assert statuses["v1|b1"] == "rejected"
