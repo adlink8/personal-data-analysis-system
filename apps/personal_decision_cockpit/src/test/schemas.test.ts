@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError, apiGet } from '../api/client';
 import {
   OverviewEnvelopeSchema,
   SystemStatusEnvelopeSchema,
@@ -450,5 +451,124 @@ describe('externalDeltaEnvelopeSchema', () => {
 
   it('拒绝其他端点的合法 payload（personal_state.get 不能当作 external_delta.get 渲染）', () => {
     expect(externalDeltaEnvelopeSchema.safeParse(FULL_PERSONAL_STATE).success).toBe(false);
+  });
+});
+
+/* ---------------- apiGet（client.ts）：相对同源 + 安全错误映射（D-36-06） ---------------- */
+
+/** 含 poisoned 片段的响应体：验证 ApiError 与 console 都不会把它们带出去。 */
+const POISONED_BODY = {
+  path: 'C:\\secret\\personal.sqlite',
+  token: 'confirmation_token=abcd1234',
+  hmac: 'HMAC-SHA256=deadbeef',
+  detail: 'sk-test-poisoned-secret-value',
+};
+
+function mockFetch(impl: (path: string) => { ok: boolean; status: number; json: () => Promise<unknown> } | never) {
+  const fetchMock = vi.fn(async (path: string) => impl(path));
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+function spyConsole() {
+  return {
+    log: vi.spyOn(console, 'log').mockImplementation(() => undefined),
+    error: vi.spyOn(console, 'error').mockImplementation(() => undefined),
+    warn: vi.spyOn(console, 'warn').mockImplementation(() => undefined),
+  };
+}
+
+describe('apiGet（client.ts）：相对路径请求 + 安全 ApiError 映射', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('请求 URL 保持相对路径（不拼绝对 origin/host）', async () => {
+    const fetchMock = mockFetch(() => ({ ok: true, status: 200, json: async () => FULL_OVERVIEW }));
+    await apiGet('/ui/overview', OverviewEnvelopeSchema);
+    const [calledPath] = fetchMock.mock.calls[0] as [string];
+    expect(calledPath).toBe('/ui/overview');
+    expect(calledPath.startsWith('/')).toBe(true);
+    expect(calledPath).not.toMatch(/^https?:\/\//);
+  });
+
+  it('network 失败 → ApiError(network_error)，安全消息不含异常细节', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('poisoned network detail: ' + POISONED_BODY.detail));
+    vi.stubGlobal('fetch', fetchMock);
+    const consoleSpies = spyConsole();
+    await expect(apiGet('/ui/overview', OverviewEnvelopeSchema)).rejects.toMatchObject({
+      code: 'network_error',
+    } satisfies Partial<ApiError>);
+    try {
+      await apiGet('/ui/overview', OverviewEnvelopeSchema);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).message).not.toContain(POISONED_BODY.detail);
+    }
+    expect(consoleSpies.log).not.toHaveBeenCalled();
+    expect(consoleSpies.error).not.toHaveBeenCalled();
+    expect(consoleSpies.warn).not.toHaveBeenCalled();
+  });
+
+  it('非 2xx → ApiError(http_<status>)，响应 body 不进入 message/console', async () => {
+    mockFetch(() => ({ ok: false, status: 503, json: async () => POISONED_BODY }));
+    const consoleSpies = spyConsole();
+    let caught: ApiError | undefined;
+    try {
+      await apiGet('/ui/overview', OverviewEnvelopeSchema);
+    } catch (err) {
+      caught = err as ApiError;
+    }
+    expect(caught).toBeInstanceOf(ApiError);
+    expect(caught?.code).toBe('http_503');
+    for (const fragment of Object.values(POISONED_BODY)) {
+      expect(caught?.message).not.toContain(fragment);
+    }
+    expect(consoleSpies.log).not.toHaveBeenCalled();
+    expect(consoleSpies.error).not.toHaveBeenCalled();
+    expect(consoleSpies.warn).not.toHaveBeenCalled();
+  });
+
+  it('响应不是合法 JSON → ApiError(invalid_json)', async () => {
+    mockFetch(() => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new SyntaxError('Unexpected token');
+      },
+    }));
+    await expect(apiGet('/ui/overview', OverviewEnvelopeSchema)).rejects.toMatchObject({
+      code: 'invalid_json',
+    } satisfies Partial<ApiError>);
+  });
+
+  it('Zod parse 失败（错误版本/operation/结构）→ ApiError(schema_mismatch)，不泄露 body 内容', async () => {
+    mockFetch(() => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ ...POISONED_BODY, schema_version: 'wrong', operation: 'overview.get' }),
+    }));
+    const consoleSpies = spyConsole();
+    let caught: ApiError | undefined;
+    try {
+      await apiGet('/ui/overview', OverviewEnvelopeSchema);
+    } catch (err) {
+      caught = err as ApiError;
+    }
+    expect(caught?.code).toBe('schema_mismatch');
+    for (const fragment of Object.values(POISONED_BODY)) {
+      expect(caught?.message).not.toContain(fragment);
+    }
+    expect(consoleSpies.log).not.toHaveBeenCalled();
+    expect(consoleSpies.error).not.toHaveBeenCalled();
+    expect(consoleSpies.warn).not.toHaveBeenCalled();
+  });
+
+  it('成功路径：解析后的数据经 Zod 校验，非 any（保留 operation/data 字段）', async () => {
+    mockFetch(() => ({ ok: true, status: 200, json: async () => FULL_OVERVIEW }));
+    const data = await apiGet('/ui/overview', OverviewEnvelopeSchema);
+    expect(data.operation).toBe('overview.get');
+    expect(data.data.personal?.total_available).toBe(214);
   });
 });

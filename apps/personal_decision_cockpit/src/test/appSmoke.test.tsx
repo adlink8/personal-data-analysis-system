@@ -122,4 +122,33 @@ describe('全路由渲染冒烟（appSmoke）', () => {
     expect(alert).toHaveTextContent('无法连接后端服务');
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
   });
+
+  it('解析失败（schema_mismatch）时总览页只显示安全 code/message，不把响应 body 打到 console（D-36-06）', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // 模拟响应格式与投影契约不一致：hooks 层已把这类失败归一为 ApiError('schema_mismatch', ...)，
+    // 页面只应渲染安全消息，绝不重新打印原始响应体（poisoned 片段仅存在于此断言里，不应出现在 DOM）。
+    const poisonedFragment = 'confirmation_token=abcd1234;HMAC-SHA256=deadbeef;C:\\secret\\personal.sqlite';
+    hooksState = {
+      ...defaultHooksState(),
+      overview: {
+        isPending: false,
+        isError: true,
+        error: new ApiError('schema_mismatch', '响应格式与投影契约 decision_cockpit_projection_v1 不一致'),
+        data: undefined,
+        refetch: vi.fn(),
+      },
+    };
+    renderRoute('/');
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('响应格式与投影契约');
+    expect(alert.textContent).not.toContain(poisonedFragment);
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
 });
