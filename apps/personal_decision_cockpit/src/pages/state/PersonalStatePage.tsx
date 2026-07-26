@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { ApiError } from '../../api/client';
+import type { EvidenceReferenceInput } from '../../api/hooks';
 import { usePersonalState } from '../../api/hooks';
 import type {
   PersonalAssertion,
@@ -18,6 +20,7 @@ import {
   lifecycleMeta,
 } from '../../components/authority/ClaimLifecycleBadges';
 import { SnapshotChip } from '../../components/authority/SnapshotChip';
+import { EvidenceDrawer } from '../../components/evidence/EvidenceDrawer';
 import { FreshnessBadge } from '../../components/feedback/FreshnessBadge';
 import { StatePanel } from '../../components/feedback/StatePanel';
 import {
@@ -26,6 +29,7 @@ import {
   IconArrowLeftRight,
   IconChevronRight,
   IconLock,
+  IconSearch,
   IconShield,
 } from '../../components/icons';
 import { fmtConfidence, fmtNumber, fmtTime } from '../../utils/format';
@@ -209,12 +213,59 @@ function assertionReadinessNote(assertion: PersonalAssertion): string | null {
   return null;
 }
 
-function AssertionCard({ assertion }: { assertion: PersonalAssertion }) {
+/**
+ * 断言的稳定证据引用（Phase 37 Plan 03，EVID-01）：只用卡片已经持有的
+ * current_assertion_id + current_value_checksum + 所属领域的 data.snapshot_id + 完整
+ * state key 组装，任一字段缺失（如 checksum 尚未发生过、断言从未生成过 evidence 三元组）
+ * 一律返回 null——不为缺失字段构造伪 evidence，此时不渲染"查看证据"入口。
+ */
+function personalAssertionReference(
+  assertion: PersonalAssertion,
+  snapshotId: string | null,
+): EvidenceReferenceInput | null {
+  const { key } = assertion;
+  if (
+    !assertion.current_assertion_id ||
+    !assertion.current_value_checksum ||
+    !snapshotId ||
+    !key.assertion_kind ||
+    !key.subject ||
+    !key.domain ||
+    !key.scope ||
+    !key.predicate
+  ) {
+    return null;
+  }
+  return {
+    subjectType: 'personal_state',
+    stableId: assertion.current_assertion_id,
+    snapshotId,
+    checksum: assertion.current_value_checksum,
+    stateKey: {
+      assertion_kind: key.assertion_kind,
+      subject: key.subject,
+      domain: key.domain,
+      scope: key.scope,
+      predicate: key.predicate,
+    },
+  };
+}
+
+function AssertionCard({
+  assertion,
+  snapshotId,
+  onOpenEvidence,
+}: {
+  assertion: PersonalAssertion;
+  snapshotId: string | null;
+  onOpenEvidence: (reference: EvidenceReferenceInput, label: string) => void;
+}) {
   const claim = assertion.provenance_class ?? 'unknown';
   const status = assertion.status ?? 'current';
   const isConflict = status === 'conflict';
   const isHistorical = isHistoricalLifecycle(status);
   const readinessNote = assertionReadinessNote(assertion);
+  const evidenceReference = personalAssertionReference(assertion, snapshotId);
 
   // Fact=实线边框；Inference=紫色虚线边框；Conflict=红色冲突标识优先于类型边框色
   const frameClass = isConflict
@@ -240,6 +291,18 @@ function AssertionCard({ assertion }: { assertion: PersonalAssertion }) {
           {readinessNote}
         </p>
       ) : null}
+      {evidenceReference ? (
+        <button
+          type="button"
+          onClick={() =>
+            onOpenEvidence(evidenceReference, `${assertion.key.domain ?? ''} · ${assertion.key.predicate ?? '断言'}`)
+          }
+          className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary transition-colors hover:underline focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <IconSearch className="h-3.5 w-3.5" />
+          查看证据
+        </button>
+      ) : null}
     </li>
   );
 }
@@ -260,6 +323,7 @@ function groupByClaim(assertions: PersonalAssertion[]): Array<{ claim: string; i
 }
 
 function DomainDetail({ domainKey, data }: { domainKey: string; data: PersonalStateData }) {
+  const [openEvidence, setOpenEvidence] = useState<{ reference: EvidenceReferenceInput; label: string } | null>(null);
   const meta = DOMAINS.find((d) => d.key === domainKey);
   if (!meta) {
     return (
@@ -343,6 +407,8 @@ function DomainDetail({ domainKey, data }: { domainKey: string; data: PersonalSt
                     <AssertionCard
                       key={assertion.current_assertion_id ?? `assertion-${index}`}
                       assertion={assertion}
+                      snapshotId={data.snapshot_id}
+                      onOpenEvidence={(reference, label) => setOpenEvidence({ reference, label })}
                     />
                   ))}
                 </ul>
@@ -351,6 +417,14 @@ function DomainDetail({ domainKey, data }: { domainKey: string; data: PersonalSt
           </div>
         )}
       </section>
+
+      {openEvidence ? (
+        <EvidenceDrawer
+          reference={openEvidence.reference}
+          subjectLabel={openEvidence.label}
+          onClose={() => setOpenEvidence(null)}
+        />
+      ) : null}
     </div>
   );
 }

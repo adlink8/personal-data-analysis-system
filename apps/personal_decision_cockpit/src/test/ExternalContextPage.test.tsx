@@ -1,12 +1,16 @@
+import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ExternalContextPage } from '../pages/external/ExternalContextPage';
 import { ApiError } from '../api/client';
+import { useEvidenceResolve } from '../api/hooks';
 import { EXTERNAL_DELTA_ENVELOPE } from './mockData';
 
 // 直接 mock hooks（无 MSW）：默认返回手工构造的 external_delta.get 信封样例，
 // 个别测试可覆盖 currentQuery 来验证 offline/error 等非默认路径。
+// useEvidenceResolve 是 Phase 37 Plan 03"查看证据"入口依赖的唯一数据 hook，
+// 默认 pending（抽屉自身的六态渲染由 EvidenceDrawer.test.tsx 覆盖，此处只验证入口接线）。
 let currentQuery: {
   isPending: boolean;
   isError: boolean;
@@ -17,7 +21,10 @@ let currentQuery: {
 
 vi.mock('../api/hooks', () => ({
   useExternalDelta: () => currentQuery,
+  useEvidenceResolve: vi.fn(() => ({ isPending: true, isError: false, data: undefined, refetch: vi.fn() })),
 }));
+
+const mockedUseEvidenceResolve = useEvidenceResolve as unknown as Mock;
 
 /** 徽标内含 SVG 图标，文字被拆成多个节点，用 textContent 匹配 */
 const badgeWithText = (text: string) => (_: string, el: Element | null) =>
@@ -124,5 +131,21 @@ describe('ExternalContextPage（/external）', () => {
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('外部环境加载失败');
     expect(alert).toHaveTextContent('不代表数据已被清空');
+  });
+
+  it('事实卡"查看证据"打开 Evidence Drawer，携带该事实的稳定引用三元组（Phase 37 Plan 03，EVID-01）', () => {
+    renderPage();
+    const newRegion = within(screen.getByRole('region', { name: '新增' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(newRegion.getByRole('button', { name: '查看证据' }));
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(mockedUseEvidenceResolve).toHaveBeenCalledWith({
+      subjectType: 'external_fact',
+      stableId: 'ef_20260719_aaaa1111bbbb',
+      snapshotId: 'es_20260718_f6e5d4c3b2a1',
+      checksum: 'efc_20260719_aaaa1111bbbb',
+    });
   });
 });

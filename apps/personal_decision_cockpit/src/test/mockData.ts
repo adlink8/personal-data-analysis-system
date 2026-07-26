@@ -41,6 +41,7 @@ export const PERSONAL_STATE_ENVELOPE = {
             status: 'current',
             confidence: 0.9,
             current_assertion_id: 'pa_20260719_goal_career_01',
+            current_value_checksum: 'c'.repeat(64),
             evidence_count: 5,
           },
           {
@@ -49,6 +50,8 @@ export const PERSONAL_STATE_ENVELOPE = {
             status: 'stale',
             confidence: 'medium',
             current_assertion_id: 'pa_20260710_obs_career_02',
+            // 有意省略 current_value_checksum：验证缺失稳定引用三元组时不渲染"查看证据"（不构造伪 evidence）
+            current_value_checksum: null,
             evidence_count: 2,
           },
           {
@@ -57,6 +60,7 @@ export const PERSONAL_STATE_ENVELOPE = {
             status: 'conflict',
             confidence: null,
             current_assertion_id: 'pa_20260718_inf_career_03',
+            current_value_checksum: 'e'.repeat(64),
             evidence_count: 3,
           },
         ],

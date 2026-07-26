@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { ApiError } from '../../api/client';
+import type { EvidenceReferenceInput } from '../../api/hooks';
 import { useDecisionWorkspace } from '../../api/hooks';
 import type {
   DecisionWorkspaceEnvelope,
@@ -15,6 +16,7 @@ import {
   ConfirmationStateBadge,
   ExpiryText,
 } from '../../components/decision/stateBadges';
+import { EvidenceDrawer } from '../../components/evidence/EvidenceDrawer';
 import { StatePanel } from '../../components/feedback/StatePanel';
 import {
   IconAlertTriangle,
@@ -22,6 +24,7 @@ import {
   IconCheckCircle,
   IconChevronRight,
   IconInfo,
+  IconSearch,
   IconSparkles,
 } from '../../components/icons';
 import { fmtConfidence, fmtNumber, fmtTime } from '../../utils/format';
@@ -57,6 +60,25 @@ function deriveCaseId(recommendation: RecommendationDetail): string | null {
     if (typeof candidate === 'string' && candidate) return candidate;
   }
   return null;
+}
+
+/**
+ * 决策建议的稳定证据引用（Phase 37 Plan 03，EVID-01）：只用工作区已经持有的
+ * recommendation_id + recommendation_checksum + snapshot_id 组装（support/checksum
+ * 的全链证据读取交给服务端 evidence_resolve.get 内部复用 recommendations.get 的既有
+ * 校验，本页不新增、不绕过任何 guarded session/action/outcome/prepare/confirm/execute
+ * 流程）。三者任一缺失一律返回 null，不构造伪 evidence。
+ */
+function decisionEvidenceReference(recommendation: RecommendationDetail): EvidenceReferenceInput | null {
+  if (!recommendation.recommendation_id || !recommendation.recommendation_checksum || !recommendation.snapshot_id) {
+    return null;
+  }
+  return {
+    subjectType: 'decision',
+    stableId: recommendation.recommendation_id,
+    snapshotId: recommendation.snapshot_id,
+    checksum: recommendation.recommendation_checksum,
+  };
 }
 
 /* ---------------- 三栏 ---------------- */
@@ -372,6 +394,7 @@ function EffectivenessPanel({ effectiveness }: { effectiveness: TypedRecord[] })
 function WorkspaceBody({ envelope, recommendationId }: { envelope: DecisionWorkspaceEnvelope; recommendationId: string }) {
   const navigate = useNavigate();
   const [tab, setTab] = useState<TabKey>('history');
+  const [openEvidence, setOpenEvidence] = useState<{ reference: EvidenceReferenceInput; label: string } | null>(null);
   const { data } = envelope;
   const authorityError = errorAuthorities(envelope);
   const recommendation = data.recommendation;
@@ -392,6 +415,7 @@ function WorkspaceBody({ envelope, recommendationId }: { envelope: DecisionWorks
   }
 
   const caseId = deriveCaseId(recommendation);
+  const evidenceReference = decisionEvidenceReference(recommendation);
 
   return (
     <>
@@ -429,6 +453,21 @@ function WorkspaceBody({ envelope, recommendationId }: { envelope: DecisionWorks
             <IconChevronRight className="h-4 w-4" />
             记录行动/结果
           </button>
+          {evidenceReference ? (
+            <button
+              type="button"
+              onClick={() =>
+                setOpenEvidence({
+                  reference: evidenceReference,
+                  label: `${recommendation.domain ?? ''} · ${recommendation.recommendation_kind ?? '决策建议'}`,
+                })
+              }
+              className="inline-flex items-center gap-1.5 rounded-md border border-line bg-panel px-3 py-1.5 text-sm text-ink transition-colors hover:bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <IconSearch className="h-4 w-4" />
+              查看证据
+            </button>
+          ) : null}
           <p className="text-xs text-muted">
             决策确认写入 Pilot 权威案例；记录行动/结果需要编排会话与 case_id
             {caseId ? '（已从支撑证据预填）' : '（工作区投影未暴露，需手动输入，不臆造）'}。
@@ -483,6 +522,14 @@ function WorkspaceBody({ envelope, recommendationId }: { envelope: DecisionWorks
           ) : null}
         </div>
       </section>
+
+      {openEvidence ? (
+        <EvidenceDrawer
+          reference={openEvidence.reference}
+          subjectLabel={openEvidence.label}
+          onClose={() => setOpenEvidence(null)}
+        />
+      ) : null}
     </>
   );
 }

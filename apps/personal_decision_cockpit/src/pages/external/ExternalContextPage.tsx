@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import type { ApiError } from '../../api/client';
+import type { EvidenceReferenceInput } from '../../api/hooks';
 import { useExternalDelta } from '../../api/hooks';
 import type { ExternalDeltaData, ExternalDeltaEnvelope, ExternalFact, ExternalSource } from '../../api/schemas';
 import { LifecycleBadge } from '../../components/authority/ClaimLifecycleBadges';
 import { SnapshotChip, shortId } from '../../components/authority/SnapshotChip';
+import { EvidenceDrawer } from '../../components/evidence/EvidenceDrawer';
 import { FreshnessBadge } from '../../components/feedback/FreshnessBadge';
 import { StatePanel } from '../../components/feedback/StatePanel';
-import { IconAlertTriangle, IconArrowLeftRight, IconClock, IconInfo, IconRefresh } from '../../components/icons';
+import { IconAlertTriangle, IconArrowLeftRight, IconClock, IconInfo, IconRefresh, IconSearch } from '../../components/icons';
 import { fmtNumber, fmtTime } from '../../utils/format';
 
 /**
@@ -88,10 +90,30 @@ function missingRequiredFactFields(fact: ExternalFact): string[] {
   return missing;
 }
 
-function ExternalFactCard({ fact }: { fact: ExternalFact }) {
+/**
+ * External fact 的稳定证据引用（Phase 37 Plan 03，EVID-01）：只用卡片已经持有的
+ * fact_id + fact_checksum + 所属快照的 snapshot.snapshot_id 组装；三者任一缺失（如
+ * missingRequiredFactFields 已标注的 partial 事实）一律返回 null，不构造伪 evidence，
+ * 此时不渲染"查看证据"入口。
+ */
+function externalFactReference(fact: ExternalFact, snapshotId: string | null): EvidenceReferenceInput | null {
+  if (!fact.fact_id || !fact.fact_checksum || !snapshotId) return null;
+  return { subjectType: 'external_fact', stableId: fact.fact_id, snapshotId, checksum: fact.fact_checksum };
+}
+
+function ExternalFactCard({
+  fact,
+  snapshotId,
+  onOpenEvidence,
+}: {
+  fact: ExternalFact;
+  snapshotId: string | null;
+  onOpenEvidence: (reference: EvidenceReferenceInput, label: string) => void;
+}) {
   // valid_to 与 valid_at 两种命名都接受（后端并行开发，字段名可能微调）
   const validTo = fact.valid_to ?? pickString(fact, ['valid_at']);
   const missingRequired = missingRequiredFactFields(fact);
+  const evidenceReference = externalFactReference(fact, snapshotId);
   return (
     <li className="rounded-lg border border-line bg-surface p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -133,6 +155,16 @@ function ExternalFactCard({ fact }: { fact: ExternalFact }) {
           该事实资料不完整（缺少{missingRequired.join('、')}）：External 权威本次未完整提供，而非真实空值。
         </p>
       ) : null}
+      {evidenceReference ? (
+        <button
+          type="button"
+          onClick={() => onOpenEvidence(evidenceReference, `${fact.subject ?? ''} · ${fact.predicate ?? '事实'}`)}
+          className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary transition-colors hover:underline focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <IconSearch className="h-3.5 w-3.5" />
+          查看证据
+        </button>
+      ) : null}
     </li>
   );
 }
@@ -143,10 +175,14 @@ function DeltaGroupSection({
   meta,
   ids,
   factById,
+  snapshotId,
+  onOpenEvidence,
 }: {
   meta: DeltaGroupMeta;
   ids: string[];
   factById: Map<string, ExternalFact>;
+  snapshotId: string | null;
+  onOpenEvidence: (reference: EvidenceReferenceInput, label: string) => void;
 }) {
   const Icon = meta.Icon;
   return (
@@ -175,7 +211,7 @@ function DeltaGroupSection({
           {ids.map((id) => {
             const fact = factById.get(id);
             return fact ? (
-              <ExternalFactCard key={id} fact={fact} />
+              <ExternalFactCard key={id} fact={fact} snapshotId={snapshotId} onOpenEvidence={onOpenEvidence} />
             ) : (
               <li key={id} className="rounded-lg border border-line bg-surface p-3 text-sm text-muted">
                 事实 <span className="font-mono">{shortId(id)}</span>{' '}
@@ -289,6 +325,9 @@ function ExternalBody({
 
   const conflictCount = data.counts?.conflicts ?? 0;
   const isFiltering = region !== 'all' || factType !== 'all';
+  const snapshotId = data.snapshot?.snapshot_id ?? null;
+  const [openEvidence, setOpenEvidence] = useState<{ reference: EvidenceReferenceInput; label: string } | null>(null);
+  const openEvidenceDrawer = (reference: EvidenceReferenceInput, label: string) => setOpenEvidence({ reference, label });
 
   return (
     <>
@@ -397,18 +436,38 @@ function ExternalBody({
           ) : (
             <ul className="section-stack mt-3">
               {filteredFacts.map((fact, index) => (
-                <ExternalFactCard key={fact.fact_id ?? `fact-${index}`} fact={fact} />
+                <ExternalFactCard
+                  key={fact.fact_id ?? `fact-${index}`}
+                  fact={fact}
+                  snapshotId={snapshotId}
+                  onOpenEvidence={openEvidenceDrawer}
+                />
               ))}
             </ul>
           )}
         </section>
       ) : (
         DELTA_GROUPS.map((meta) => (
-          <DeltaGroupSection key={meta.key} meta={meta} ids={data.delta?.[meta.key] ?? []} factById={factById} />
+          <DeltaGroupSection
+            key={meta.key}
+            meta={meta}
+            ids={data.delta?.[meta.key] ?? []}
+            factById={factById}
+            snapshotId={snapshotId}
+            onOpenEvidence={openEvidenceDrawer}
+          />
         ))
       )}
 
       <SourcesCard sources={data.sources} />
+
+      {openEvidence ? (
+        <EvidenceDrawer
+          reference={openEvidence.reference}
+          subjectLabel={openEvidence.label}
+          onClose={() => setOpenEvidence(null)}
+        />
+      ) : null}
     </>
   );
 }

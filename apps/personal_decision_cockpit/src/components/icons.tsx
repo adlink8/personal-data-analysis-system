@@ -202,6 +202,15 @@ export function IconX({ className = DEFAULT_CLASS }: IconProps) {
   );
 }
 
+export function IconSearch({ className = DEFAULT_CLASS }: IconProps) {
+  return (
+    <svg className={className} {...strokeProps()}>
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
 export function IconListOrdered({ className = DEFAULT_CLASS }: IconProps) {
   return (
     <svg className={className} {...strokeProps()}>
