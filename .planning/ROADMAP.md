@@ -161,7 +161,7 @@
 | 39 | FDB-01, FDB-02, RUN-01 | 0/4 executed | Planned — future plans reviewed, not executed |
 | 40 | UX-01, UX-02, QA-01, QA-02 | 0/3 executed | Planned — future plans reviewed, not executed |
 | 41 | EXT-01, EXT-02, EXT-03 | 4/4 waves + closure | **Complete 2026-07-27** — assistant 轨全链闭合,active 40,200 向量,doctor OK（见 41-CLOSURE-CHECKLIST） |
-| 42 | DED-01, DED-02 | 0/0 executed | Ready — Phase 41 complete, context 就绪待 plan |
+| 42 | DED-01, DED-02 | 3/3 plans | Planned — 42-01:消化积压+builder改键(稳定键+supersede+16→18),42-02:ref迁移(old-DB字段判源+硬断言),42-03:doctor+双轨消化+幂等复核;checker 复检 PASSED 2026-07-27 |
 
 ## Requirement Coverage
 

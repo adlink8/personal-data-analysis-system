@@ -71,7 +71,7 @@ Last activity: 2026-07-27 -- Phase 37 independent verification passed (backend 1
 See: `.planning/PROJECT.md` (updated 2026-07-19)
 
 **Core value:** Local, evidence-bound and uncertainty-aware personal decision support.
-**Current focus:** Phase 37 — authority-aware-state-external-and-evidence
+**Current focus:** Phase 42 — conversation-dedup-with-stable-session-keys
 
 ## Cross-cutting architecture/data governance audit
 
