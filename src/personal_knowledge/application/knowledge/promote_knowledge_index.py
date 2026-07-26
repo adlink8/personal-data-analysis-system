@@ -129,6 +129,31 @@ def _snapshot_member_for_collection(
     return member, inspector
 
 
+# prepare_snapshot 会使用的 member 键；其余列（registry_id/lifecycle/created_at 等）
+# 若带入会原样进 manifest，故适配时丢弃。
+_MEMBER_KEEP_KEYS = (
+    "artifact_version_id",
+    "version",
+    "checksum",
+    "location_kind",
+    "location_ref",
+    "producer_run_id",
+    "evidence_version_id",
+    "watermark_id",
+)
+
+
+def _member_from_active_row(row: dict) -> dict:
+    """把 get_active_snapshot 的 member 行适配为 prepare_snapshot 的输入格式。
+
+    get_active_snapshot 返回 serving_snapshot_members JOIN artifact_versions 的行，
+    其中 metadata_json 是 JSON 字符串；prepare_snapshot 需要 metadata dict。
+    """
+    member = {k: row[k] for k in _MEMBER_KEEP_KEYS if row.get(k) is not None}
+    member["metadata"] = json.loads(str(row.get("metadata_json") or "{}"))
+    return member
+
+
 def _record_successful_knowledge_publication(
     db_path: Path, member: dict, collection: str
 ) -> list[dict]:
@@ -189,24 +214,57 @@ def promote(
     同时更新 knowledge_index_versions 表的 status 和 checksum。
     """
     from personal_knowledge.application.serving.snapshots import (
-        activate_snapshot, prepare_snapshot, validate_snapshot,
+        activate_snapshot, get_active_snapshot, prepare_snapshot, validate_snapshot,
     )
 
     previous = read_active()
     member, inspector = _snapshot_member_for_collection(
         collection, db_path, require_collection_validation=require_collection_validation
     )
+    members: dict[str, dict] = {"knowledge_retrieval": member}
+    active = get_active_snapshot(db_path)
+    if active:
+        base = {
+            str(role): _member_from_active_row(dict(row))
+            for role, row in (active.get("members") or {}).items()
+        }
+        if len(base) > 1:
+            # 活跃快照是多角色全量快照：以其 members 为底，只替换 knowledge_retrieval，
+            # 其余角色成员原样保留，避免 promote 后 doctor 报 missing_roles。
+            base["knowledge_retrieval"] = member
+            members = base
+    # 保留角色里的其他 chroma collection 来自已验证的活跃快照且未变动，按快照
+    # 记录值放行，避免与本次 promote 无关的 collection 可用性阻塞 promote。
+    kept_chroma = {
+        str(m.get("location_ref")): m
+        for role, m in members.items()
+        if role != "knowledge_retrieval" and m.get("location_kind") == "chroma_collection"
+    }
+
+    def _inspector(name: str) -> dict:
+        if name == collection:
+            return inspector(name)
+        kept = kept_chroma.get(name)
+        if kept is not None:
+            meta = kept.get("metadata") or {}
+            return {
+                "exists": True,
+                "checksum": str(kept.get("checksum") or ""),
+                "count": meta.get("unit_count", meta.get("count", -1)),
+            }
+        return {"exists": False}
+
     draft = prepare_snapshot(
         db_path,
-        {"knowledge_retrieval": member},
+        members,
         eval_gate_ref=eval_gate_ref or ("compat-direct" if not require_collection_validation else None),
         write=True,
     )
     validation = validate_snapshot(
         db_path,
         draft["snapshot_id"],
-        collection_inspector=inspector,
-        required_roles={"knowledge_retrieval"},
+        collection_inspector=_inspector,
+        required_roles=set(members),
         require_gate=require_collection_validation,
         gate_validator=(lambda _: True) if require_collection_validation and eval_gate_ref else None,
     )

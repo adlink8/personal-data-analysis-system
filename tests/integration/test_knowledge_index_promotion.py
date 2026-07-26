@@ -150,3 +150,113 @@ def test_promote_log_appended(tmp_path: Path) -> None:
     assert len(lines) == 3  # promote + promote + rollback
     actions = [json.loads(l)["action"] for l in lines]
     assert actions == ["promote", "promote", "rollback"]
+
+
+# === F-14：promote 保留活跃快照的其他角色 ===
+
+
+def _preset_active_snapshot(db: Path) -> dict:
+    """预置一个含 3 角色的活跃 serving snapshot。"""
+    from personal_knowledge.application.serving import snapshots as snap
+
+    members = {
+        "canonical_conversation": {
+            "version": "conv-v1",
+            "checksum": "c" * 64,
+            "location_kind": "sqlite_store",
+            "location_ref": "conv.sqlite",
+            "metadata": {"unit_count": 10},
+        },
+        "canonical_knowledge": {
+            "version": "ck-v1",
+            "checksum": "d" * 64,
+            "location_kind": "sqlite_table",
+            "location_ref": "canonical_knowledge_units",
+            "metadata": {"unit_count": 2},
+        },
+        "knowledge_retrieval": {
+            "version": "old-v",
+            "checksum": "e" * 64,
+            "location_kind": "chroma_collection",
+            "location_ref": "ku_old",
+            "metadata": {"unit_count": 1},
+        },
+    }
+    draft = snap.prepare_snapshot(db, members, write=True)
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "UPDATE serving_authority SET active_snapshot_id=? WHERE singleton_id=1",
+        (draft["snapshot_id"],),
+    )
+    con.commit()
+    con.close()
+    return draft
+
+
+def test_promote_preserves_other_roles_of_active_snapshot(tmp_path: Path) -> None:
+    """有多角色活跃快照时，promote 只替换 knowledge_retrieval，其余角色原样保留。"""
+    import personal_knowledge.domains.knowledge.promote_knowledge_index as pk
+    from personal_knowledge.application.serving import snapshots as snap
+
+    db = tmp_path / "db.sqlite"
+    _setup_db(db)
+    pk.DB_DIR = tmp_path
+    pk.ACTIVE_POINTER = tmp_path / "knowledge_index_active.txt"
+    pk.PROMOTE_LOG = tmp_path / "knowledge_index_promote_log.jsonl"
+
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "INSERT INTO knowledge_index_versions VALUES "
+        "('v2','run1','ku_new','run1',2,'candidate','2026-01-02',NULL,NULL)"
+    )
+    con.commit()
+    con.close()
+
+    preset = _preset_active_snapshot(db)
+    before = snap.get_active_snapshot(db)
+
+    result = pk.promote("ku_new", db_path=db)
+    assert result["promoted"] == "ku_new"
+
+    after = snap.get_active_snapshot(db)
+    assert after["snapshot_id"] != preset["snapshot_id"]
+    assert set(after["members"]) == {
+        "canonical_conversation",
+        "canonical_knowledge",
+        "knowledge_retrieval",
+    }
+    assert after["members"]["knowledge_retrieval"]["location_ref"] == "ku_new"
+    for role in ("canonical_conversation", "canonical_knowledge"):
+        for key in (
+            "artifact_version_id",
+            "version",
+            "checksum",
+            "location_kind",
+            "location_ref",
+            "watermark_id",
+        ):
+            assert after["members"][role][key] == before["members"][role][key], f"{role}.{key}"
+
+
+def test_promote_without_active_snapshot_stays_single_role(tmp_path: Path) -> None:
+    """无活跃快照（首次 promote）时维持单角色 fallback。"""
+    import personal_knowledge.domains.knowledge.promote_knowledge_index as pk
+    from personal_knowledge.application.serving import snapshots as snap
+
+    db = tmp_path / "db.sqlite"
+    _setup_db(db)
+    pk.DB_DIR = tmp_path
+    pk.ACTIVE_POINTER = tmp_path / "knowledge_index_active.txt"
+    pk.PROMOTE_LOG = tmp_path / "knowledge_index_promote_log.jsonl"
+
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "INSERT INTO knowledge_index_versions VALUES "
+        "('v1','run1','ku_test','run1',2,'candidate','2026-01-01',NULL,NULL)"
+    )
+    con.commit()
+    con.close()
+
+    pk.promote("ku_test", db_path=db)
+    active = snap.get_active_snapshot(db)
+    assert set(active["members"]) == {"knowledge_retrieval"}
