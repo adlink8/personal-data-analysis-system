@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Decision Cockpit UI
-status: executing
-last_updated: "2026-07-22T15:52:54.458Z"
-last_activity: 2026-07-22 -- Phase 36 planning complete
+status: Planned — existing Cockpit/Projection WIP audited, not yet secured or accepted
+last_updated: "2026-07-26T03:25:17.995Z"
+last_activity: 2026-07-22 -- v1.4 implementation/plan reconciliation complete
 progress:
-  total_phases: 5
+  total_phases: 7
   completed_phases: 0
   total_plans: 17
   completed_plans: 0
@@ -25,8 +25,8 @@ progress:
 |-------|----------------|
 | Dialogue SSOT | `data/canonical/agent/structured/db/agent_conversations.sqlite` |
 | Knowledge SSOT | `canonical_knowledge_units` + **active** Chroma collection |
-| Active KU (live) | **`knowledge_units_ir_4cd8af4ad_20260718054940`** — 32,181 vectors, exact collection checksum verified |
-| Active serving snapshot | **`ss_5d816a6bf3ebd0bce9463236`** — 10/10 typed roles, Doctor critical_fail=0 |
+| Active KU (live) | **`knowledge_units_salvage_v1_b_20260726021631`** — 32,382 vectors, canary strict PASS 2026-07-26（前代 `knowledge_units_ir_4cd8af4ad_20260718054940` 可回滚） |
+| Active serving snapshot | **`ss_e2fe859c6896e05bf124a70d`** — 10/10 typed roles, Doctor critical_fail=0 |
 | Watermark | matches current source checksum |
 | Product CLI | `pk-sync`, `pk-ku` (inspect…promote, watermark, **reconcile**, **history**, **doctor**) |
 
