@@ -30,6 +30,9 @@ GET  /ui/decision/workspace Cockpit 决策工作区投影(?recommendation_id=<id
 GET  /ui/actions/recent     Cockpit 近期行动投影(最近推荐的全链六阶段时间线)
 GET  /ui/proactive/summary  Cockpit 主动情报摘要(inbox 分组 + 噪声指标)
 GET  /ui/calibration/overview Cockpit 校准总览(逐 protocol verdict 摘要)
+GET  /ui/evidence/resolve  Cockpit 只读证据解析(?subject_type=personal_state|external_fact|decision
+                            &stable_id=&snapshot_id=&checksum=,personal_state 另需
+                            assertion_kind/subject/domain/scope/predicate)
 GET  /app[/<path>]          Cockpit 前端静态托管(apps/personal_decision_cockpit/dist,SPA fallback)
 
 GET  接口也可改用 POST(方便前端统一处理),参数走 query string。
@@ -607,11 +610,26 @@ class Handler(BaseHTTPRequestHandler):
                 "/ui/actions/recent": "actions_recent.get",
                 "/ui/proactive/summary": "proactive_summary.get",
                 "/ui/calibration/overview": "calibration_overview.get",
+                "/ui/evidence/resolve": "evidence_resolve.get",
             }
             if path in ui_routes:
                 params = {}
                 if path == "/ui/decision/workspace":
                     params = {"recommendation_id": qs.get("recommendation_id")}
+                elif path == "/ui/evidence/resolve":
+                    # 只读证据解析(Phase 37:EVID-01);GET-only,无对应 POST 路由,
+                    # 参数原样透传给 evidence_resolve.get 做结构校验,不在此层猜测/补全
+                    params = {
+                        "subject_type": qs.get("subject_type"),
+                        "stable_id": qs.get("stable_id"),
+                        "snapshot_id": qs.get("snapshot_id"),
+                        "checksum": qs.get("checksum"),
+                        "assertion_kind": qs.get("assertion_kind"),
+                        "subject": qs.get("subject"),
+                        "domain": qs.get("domain"),
+                        "scope": qs.get("scope"),
+                        "predicate": qs.get("predicate"),
+                    }
                 data = ui_rest_contract(ui_routes[path], params)
                 self._send(_contract(data), 200 if data.get("ok") else 400)
                 return
