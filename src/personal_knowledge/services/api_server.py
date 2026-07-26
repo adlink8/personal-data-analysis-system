@@ -223,6 +223,8 @@ _SAFE_ERRORS: dict[str, str] = {
     "cockpit_not_built": "前端未构建,请先执行 npm run build",
     "origin_not_allowed": "跨源请求已拒绝",
     "internal_error": "服务器内部错误",
+    # 999.5 评审台页面装配失败(私有评审素材路径/异常详情只留本地 stderr)
+    "review_console_error": "评审台页面装配失败",
 }
 
 
@@ -458,6 +460,29 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/stats":
                 self._send(_ok(backend.stats()))
+                return
+
+            # 999.5 单人评审台(gold 三键核对 + judge 校准打分),localhost only。
+            # 页面数据服务端即时装配自 private_evals,不进任何 authority 面。
+            if path == "/ui/review":
+                from personal_knowledge.services.eval_review import build_review_page
+                try:
+                    page = build_review_page().encode("utf-8")
+                except Exception:
+                    # 页面装配触及私有评审素材;异常详情只留本地 stderr,
+                    # 公开响应固定安全 code/message,不回显路径/traceback
+                    traceback.print_exc()
+                    b, c = _safe_error("review_console_error", 500)
+                    self._send(b, c)
+                    return
+                # 页面含私有评审数据:禁止任何浏览器/中间缓存(no-store)。
+                # _send 不支持附加 header,这里手动下发,避免改动共享方法。
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(page)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(page)
                 return
 
             intelligence_routes = {
@@ -820,6 +845,15 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(body, code)
                     return
 
+            # 999.5 评审 labels 与 session 写路由同规则(D-36-03):
+            # Origin gate 先于 body 解析,不匹配 Origin 时零解析、零写入。
+            if path == "/ui/review/labels":
+                decision = self._origin_policy_for_request()
+                if not decision["allowed"]:
+                    body, code = _safe_error("origin_not_allowed", 403)
+                    self._send(body, code)
+                    return
+
             body = self._read_body()
 
             if path in SESSION_WRITE_ROUTES:
@@ -836,6 +870,17 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     data = orchestration_rest_contract(operation, body)
                 self._send(_contract(data), 200 if data.get("ok") else 400)
+                return
+
+            # 999.5 评审 labels 保存:只写 private_evals 下带时间戳的新文件,
+            # 不触碰 SSOT/eval registry;非法判定值直接 400。
+            if path == "/ui/review/labels":
+                from personal_knowledge.services.eval_review import save_review_labels
+                try:
+                    self._send(_ok(save_review_labels(body)))
+                except ValueError as exc:
+                    b, c = _err(str(exc), 400)
+                    self._send(b, c)
                 return
 
             if path == "/search/semantic":
