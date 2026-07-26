@@ -193,6 +193,44 @@ def evaluate_raw_baseline() -> EvalMetrics:
     return metrics
 
 
+def _load_cu_ref_index(db_path: Path | None = None) -> dict[str, set[str]]:
+    """预载 canonical unit → 证据 ref 并集索引（candidate 模式 Recall 判定用）。
+
+    证据模型多对多化的对齐修正：salvage 迁移修复证据链后，一个 knowledge unit
+    合法持有多个 evidence ref（knowledge_unit_evidence 通过 INSERT OR IGNORE
+    同时保留原锚点 ref 与 quote 所在 ref）。评估时不能只依赖 Chroma metadata
+    里的单个 source_message_ref，需把 cu 下所有 member unit 的
+    source_message_ref + knowledge_unit_evidence 全部并入候选 ref 集，
+    gold 命中任一即算 found。只放宽命中判定口径，不改变阈值与历史 verdict。
+
+    一次性全量读入内存建 dict（~7 万行级），避免 per-query 查库。
+    """
+    index: dict[str, set[str]] = {}
+    path = db_path or UNIFIED_DB
+    if not path.exists():
+        return index
+    try:
+        con = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if {"canonical_unit_members", "knowledge_units", "knowledge_unit_evidence"} <= tables:
+            rows = con.execute(
+                "SELECT m.canonical_unit_id, u.source_message_ref, e.evidence_ref "
+                "FROM canonical_unit_members m "
+                "LEFT JOIN knowledge_units u ON u.unit_id = m.member_unit_id "
+                "LEFT JOIN knowledge_unit_evidence e ON e.unit_id = m.member_unit_id"
+            )
+            for cu_id, src_ref, ev_ref in rows:
+                refs = index.setdefault(cu_id, set())
+                if src_ref:
+                    refs.add(src_ref)
+                if ev_ref:
+                    refs.add(ev_ref)
+        con.close()
+    except sqlite3.Error:
+        return {}
+    return index
+
+
 def _match_found(
     ids: list[str],
     documents: list[str],
@@ -422,6 +460,10 @@ def evaluate_candidate(candidate_collection: str = "") -> EvalMetrics:
         metrics.per_query = [{"error": "no frozen test queries"}]
         return metrics
 
+    # 证据模型多对多化的对齐修正：预载 cu → 证据 ref 并集索引（见 _load_cu_ref_index），
+    # 补充 id 直配 / metadata ref 之外的命中路径，不改变阈值与历史 verdict。
+    cu_ref_index = _load_cu_ref_index()
+
     latencies: list[float] = []
     hits = 0
     mrr_sum = 0.0
@@ -455,6 +497,12 @@ def evaluate_candidate(candidate_collection: str = "") -> EvalMetrics:
                 if src_ref and src_ref in gold_refs:
                     found_rank = rank
                     break
+            # 证据并集匹配：cu 下 member units 的 source_message_ref +
+            # knowledge_unit_evidence 的全部 evidence_ref，gold 命中任一即算 found
+            cu_refs = cu_ref_index.get(rid)
+            if cu_refs and not cu_refs.isdisjoint(gold_refs):
+                found_rank = rank
+                break
 
         if found_rank:
             hits += 1
