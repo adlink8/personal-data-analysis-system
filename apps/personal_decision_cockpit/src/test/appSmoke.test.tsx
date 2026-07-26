@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { appRoutes } from '../app/router';
 import { AppProviders } from '../app/providers';
@@ -150,5 +150,144 @@ describe('全路由渲染冒烟（appSmoke）', () => {
     logSpy.mockRestore();
     errorSpy.mockRestore();
     warnSpy.mockRestore();
+  });
+});
+
+/**
+ * Now Stack 真实 confirmation_state / importance.final_score 词汇回归（D-36-05）：
+ * 修正前 OverviewPage 用旧假设 `confirmation_state === 'confirmed'` 与
+ * `importance.score >= 0.7` 派生"现在最重要"，而权威真实词汇是
+ * {proposed, accepted, rejected, deferred, revoked} 与 `importance.final_score`
+ * （见 ui_projection.py `_KNOWN_CONFIRMATION_STATES` / `_proactive_inbox_section`）。
+ * 这里只验证页面展示，不调用任何 ranking/lifecycle/confirmation 写接口。
+ */
+describe('OverviewPage：Now Stack 使用真实 confirmation_state 与 importance.final_score', () => {
+  beforeEach(() => {
+    hooksState = defaultHooksState();
+  });
+
+  /** Now Stack 与 ProactiveCard/DecisionQueueCard 会重复展示同一候选/决策，必须限定在"现在最重要"卡片内断言。 */
+  function nowStackSection(): HTMLElement {
+    return screen.getByRole('heading', { level: 2, name: '现在最重要' }).closest('section') as HTMLElement;
+  }
+
+  function overviewWith(decisionItems: unknown[], proactiveItems: unknown[]) {
+    return {
+      ...OVERVIEW_ENVELOPE,
+      data: {
+        ...OVERVIEW_ENVELOPE.data,
+        decision: { total_available: decisionItems.length, queue: {}, items: decisionItems },
+        proactive: { total_available: proactiveItems.length, items: proactiveItems },
+      },
+    };
+  }
+
+  it('proposed/accepted 决策项进入 Now Stack；rejected 被排除', () => {
+    const decisionItems = [
+      {
+        recommendation_id: 'rec_proposed_now',
+        domain: 'career',
+        recommendation_kind: 'time_allocation',
+        horizon: '8w',
+        confidence: 0.6,
+        confirmation_state: 'proposed',
+        action_state: null,
+        expires_at: '2026-08-01T00:00:00Z',
+      },
+      {
+        recommendation_id: 'rec_accepted_now',
+        domain: 'project',
+        recommendation_kind: 'scope_control',
+        horizon: '2w',
+        confidence: 0.9,
+        confirmation_state: 'accepted',
+        action_state: 'started',
+        expires_at: '2026-08-05T00:00:00Z',
+      },
+      {
+        recommendation_id: 'rec_rejected_hidden',
+        domain: 'learning',
+        recommendation_kind: 'habit_change',
+        horizon: '12w',
+        confidence: 0.4,
+        confirmation_state: 'rejected',
+        action_state: 'not_taken',
+        expires_at: '2026-06-01T00:00:00Z',
+      },
+    ];
+    hooksState = { ...defaultHooksState(), overview: queryOk(overviewWith(decisionItems, [])) };
+    renderRoute('/');
+    const nowStack = within(nowStackSection());
+    // 已接受语义正确展示（不是"待确认”话术，直接透出真实状态值）
+    expect(nowStack.getByText((text) => text.includes('确认状态：proposed'))).toBeInTheDocument();
+    expect(nowStack.getByText((text) => text.includes('确认状态：accepted'))).toBeInTheDocument();
+    expect(nowStack.queryByText((text) => text.includes('确认状态：rejected'))).not.toBeInTheDocument();
+  });
+
+  it('deferred/revoked 决策项不出现在 Now Stack（结案不等于待确认）', () => {
+    const decisionItems = [
+      {
+        recommendation_id: 'rec_deferred_hidden',
+        domain: 'finance',
+        recommendation_kind: 'budget_shift',
+        horizon: '4w',
+        confidence: 0.5,
+        confirmation_state: 'deferred',
+        action_state: null,
+        expires_at: '2026-07-01T00:00:00Z',
+      },
+      {
+        recommendation_id: 'rec_revoked_hidden',
+        domain: 'health',
+        recommendation_kind: 'routine_change',
+        horizon: '2w',
+        confidence: 0.3,
+        confirmation_state: 'revoked',
+        action_state: null,
+        expires_at: '2026-06-15T00:00:00Z',
+      },
+    ];
+    hooksState = { ...defaultHooksState(), overview: queryOk(overviewWith(decisionItems, [])) };
+    renderRoute('/');
+    const nowStack = within(nowStackSection());
+    expect(nowStack.queryByText((text) => text.includes('确认状态：deferred'))).not.toBeInTheDocument();
+    expect(nowStack.queryByText((text) => text.includes('确认状态：revoked'))).not.toBeInTheDocument();
+    // 无未结案决策、无高重要主动提醒 → 空态提示，而非白屏或误判为待处理
+    expect(nowStack.getByText('暂无需要立即关注的事项')).toBeInTheDocument();
+  });
+
+  it('只有 importance.final_score >= 阈值才进入 Now Stack；缺失/低于阈值/旧 score 字段一律不算', () => {
+    const proactiveItems = [
+      {
+        candidate_id: 'cand_h1',
+        domains: ['career'],
+        importance: { final_score: 0.8, score: 0.1 }, // final_score 高但旧 score 字段低：必须读 final_score
+        candidate_class: 'opportunity',
+        expires_at: '2026-08-01T00:00:00Z',
+        reason_codes: ['marker_final_score_high'],
+      },
+      {
+        candidate_id: 'cand_l1',
+        domains: ['learning'],
+        importance: { score: 0.99, level: 'high' }, // 只有旧字段，没有 final_score：不应被当作高重要
+        candidate_class: 'opportunity',
+        expires_at: '2026-08-01T00:00:00Z',
+        reason_codes: ['marker_legacy_field_only'],
+      },
+      {
+        candidate_id: 'cand_b1',
+        domains: ['project'],
+        importance: { final_score: 0.2 },
+        candidate_class: 'maintenance',
+        expires_at: '2026-08-01T00:00:00Z',
+        reason_codes: ['marker_below_threshold'],
+      },
+    ];
+    hooksState = { ...defaultHooksState(), overview: queryOk(overviewWith([], proactiveItems)) };
+    renderRoute('/');
+    const nowStack = within(nowStackSection());
+    expect(nowStack.getByText((text) => text.includes('marker_final_score_high'))).toBeInTheDocument();
+    expect(nowStack.queryByText((text) => text.includes('marker_legacy_field_only'))).not.toBeInTheDocument();
+    expect(nowStack.queryByText((text) => text.includes('marker_below_threshold'))).not.toBeInTheDocument();
   });
 });

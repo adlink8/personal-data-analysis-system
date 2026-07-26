@@ -74,6 +74,32 @@ describe('版本/operation 篡改回归（九个 fixture 全覆盖）', () => {
   }
 });
 
+/**
+ * D-36-05 回归：OverviewPage 的 Now Stack 派生（真实 confirmation_state 词表 +
+ * importance.final_score）依赖的字段必须真实存在于后端捕获的 overview.get fixture 里，
+ * 而不是页面代码单方面假设的旧字段（confirmed / importance.score）。
+ */
+describe('overview fixture 携带 OverviewPage Now Stack 依赖的真实字段', () => {
+  it('decision.items[].confirmation_state 属于已发布词表，且不是旧的 confirmed', () => {
+    const parsed = OverviewEnvelopeSchema.parse(overview);
+    const knownStates = new Set(['proposed', 'accepted', 'rejected', 'deferred', 'revoked']);
+    for (const item of parsed.data.decision?.items ?? []) {
+      expect(item.confirmation_state).not.toBe('confirmed');
+      if (item.confirmation_state) {
+        expect(knownStates.has(item.confirmation_state)).toBe(true);
+      }
+    }
+  });
+
+  it('proactive.items[].importance 暴露 final_score（数值），不是旧的 score/level', () => {
+    const parsed = OverviewEnvelopeSchema.parse(overview);
+    for (const item of parsed.data.proactive?.items ?? []) {
+      const finalScore = item.importance['final_score'];
+      expect(typeof finalScore).toBe('number');
+    }
+  });
+});
+
 /** 端点 schema 互斥：某端点真实 fixture 不能被另一个端点的 schema 接受。 */
 describe('跨端点 payload 互斥', () => {
   it('decision-queue fixture 不能被 personal_state.get schema 接受', () => {

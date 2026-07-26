@@ -24,19 +24,33 @@ interface NowItem {
   confidence: number | string | null;
 }
 
-/** 主动提醒 importance 为开放结构：level/importance=high 或 score>=0.7 视为高重要 */
+/**
+ * 决策 confirmation_state 真实词表（D-36-05，见 ui_projection.py `_KNOWN_CONFIRMATION_STATES`
+ * 与 `_classify_stage` 规则 1）：rejected/deferred/revoked 已结案，不再需要"现在关注"；
+ * proposed/accepted 仍是当前有效状态，继续展示（accepted 显示为"已接受"语义，不是待确认）。
+ * 词表外的未知值保守按"需要关注"处理，与后端 needs_attention 兜底一致，不臆造新状态。
+ */
+const CLOSED_CONFIRMATION_STATES = new Set(['rejected', 'deferred', 'revoked']);
+
+/**
+ * 主动提醒重要性判定：只读服务端权威字段 `importance.final_score`
+ * （ui_projection.py `_proactive_inbox_section`），与后端 now/deferrable 分组
+ * 使用的同一 ranking policy 阈值（DEFAULT_RANKING_POLICY.threshold = 0.55）对齐。
+ * 缺失或非数值时保守判定为非高重要（与后端"unscored → deferrable"一致），
+ * 不臆造新的重要性判定字段或权威。
+ */
+const PROACTIVE_IMPORTANCE_THRESHOLD = 0.55;
+
 function isHighImportance(importance: Record<string, unknown>): boolean {
-  const level = importance['importance'] ?? importance['level'];
-  if (typeof level === 'string') return level === 'high' || level === '高';
-  const score = importance['score'];
-  return typeof score === 'number' && score >= 0.7;
+  const finalScore = importance['final_score'];
+  return typeof finalScore === 'number' && finalScore >= PROACTIVE_IMPORTANCE_THRESHOLD;
 }
 
-/** 从决策未确认项 + 主动提醒高重要项派生 Now Stack，最多 3 项 */
+/** 从未结案的决策项 + 主动提醒高重要项派生 Now Stack，最多 3 项 */
 function buildNowStack(data: OverviewData): NowItem[] {
   const items: NowItem[] = [];
   for (const it of data.decision?.items ?? []) {
-    if ((it.confirmation_state ?? '') === 'confirmed') continue;
+    if (CLOSED_CONFIRMATION_STATES.has(it.confirmation_state ?? '')) continue;
     items.push({
       authority: 'analysis',
       id: it.recommendation_id ?? '（无 ID）',
@@ -72,7 +86,7 @@ function NowStackCard({ data }: { data: OverviewData }) {
       <h2 id="now-stack-title" className="font-semibold">
         现在最重要
       </h2>
-      <p className="mt-0.5 text-sm text-muted">最多三项：未确认决策与高重要主动提醒</p>
+      <p className="mt-0.5 text-sm text-muted">最多三项：未结案决策与高重要主动提醒</p>
       <div className="mt-3">
         {unavailable.length === 2 ? (
           <StatePanel
