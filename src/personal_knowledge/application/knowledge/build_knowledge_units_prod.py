@@ -30,6 +30,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sqlite3
 import sys
@@ -568,6 +569,59 @@ def _evidence_supported(quote: str, source: str) -> bool:
     return False
 
 
+_INVALID_JSON_ESCAPE = re.compile(r'\\(?!["\\/bfnrtu])')
+
+
+def _tolerant_parse(track, raw_text: str):
+    """schema 抢救解析:严格校验失败后的第二次机会,不改变严格路径语义。
+
+    ① json.loads 失败 → 修复非法反斜杠转义(Windows 路径等)后重试;
+    ② 整体 Pydantic 失败 → 逐 unit 校验:剥掉 unit 内 extra 字段,
+       坏 unit 丢弃(计数),好 unit 保留;
+    ③ 一个合法 unit 都没有且非 abstain → (None, 0),维持 schema_invalid。
+
+    返回 (result | None, dropped_unit_count)。抢救出的 unit 仍走下游
+    evidence gate(_evidence_supported),不降低证据标准。
+    """
+    cleaned = _clean_json(raw_text)
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        try:
+            parsed = json.loads(_INVALID_JSON_ESCAPE.sub(r"\\\\", cleaned))
+        except json.JSONDecodeError:
+            return None, 0
+    if not isinstance(parsed, dict):
+        return None, 0
+    try:
+        return track.result_model.model_validate(parsed), 0
+    except ValidationError:
+        pass
+    unit_model = track.result_model.model_fields["units"].annotation.__args__[0]
+    unit_fields = set(unit_model.model_fields)
+    valid_units, dropped = [], 0
+    raw_units = parsed.get("units")
+    for u in raw_units if isinstance(raw_units, list) else []:
+        if not isinstance(u, dict):
+            dropped += 1
+            continue
+        try:
+            valid_units.append(unit_model.model_validate(
+                {k: v for k, v in u.items() if k in unit_fields}
+            ))
+        except ValidationError:
+            dropped += 1
+    abstain = bool(parsed.get("abstain"))
+    if not valid_units and not abstain:
+        return None, dropped
+    result = track.result_model(
+        units=valid_units,
+        abstain=abstain and not valid_units,
+        abstain_reason=str(parsed.get("abstain_reason") or "")[:500],
+    )
+    return result, dropped
+
+
 def _load_preceding_user_context(
     canon_con: sqlite3.Connection,
     session_id: str | None,
@@ -652,14 +706,21 @@ def _commit_item_result(
         parsed = json.loads(_clean_json(raw_text))
         result = track.result_model.model_validate(parsed)
     except (json.JSONDecodeError, ValidationError):
-        con.execute(
-            "UPDATE knowledge_run_items SET status='terminal_failed', "
-            "last_error_class='schema_invalid', cache_key=?, updated_at=? WHERE id=?",
-            (cache_key, now, row_id),
-        )
-        con.commit()
-        stats["failed"] += 1
-        return
+        # schema 抢救(2026-07-26 实测:schema_invalid 的主因是 ① 多 unit 响应中
+        # 第 2 个起缺 question / 带 extra 字段(全有全无校验连坐好 unit),
+        # ② Windows 路径反斜杠产生非法 JSON 转义。逐 unit 抢救,救不回才判死。
+        result, dropped = _tolerant_parse(track, raw_text)
+        if result is None:
+            con.execute(
+                "UPDATE knowledge_run_items SET status='terminal_failed', "
+                "last_error_class='schema_invalid', cache_key=?, updated_at=? WHERE id=?",
+                (cache_key, now, row_id),
+            )
+            con.commit()
+            stats["failed"] += 1
+            return
+        stats["schema_salvaged"] = stats.get("schema_salvaged", 0) + 1
+        stats["units_dropped_schema"] = stats.get("units_dropped_schema", 0) + dropped
 
     # D-03（仅 assistant 轨）：确认信号只做 confidence 修饰，不做硬 gate。
     confirmation_signal = "none"
