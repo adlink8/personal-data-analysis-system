@@ -2,10 +2,15 @@ import type { ApiError } from '../../api/client';
 import { useOverview } from '../../api/hooks';
 import type { OverviewData, OverviewEnvelope } from '../../api/schemas';
 import { AuthorityBadge } from '../../components/authority/AuthorityBadge';
+import {
+  CLOSED_CONFIRMATION_STATES,
+  ConfirmationStateBadge,
+  LifecycleBadge,
+} from '../../components/authority/ClaimLifecycleBadges';
 import { shortId } from '../../components/authority/SnapshotChip';
 import { FreshnessBadge } from '../../components/feedback/FreshnessBadge';
 import { StatePanel } from '../../components/feedback/StatePanel';
-import { IconAlertTriangle } from '../../components/icons';
+import { IconAlertTriangle, IconClock } from '../../components/icons';
 import { fmtConfidence, fmtNumber, fmtTime } from '../../utils/format';
 
 /**
@@ -22,6 +27,10 @@ interface NowItem {
   title: string;
   detail: string;
   confidence: number | string | null;
+  /** 仅决策项有：claim kind 为 Recommendation + Confirmation 状态两条独立轴（spec §7.2） */
+  confirmationState?: string | null;
+  /** 仅决策项有：到期/时间窗信息，单独渲染为琥珀色时间徽标（spec §7.2 Forecast 视觉规则） */
+  expiresAt?: string | null;
 }
 
 /**
@@ -29,8 +38,9 @@ interface NowItem {
  * 与 `_classify_stage` 规则 1）：rejected/deferred/revoked 已结案，不再需要"现在关注"；
  * proposed/accepted 仍是当前有效状态，继续展示（accepted 显示为"已接受"语义，不是待确认）。
  * 词表外的未知值保守按"需要关注"处理，与后端 needs_attention 兜底一致，不臆造新状态。
+ * `CLOSED_CONFIRMATION_STATES` 现由 components/authority/ClaimLifecycleBadges 统一维护
+ * （Phase 37 Plan 02），避免同一份权威闭集在多处重复定义。
  */
-const CLOSED_CONFIRMATION_STATES = new Set(['rejected', 'deferred', 'revoked']);
 
 /**
  * 主动提醒重要性判定：只读服务端权威字段 `importance.final_score`
@@ -59,6 +69,8 @@ function buildNowStack(data: OverviewData): NowItem[] {
         .filter(Boolean)
         .join(' · '),
       confidence: it.confidence ?? null,
+      confirmationState: it.confirmation_state,
+      expiresAt: it.expires_at,
     });
   }
   for (const c of data.proactive?.items ?? []) {
@@ -137,6 +149,15 @@ function NowStackBody({ data, unavailable }: { data: OverviewData; unavailable: 
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{item.title}</span>
                   <AuthorityBadge authority={item.authority} />
+                  {item.confirmationState !== undefined ? (
+                    <ConfirmationStateBadge state={item.confirmationState} />
+                  ) : null}
+                  {item.expiresAt ? (
+                    <span className="badge border-line bg-panel text-uncertainty">
+                      <IconClock className="h-3.5 w-3.5" />
+                      到期 {fmtTime(item.expiresAt)}
+                    </span>
+                  ) : null}
                 </div>
                 <p className="mt-1 break-words text-sm text-muted">
                   <span className="font-mono">{shortId(item.id)}</span>
@@ -211,8 +232,9 @@ function ChangesCard({ personal }: { personal: OverviewData['personal'] }) {
       ) : (
         <ul className="mt-3 flex flex-wrap gap-2">
           {entries.map(([status, count]) => (
-            <li key={status} className="badge border-line bg-surface text-ink">
-              {status} <span className="text-muted">{fmtNumber(count)}</span>
+            <li key={status} className="flex items-center gap-1.5">
+              <LifecycleBadge status={status} />
+              <span className="text-sm text-muted">{fmtNumber(count)}</span>
             </li>
           ))}
         </ul>
@@ -243,8 +265,9 @@ function DecisionQueueCard({ decision }: { decision: OverviewData['decision'] })
       {queueEntries.length > 0 ? (
         <ul className="mt-3 flex flex-wrap gap-2">
           {queueEntries.map(([state, count]) => (
-            <li key={state} className="badge border-line bg-surface text-ink">
-              {state} <span className="text-muted">{fmtNumber(count)}</span>
+            <li key={state} className="flex items-center gap-1.5">
+              <ConfirmationStateBadge state={state} />
+              <span className="text-sm text-muted">{fmtNumber(count)}</span>
             </li>
           ))}
         </ul>
@@ -266,6 +289,7 @@ function DecisionQueueCard({ decision }: { decision: OverviewData['decision'] })
                 {item.recommendation_kind ? (
                   <span className="badge border-line bg-panel text-muted">{item.recommendation_kind}</span>
                 ) : null}
+                <ConfirmationStateBadge state={item.confirmation_state} />
               </div>
               <p className="mt-1.5 text-sm text-muted">
                 时间窗 {item.horizon ?? '—'} · 置信度 {fmtConfidence(item.confidence)} · 确认状态{' '}
@@ -401,9 +425,11 @@ export function OverviewPage() {
 
   if (query.isError) {
     const err = query.error as ApiError;
+    // network_error = 整个同源 API 不可达；与其余错误（http_*/invalid_json/schema_mismatch）
+    // 区分为独立的 offline 态（D-37-03），而非笼统归为一种"加载失败"。
     return (
       <StatePanel
-        variant="error"
+        variant={err.code === 'network_error' ? 'offline' : 'error'}
         title="今日总览加载失败"
         errorMessage={err.message}
         onRetry={() => void query.refetch()}

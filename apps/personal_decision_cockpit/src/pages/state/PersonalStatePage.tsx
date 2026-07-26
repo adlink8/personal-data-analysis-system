@@ -8,22 +8,25 @@ import type {
   PersonalStateEnvelope,
   RecentChange,
 } from '../../api/schemas';
+import {
+  ClaimKindBadge,
+  LIFECYCLE_ORDER,
+  LifecycleBadge,
+  PERSONAL_CLAIM_ORDER,
+  claimKindMeta,
+  isHistoricalLifecycle,
+  lifecycleMeta,
+} from '../../components/authority/ClaimLifecycleBadges';
 import { SnapshotChip } from '../../components/authority/SnapshotChip';
 import { FreshnessBadge } from '../../components/feedback/FreshnessBadge';
 import { StatePanel } from '../../components/feedback/StatePanel';
 import {
   IconAlertTriangle,
-  IconArchive,
   IconArrowLeft,
   IconArrowLeftRight,
-  IconCheckCircle,
   IconChevronRight,
-  IconClock,
-  IconEye,
-  IconInfo,
   IconLock,
   IconShield,
-  IconSparkles,
 } from '../../components/icons';
 import { fmtConfidence, fmtNumber, fmtTime } from '../../utils/format';
 
@@ -32,11 +35,11 @@ import { fmtConfidence, fmtNumber, fmtTime } from '../../utils/format';
  * 视觉规则：Fact=实线边框+"事实"标签，Observation=蓝灰标签，Inference=紫色虚线边框+"推断"，
  * Conflict=红色双向冲突标识，stale/resolved/expired=降透明度+文字标注；
  * 颜色一律配文字 + 图标（spec §9.2）。断言值只有 checksum，页面只展示元数据。
+ * claim kind / record lifecycle 两条轴的语义映射由 components/authority/ClaimLifecycleBadges
+ * 统一维护（Phase 37 Plan 02 Task 1），本页只做八领域布局与领域详情组织。
  */
 
-type IconComponent = typeof IconInfo;
-
-/* ---------------- 领域与状态元数据 ---------------- */
+/* ---------------- 领域元数据 ---------------- */
 
 interface DomainMeta {
   key: string;
@@ -63,27 +66,6 @@ const KIND_LABELS = [
   { key: 'state', label: '状态' },
 ] as const;
 
-const CLAIM_META: Record<string, { label: string; badgeClass: string; Icon: IconComponent }> = {
-  fact: { label: '事实', badgeClass: 'border-line bg-panel text-ink', Icon: IconCheckCircle },
-  observation: { label: '观察', badgeClass: 'border-line bg-surface text-muted', Icon: IconEye },
-  inference: { label: '推断', badgeClass: 'border-candidate bg-candidate-soft text-candidate', Icon: IconSparkles },
-};
-
-const CLAIM_ORDER: readonly string[] = ['fact', 'observation', 'inference'];
-
-const STATUS_META: Record<string, { label: string; textClass: string; Icon: IconComponent }> = {
-  current: { label: '当前', textClass: 'text-verified', Icon: IconCheckCircle },
-  stale: { label: '偏旧', textClass: 'text-uncertainty', Icon: IconClock },
-  conflict: { label: '冲突', textClass: 'text-risk', Icon: IconArrowLeftRight },
-  resolved: { label: '已解决', textClass: 'text-muted', Icon: IconCheckCircle },
-  expired: { label: '已过期', textClass: 'text-muted', Icon: IconArchive },
-};
-
-const LIFECYCLE_ORDER: readonly string[] = ['current', 'stale', 'conflict', 'resolved', 'expired'];
-
-/** 历史态（spec §7.2 Historical）：降低透明度，不默认参与当前判断 */
-const HISTORICAL_STATUSES: ReadonlySet<string> = new Set(['stale', 'resolved', 'expired']);
-
 function domainLabel(key: string | null | undefined): string {
   if (!key) return '未提供';
   return DOMAINS.find((d) => d.key === key)?.label ?? key;
@@ -99,30 +81,7 @@ function evidenceText(count: number | null | undefined): string {
   return count === null || count === undefined ? '未提供' : `${fmtNumber(count)} 条`;
 }
 
-/* ---------------- 徽标与通用小块 ---------------- */
-
-function ClaimBadge({ claim }: { claim: string }) {
-  const meta = CLAIM_META[claim] ?? { label: claim, badgeClass: 'border-line bg-panel text-muted', Icon: IconInfo };
-  const Icon = meta.Icon;
-  return (
-    <span className={`badge ${meta.badgeClass}`}>
-      <Icon className="h-3.5 w-3.5" />
-      {meta.label}
-    </span>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const meta = STATUS_META[status];
-  if (!meta || status === 'current') return null;
-  const Icon = meta.Icon;
-  return (
-    <span className={`badge border-line bg-panel ${meta.textClass}`}>
-      <Icon className="h-3.5 w-3.5" />
-      {meta.label}
-    </span>
-  );
-}
+/* ---------------- 通用小块 ---------------- */
 
 function HighRiskHint() {
   return (
@@ -158,7 +117,7 @@ function LifecycleStrip({ counts }: { counts: PersonalStateData['lifecycle_count
   return (
     <ul className="mt-3 flex flex-wrap gap-2" aria-label="生命周期分布">
       {LIFECYCLE_ORDER.map((status) => {
-        const meta = STATUS_META[status];
+        const meta = lifecycleMeta(status);
         const Icon = meta.Icon;
         return (
           <li key={status} className={`badge border-line bg-panel ${meta.textClass}`}>
@@ -232,11 +191,30 @@ function DomainCard({ meta, domain }: { meta: DomainMeta; domain: PersonalStateD
 
 /* ---------------- 领域详情：断言按 claim 类型分组 ---------------- */
 
+/**
+ * 断言的决策确认可用性提示（D-37-04）：只陈述已有的权威字段（status/evidence_count）
+ * 说明为何暂不能作为后续 Phase 38 决策确认依据，不新增裁决字段，不提供 prepare/confirm 按钮。
+ */
+function assertionReadinessNote(assertion: PersonalAssertion): string | null {
+  const status = assertion.status ?? 'current';
+  if (status === 'conflict') {
+    return '存在冲突记录，系统不会自动选择一边：此断言暂不能作为决策确认依据。';
+  }
+  if (status === 'stale' || status === 'expired') {
+    return '记录可能已过期：如需据此推进决策，请先核实最新状态。';
+  }
+  if (assertion.evidence_count === 0) {
+    return '当前没有可核查证据：此断言暂不能作为决策确认依据。';
+  }
+  return null;
+}
+
 function AssertionCard({ assertion }: { assertion: PersonalAssertion }) {
   const claim = assertion.provenance_class ?? 'unknown';
   const status = assertion.status ?? 'current';
   const isConflict = status === 'conflict';
-  const isHistorical = HISTORICAL_STATUSES.has(status);
+  const isHistorical = isHistoricalLifecycle(status);
+  const readinessNote = assertionReadinessNote(assertion);
 
   // Fact=实线边框；Inference=紫色虚线边框；Conflict=红色冲突标识优先于类型边框色
   const frameClass = isConflict
@@ -248,14 +226,20 @@ function AssertionCard({ assertion }: { assertion: PersonalAssertion }) {
   return (
     <li className={`rounded-lg border p-3 ${frameClass} ${isHistorical ? 'opacity-60' : ''}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <ClaimBadge claim={claim} />
-        <StatusBadge status={status} />
+        <ClaimKindBadge kind={claim} />
+        <LifecycleBadge status={status} hideCurrent />
         <span className="break-words font-medium">{assertion.key.predicate ?? '（无谓词）'}</span>
       </div>
       <p className="mt-1.5 break-words text-sm text-muted">
         主体 {assertion.key.subject ?? '未提供'} · 范围 {assertion.key.scope ?? '未提供'} · 置信度{' '}
         {fmtConfidence(assertion.confidence)} · 证据 {evidenceText(assertion.evidence_count)}
       </p>
+      {readinessNote ? (
+        <p className="mt-1.5 flex items-start gap-1.5 text-xs text-uncertainty">
+          <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {readinessNote}
+        </p>
+      ) : null}
     </li>
   );
 }
@@ -269,8 +253,8 @@ function groupByClaim(assertions: PersonalAssertion[]): Array<{ claim: string; i
     map.set(claim, list);
   }
   const orderedKeys = [
-    ...CLAIM_ORDER.filter((key) => map.has(key)),
-    ...[...map.keys()].filter((key) => !CLAIM_ORDER.includes(key)),
+    ...PERSONAL_CLAIM_ORDER.filter((key) => map.has(key)),
+    ...[...map.keys()].filter((key) => !(PERSONAL_CLAIM_ORDER as readonly string[]).includes(key)),
   ];
   return orderedKeys.map((claim) => ({ claim, items: map.get(claim) ?? [] }));
 }
@@ -349,9 +333,9 @@ function DomainDetail({ domainKey, data }: { domainKey: string; data: PersonalSt
         ) : (
           <div className="section-stack mt-4">
             {groups.map((group) => (
-              <section key={group.claim} aria-label={`${CLAIM_META[group.claim]?.label ?? group.claim}分组`}>
+              <section key={group.claim} aria-label={`${claimKindMeta(group.claim).label}分组`}>
                 <h3 className="flex items-center gap-2 text-sm font-medium">
-                  <ClaimBadge claim={group.claim} />
+                  <ClaimKindBadge kind={group.claim} />
                   <span className="text-muted">{group.items.length} 条</span>
                 </h3>
                 <ul className="section-stack mt-2">
@@ -375,15 +359,7 @@ function DomainDetail({ domainKey, data }: { domainKey: string; data: PersonalSt
 
 function ChangeStatusText({ status }: { status: string | null | undefined }) {
   if (!status) return <span className="text-muted">未提供</span>;
-  const meta = STATUS_META[status];
-  if (!meta) return <span className="text-muted">{status}</span>;
-  const Icon = meta.Icon;
-  return (
-    <span className={`inline-flex items-center gap-1 ${meta.textClass}`}>
-      <Icon className="h-3.5 w-3.5" />
-      {meta.label}
-    </span>
-  );
+  return <LifecycleBadge status={status} />;
 }
 
 function RecentChangesCard({ changes }: { changes: RecentChange[] }) {
@@ -487,9 +463,10 @@ export function PersonalStatePage() {
 
   if (query.isError) {
     const err = query.error as ApiError;
+    // network_error = 整个同源 API 不可达，与其余查询失败区分为独立的 offline 态（D-37-03）
     return (
       <StatePanel
-        variant="error"
+        variant={err.code === 'network_error' ? 'offline' : 'error'}
         title="个人状态加载失败"
         errorMessage={err.message}
         onRetry={() => void query.refetch()}
