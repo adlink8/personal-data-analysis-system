@@ -6,6 +6,11 @@
 - ✅ **v1.2 External Context & Low-risk Decision Intelligence Pilot** — Phases 28–31, shipped 2026-07-18 ([archive](milestones/v1.2-ROADMAP.md))
 - ✅ **v1.3 Agent Productization** — Phases 32–35, shipped 2026-07-18 ([archive](milestones/v1.3-ROADMAP.md))
 - 🚧 **v1.4 Decision Cockpit UI** — Phases 36–40, requirements defined 2026-07-22
+- 🚧 **v1.4.1 Data Layer Remediation** — Phases 41–42, initiated 2026-07-26 from data-layer audit
+
+## v1.4.1 Goal
+
+收口 2026-07-25/26 数据层审计中确认的两个设计级问题：抽取疆域重定义（assistant 证据轨扶正、覆盖矩阵、eligible 口径统一）与会话级去重键架构。代码级 quickfix（F-01~F-14、C2）已先行落地，本里程碑处理需要设计决策的部分。
 
 ## v1.4 Goal
 
@@ -117,6 +122,35 @@
 3. `npm run build`、前端 Vitest、UI Projection Python contracts 与 orchestration/replay/privacy 定向测试均通过；测试覆盖 DTO、状态分类、跨 origin 无写入、preview 篡改/过期和重复确认。
 4. 完成并记录至少一次真实浏览器 UAT：覆盖同源 read、低风险 prepare/confirm/exact replay、响应式/无障碍、服务降级、证据下钻和隐私检查；失败路径具有明确恢复或回滚记录。
 
+### Phase 41: Extraction Scope Redefinition (Assistant Track, Coverage, Eligibility)
+
+**Goal:** 把知识抽取从"user-only 单轨"重定义为显式双轨（user 轨守用户画像、assistant 轨收知识资产），建立 source × role × pass 覆盖矩阵并统一 inspect/prepare/inventory 的 eligible 口径。
+
+**Requirements:** EXT-01, EXT-02, EXT-03
+
+**Depends on:** v1.4.1 数据层审计修复（F-01~F-14 已落地）；evidence_scope 双列语义（status/lifecycle 修复后）
+**Plans:** 0 documented; 0 executed
+
+**Success criteria:**
+
+1. assistant 轨成为有名有姓的抽取路径：独立 prompt、独立 unit_type 集合（solution/decision_rationale/technical_conclusion 等）、evidence 锚 assistant 原文、`evidence_scope='assistant'` 写入、独立 eval 集；ku| 世代既有 assistant 来源 KU 完成归属迁移或显式豁免。
+2. 覆盖矩阵落地：`source × role × pass` 的"消息数/已单元化数/未覆盖原因"进入 `pk-ku doctor`，zcode/grok/qoder 等零覆盖源显形报警。
+3. eligible 口径唯一化：inspect 与 prepare 对"什么算 eligible 证据"使用同一定义（assistant 是否纳入由轨而非隐式 SQL 差异决定），"inspect 有 delta 而 prepare no_op"的 Gate B 判定恢复可信。
+
+### Phase 42: Conversation Dedup with Stable Session Keys
+
+**Goal:** 把 canonical 会话去重从文件内容 hash 改为会话级稳定键，消除"会话更新 → 新旧 canonical session 双份并存"的结构性重复。
+
+**Requirements:** DED-01, DED-02
+
+**Depends on:** Phase 41（eligible/证据口径稳定后改去重键才安全）
+**Plans:** 0 documented; 0 executed
+
+**Success criteria:**
+
+1. 同一会话的内容增长（jsonl 追加）被识别为同一 canonical session 的更新而非新会话：canonical 库中同会话不再多份并存，旧副本有明确的 supersede/替代语义。
+2. 全量重建幂等：重跑 sync 不产生重复 session/message，merge 结果跨运行稳定（含 legacy 代表行选择的确定性）。
+
 ## Progress
 
 | Phase | Requirements | Plans Complete | Status |
@@ -126,6 +160,8 @@
 | 38 | DEC-01, DEC-02, DEC-03 | 0/3 executed | Planned — future plans reviewed, not executed |
 | 39 | FDB-01, FDB-02, RUN-01 | 0/4 executed | Planned — future plans reviewed, not executed |
 | 40 | UX-01, UX-02, QA-01, QA-02 | 0/3 executed | Planned — future plans reviewed, not executed |
+| 41 | EXT-01, EXT-02, EXT-03 | 0/0 executed | Discuss — context gathering |
+| 42 | DED-01, DED-02 | 0/0 executed | Registered — pending Phase 41 |
 
 ## Requirement Coverage
 
@@ -137,6 +173,9 @@
 | FDB-01..02, RUN-01 | 39 | 3 |
 | UX-01..02, QA-01..02 | 40 | 4 |
 | **Total v1.4** | — | **18/18** |
+| EXT-01..03 | 41 | 3 |
+| DED-01..02 | 42 | 2 |
+| **Total v1.4.1** | — | **5/5** |
 
 ## Deferred Next Milestone
 
