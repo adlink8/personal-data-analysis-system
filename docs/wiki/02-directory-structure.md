@@ -140,18 +140,49 @@ src/personal_knowledge/
 │       ├── evaluate_knowledge_canary.py
 │       └── evaluate_knowledge_unit_rag.py
 │
+├── domains/                ← 【遗留】re-export shim，仅做向后兼容
+│   ├── conversation/       # 真实规则/模型已迁至 application/conversation
+│   ├── knowledge/          # 真实规则/模型已迁至 application/knowledge、evaluation/knowledge
+│   ├── memory/
+│   └── graph/
+│       # 每个文件只有几行：import_module 转发到 application/evaluation 下的正式实现
+│       # 计划 2026-08-13 后清理（见 governance/policies/architecture.yaml 顶部注释）
+│
+├── adapters/               ← 数据源适配器基类（source_adapters 层，介于 core 和 domains 之间）
+│   ├── base.py             # CanonicalRecord 契约
+│   ├── agentsview.py
+│   └── google_activities.py
+│
+├── external_context/       ← 外部上下文摄入（Python/Node.js 版本等元数据，见 08-数据治理）
+│   ├── ingest.py / registry.py / lifecycle.py / doctor.py / snapshots.py
+│
 └── cli.py                  # CLI 入口（6 个命令注册）
 ```
 
-### 分层依赖规则（记这 3 条就够了）
+### 分层依赖规则（对照 `governance/policies/architecture.yaml`）
+
+实际层序是 7 层，不是简单的“core + 同级”：
 
 ```
-- core     可以引用谁？→ 只能引用自己（地基）
-- retrieval/application/services 可以引用谁？→ core + 同级
-- governance    呢？→ 只能引用自己（独立控制面）
-
-违反规则 → preflight --ci 会报 P1 违规
+core（地基）
+  ↑ 只能被下面各层引用，自己只能引用自己
+adapters / retrieval（基础设施）
+  ↑ 可以引用 core；retrieval 还能引用 domains（knowledge/conversation）
+domains（规则/模型/常量；build、eval 逻辑已迁出，只剩 re-export shim）
+  ↑ 可以引用 core + adapters + 同级 domains
+application（构建/生命周期编排，如 ku.py / sync.py）
+  ↑ 可以引用 core + adapters + domains + retrieval + evaluation + 自己
+evaluation（评测套件）
+  ↑ 可以引用 core + domains(knowledge/conversation) + retrieval + 自己
+services（REST + MCP 交付）
+  ↑ 可以引用 core + domains + retrieval + application + 自己
+governance（独立控制面）
+  ↑ 只能引用自己
 ```
+
+**记忆版本（大致够用）：** 越往下（application → services）能引用的越多，`core` 和 `governance` 两端最严格。真要判断某次 import 合不合法，直接查 `architecture.yaml` 里对应模块的 `may_import` 列表，不要凭记忆。
+
+违反规则 → `preflight --ci` 会报 P1 违规（`architecture:<from>-to-<to>`）。
 
 ---
 

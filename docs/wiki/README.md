@@ -4,6 +4,12 @@
 
 一份给开发者和运维人员读的项目说明书。不讲概念，讲实际怎么跑、怎么查、怎么改。
 
+> **不要和"个人主题 Wiki"混淆：** 本 `docs/wiki/` 是开发/运维文档，解释系统怎么跑、怎么排障。
+> 仓库里还规划了另一个概念上的"Wiki"——**Personal Knowledge Wiki Projection**（面向个人主题、目标、决策的只读投影页面），
+> 见 `.planning/future-milestones/v1.5-personal-knowledge-wiki-projection/SPEC.md`。
+> 截至本次审计，v1.5 仍是 `candidate_not_activated`（未激活候选），代码库里**没有**任何 `wiki`/`topic_page`/`backlink` 路由或实现。
+> 本页所有内容仅描述当前这份静态开发/运维文档，与 v1.5 候选规格无关。
+
 ## 快速索引
 
 | 如果我想… | 去这里 |

@@ -128,11 +128,23 @@ curl http://127.0.0.1:8789/health
 
 ### Decision Cockpit UI
 
+> **状态提醒：** Decision Cockpit（v1.4，Phase 36–40）截至本次审计仍是"进行中"里程碑（`.planning/ROADMAP.md` 标 🚧），下列接口已在 `services/api_server.py` 实现，但前端/UAT 验收尚未全部收口，不代表产品已宣称完成。
+
 | 方法 | 路径 | 做什么 |
 |------|------|--------|
-| GET | `/ui/overview` | Cockpit 总览 |
-| GET | `/ui/system/status` | 系统状态 |
-| GET | `/app/` | 前端 SPA |
+| GET | `/ui/overview` | Cockpit 总览投影（五权威只读聚合） |
+| GET | `/ui/system/status` | 系统状态（端口探活 / 知识索引 / 权威 DB 可读性） |
+| GET | `/ui/personal-state` | 个人状态投影（八域断言 / 生命周期 / 近期变化） |
+| GET | `/ui/external/delta` | 外部数据增量投影（source / fact / delta 分类） |
+| GET | `/ui/decision-queue` | 决策队列投影（六 stage 看板分组） |
+| GET | `/ui/decision/workspace` | 决策工作区投影（`?recommendation_id=<id>`，四节聚合） |
+| GET | `/ui/actions/recent` | 近期行动投影（最近推荐的全链六阶段时间线） |
+| GET | `/ui/proactive/summary` | 主动情报摘要（inbox 分组 + 噪声指标） |
+| GET | `/ui/calibration/overview` | 校准总览（逐 protocol verdict 摘要） |
+| GET | `/ui/evidence/resolve` | 只读证据解析（`?subject_type=personal_state\|external_fact\|decision&stable_id=&snapshot_id=&checksum=`） |
+| GET | `/app/` 或 `/app/<path>` | 前端 SPA 静态托管（`apps/personal_decision_cockpit/dist`，SPA fallback） |
+
+完整接口清单以 `src/personal_knowledge/services/api_server.py` 顶部的接口列表注释为准（本表可能滞后于新增接口）。
 
 ---
 
