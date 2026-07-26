@@ -79,7 +79,9 @@ function ExternalFactCard({ fact }: { fact: ExternalFact }) {
         <span className="font-mono text-sm" title={fact.fact_id ?? undefined}>
           {fact.fact_id ? shortId(fact.fact_id) : '（无 ID）'}
         </span>
-        <span className="badge border-line bg-panel text-muted">{fact.fact_type ?? '未提供'}</span>
+        {/* canonical DTO 用 subject/predicate 命名轴（Phase 37：D-37-02），
+            不再有独立 fact_type 字段;predicate 承担同样的"类型"展示作用 */}
+        <span className="badge border-line bg-panel text-muted">{fact.predicate ?? '未提供'}</span>
         {fact.lifecycle ? (
           <span className="badge border-line bg-panel text-muted">{fact.lifecycle}</span>
         ) : null}
@@ -89,16 +91,16 @@ function ExternalFactCard({ fact }: { fact: ExternalFact }) {
             冲突
           </span>
         ) : null}
-        <FreshnessBadge asOf={fact.observed_at ?? null} />
+        {/* 未来（37-02）应改为直接渲染服务端 fact.freshness.level/reason，
+            而非本组件当前的本地时钟推断;此处先接入 valid_from 保持可编译 */}
+        <FreshnessBadge asOf={fact.valid_from ?? null} />
       </div>
       <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2 lg:grid-cols-3">
+        <FactField label="主体" value={fact.subject} mono />
         <FactField label="地区" value={fact.region} />
-        <FactField label="来源" value={fact.source_id} mono />
+        <FactField label="来源" value={fact.source_ids?.[0] ?? null} mono />
         <FactField label="来源质量" value={fact.source_quality} />
-        <div>
-          <dt className="inline text-muted">观察时间：</dt>
-          <dd className="inline">{fact.observed_at ? fmtTime(fact.observed_at) : '未提供'}</dd>
-        </div>
+        <FactField label="事实置信度" value={fact.fact_confidence} />
         <div>
           <dt className="inline text-muted">有效期：</dt>
           <dd className="inline">{validRangeText(fact.valid_from, validTo)}</dd>
@@ -229,14 +231,14 @@ function ExternalBody({
   const facts = data.facts;
 
   const regionOptions = useMemo(() => uniqueStrings(facts.map((f) => f.region)), [facts]);
-  const typeOptions = useMemo(() => uniqueStrings(facts.map((f) => f.fact_type)), [facts]);
+  // canonical DTO 无独立 fact_type;predicate 承担同样的"类型"筛选维度（Phase 37：D-37-02）
+  const typeOptions = useMemo(() => uniqueStrings(facts.map((f) => f.predicate)), [facts]);
 
   // 纯客户端筛选（spec §13.1：筛选不写入、不打 API）
   const filteredFacts = useMemo(
     () =>
       facts.filter(
-        (f) =>
-          (region === 'all' || f.region === region) && (factType === 'all' || f.fact_type === factType),
+        (f) => (region === 'all' || f.region === region) && (factType === 'all' || f.predicate === factType),
       ),
     [facts, region, factType],
   );

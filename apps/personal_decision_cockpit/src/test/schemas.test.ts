@@ -3,6 +3,7 @@ import { ApiError, apiGet } from '../api/client';
 import {
   OverviewEnvelopeSchema,
   SystemStatusEnvelopeSchema,
+  evidenceResolveEnvelopeSchema,
   externalDeltaEnvelopeSchema,
   personalStateEnvelopeSchema,
 } from '../api/schemas';
@@ -271,6 +272,7 @@ const FULL_PERSONAL_STATE = {
             status: 'current',
             confidence: 0.9,
             current_assertion_id: 'pa_20260719_goal_career_01',
+            current_value_checksum: 'csum_20260719_goal_career_01',
             evidence_count: 5,
           },
         ],
@@ -310,15 +312,18 @@ const FULL_EXTERNAL_DELTA = {
     facts: [
       {
         fact_id: 'ef_20260719_aaaa1111bbbb',
-        fact_type: 'policy_change',
+        fact_checksum: 'efc_20260719_aaaa1111bbbb',
+        subject: 'mohrss_policy',
+        predicate: 'social_insurance_rate_change',
         region: 'CN',
-        observed_at: '2026-07-19T06:30:00+00:00',
         valid_from: '2026-07-20T00:00:00+00:00',
         valid_to: '2026-12-31T00:00:00+00:00',
-        source_id: 'src_mohrss_policy',
-        source_quality: 'official',
-        lifecycle: 'active',
+        source_quality: 0.95,
+        fact_confidence: 0.9,
+        source_ids: ['src_mohrss_policy'],
+        lifecycle: 'current',
         conflict: false,
+        freshness: { level: 'valid', reason: null },
       },
     ],
     delta: { new: ['ef_20260719_aaaa1111bbbb'], updated: [], expiring: [], conflicts: [] },
@@ -335,6 +340,9 @@ describe('personalStateEnvelopeSchema', () => {
     expect(parsed.data?.domains['career']?.conflicts).toBe(2);
     expect(parsed.data?.domains['career']?.assertions[0]?.key.predicate).toBe('target_role');
     expect(parsed.data?.domains['career']?.assertions[0]?.evidence_count).toBe(5);
+    expect(parsed.data?.domains['career']?.assertions[0]?.current_value_checksum).toBe(
+      'csum_20260719_goal_career_01',
+    );
     expect(parsed.data?.lifecycle_counts?.current).toBe(30);
     expect(parsed.data?.recent_changes[0]?.change_type).toBe('supersede');
   });
@@ -383,6 +391,29 @@ describe('personalStateEnvelopeSchema', () => {
   it('拒绝其他端点的合法 payload（external_delta.get 不能当作 personal_state.get 渲染）', () => {
     expect(personalStateEnvelopeSchema.safeParse(FULL_EXTERNAL_DELTA).success).toBe(false);
   });
+
+  it('断言缺少 current_value_checksum 时整体 parse 失败（fail closed，EVID-01 稳定引用三元组）', () => {
+    const missingChecksum = {
+      ...FULL_PERSONAL_STATE,
+      data: {
+        ...FULL_PERSONAL_STATE.data,
+        domains: {
+          ...FULL_PERSONAL_STATE.data.domains,
+          career: {
+            ...FULL_PERSONAL_STATE.data.domains.career,
+            assertions: [
+              (() => {
+                const { current_value_checksum: _c, ...rest } =
+                  FULL_PERSONAL_STATE.data.domains.career.assertions[0];
+                return rest;
+              })(),
+            ],
+          },
+        },
+      },
+    };
+    expect(personalStateEnvelopeSchema.safeParse(missingChecksum).success).toBe(false);
+  });
 });
 
 describe('externalDeltaEnvelopeSchema', () => {
@@ -390,13 +421,16 @@ describe('externalDeltaEnvelopeSchema', () => {
     const parsed = externalDeltaEnvelopeSchema.parse(FULL_EXTERNAL_DELTA);
     expect(parsed.operation).toBe('external_delta.get');
     expect(parsed.data?.snapshot?.snapshot_id).toBe('es_20260718_f6e5d4c3b2a1');
-    expect(parsed.data?.facts[0]?.fact_type).toBe('policy_change');
+    expect(parsed.data?.facts[0]?.subject).toBe('mohrss_policy');
+    expect(parsed.data?.facts[0]?.predicate).toBe('social_insurance_rate_change');
+    expect(parsed.data?.facts[0]?.fact_checksum).toBe('efc_20260719_aaaa1111bbbb');
+    expect(parsed.data?.facts[0]?.freshness?.level).toBe('valid');
     expect(parsed.data?.delta?.new).toContain('ef_20260719_aaaa1111bbbb');
     expect(parsed.data?.counts?.conflicts).toBe(0);
     expect(parsed.data?.sources[0]?.source_id).toBe('src_mohrss_policy');
   });
 
-  it('宽松解析缺失字段的事实：缺 region/valid_to，valid_at 与未知字段透传', () => {
+  it('宽松解析：canonical 字段可为 null、source_ids/freshness 缺省，未知字段透传', () => {
     const lenient = {
       ...FULL_EXTERNAL_DELTA,
       data: {
@@ -404,11 +438,17 @@ describe('externalDeltaEnvelopeSchema', () => {
         facts: [
           {
             fact_id: 'ef_20260718_cccc2222dddd',
-            fact_type: 'job_market',
-            observed_at: '2026-07-10T00:00:00+00:00',
-            source_id: 'src_job_board_iot',
-            // 后端可能用 valid_at 代替 valid_to；另带一个未来新增字段
-            valid_at: '2026-09-30T00:00:00+00:00',
+            fact_checksum: 'efc_20260718_cccc2222dddd',
+            subject: 'nodejs',
+            predicate: 'release.lts',
+            region: 'global',
+            valid_from: '2026-07-10T00:00:00+00:00',
+            valid_to: null,
+            source_quality: 0.99,
+            fact_confidence: 0.99,
+            lifecycle: 'current',
+            conflict: false,
+            // source_ids/freshness 未提供 → 走 default([]/null)；未知字段透传
             future_nested: { score: 0.5 },
           },
         ],
@@ -417,10 +457,26 @@ describe('externalDeltaEnvelopeSchema', () => {
     const parsed = externalDeltaEnvelopeSchema.parse(lenient);
     const fact = parsed.data?.facts[0];
     expect(fact?.fact_id).toBe('ef_20260718_cccc2222dddd');
-    expect(fact?.region).toBeUndefined();
-    expect(fact?.valid_to).toBeUndefined();
-    expect(fact?.['valid_at']).toBe('2026-09-30T00:00:00+00:00');
+    expect(fact?.valid_to).toBeNull();
+    expect(fact?.source_ids).toEqual([]);
+    expect(fact?.freshness).toBeNull();
     expect(fact?.['future_nested']).toEqual({ score: 0.5 });
+  });
+
+  it('External fact 缺少 canonical 字段（subject）时整体 parse 失败（fail closed，D-37-02）', () => {
+    const malformed = {
+      ...FULL_EXTERNAL_DELTA,
+      data: {
+        ...FULL_EXTERNAL_DELTA.data,
+        facts: [
+          (() => {
+            const { subject: _subject, ...rest } = FULL_EXTERNAL_DELTA.data.facts[0];
+            return rest;
+          })(),
+        ],
+      },
+    };
+    expect(externalDeltaEnvelopeSchema.safeParse(malformed).success).toBe(false);
   });
 
   it('解析 partial 样例：data 为 null、limitations 透传', () => {
@@ -570,5 +626,207 @@ describe('apiGet（client.ts）：相对路径请求 + 安全 ApiError 映射', 
     const data = await apiGet('/ui/overview', OverviewEnvelopeSchema);
     expect(data.operation).toBe('overview.get');
     expect(data.data.personal?.total_available).toBe(214);
+  });
+});
+
+/* ---------------- evidence_resolve.get（Phase 37：EVID-01） ---------------- */
+
+const EVIDENCE_ENVELOPE_BASE = {
+  schema_version: 'decision_cockpit_projection_v1',
+  operation: 'evidence_resolve.get',
+  ok: true,
+  generated_at: '2026-07-26T08:00:00+00:00',
+  snapshot_bindings: { personal: null, external: 'exs_20260718_aaaa', serving: null },
+  freshness: {},
+  authorities: { evidence: 'ok' },
+  partial: false,
+  limitations: ['allowlisted public metadata only', 'external facts never become personal facts'],
+};
+
+// 成功路径：external_fact
+const OK_EXTERNAL_FACT_RESOLVE = {
+  ...EVIDENCE_ENVELOPE_BASE,
+  data: {
+    status: 'ok',
+    reference: {
+      subject_type: 'external_fact',
+      stable_id: 'ef_20260718_aaaa1111bbbb',
+      snapshot_id: 'exs_20260718_aaaa',
+      checksum: 'efc_20260718_aaaa1111bbbb',
+    },
+    result: {
+      subject_type: 'external_fact',
+      stable_id: 'ef_20260718_aaaa1111bbbb',
+      snapshot_id: 'exs_20260718_aaaa',
+      checksum: 'efc_20260718_aaaa1111bbbb',
+      subject: 'nodejs',
+      predicate: 'release.lts',
+      region: 'global',
+      valid_from: '2026-01-13T00:00:00+00:00',
+      valid_to: null,
+      source_quality: 0.99,
+      fact_confidence: 0.99,
+      lifecycle: 'current',
+    },
+    next_actions: ['inspect another fact', 'inspect the active snapshot'],
+  },
+};
+
+// 成功路径：personal_state（authorities/snapshot_bindings 与 subject_type 对应轴一致）
+const OK_PERSONAL_STATE_RESOLVE = {
+  ...EVIDENCE_ENVELOPE_BASE,
+  snapshot_bindings: { personal: 'ss_20260718_aaaa', external: null, serving: null },
+  limitations: [],
+  data: {
+    status: 'ok',
+    reference: {
+      subject_type: 'personal_state',
+      stable_id: 'psa_20260718_aaaa',
+      snapshot_id: 'ss_20260718_aaaa',
+      checksum: 'csum_20260718_aaaa',
+      assertion_kind: 'goal',
+      subject: 'user',
+      domain: 'career',
+      scope: 'current',
+      predicate: 'target_role',
+    },
+    result: {
+      subject_type: 'personal_state',
+      stable_id: 'psa_20260718_aaaa',
+      snapshot_id: 'ss_20260718_aaaa',
+      checksum: 'csum_20260718_aaaa',
+      key: {
+        assertion_kind: 'goal', subject: 'user', domain: 'career',
+        scope: 'current', predicate: 'target_role',
+      },
+      record_lifecycle: 'current',
+      provenance_class: 'fact',
+      confidence: 0.9,
+      as_of: '2026-07-18T00:00:00+00:00',
+      evidence: [
+        { ref: 'ev_aaaa', artifact_type: 'message', status: 'ok', eligible: true, privacy_class: 'metadata_only' },
+      ],
+      uncertainty: [],
+    },
+    next_actions: [],
+  },
+};
+
+// mismatch：篡改后的 checksum 已不匹配当前记录，result 恒为 null（不得回退到"最新记录"）
+const MISMATCH_EXTERNAL_FACT_RESOLVE = {
+  ...EVIDENCE_ENVELOPE_BASE,
+  limitations: [],
+  data: {
+    status: 'mismatch',
+    reference: {
+      subject_type: 'external_fact',
+      stable_id: 'ef_20260718_aaaa1111bbbb',
+      snapshot_id: 'exs_20260718_aaaa',
+      checksum: 'stale_checksum_deadbeef',
+    },
+    result: null,
+    next_actions: ['刷新 External 页面后重新下钻'],
+  },
+};
+
+// abstain：personal_state evidence 暂不满足可用性判定，仍返回可用元数据（result 非 null）
+const ABSTAIN_PERSONAL_STATE_RESOLVE = {
+  ...EVIDENCE_ENVELOPE_BASE,
+  snapshot_bindings: { personal: 'ss_20260718_aaaa', external: null, serving: null },
+  limitations: [],
+  data: {
+    status: 'abstain',
+    reference: OK_PERSONAL_STATE_RESOLVE.data.reference,
+    result: {
+      ...OK_PERSONAL_STATE_RESOLVE.data.result,
+      uncertainty: ['evidence_unavailable_or_ineligible'],
+    },
+    next_actions: ['evidence 暂不满足可用性判定，可稍后重试或改看其它断言'],
+  },
+};
+
+// authority_unavailable：单 authority 意外故障，隔离为 partial（不是异常穿透/500）
+const AUTHORITY_UNAVAILABLE_DECISION_RESOLVE = {
+  ...EVIDENCE_ENVELOPE_BASE,
+  authorities: { evidence: 'error' },
+  partial: true,
+  limitations: ['decision explain 读取失败(authority_read_failed)'],
+  data: {
+    status: 'authority_unavailable',
+    reference: {
+      subject_type: 'decision',
+      stable_id: 'drec_20260718_aaaa',
+      snapshot_id: 'ss_20260718_aaaa',
+      checksum: 'csum_20260718_aaaa',
+    },
+    result: null,
+    next_actions: ['稍后重试，或返回状态/External/决策页重新进入下钻'],
+  },
+};
+
+describe('evidenceResolveEnvelopeSchema', () => {
+  it('解析 external_fact 成功样例：result 携带 canonical 字段，不含 raw value', () => {
+    const parsed = evidenceResolveEnvelopeSchema.parse(OK_EXTERNAL_FACT_RESOLVE);
+    expect(parsed.operation).toBe('evidence_resolve.get');
+    expect(parsed.data.status).toBe('ok');
+    expect(parsed.data.result?.subject).toBe('nodejs');
+    expect(parsed.data.result?.checksum).toBe('efc_20260718_aaaa1111bbbb');
+    expect((parsed.data.result as Record<string, unknown>)?.['value']).toBeUndefined();
+  });
+
+  it('解析 personal_state 成功样例：reference 携带完整 state key，evidence 只有元数据字段', () => {
+    const parsed = evidenceResolveEnvelopeSchema.parse(OK_PERSONAL_STATE_RESOLVE);
+    expect(parsed.data.reference.subject_type).toBe('personal_state');
+    expect((parsed.data.reference as Record<string, unknown>)['predicate']).toBe('target_role');
+    expect(parsed.data.result?.evidence[0]).toEqual({
+      ref: 'ev_aaaa', artifact_type: 'message', status: 'ok', eligible: true, privacy_class: 'metadata_only',
+    });
+  });
+
+  it('解析 mismatch 样例：result 恒为 null，不回退到最新记录', () => {
+    const parsed = evidenceResolveEnvelopeSchema.parse(MISMATCH_EXTERNAL_FACT_RESOLVE);
+    expect(parsed.data.status).toBe('mismatch');
+    expect(parsed.data.result).toBeNull();
+    expect(parsed.data.next_actions.length).toBeGreaterThan(0);
+  });
+
+  it('解析 abstain 样例：仍返回可用元数据（result 非 null）与 uncertainty', () => {
+    const parsed = evidenceResolveEnvelopeSchema.parse(ABSTAIN_PERSONAL_STATE_RESOLVE);
+    expect(parsed.data.status).toBe('abstain');
+    expect(parsed.data.result).not.toBeNull();
+    expect(parsed.data.result?.uncertainty).toContain('evidence_unavailable_or_ineligible');
+  });
+
+  it('解析 authority_unavailable 样例：partial=true 且 authorities.evidence=error', () => {
+    const parsed = evidenceResolveEnvelopeSchema.parse(AUTHORITY_UNAVAILABLE_DECISION_RESOLVE);
+    expect(parsed.data.status).toBe('authority_unavailable');
+    expect(parsed.partial).toBe(true);
+    expect(parsed.authorities.evidence).toBe('error');
+    expect(parsed.data.result).toBeNull();
+  });
+
+  it('拒绝未知 status（不在固定词表内的值不能被当作合法降级渲染）', () => {
+    const bogus = {
+      ...OK_EXTERNAL_FACT_RESOLVE,
+      data: { ...OK_EXTERNAL_FACT_RESOLVE.data, status: 'made_up_status' },
+    };
+    expect(evidenceResolveEnvelopeSchema.safeParse(bogus).success).toBe(false);
+  });
+
+  it('拒绝错误的 schema_version 或 operation', () => {
+    expect(
+      evidenceResolveEnvelopeSchema.safeParse({
+        ...OK_EXTERNAL_FACT_RESOLVE,
+        schema_version: 'decision_cockpit_projection_v2',
+      }).success,
+    ).toBe(false);
+    expect(
+      evidenceResolveEnvelopeSchema.safeParse({ ...OK_EXTERNAL_FACT_RESOLVE, operation: 'external_delta.get' })
+        .success,
+    ).toBe(false);
+  });
+
+  it('拒绝其他端点的合法 payload（external_delta.get 不能当作 evidence_resolve.get 渲染）', () => {
+    expect(evidenceResolveEnvelopeSchema.safeParse(FULL_EXTERNAL_DELTA).success).toBe(false);
   });
 });

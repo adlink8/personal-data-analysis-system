@@ -8,9 +8,11 @@ import {
   calibrationOverviewEnvelopeSchema,
   decisionQueueEnvelopeSchema,
   decisionWorkspaceEnvelopeSchema,
+  evidenceResolveEnvelopeSchema,
   externalDeltaEnvelopeSchema,
   personalStateEnvelopeSchema,
   proactiveSummaryEnvelopeSchema,
+  type EvidenceSubjectType,
 } from './schemas';
 
 // 只读投影的通用节奏：30s 内不算 stale，失败只重试 1 次，每分钟后台刷新一次。
@@ -103,6 +105,69 @@ export function useCalibrationOverview() {
     queryKey: ['ui', 'calibration-overview'],
     queryFn: () => apiGet('/ui/calibration/overview', calibrationOverviewEnvelopeSchema),
     ...PROJECTION_QUERY_OPTIONS,
+  });
+}
+
+/**
+ * 只读证据下钻的稳定引用（Phase 37：EVID-01）。三个字段全部来自服务端上一次
+ * Projection 响应（current_assertion_id/current_value_checksum、fact_id/
+ * fact_checksum、recommendation_id/recommendation_checksum），页面不得自行推导
+ * 或伪造；personal_state 额外需要完整 state key。
+ */
+export interface EvidenceReferenceInput {
+  subjectType: EvidenceSubjectType;
+  stableId: string;
+  snapshotId: string;
+  checksum: string;
+  stateKey?: {
+    assertion_kind: string;
+    subject: string;
+    domain: string;
+    scope: string;
+    predicate: string;
+  };
+}
+
+function evidenceResolvePath(reference: EvidenceReferenceInput): string {
+  const params = new URLSearchParams({
+    subject_type: reference.subjectType,
+    stable_id: reference.stableId,
+    snapshot_id: reference.snapshotId,
+    checksum: reference.checksum,
+  });
+  if (reference.stateKey) {
+    params.set('assertion_kind', reference.stateKey.assertion_kind);
+    params.set('subject', reference.stateKey.subject);
+    params.set('domain', reference.stateKey.domain);
+    params.set('scope', reference.stateKey.scope);
+    params.set('predicate', reference.stateKey.predicate);
+  }
+  return `/ui/evidence/resolve?${params.toString()}`;
+}
+
+function evidenceReferenceReady(reference: EvidenceReferenceInput | null): boolean {
+  if (!reference) return false;
+  if (!reference.stableId || !reference.snapshotId || !reference.checksum) return false;
+  if (reference.subjectType !== 'personal_state') return true;
+  const key = reference.stateKey;
+  return Boolean(
+    key && key.assertion_kind && key.subject && key.domain && key.scope && key.predicate,
+  );
+}
+
+/**
+ * 只读证据下钻：GET /ui/evidence/resolve（stable_id+snapshot+checksum 校验，
+ * 服务端解析 mismatch/expired/abstain/not_found，Phase 37 EVID-01）。
+ * 仅 GET，不携带任何可写 payload；reference 为 null 或字段不全时不发起请求。
+ */
+export function useEvidenceResolve(reference: EvidenceReferenceInput | null) {
+  const ready = evidenceReferenceReady(reference);
+  return useQuery({
+    queryKey: ['ui', 'evidence-resolve', ready && reference ? evidenceResolvePath(reference) : ''],
+    queryFn: () => apiGet(evidenceResolvePath(reference as EvidenceReferenceInput), evidenceResolveEnvelopeSchema),
+    enabled: ready,
+    staleTime: 30_000,
+    retry: 1,
   });
 }
 

@@ -1,6 +1,7 @@
 /**
- * 实时数据契约回归测试：fixtures 为 9 个 /ui/* 端点的真实后端响应
- * （2026-07-19 从本机 rag-api 抓取，仅元数据，无私有正文）。
+ * 实时数据契约回归测试：fixtures 为 10 个 /ui/* 端点的真实后端响应
+ * （2026-07-19 从本机 rag-api 抓取；personal-state/external-delta/evidence-resolve
+ * 于 2026-07-26 随 Phase 37 canonical DTO 结算重新抓取/补充，仅元数据，无私有正文）。
  * 用途：防止前端 Zod 契约与后端真实字段漂移（本测试即为三页
  * "加载失败"事故的回归守卫——schema 再紧一档、后端字段再改名都会在此变红）。
  * 更新方式：重新 curl 覆盖 src/test/fixtures/*.json。
@@ -18,6 +19,7 @@ import {
   actionsRecentEnvelopeSchema,
   proactiveSummaryEnvelopeSchema,
   calibrationOverviewEnvelopeSchema,
+  evidenceResolveEnvelopeSchema,
 } from '../api/schemas';
 
 import overview from './fixtures/overview.json';
@@ -29,6 +31,7 @@ import decisionWorkspace from './fixtures/decision-workspace.json';
 import actionsRecent from './fixtures/actions-recent.json';
 import proactiveSummary from './fixtures/proactive-summary.json';
 import calibrationOverview from './fixtures/calibration-overview.json';
+import evidenceResolve from './fixtures/evidence-resolve.json';
 
 const CASES: Array<[string, z.ZodTypeAny, unknown]> = [
   ['overview', OverviewEnvelopeSchema, overview],
@@ -40,6 +43,7 @@ const CASES: Array<[string, z.ZodTypeAny, unknown]> = [
   ['actions-recent', actionsRecentEnvelopeSchema, actionsRecent],
   ['proactive-summary', proactiveSummaryEnvelopeSchema, proactiveSummary],
   ['calibration-overview', calibrationOverviewEnvelopeSchema, calibrationOverview],
+  ['evidence-resolve', evidenceResolveEnvelopeSchema, evidenceResolve],
 ];
 
 describe('实时后端响应 × 前端契约（fixtures 为真实抓取）', () => {
@@ -112,5 +116,33 @@ describe('跨端点 payload 互斥', () => {
 
   it('overview fixture 不能被 system.status.get schema 接受', () => {
     expect(SystemStatusEnvelopeSchema.safeParse(overview).success).toBe(false);
+  });
+
+  it('external-delta fixture 不能被 evidence_resolve.get schema 接受', () => {
+    expect(evidenceResolveEnvelopeSchema.safeParse(externalDelta).success).toBe(false);
+  });
+
+  it('evidence-resolve fixture 不能被 external_delta.get schema 接受', () => {
+    expect(externalDeltaEnvelopeSchema.safeParse(evidenceResolve).success).toBe(false);
+  });
+});
+
+/**
+ * Phase 37（EVID-01）回归：真实 evidence-resolve fixture 必须携带 evidence.resolve
+ * 稳定引用三元组（stable_id/snapshot_id/checksum），且 External 分支不泄露 raw value
+ * （与 external_delta.get 同一隐私边界）。
+ */
+describe('evidence-resolve fixture 携带稳定引用三元组，不含 raw value', () => {
+  it('data.reference 与 data.result 的 stable_id/snapshot_id/checksum 三者一致', () => {
+    const parsed = evidenceResolveEnvelopeSchema.parse(evidenceResolve);
+    expect(parsed.data.status).toBe('ok');
+    expect(parsed.data.result?.stable_id).toBe(parsed.data.reference.stable_id);
+    expect(parsed.data.result?.snapshot_id).toBe(parsed.data.reference.snapshot_id);
+    expect(parsed.data.result?.checksum).toBe(parsed.data.reference.checksum);
+  });
+
+  it('result 不含 value 字段（external_fact 分支 metadata-only）', () => {
+    const parsed = evidenceResolveEnvelopeSchema.parse(evidenceResolve);
+    expect((parsed.data.result as Record<string, unknown> | null)?.['value']).toBeUndefined();
   });
 });
