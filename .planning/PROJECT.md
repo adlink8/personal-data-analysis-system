@@ -12,11 +12,11 @@
 
 ## Long-term Product Target
 
-权威目标说明：[`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md)。
+权威目标说明：[`.planning/audits/PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](audits/PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md)。
 
-当前预期目标差距：[`TARGET-GAP-ANALYSIS-2026-07-18.md`](./TARGET-GAP-ANALYSIS-2026-07-18.md)。
+当前预期目标差距：[`.planning/audits/TARGET-GAP-ANALYSIS-2026-07-18.md`](audits/TARGET-GAP-ANALYSIS-2026-07-18.md)。
 
-v1.4 前端产品契约：[`PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md`](./PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md)。
+v1.4 前端产品契约：[`UI-SPEC.md`](research/v1.4-decision-cockpit-ui/UI-SPEC.md)。
 
 ```text
 长期个人数据 + 当前个人状态 + 外部环境 + 历史决策结果
@@ -57,7 +57,7 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 
 ## Deferred Next Direction
 
-**Personal Knowledge Wiki Projection** 仅作为 v1.5 候选，依赖 Cockpit 的 Projection、Evidence 和 stale 语义完成正式验收。规格见 [`PERSONAL-WIKI-PROJECTION-SPEC-2026-07-22.md`](./PERSONAL-WIKI-PROJECTION-SPEC-2026-07-22.md)。它不新建个人事实 SSOT，也不会从本轮规划自动激活。learning/career 低风险扩域和达到预注册样本量后的 calibration cohort 同样后置。
+**Personal Knowledge Wiki Projection** 仅作为 v1.5 候选，依赖 Cockpit 的 Projection、Evidence 和 stale 语义完成正式验收。规格见 [`SPEC.md`](future-milestones/v1.5-personal-knowledge-wiki-projection/SPEC.md)。它不新建个人事实 SSOT，也不会从本轮规划自动激活。learning/career 低风险扩域和达到预注册样本量后的 calibration cohort 同样后置。
 
 ## Current Reality — 2026-07-19
 

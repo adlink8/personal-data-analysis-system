@@ -1,7 +1,7 @@
 ---
 milestone: v1.5 Personal Knowledge Wiki Projection
 status: preplanned_not_active
-source: PERSONAL-WIKI-PROJECTION-SPEC-2026-07-22.md
+source: .planning/future-milestones/v1.5-personal-knowledge-wiki-projection/SPEC.md
 ---
 
 # v1.5 Requirements

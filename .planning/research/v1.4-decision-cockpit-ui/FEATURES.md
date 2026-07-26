@@ -91,8 +91,8 @@ Wiki Projection ──depends on──> Cockpit 的稳定 Projection / evidence 
 ## Sources
 
 - 用户已确认：先正式化 v1.4 Cockpit，Wiki 作为后续 v1.5。
-- `.planning/PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md`。
-- `.planning/PERSONAL-WIKI-PROJECTION-SPEC-2026-07-22.md`。
+- `.planning/research/v1.4-decision-cockpit-ui/UI-SPEC.md`。
+- `.planning/future-milestones/v1.5-personal-knowledge-wiki-projection/SPEC.md`。
 - `apps/personal_decision_cockpit/src/app/router.tsx`。
 
 ---

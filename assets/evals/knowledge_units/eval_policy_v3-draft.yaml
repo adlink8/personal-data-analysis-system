@@ -1,0 +1,53 @@
+# DRAFT — 999.5 单人可持续评测协议（未激活；eval manifest 仍指向 v2）
+# 原则：安全门保持团队级严格（机械可判定，零人工成本）；
+#       质量门降档为"抓回归"（n=20 时 1 条 case = 5pp，低于 5pp 的阈值全是噪声）。
+# 激活方式：人工核对 gold 批次 1 + judge 人工校准完成后，
+#           将 eval_v1.yaml 的 policy_path 切到本文件并去掉 -draft 后缀。
+version: v3
+policy_version: v3
+require_answer_eval: true
+require_review_evidence: true
+allowed_review_types:
+  - human
+  - llm
+required_modes:
+  - raw
+  - l1
+  - l2_only
+  - l1_l2
+  - hybrid
+candidate_safety_modes:
+  - l2_only
+  - l1_l2
+  - hybrid
+hard_gates:            # 安全门：与 v2 完全一致，不降
+  secret_privacy_hit: 0
+  citation_precision_min: 0.95
+  no_answer_fp_max: 0.10
+  reconcile_missing: 0
+  reconcile_orphan: 0
+quality_gates:
+  ku_vs_raw_recall5_pp:
+    min_delta_pp: 10
+    require_ci_low_positive: false   # v2: true。n=20 下 bootstrap CI 无统计意义
+  mrr_at_5_non_inferior_pp:
+    max_drop_pp: 5                   # v2: 2。低于单 case 分辨率(5pp)的阈值是噪声
+  frozen_regression_pp:
+    max_drop_pp: 5                   # v2: 2。同上；gold 集扩到 100+ 后可收回 2
+  cross_turn_l2_vs_l1_pp:
+    min_delta_pp: 10                 # cross_turn 有 75 条，分辨率够，不降
+    min_cases: 30
+  p95_latency_vs_active:
+    max_increase_ratio: 0.50         # v2: 0.25。冷启动尾部主导；预热落地(999.2)后收回
+  grounded_l2_human_precision:
+    min: 0.90
+    min_sample: 20                   # v2: 50。单人可持续上限；靠"使用即标注"渐增
+primary_claims:
+  - 安全门（隐私/citation/弃答误报/对账）零妥协
+  - 质量门职责 = 抓回归：新旧集合对比方向变坏即停，不追求统计显著
+  - frozen 集扩至 100+ 条后，回归阈值收回 v2 水平并恢复 CI 要求
+notes: >
+  999.5 单人协议草案。降档均为可逆：每处标注了收回条件。judge_calibration_v1
+  两轮评审均为 LLM（无人工锚点），本策略激活前置条件包含补做人工校准
+  （judge_calibration_human_form_v2）。gold 批次 1 = 既有 45 条
+  human_review_candidate 的三键核对。

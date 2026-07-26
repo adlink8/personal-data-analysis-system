@@ -1,6 +1,16 @@
 # Personal Decision Cockpit（个人决策驾驶舱）
 
-独立的个人决策智能前端。设计契约：`.planning/PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md`。
+独立的个人决策智能前端。设计契约：`.planning/research/v1.4-decision-cockpit-ui/UI-SPEC.md`。
+
+> **基线状态（2026-07-26）：** 只有 **Phase 36（Secure Projection and Cockpit
+> Baseline）** 已完成计划执行与验证收口——同源 Origin/CORS 传输安全、
+> Projection 安全错误信封与物理只读边界、前端 Zod DTO/vocabulary 契约锁定；
+> 详见 [`../../.planning/phases/PDA-36-secure-projection-and-cockpit-baseline/36-VERIFICATION.md`](../../.planning/phases/PDA-36-secure-projection-and-cockpit-baseline/36-VERIFICATION.md)。
+> **Phase 37–40（状态/证据、决策工作区、反馈与主动提醒、硬化与真实浏览器
+> UAT）尚未逐阶段验证收口。** 下方功能范围、"验收清单"与"已完成"措辞描述的
+> 是既有实现代码与目标产品契约（implementation candidate），**不代表对应
+> Phase 已通过验收或 v1.4 已发布**；只有在各自 Phase 的计划执行、测试与
+> `36-VERIFICATION.md` 同类证据记录完成后，才构成可审计基线的一部分。
 
 ## 本轮范围（Phase 36–39 等价）
 
@@ -21,7 +31,7 @@
 
 REST 只暴露 `/agent/session/*` 与 `/search/*` 写路由，**没有 proactive 写路由**：Snooze / Suppress / 限定 Scope / Restore 在页面上为 disabled，title 与卡片内文案均注明"该写入由 MCP 工具或 pk CLI 提供，REST 未暴露"，不做假按钮或静默不可点。本轮不新增任何写入路径；所有写入仍只走 Guarded 显式确认会话流。
 
-Phase 40（硬化与 Live UAT）已完成：无障碍/响应式/状态模型/隐私审计修复 + 全路由冒烟测试 + 上方验收清单。
+**Phase 40（硬化与 Live UAT）尚未执行**：无障碍/响应式硬化、真实浏览器 UAT 与下方"验收清单"逐项勾选均未发生——组件级 Vitest（`npm run test`）与 `npm run build` 通过不等同于 Phase 40 的真实浏览器验收；该阶段结果只能在 Phase 40 自己的 PLAN/SUMMARY/VERIFICATION 中如实记录。
 
 ## 技术栈
 
@@ -29,7 +39,10 @@ React 18 + TypeScript + Vite 6 + Tailwind CSS 3.4 + TanStack Query v5 + Zod 3 + 
 
 ## 开发
 
-```bash
+> 以下 `npm`/`node` 命令在 Windows PowerShell 中同样有效：从项目根
+> `Set-Location apps\personal_decision_cockpit`（或直接在本目录）执行即可，无需切换 shell。
+
+```powershell
 npm install
 npm run dev
 ```
@@ -50,7 +63,7 @@ npm run dev
 
 ## 构建
 
-```bash
+```powershell
 npm run build
 ```
 
@@ -58,14 +71,47 @@ npm run build
 
 ## 测试
 
-```bash
+```powershell
 npm run test
 ```
 
 包含：投影信封 Zod 契约测试（overview / system.status / personal-state / external-delta / decision-queue / decision-workspace 完整样例 + partial 样例 + facts 缺字段宽松样例 + workspace 缺 id 400 样例；Phase 39：actions-recent 完整 + 单条 error + outcome 缺字段宽松样例、proactive-summary 完整 + groups/metrics 为 null + 未知字段样例、calibration-overview 完整 + 单条协议 error 样例）、StatePanel 状态模型测试（error `role="alert"`、partial 列 Authority）、个人状态页（八领域网格 / 冲突与高风险标记 / 详情 claim 分组）与外部环境页（免责声明 / Delta 四组 / 客户端筛选）渲染测试、决策中心页（六组看板 + 双状态徽标 + 到期强调 + 空队列引导）、行动与结果页（摘要条 / 六节点时间线已达成·未达成 / 等宽校验字段 / outcome 真实字段 + 固定提示 / 非因果标注 / 记录结果链接 / 单条 error 降级 / CalibrationPanel INCONCLUSIVE 说明）、主动提醒页（now/deferrable 分组卡片 / 已抑制与历史诚实空态 + 控制状态查询入口 / 写按钮 disabled + REST 未暴露说明 / metrics 与 notes 渲染）、ConfirmDrawer（preview_checksum/idempotency_key 展示、具体确认文案、"不会执行的动作"固定提示）、TypedRecoveryPanel（retryable 重试、Replay 态、已知服务端限制恢复说明）、orchestration client（confirm preview 原样回传、别名路由、错误信封规范化、幂等键与 actor hash 形态）、**全路由渲染冒烟（Phase 40，`appSmoke.test.tsx`：mock 全部 API hooks 后用 createMemoryRouter 复用生产路由表逐条挂载 11 条路由，断言 h1/标志文案不抛错；含 REST 离线 role="alert" 用例）**。
 
-## 验收清单（Live UAT，Phase 40）
+## 安全与传输边界（Phase 36 基线）
 
+- **同源（same-origin）优先：** 生产 `/app` 与全部 `/ui/*`、`/agent/session/*` API 由同一个
+  rag-api 进程（`http://127.0.0.1:8000`）以相对路径提供，浏览器发出的是同源 fetch，不需要也不会
+  下发 `Access-Control-Allow-Origin: *`。
+- **开发期跨源 allowlist：** 仅当用 `npm run dev`（`5173`）访问 `8000` 后端时才需要显式 CORS；服务端
+  内置 `127.0.0.1:5173`/`localhost:5173`，如需其它开发端口，在启动 rag-api 前设置
+  `PK_COCKPIT_DEV_ORIGINS`（逗号分隔的完整 Origin 列表，例如
+  `$env:PK_COCKPIT_DEV_ORIGINS = "http://127.0.0.1:5174"`）；未命中 allowlist 或本机同源的 Origin
+  一律被拒绝，返回安全错误 `origin_not_allowed`，不下发跨源 CORS 头。
+- **mutation 只有一条闸门：** 全部 `/agent/session/*` 写路由（prepare/confirm/preview/execute 及其
+  各阶段别名）在进入编排逻辑之前先做 Origin 校验；跨源请求在读取/解析请求体之前即被拒绝，不产生任何
+  会话、ledger 或 authority 副作用。
+- **唯一允许的写语义：** 前端不新增、也不绕过任何写路径——所有写入仍是既有 `project + low` 受控会话
+  契约（`prepare → exact preview → explicit confirm → 幂等 execute`），UI 侧确认永远不是身份认证，
+  服务端 preview checksum/幂等键才是权威。
+- **浏览器不拥有事实 authority：** Cockpit 只消费版本化只读 `decision_cockpit_projection_v1` 信封；
+  不直接连接 SQLite/Chroma，不裁决 lifecycle/current，不计算或改写 Serving Snapshot、Active Pointer
+  或 Calibration promotion。
+- **浏览器不管理进程：** 前端不启动、不停止、也不重启 REST/MCP/Tunnel/Chroma 中的任何一个；
+  服务生命周期完全由既有 supervisor（见 [`docs/AGENTS.md`](../../docs/AGENTS.md) §3.3）拥有，
+  Cockpit 系统状态页只读展示健康探测结果。
+- **安全错误信封：** transport 层（`cockpit_asset_not_found`/`cockpit_not_built`/
+  `origin_not_allowed`/`internal_error`）与 Projection 层的公开 limitation/error 字段均来自固定
+  allowlist code/message，不拼接请求路径、`str(exc)`、密钥、provider 响应体或
+  confirmation token/HMAC；详细诊断只写本地 stderr。
+- **本轮范围之外（v1.5 候选，未激活）：** Personal Knowledge Wiki / Topic Page / backlinks / LLM
+  Wiki 叙述在本基线中 not shipped，Phase 36 不新建任何个人事实 authority 或离线个人数据持久化。
+
+## 验收清单（Live UAT，Phase 40 — 未执行）
+
+> **以下清单目前全部未勾选，代表尚未执行，不是遗漏勾选。** 它是 Phase 40 的
+> 目标验收范围，只有在 Phase 40 计划实际逐条跑通真实浏览器后才能勾选并写入
+> 该 Phase 自己的 SUMMARY/VERIFICATION；在此之前不得引用为"已验收"。
+>
 > 前置：`npm run build` 后由 rag-api 托管 `http://127.0.0.1:8000/app/`（或 `npm run dev` 代理到 8000）；
 > rag-api 运行在 8000，证据中心 Widget 需 MCP 运行在 8789。
 > 逐条在真实浏览器执行并勾选；失败项回到 spec §17 对应节定位。

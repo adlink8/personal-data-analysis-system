@@ -40,7 +40,7 @@ The planner may choose the exact CORS allowlist/configuration, error-code helper
 - `.planning/REQUIREMENTS.md` — CCK-01..04.
 - `.planning/ROADMAP.md` — Phase 36 goal and success criteria.
 - `.planning/research/v1.4-decision-cockpit-ui/{SUMMARY,STACK,ARCHITECTURE,PITFALLS}.md` — milestone research.
-- `.planning/PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md` — candidate product/UI contract.
+- `.planning/research/v1.4-decision-cockpit-ui/UI-SPEC.md` — candidate product/UI contract.
 - `.planning/phases/PDA-33-guarded-decision-orchestration/33-CONTEXT.md` — existing guarded mutation contract.
 - `.planning/phases/PDA-35-runtime-and-live-e2e/35-VERIFICATION.md` — v1.3 runtime and live-boundary evidence.
 </canonical_refs>

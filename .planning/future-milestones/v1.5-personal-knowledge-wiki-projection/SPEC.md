@@ -13,7 +13,7 @@ source_of_truth_inputs:
   - .planning/PROJECT.md
   - .planning/STATE.md
   - .planning/ROADMAP.md
-  - .planning/PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md
+  - .planning/research/v1.4-decision-cockpit-ui/UI-SPEC.md
   - src/personal_knowledge/services/ui_projection.py
   - src/personal_knowledge/services/api_server.py
   - apps/personal_decision_cockpit/src/app/router.tsx

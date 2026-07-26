@@ -115,7 +115,7 @@ v1.4 不从零构建前端，也不扩展个人决策系统的事实权威。仓
 - `src/personal_knowledge/services/ui_projection.py` — Projection contract 和只读限制。
 - `src/personal_knowledge/services/api_server.py` — REST、静态托管与 transport surface。
 - `src/personal_knowledge/intelligence/orchestration/` — v1.3 guarded write contract。
-- `.planning/PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md` — 候选体验契约。
+- `.planning/research/v1.4-decision-cockpit-ui/UI-SPEC.md` — 候选体验契约。
 
 ---
 *Research completed: 2026-07-22*  

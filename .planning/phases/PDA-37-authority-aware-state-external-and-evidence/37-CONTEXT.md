@@ -39,7 +39,7 @@ The planner may choose card, table and evidence-drawer composition so long as it
 - `.planning/ROADMAP.md` — Phase 37 goal and criteria.
 - `.planning/phases/PDA-36-secure-projection-and-cockpit-baseline/36-CONTEXT.md` — secured Projection/DTO prerequisite.
 - `.planning/research/v1.4-decision-cockpit-ui/{FEATURES,ARCHITECTURE,PITFALLS}.md`.
-- `.planning/PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md` — state, external, evidence and responsive visual semantics.
+- `.planning/research/v1.4-decision-cockpit-ui/UI-SPEC.md` — state, external, evidence and responsive visual semantics.
 </canonical_refs>
 
 <code_context>

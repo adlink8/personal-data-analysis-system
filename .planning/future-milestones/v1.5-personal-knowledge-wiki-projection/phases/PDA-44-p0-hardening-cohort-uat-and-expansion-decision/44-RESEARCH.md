@@ -380,7 +380,7 @@ or a premature “personal encyclopedia.”
 ### Repository sources
 
 - `.planning/future-milestones/v1.5-personal-knowledge-wiki-projection/{README.md,ACTIVATION.md,PROJECT.md,REQUIREMENTS.md,ROADMAP.md}`.
-- `44-CONTEXT.md`, Phase 41–43 contexts/research, and `.planning/PERSONAL-WIKI-PROJECTION-SPEC-2026-07-22.md`.
+- `44-CONTEXT.md`, Phase 41–43 contexts/research, and `.planning/future-milestones/v1.5-personal-knowledge-wiki-projection/SPEC.md`.
 - `.planning/phases/PDA-40-product-hardening-and-live-uat/{40-CONTEXT.md,40-RESEARCH.md}`.
 - `apps/personal_decision_cockpit/{package.json,README.md,src/test/appSmoke.test.tsx,src/test/liveContract.test.ts}`.
 - `src/personal_knowledge/services/{api_server.py,ui_projection.py}`.

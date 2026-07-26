@@ -21,7 +21,7 @@
 > **2026-07-22 实现对账：**Cockpit 与 Projection 的大部分代码已作为未提交 WIP 存在；
 > Phase 36–40 是对既有实现的安全、证据、真值、运行时和真实浏览器验收收口，不是从零新建。
 > 当前仍不得把 v1.4 声称为完成。逐项证据见
-> [`V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md`](./V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md)。
+> [`.planning/audits/V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md`](audits/V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md)。
 
 ## Phase Ordering
 
@@ -50,7 +50,7 @@
 **Requirements:** CCK-01, CCK-02, CCK-03, CCK-04
 
 **Depends on:** v1.3 Agent Productization 的 REST、Guarded Orchestration 和 authority contracts
-**Plans:** 2/4 plans executed
+**Plans:** 4/4 plans executed — Phase 36 closed
 
 **Success criteria:**
 
@@ -155,13 +155,13 @@
 
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
-| 36 | CCK-01, CCK-02, CCK-03, CCK-04 | 2/4 executed | In Progress — 36-01 secure transport closed, 36-02 safe projection envelope closed |
+| 36 | CCK-01, CCK-02, CCK-03, CCK-04 | 4/4 executed | Closed — 36-01 secure transport, 36-02 safe projection envelope, 36-03 frontend DTO/vocabulary hardening, 36-04 auditable baseline + 36-VERIFICATION.md all closed |
 | 37 | STATE-01, STATE-02, STATE-03, EVID-01 | 0/3 executed | Planned — future plans reviewed, not executed |
 | 38 | DEC-01, DEC-02, DEC-03 | 0/3 executed | Planned — future plans reviewed, not executed |
 | 39 | FDB-01, FDB-02, RUN-01 | 0/4 executed | Planned — future plans reviewed, not executed |
 | 40 | UX-01, UX-02, QA-01, QA-02 | 0/3 executed | Planned — future plans reviewed, not executed |
-| 41 | EXT-01, EXT-02, EXT-03 | 0/0 executed | Discuss — context gathering |
-| 42 | DED-01, DED-02 | 0/0 executed | Registered — pending Phase 41 |
+| 41 | EXT-01, EXT-02, EXT-03 | 4/4 waves + closure | **Complete 2026-07-27** — assistant 轨全链闭合,active 40,200 向量,doctor OK（见 41-CLOSURE-CHECKLIST） |
+| 42 | DED-01, DED-02 | 0/0 executed | Ready — Phase 41 complete, context 就绪待 plan |
 
 ## Requirement Coverage
 
@@ -176,6 +176,66 @@
 | EXT-01..03 | 41 | 3 |
 | DED-01..02 | 42 | 2 |
 | **Total v1.4.1** | — | **5/5** |
+
+## Backlog
+
+> 未排序停车场（999.x）。来源：2026-07-26 全量修补梳理（4 路并行架构/数据流/
+> 评估/规划核查）。执行细则见各 phase 目录；Phase 41 收尾清单见
+> [`phases/PDA-41-extraction-scope-redefinition-assistant-track-coverage-eligi/41-CLOSURE-CHECKLIST.md`](./phases/PDA-41-extraction-scope-redefinition-assistant-track-coverage-eligi/41-CLOSURE-CHECKLIST.md)。
+> 用 `$gsd-review-backlog` 择机提升为活跃 phase。
+
+### Phase 999.1: 数据管线健壮性修复 (BACKLOG)
+
+**Goal:** 消除审计登记的低概率高影响缺口：canonical 发布崩溃窗口（两次
+`os.replace` 之间 dest 缺失，审计 M4）、timestamp 格式混存致字典序比较不可靠
+（L2，定 `YYYY-MM-DDTHH:MM:SSZ` 规范 + 存量迁移 + 写入口校验）、
+`parent_canonical_id` 永不回填（L3，实现回填或删字段，与 lifecycle 审查同批）。
+**Requirements:** TBD
+**Plans:** 0 plans
+
+### Phase 999.2: 检索性能优化 (BACKLOG)
+
+**Goal:** canonical_messages 关键词层由多 token AND LIKE 全扫（80,516 行）改
+FTS5 虚表 + 同步触发器（保留 LIKE 滑窗片段路给 code-literal 长粘贴）；rag-api
+启动预热 embedding 模型与 Chroma 连接，消除 p95 冷启动尾部（实测 2,082ms vs
+稳态 25–150ms）。
+**Requirements:** TBD
+**Plans:** 0 plans
+
+### Phase 999.3: 治理与架构例外收口 (BACKLOG)
+
+**Goal:** 收掉 `architecture.yaml` 中 retrieval(`vector`) 反向 import
+knowledge/conversation domain 契约的唯一方向性例外（契约下沉 core 或显式接口
+层）；升级 GSD scanner 词表消除 6 个历史 UAT 文件（Phase 14/17/18×2/20/27）
+的 open 误报。
+**Requirements:** TBD
+**Plans:** 0 plans
+
+### Phase 999.4: domains facade 物理删除 (BACKLOG)
+
+**Goal:** 日期门 2026-08-13（PRODUCT-READINESS）。前置已满足：
+`application → domains` 真实 import = 0（`pk-ku doctor` 守护）。整包删除
+`domains/` + shim registry `expected_count` 下调（走 retirement cohort 人工
+批准）。
+**Requirements:** TBD
+**Plans:** 0 plans
+
+### Phase 999.5: 评测简化与 gold 集扩充（单人可持续协议） (BACKLOG)
+
+**Goal:** 把评测体系从"团队级严谨"降档为"单人可持续"，同时闭合就绪分两
+短板之一 Eval/canary=74 与 Phase 17 human gold/judge UAT 残留。三层协议：
+L1 机械门（隐私/citation/reconcile）全自动保持不动；L2 canary LLM 打标 +
+人工只复核 critical（每次 promote ~15 分钟），judge 校准做一次性 1 小时投
+资（一致率 ≥90% 后信任 + 10% 抽查）；L3 gold 集用"LLM 起草 → 人三键核对
+（对/错/删）"扩到 100+ 条（复用 `review_packets.py` /
+`llm_review_receipt.py` 基建），后续增长靠"使用即标注"（错例随手记 jsonl，
+每月转正式 case；v1.4 Cockpit 落地后升级为界面 👎 按钮，衔接 Phase 39 反馈
+链路）。同时显式降档：`eval_policy` 阈值调宽（yaml 改策略不改代码）、放弃
+统计显著性追求（评测职责=抓回归）、场景覆盖收缩到真实提问/时变/隐私三类、
+Phase 17 遗留 UAT 以简化协议关闭并记录。细化见
+[`phases/999.5-eval-simplification-gold-expansion/999.5-NOTES.md`](./phases/999.5-eval-simplification-gold-expansion/999.5-NOTES.md)。
+**Requirements:** TBD
+**Plans:** 0 plans
 
 ## Deferred Next Milestone
 

@@ -79,7 +79,7 @@ python -m pytest tests/contract/test_ui_projection.py tests/contract/test_ui_pro
 - `apps/personal_decision_cockpit/package.json` — 当前前端依赖与脚本。
 - `apps/personal_decision_cockpit/vite.config.ts` — 开发代理与生产托管边界。
 - `src/personal_knowledge/services/ui_projection.py` — Projection-only 约束。
-- `.planning/PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md` — 既有候选视觉与交互契约。
+- `.planning/research/v1.4-decision-cockpit-ui/UI-SPEC.md` — 既有候选视觉与交互契约。
 
 ---
 *Stack research for: v1.4 Decision Cockpit UI*  

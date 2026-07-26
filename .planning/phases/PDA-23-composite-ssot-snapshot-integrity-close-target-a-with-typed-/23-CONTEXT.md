@@ -52,8 +52,8 @@ Out of scope: changing embedding/LLM models, paid extraction, promoting a failin
 ## Canonical References
 
 ### Program scope
-- `.planning/TARGET-GAP-ANALYSIS-2026-07-17.md` — Target A exit conditions and Target D dependency order.
-- `.planning/ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md` — D/S/R/A definitions and unresolved architecture findings.
+- `.planning/audits/TARGET-GAP-ANALYSIS-2026-07-17.md` — Target A exit conditions and Target D dependency order.
+- `.planning/audits/ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md` — D/S/R/A definitions and unresolved architecture findings.
 - `.planning/REQUIREMENTS.md` — FOUND-01..05 acceptance requirements.
 
 ### Current architecture and operating contracts

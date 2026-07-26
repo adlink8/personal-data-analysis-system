@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-milestone_name: Decision Cockpit UI
+milestone_name: Goal
 status: executing
-last_updated: "2026-07-26T12:07:56.029Z"
-last_activity: 2026-07-26
+last_updated: "2026-07-26T13:50:37.574Z"
+last_activity: 2026-07-26 -- Phase 37 execution started
 progress:
-  total_phases: 7
-  completed_phases: 0
+  total_phases: 12
+  completed_phases: 1
   total_plans: 21
-  completed_plans: 2
-  percent: 10
+  completed_plans: 4
+  percent: 8
 ---
 
 # Project State
@@ -25,8 +25,8 @@ progress:
 |-------|----------------|
 | Dialogue SSOT | `data/canonical/agent/structured/db/agent_conversations.sqlite` |
 | Knowledge SSOT | `canonical_knowledge_units` + **active** Chroma collection |
-| Active KU (live) | **`knowledge_units_salvage_v1_b_20260726021631`** — 32,382 vectors, canary strict PASS 2026-07-26（前代 `knowledge_units_ir_4cd8af4ad_20260718054940` 可回滚） |
-| Active serving snapshot | **`ss_e2fe859c6896e05bf124a70d`** — 10/10 typed roles, Doctor critical_fail=0 |
+| Active KU (live) | **`knowledge_units_ir_13486f30c_20260726153705`** — 40,200 vectors（含 as| 7,818）, canary strict PASS 2026-07-27（前代 `knowledge_units_salvage_v1_b_20260726021631` 可回滚） |
+| Active serving snapshot | **`ss_470b5cb907970d1352aee145`** — 10/10 typed roles 全绑最新水位, Doctor status OK exit=0 (2026-07-27) |
 | Watermark | matches current source checksum |
 | Product CLI | `pk-sync`, `pk-ku` (inspect…promote, watermark, **reconcile**, **history**, **doctor**) |
 
@@ -61,30 +61,30 @@ progress:
 
 ## Current Position
 
-Phase: 36 (secure-projection-and-cockpit-baseline) — EXECUTING
-Plan: 3 of 4
-Status: 36-01/36-02 complete; 36-03 next
-Last activity: 2026-07-26
+Phase: 37 (authority-aware-state-external-and-evidence) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 37
+Last activity: 2026-07-26 -- Phase 37 execution started
 
 ## Project Reference
 
 See: `.planning/PROJECT.md` (updated 2026-07-19)
 
 **Core value:** Local, evidence-bound and uncertainty-aware personal decision support.
-**Current focus:** Phase 36 — secure-projection-and-cockpit-baseline
+**Current focus:** Phase 37 — authority-aware-state-external-and-evidence
 
 ## Cross-cutting architecture/data governance audit
 
 - **2026-07-18 live closure:** Phase 24 strict review, final retrieval gate and lifecycle adoption pass; Active snapshot is `ss_5d816a6bf3ebd0bce9463236`. Phase 25–27 schemas are applied with one validated committed real run per phase. Technical blockers are empty and explicit Product UAT passed.
 
-- **Corrected product vision and current status:** [`PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](./PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md) — final target is decision intelligence based on long-term personal data plus external environment, not a project-status Agent.
-- **Candidate product frontend:** [`PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md`](./PERSONAL-DECISION-COCKPIT-UI-SPEC-2026-07-19.md) — independent decision cockpit for current state, decisions, actions/outcomes, external context, proactive signals, evidence and runtime health; not activated as a milestone.
-- **v1.4 implementation/plan reconciliation:** [`V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md`](./V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md) — existing Cockpit and Projection WIP is real but uncommitted; records the CORS, safe-error, evidence, feedback-history and browser-UAT closure work that remains before v1.5 can activate.
-- **Candidate personal knowledge projection:** [`PERSONAL-WIKI-PROJECTION-SPEC-2026-07-22.md`](./PERSONAL-WIKI-PROJECTION-SPEC-2026-07-22.md) — a post-Cockpit, read-only topic Wiki for Project/Goal/Decision pages; distinct from `docs/wiki/`, which remains developer/operator documentation. Not activated as a milestone.
+- **Corrected product vision and current status:** [`.planning/audits/PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](audits/PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md) — final target is decision intelligence based on long-term personal data plus external environment, not a project-status Agent.
+- **Candidate product frontend:** [`UI-SPEC.md`](research/v1.4-decision-cockpit-ui/UI-SPEC.md) — independent decision cockpit for current state, decisions, actions/outcomes, external context, proactive signals, evidence and runtime health; not activated as a milestone.
+- **v1.4 implementation/plan reconciliation:** [`.planning/audits/V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md`](audits/V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md) — existing Cockpit and Projection WIP is real but uncommitted; records the CORS, safe-error, evidence, feedback-history and browser-UAT closure work that remains before v1.5 can activate.
+- **Candidate personal knowledge projection:** [`SPEC.md`](future-milestones/v1.5-personal-knowledge-wiki-projection/SPEC.md) — a post-Cockpit, read-only topic Wiki for Project/Goal/Decision pages; distinct from `docs/wiki/`, which remains developer/operator documentation. Not activated as a milestone.
 - **v1.5 Wiki preplanning package:** [`future-milestones/v1.5-personal-knowledge-wiki-projection/README.md`](./future-milestones/v1.5-personal-knowledge-wiki-projection/README.md) — normal GSD requirements, roadmap, phase contexts/research/plans/verification for WIKI-01..04; explicitly `preplanned_not_active` until v1.4 implementation and audit complete.
-- **Authoritative issue inventory:** [`ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md`](./ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md)
-- **Current expected-target gap:** [`TARGET-GAP-ANALYSIS-2026-07-18.md`](./TARGET-GAP-ANALYSIS-2026-07-18.md) — current authoritative distance analysis for PDI-T0..T4, Phase 24 blockers, External Context, LLM decision analysis and real outcome calibration.
-- **Historical target-gap snapshot:** [`TARGET-GAP-ANALYSIS-2026-07-17.md`](./TARGET-GAP-ANALYSIS-2026-07-17.md) — retained for historical comparison only.
+- **Authoritative issue inventory:** [`.planning/audits/ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md`](audits/ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md)
+- **Current expected-target gap:** [`.planning/audits/TARGET-GAP-ANALYSIS-2026-07-18.md`](audits/TARGET-GAP-ANALYSIS-2026-07-18.md) — current authoritative distance analysis for PDI-T0..T4, Phase 24 blockers, External Context, LLM decision analysis and real outcome calibration.
+- **Historical target-gap snapshot:** [`.planning/audits/TARGET-GAP-ANALYSIS-2026-07-17.md`](audits/TARGET-GAP-ANALYSIS-2026-07-17.md) — retained for historical comparison only.
 - Scope: D/S/R/A layer separation, SQLite/Chroma composite SSOT, inventory/watermark/lifecycle integrity, evaluation evidence, repository and runtime drift.
 - Initial verdict: **gaps_found**. The audit found disabled SQLite FK enforcement, 18,859 FK violations, Delta Inventory FK mismatch, and unsafe incremental inspection/execution boundaries.
 - **2026-07-17 remediation:** unified Full/Delta Inventory registry migrated with verified backup; FK violations are 0; knowledge write connections enforce FK; doctor and publish/promote gates fail closed; inspect defaults to committed watermark; execution lists are no longer preview-truncated; governance preflight is 12/12 PASS.
