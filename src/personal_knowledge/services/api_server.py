@@ -74,6 +74,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -151,6 +152,48 @@ def _resolve_cockpit_asset(url_path: str) -> Path | None:
     if resolved != root and root not in resolved.parents:
         return None
     return resolved if resolved.is_file() else None
+
+
+# === 同源 transport 与 CORS 策略（Phase 36：D-36-03） ======================
+#
+# 生产 Cockpit 由本进程以 /app 同源托管，浏览器同源 fetch 天然不受 CORS 限制，
+# 不需要任何 Access-Control-Allow-Origin 响应头。唯一需要显式 CORS 的场景是
+# 本地开发：Vite dev server（默认 127.0.0.1:5173）与本 REST 进程（默认 8000）
+# 端口不同，浏览器发起的是跨源请求。允许的开发 Origin 只能来自启动时的显式
+# 配置（环境变量），不接受任何请求内容扩大该列表。
+_DEFAULT_DEV_ORIGINS = ("http://127.0.0.1:5173", "http://localhost:5173")
+
+
+def _dev_allowed_origins() -> frozenset[str]:
+    """显式开发 Origin allowlist：内置 Vite 默认端口 + PK_COCKPIT_DEV_ORIGINS(逗号分隔)。"""
+    raw = os.environ.get("PK_COCKPIT_DEV_ORIGINS", "")
+    extra = tuple(item.strip() for item in raw.split(",") if item.strip())
+    return frozenset(_DEFAULT_DEV_ORIGINS + extra)
+
+
+def _same_origin(origin: str, host_header: str | None) -> bool:
+    """判断请求 Origin 是否与本进程自身(生产 /app 同源)一致。"""
+    if not host_header:
+        return False
+    return origin in (f"http://{host_header}", f"https://{host_header}")
+
+
+def _origin_policy(origin: str | None, host_header: str | None) -> dict:
+    """集中的 Origin 判定,是 CORS 响应与跨 Origin mutation 拒绝的唯一决策点。
+
+    - 无 Origin(既有本地非浏览器调用,如 curl/CLI/MCP): 放行,不下发 CORS header。
+    - Origin 与本进程 Host 一致(生产同源 Cockpit): 放行,不下发 CORS header
+      (浏览器同源请求本就不受 CORS 约束)。
+    - Origin 命中显式开发 allowlist: 放行,下发该 Origin 专属 CORS header。
+    - 其余任意 Origin: 拒绝,不下发 CORS header,不回显该 Origin。
+    """
+    if not origin:
+        return {"allowed": True, "reason": "no_origin", "cors_origin": None}
+    if _same_origin(origin, host_header):
+        return {"allowed": True, "reason": "same_origin", "cors_origin": None}
+    if origin in _dev_allowed_origins():
+        return {"allowed": True, "reason": "dev_origin", "cors_origin": origin}
+    return {"allowed": False, "reason": "origin_not_allowed", "cors_origin": None}
 
 
 def _seal_payload(data):
@@ -282,6 +325,9 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stderr.write(f"[api] {self.command} {self.path} -> {args[1]}\n")
 
+    def _origin_policy_for_request(self) -> dict:
+        return _origin_policy(self.headers.get("Origin"), self.headers.get("Host"))
+
     def _send(self, body: bytes, code: int = 200, ctype: str = "application/json"):
         self.send_response(code)
         # 文本类响应声明 charset;二进制资源(图片/字体等)不追加
@@ -291,10 +337,13 @@ class Handler(BaseHTTPRequestHandler):
             ctype = f"{ctype}; charset=utf-8"
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        # 允许本地前端/平台跨域调用
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        # 生产同源不需要 CORS header;仅显式开发 Origin 获得专属(非 wildcard)响应头
+        decision = self._origin_policy_for_request()
+        if decision["cors_origin"]:
+            self.send_header("Access-Control-Allow-Origin", decision["cors_origin"])
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
         self.wfile.write(body)
 
@@ -311,6 +360,15 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_OPTIONS(self):  # CORS 预检
+        decision = self._origin_policy_for_request()
+        if not decision["allowed"]:
+            # 未知 Origin 的预检 → 安全拒绝;不下发 CORS header,不回显 Origin
+            payload = json.dumps(
+                {"ok": False, "error": {"code": "origin_not_allowed", "message": "跨源请求已拒绝"}},
+                ensure_ascii=False,
+            ).encode("utf-8")
+            self._send(payload, 403)
+            return
         self._send(b"", 204)
 
     # --- GET 路由 ----------------------------------------------------------
