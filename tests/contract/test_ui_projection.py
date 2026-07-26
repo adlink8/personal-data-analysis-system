@@ -1,9 +1,15 @@
 import json
+import sqlite3
+
+import pytest
 
 import personal_knowledge.services.api_server as api_server
+from personal_knowledge.core.project_paths import UNIFIED_DB
+from personal_knowledge.intelligence.decision.service import DecisionFeedbackService
 from personal_knowledge.intelligence.proactive.service import ProactiveIntelligenceService
 from personal_knowledge.services.api_server import ui_rest_contract
 from personal_knowledge.services.ui_projection import (
+    AUTHORITY_DB_PATHS,
     INTERFACE_SCHEMA_VERSION,
     CockpitProjectionService,
 )
@@ -142,3 +148,64 @@ def test_cockpit_asset_resolution(monkeypatch, tmp_path):
     # dist 未构建 → None
     monkeypatch.setattr(api_server, "COCKPIT_DIST", tmp_path / "missing")
     assert api_server._resolve_cockpit_asset("/app") is None
+
+
+# --- 物理只读边界(Phase 36 task 2:D-36-01/D-36-02)---------------------------
+
+
+def _table_fingerprint(path):
+    """对权威库以 mode=ro 打开并逐表计数,构成只读指纹;用于证明 Projection
+    调用前后权威库零写入(D-36-01/D-36-02)。库不存在时返回 None。"""
+    if not path.exists():
+        return None
+    con = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        con.execute("PRAGMA query_only=ON")
+        tables = [
+            row[0] for row in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            ).fetchall()
+        ]
+        return {
+            table: con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+            for table in tables
+        }
+    finally:
+        con.close()
+
+
+def test_all_projection_operations_are_physically_read_only():
+    paths = {"unified": UNIFIED_DB, **AUTHORITY_DB_PATHS}
+    before = {name: _table_fingerprint(path) for name, path in paths.items()}
+
+    service = CockpitProjectionService()
+    for operation in (
+        "overview.get", "system.status.get", "personal_state.get",
+        "external_delta.get", "decision_queue.get", "actions_recent.get",
+        "proactive_summary.get", "calibration_overview.get",
+    ):
+        service.invoke(operation)
+    # decision_workspace.get 需要真实 recommendation_id 才会真正下钻到全部权威读面
+    rid_result = DecisionFeedbackService(UNIFIED_DB).invoke("recommendations.list", limit=1)
+    if rid_result.get("ok"):
+        items = rid_result["data"].get("items") or []
+        if items:
+            service.invoke(
+                "decision_workspace.get",
+                recommendation_id=items[0]["recommendation_id"],
+            )
+
+    after = {name: _table_fingerprint(path) for name, path in paths.items()}
+    assert before == after
+
+
+def test_projection_readonly_connection_rejects_write():
+    """CockpitProjectionService 内部自建连接一律 mode=ro + query_only=ON;
+    在同样的打开方式下,任何写语句都必须被 SQLite 拒绝(D-36-02 物理只读边界)。"""
+    con = sqlite3.connect(f"file:{UNIFIED_DB.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        con.execute("PRAGMA query_only=ON")
+        with pytest.raises(sqlite3.OperationalError):
+            con.execute("CREATE TABLE ui_projection_write_probe_36_02 (id INTEGER)")
+    finally:
+        con.close()
