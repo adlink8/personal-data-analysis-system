@@ -6,9 +6,14 @@ import { DecisionWorkspacePage } from '../pages/decisions/DecisionWorkspacePage'
 import { ApiError } from '../api/client';
 import { useEvidenceResolve } from '../api/hooks';
 import {
+  DECISION_WORKSPACE_CLOSED_ENVELOPE,
   DECISION_WORKSPACE_ENVELOPE,
+  DECISION_WORKSPACE_EXPIRED_ENVELOPE,
   DECISION_WORKSPACE_FIELDS_MISSING_ENVELOPE,
   DECISION_WORKSPACE_NON_PROJECT_ENVELOPE,
+  DECISION_WORKSPACE_NO_EVIDENCE_ENVELOPE,
+  DECISION_WORKSPACE_PARTIAL_ENVELOPE,
+  DECISION_WORKSPACE_UNBOUND_ENVELOPE,
 } from './mockData';
 
 /**
@@ -154,5 +159,79 @@ describe('DecisionWorkspacePage：DEC-01 决策比较', () => {
     renderPage();
     const section = within(comparisonSection());
     expect(section.getByText(/仅 project 域的受控会话固定风险预算为 low/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * fail-closed 资格门（Phase 38 Task 3）：partial、stale、conflict、binding
+ * mismatch 或 evidence insufficient 时，"记录行动/结果"guarded 入口必须消失，
+ * 只保留只读阻断说明与刷新恢复路径；合格样例保持既有入口可用。
+ */
+describe('DecisionWorkspacePage：fail-closed 资格门', () => {
+  function expectBlocked(reasonText: string) {
+    expect(screen.queryByRole('button', { name: /记录行动\/结果/ })).not.toBeInTheDocument();
+    expect(screen.getByText('暂不能发起受控会话')).toBeInTheDocument();
+    expect(screen.getByText(reasonText)).toBeInTheDocument();
+  }
+
+  it('过期样例：expires_at 已过 → 阻断，不渲染写入入口', () => {
+    currentQuery = { isPending: false, isError: false, data: DECISION_WORKSPACE_EXPIRED_ENVELOPE, refetch: vi.fn() };
+    renderPage();
+    expectBlocked('建议已过有效期');
+  });
+
+  it('已关闭样例：confirmation_state=rejected → 阻断', () => {
+    currentQuery = { isPending: false, isError: false, data: DECISION_WORKSPACE_CLOSED_ENVELOPE, refetch: vi.fn() };
+    renderPage();
+    expectBlocked('确认状态已关闭（已拒绝 / 已延迟 / 已撤销），不应继续写入');
+  });
+
+  it('非 project 域样例：domain=career → 阻断（Phase 38 只开放 project 域）', () => {
+    currentQuery = {
+      isPending: false,
+      isError: false,
+      data: DECISION_WORKSPACE_NON_PROJECT_ENVELOPE,
+      refetch: vi.fn(),
+    };
+    renderPage();
+    expectBlocked('仅 project 域开放受控会话（当前建议不属于 project 域）');
+  });
+
+  it('证据不足样例：support 为空 → 阻断', () => {
+    currentQuery = {
+      isPending: false,
+      isError: false,
+      data: DECISION_WORKSPACE_NO_EVIDENCE_ENVELOPE,
+      refetch: vi.fn(),
+    };
+    renderPage();
+    expectBlocked('缺少支撑证据，信息不足');
+  });
+
+  it('缺少 Personal snapshot 绑定样例：snapshot_id 为空 → 阻断', () => {
+    currentQuery = { isPending: false, isError: false, data: DECISION_WORKSPACE_UNBOUND_ENVELOPE, refetch: vi.fn() };
+    renderPage();
+    expectBlocked('缺少 Personal snapshot 绑定');
+  });
+
+  it('投影部分可用样例：envelope.partial=true → 阻断', () => {
+    currentQuery = { isPending: false, isError: false, data: DECISION_WORKSPACE_PARTIAL_ENVELOPE, refetch: vi.fn() };
+    renderPage();
+    expectBlocked('本次投影为部分可用，真值状态不完整');
+  });
+
+  it('刷新后重试按钮调用 query.refetch，不发起任何写入请求', () => {
+    const refetch = vi.fn();
+    currentQuery = { isPending: false, isError: false, data: DECISION_WORKSPACE_EXPIRED_ENVELOPE, refetch };
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: '刷新后重试' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('合格样例：既有"记录行动/结果"入口保留，不出现阻断提示', () => {
+    currentQuery = { isPending: false, isError: false, data: DECISION_WORKSPACE_ENVELOPE, refetch: vi.fn() };
+    renderPage();
+    expect(screen.getByRole('button', { name: /记录行动\/结果/ })).toBeInTheDocument();
+    expect(screen.queryByText('暂不能发起受控会话')).not.toBeInTheDocument();
   });
 });

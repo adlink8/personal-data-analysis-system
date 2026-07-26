@@ -14,6 +14,7 @@ import { shortId, SnapshotChip } from '../../components/authority/SnapshotChip';
 import {
   ActionStateBadge,
   ConfirmationStateBadge,
+  expiryLevel,
   ExpiryText,
 } from '../../components/decision/stateBadges';
 import { EvidenceDrawer } from '../../components/evidence/EvidenceDrawer';
@@ -79,6 +80,51 @@ function decisionEvidenceReference(recommendation: RecommendationDetail): Eviden
     snapshotId: recommendation.snapshot_id,
     checksum: recommendation.recommendation_checksum,
   };
+}
+
+/* ---------------- 只读工作区 → 受控会话的 fail-closed 资格门（Phase 38 Task 3） ---------------- */
+
+/**
+ * 阻断原因的固定词表：全部只消费服务端已给出的投影状态（envelope.partial、
+ * recommendation 的 domain/snapshot_id/confirmation_state/expires_at/support），
+ * 绝不在浏览器里重算风险、修复 binding 或伪造 case reference（T-38-04）。
+ * 服务端仍是最终权威：即使用户手工构造路由参数绕过本门，后续 prepare/confirm
+ * 仍会被服务端既有 guard policy 拒绝。
+ */
+export type EntryGateReason =
+  | 'workspace_partial'
+  | 'binding_missing'
+  | 'expired'
+  | 'closed_state'
+  | 'non_project_domain'
+  | 'evidence_insufficient';
+
+const ENTRY_GATE_REASON_LABELS: Record<EntryGateReason, string> = {
+  workspace_partial: '本次投影为部分可用，真值状态不完整',
+  binding_missing: '缺少 Personal snapshot 绑定',
+  expired: '建议已过有效期',
+  closed_state: '确认状态已关闭（已拒绝 / 已延迟 / 已撤销），不应继续写入',
+  non_project_domain: '仅 project 域开放受控会话（当前建议不属于 project 域）',
+  evidence_insufficient: '缺少支撑证据，信息不足',
+};
+
+// confirmation_state 的关闭态集合，与 stateBadges.tsx CONFIRMATION_META 的既有词表一致
+const CLOSED_CONFIRMATION_STATES = new Set(['rejected', 'deferred', 'revoked']);
+
+function computeEntryGateReasons(
+  envelope: DecisionWorkspaceEnvelope,
+  recommendation: RecommendationDetail,
+): EntryGateReason[] {
+  const reasons: EntryGateReason[] = [];
+  if (envelope.partial) reasons.push('workspace_partial');
+  if (!recommendation.snapshot_id) reasons.push('binding_missing');
+  if (expiryLevel(recommendation.expires_at) === 'expired') reasons.push('expired');
+  if (recommendation.confirmation_state && CLOSED_CONFIRMATION_STATES.has(recommendation.confirmation_state)) {
+    reasons.push('closed_state');
+  }
+  if (recommendation.domain !== 'project') reasons.push('non_project_domain');
+  if (recommendation.support.length === 0) reasons.push('evidence_insufficient');
+  return reasons;
 }
 
 /* ---------------- 三栏 ---------------- */
@@ -479,7 +525,15 @@ function EffectivenessPanel({ effectiveness }: { effectiveness: TypedRecord[] })
 
 /* ---------------- 页面 ---------------- */
 
-function WorkspaceBody({ envelope, recommendationId }: { envelope: DecisionWorkspaceEnvelope; recommendationId: string }) {
+function WorkspaceBody({
+  envelope,
+  recommendationId,
+  onRefresh,
+}: {
+  envelope: DecisionWorkspaceEnvelope;
+  recommendationId: string;
+  onRefresh: () => void;
+}) {
   const navigate = useNavigate();
   const [tab, setTab] = useState<TabKey>('history');
   const [openEvidence, setOpenEvidence] = useState<{ reference: EvidenceReferenceInput; label: string } | null>(null);
@@ -504,6 +558,8 @@ function WorkspaceBody({ envelope, recommendationId }: { envelope: DecisionWorks
 
   const caseId = deriveCaseId(recommendation);
   const evidenceReference = decisionEvidenceReference(recommendation);
+  const gateReasons = computeEntryGateReasons(envelope, recommendation);
+  const eligible = gateReasons.length === 0;
 
   return (
     <>
@@ -529,18 +585,20 @@ function WorkspaceBody({ envelope, recommendationId }: { envelope: DecisionWorks
           <span>投影生成于 {fmtTime(envelope.generated_at)}</span>
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              void navigate(
-                `/sessions/new?intent=action&from=${encodeURIComponent(recommendationId)}${caseId ? `&case_id=${encodeURIComponent(caseId)}` : ''}`,
-              )
-            }
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary"
-          >
-            <IconChevronRight className="h-4 w-4" />
-            记录行动/结果
-          </button>
+          {eligible ? (
+            <button
+              type="button"
+              onClick={() =>
+                void navigate(
+                  `/sessions/new?intent=action&from=${encodeURIComponent(recommendationId)}${caseId ? `&case_id=${encodeURIComponent(caseId)}` : ''}`,
+                )
+              }
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <IconChevronRight className="h-4 w-4" />
+              记录行动/结果
+            </button>
+          ) : null}
           {evidenceReference ? (
             <button
               type="button"
@@ -556,11 +614,40 @@ function WorkspaceBody({ envelope, recommendationId }: { envelope: DecisionWorks
               查看证据
             </button>
           ) : null}
-          <p className="text-xs text-muted">
-            决策确认写入 Pilot 权威案例；记录行动/结果需要编排会话与 case_id
-            {caseId ? '（已从支撑证据预填）' : '（工作区投影未暴露，需手动输入，不臆造）'}。
-          </p>
+          {eligible ? (
+            <p className="text-xs text-muted">
+              决策确认写入 Pilot 权威案例；记录行动/结果需要编排会话与 case_id
+              {caseId ? '（已从支撑证据预填）' : '（工作区投影未暴露，需手动输入，不臆造）'}。
+            </p>
+          ) : null}
         </div>
+        {!eligible ? (
+          // fail-closed 资格门（Phase 38 Task 3）：任一原因命中即只读，不渲染可写 CTA；
+          // 只消费服务端已给出的投影状态，恢复路径限定为查看证据/刷新重试。
+          <div className="mt-3 rounded-lg border border-uncertainty bg-uncertainty-soft p-3" role="note">
+            <p className="flex items-start gap-1.5 text-sm font-medium text-uncertainty">
+              <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              暂不能发起受控会话
+            </p>
+            <ul className="mt-1 list-disc pl-6 text-sm text-muted">
+              {gateReasons.map((reason) => (
+                <li key={reason}>{ENTRY_GATE_REASON_LABELS[reason]}</li>
+              ))}
+            </ul>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onRefresh}
+                className="inline-flex items-center gap-1.5 rounded-md border border-line bg-panel px-2.5 py-1 text-xs text-ink transition-colors hover:bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                刷新后重试
+              </button>
+              {evidenceReference ? (
+                <span className="text-xs text-muted">或点击上方"查看证据"核实当前状态。</span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </header>
 
       <DecisionComparisonSection recommendation={recommendation} />
@@ -692,7 +779,7 @@ export function DecisionWorkspacePage() {
         </div>
       ) : null}
 
-      <WorkspaceBody envelope={envelope} recommendationId={id} />
+      <WorkspaceBody envelope={envelope} recommendationId={id} onRefresh={() => void query.refetch()} />
     </div>
   );
 }
