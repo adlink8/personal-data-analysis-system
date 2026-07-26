@@ -3,7 +3,7 @@ import type { ApiError } from '../../api/client';
 import { useDecisionQueue } from '../../api/hooks';
 import type { DecisionCard, DecisionQueueEnvelope, DecisionStageKey } from '../../api/schemas';
 import { DECISION_STAGE_KEYS } from '../../api/schemas';
-import { shortId } from '../../components/authority/SnapshotChip';
+import { shortId, SnapshotChip } from '../../components/authority/SnapshotChip';
 import {
   ActionStateBadge,
   ConfirmationStateBadge,
@@ -115,6 +115,8 @@ function DecisionCardView({ card }: { card: DecisionCard }) {
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <ConfirmationStateBadge state={card.confirmation_state} />
           <ActionStateBadge state={card.action_state} />
+          {/* Recommendation 在离开会话前必须持续可见其 Personal snapshot 绑定（D-38-02） */}
+          <SnapshotChip label="Personal" snapshotId={card.snapshot_id ?? null} />
         </div>
         <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
           <span>置信度 {fmtConfidence(card.confidence)}</span>

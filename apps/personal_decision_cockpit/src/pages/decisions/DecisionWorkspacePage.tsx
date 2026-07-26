@@ -257,6 +257,94 @@ function AdviceColumn({
   );
 }
 
+/* ---------------- DEC-01 决策比较（Phase 38） ---------------- */
+
+function ComparisonField({ label, value, note }: { label: string; value: string | null; note?: string }) {
+  return (
+    <div className="break-words">
+      <dt className="text-xs font-medium text-muted">{label}</dt>
+      <dd className="mt-0.5 text-sm">{value ?? '未提供'}</dd>
+      {note ? <p className="mt-0.5 text-xs text-muted">{note}</p> : null}
+    </div>
+  );
+}
+
+function ComparisonListField({ label, items, note }: { label: string; items: string[]; note?: string }) {
+  return (
+    <div className="break-words">
+      <dt className="text-xs font-medium text-muted">{label}</dt>
+      {items.length === 0 ? (
+        <dd className="mt-0.5 text-sm text-muted">未提供</dd>
+      ) : (
+        <dd className="mt-0.5">
+          <ul className="list-disc pl-5 text-sm">
+            {items.map((item, i) => (
+              <li key={i}>{item}</li>
+            ))}
+          </ul>
+        </dd>
+      )}
+      {note ? <p className="mt-0.5 text-xs text-muted">{note}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * DEC-01 完整决策比较（spec：问题/目标/硬约束/风险预算/候选方案/不行动基线/
+ * 成本/机会成本/假设/反面证据/停止条件/缺失信息/限制），不得以单一人生分数
+ * 替代解释（D-38-01）。当前 decision_workspace.get 的真实数据模型只包含单一
+ * recommendation（无多候选比较、无 goal/no_action_baseline/risk_budget/
+ * stop_conditions/opportunity_cost 字段，见 schemas.ts 顶部注释），因此以下
+ * 逐项如实标注"未提供"而非臆造——一旦后端投影补齐，无需改动渲染逻辑。
+ */
+function DecisionComparisonSection({ recommendation }: { recommendation: RecommendationDetail }) {
+  const isProjectDomain = recommendation.domain === 'project';
+  return (
+    <section className="card" aria-labelledby="ws-comparison-title">
+      <h2 id="ws-comparison-title" className="font-semibold">
+        决策比较（DEC-01）
+      </h2>
+      <p className="mt-1 text-xs text-muted">
+        Recommendation 是候选，不是事实或用户决定；以下逐项如实标注"未提供"，不用单一分数替代解释。
+      </p>
+      <dl className="mt-3 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+        <ComparisonField
+          label="决策问题"
+          value={null}
+          note="Projection 未提供独立的决策问题陈述；相关信息见「决策条件」列的主体/领域/范围。"
+        />
+        <ComparisonField label="目标（goal）" value={null} note="Projection 当前未暴露决策目标字段。" />
+        <ComparisonListField label="硬约束与成本（costs_constraints）" items={recommendation.costs_constraints} />
+        <ComparisonField
+          label="风险预算（risk_budget）"
+          value={isProjectDomain ? 'low' : null}
+          note={
+            isProjectDomain
+              ? 'project 域的受控会话固定为 low（系统级不变量，唯一开放路径）。'
+              : '仅 project 域的受控会话固定风险预算为 low；当前建议不属于 project 域，无法确定风险预算。'
+          }
+        />
+        <div className="break-words sm:col-span-2">
+          <dt className="text-xs font-medium text-muted">候选方案</dt>
+          <dd className="mt-0.5 text-sm">
+            {recommendation.recommendation_kind ?? '未提供'}
+            {recommendation.target ? `　目标对象：${recommendation.target}` : ''}
+            {recommendation.expected_benefit ? `　预期收益：${recommendation.expected_benefit}` : ''}
+          </dd>
+          <p className="mt-0.5 text-xs text-muted">
+            Projection 当前只提供该单一建议候选，无法展示与其他候选方案（如 A/B/C）的结构化比较表。
+          </p>
+        </div>
+        <ComparisonField label="不行动基线（no_action_baseline）" value={null} note="Projection 当前未暴露不行动基线。" />
+        <ComparisonField label="机会成本（opportunity_cost）" value={null} note="Projection 当前未暴露机会成本。" />
+        <ComparisonListField label="假设（assumptions）" items={recommendation.assumptions} />
+        <ComparisonListField label="反面证据（contraindications）" items={recommendation.contraindications} />
+        <ComparisonField label="停止条件（stop_conditions）" value={null} note="Projection 当前未暴露停止条件。" />
+      </dl>
+    </section>
+  );
+}
+
 /* ---------------- 标签页 ---------------- */
 
 function HistoryPanel({ events }: { events: HistoryEvent[] }) {
@@ -474,6 +562,8 @@ function WorkspaceBody({ envelope, recommendationId }: { envelope: DecisionWorks
           </p>
         </div>
       </header>
+
+      <DecisionComparisonSection recommendation={recommendation} />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <ConditionsColumn recommendation={recommendation} />

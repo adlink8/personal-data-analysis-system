@@ -1,11 +1,15 @@
 import type { Mock } from 'vitest';
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { DecisionWorkspacePage } from '../pages/decisions/DecisionWorkspacePage';
 import { ApiError } from '../api/client';
 import { useEvidenceResolve } from '../api/hooks';
-import { DECISION_WORKSPACE_ENVELOPE } from './mockData';
+import {
+  DECISION_WORKSPACE_ENVELOPE,
+  DECISION_WORKSPACE_FIELDS_MISSING_ENVELOPE,
+  DECISION_WORKSPACE_NON_PROJECT_ENVELOPE,
+} from './mockData';
 
 /**
  * DecisionWorkspacePage 补充测试（Phase 37 Plan 03 Task 2，EVID-01）：
@@ -99,5 +103,56 @@ describe('DecisionWorkspacePage（/decisions/:id）：只读证据下钻入口',
     renderPage();
     expect(screen.getByRole('alert')).toHaveTextContent('决策工作区加载失败');
     expect(screen.queryByRole('button', { name: '查看证据' })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * DEC-01 决策比较（Phase 38 Task 1/2）：问题/目标/硬约束/风险预算/候选方案/
+ * 不行动基线/成本/机会成本/假设/反面证据/停止条件必须逐一可见，缺失字段
+ * 显式"未提供"而非静默省略或用单一分数替代。
+ */
+describe('DecisionWorkspacePage：DEC-01 决策比较', () => {
+  function comparisonSection() {
+    return screen.getByRole('heading', { name: '决策比较（DEC-01）' }).closest('section') as HTMLElement;
+  }
+
+  it('完整样例：硬约束/假设/反面证据以列表渲染，风险预算按 project 域显式为 low', () => {
+    currentQuery = { isPending: false, isError: false, data: DECISION_WORKSPACE_ENVELOPE, refetch: vi.fn() };
+    renderPage();
+    const section = within(comparisonSection());
+    expect(section.getByText('每周总投入不超过 30 小时')).toBeInTheDocument();
+    expect(section.getByText('未来 8 周项目范围不再扩大')).toBeInTheDocument();
+    expect(section.getByText('若项目风险评级上升为 high，本建议应重新评估后再确认')).toBeInTheDocument();
+    expect(section.getByText('low')).toBeInTheDocument();
+    expect(section.getByText(/目标对象：/)).toBeInTheDocument();
+    expect(section.getByText(/预期收益：/)).toBeInTheDocument();
+  });
+
+  it('字段缺失样例（真实 recommendations.get 现状）：target/costs_constraints/assumptions/contraindications 皆显式"未提供"', () => {
+    currentQuery = {
+      isPending: false,
+      isError: false,
+      data: DECISION_WORKSPACE_FIELDS_MISSING_ENVELOPE,
+      refetch: vi.fn(),
+    };
+    renderPage();
+    const section = within(comparisonSection());
+    // 目标对象/预期收益不再拼接展示；候选方案行退化为仅剩 recommendation_kind
+    expect(section.queryByText(/目标对象：/)).not.toBeInTheDocument();
+    expect(section.queryByText(/预期收益：/)).not.toBeInTheDocument();
+    // 决策问题/目标/不行动基线/机会成本/停止条件（各 1）+ 硬约束/假设/反面证据（各 1，空数组）= 8
+    expect(section.getAllByText('未提供')).toHaveLength(8);
+  });
+
+  it('非 project 域样例：风险预算显式"未提供"并说明原因', () => {
+    currentQuery = {
+      isPending: false,
+      isError: false,
+      data: DECISION_WORKSPACE_NON_PROJECT_ENVELOPE,
+      refetch: vi.fn(),
+    };
+    renderPage();
+    const section = within(comparisonSection());
+    expect(section.getByText(/仅 project 域的受控会话固定风险预算为 low/)).toBeInTheDocument();
   });
 });
