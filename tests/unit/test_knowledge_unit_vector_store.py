@@ -46,8 +46,8 @@ def _setup_db_with_units(db: Path, n_units: int = 3) -> str:
             (f"cu{i}", f"u{i}")
         )
         con.execute(
-            "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv1',?,?,?,?,?,?,?,?,?,?)",
-            (i, f"cm{i}", f"hash{i}", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible")
+            "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv1',?,?,?,?,?,?,?,?,?,?,?)",
+            (i, f"cm{i}", f"hash{i}", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible", "user")
         )
     con.commit()
     con.close()

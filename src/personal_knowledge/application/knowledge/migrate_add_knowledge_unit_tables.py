@@ -215,6 +215,7 @@ CREATE TABLE IF NOT EXISTS knowledge_inventory_items (
     length_bucket   TEXT,              -- short/mid/long
     has_injection   INTEGER NOT NULL DEFAULT 0,
     eligibility     TEXT NOT NULL DEFAULT 'eligible',
+    role            TEXT,                -- user/assistant（Phase 41；旧库走 tools/migrations/add_inventory_items_role_column.py）
     UNIQUE(inventory_id, position)
 );
 

@@ -43,8 +43,8 @@ def _setup_db_with_units(db: Path, units: list[dict]) -> str:
         )
         if u.get("source_message_ref"):
             con.execute(
-                "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv1',?,?,?,?,?,?,?,?,?,?)",
-                (0, u["source_message_ref"], "hash", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible")
+                "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv1',?,?,?,?,?,?,?,?,?,?,?)",
+                (0, u["source_message_ref"], "hash", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible", "user")
             )
     con.commit()
     con.close()

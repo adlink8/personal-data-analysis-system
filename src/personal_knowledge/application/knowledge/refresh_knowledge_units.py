@@ -33,6 +33,9 @@ from personal_knowledge.core.project_paths import (  # noqa: E402
     AGENT_CONVERSATIONS_DB,
     KNOWLEDGE_ACTIVE_POINTER,
 )
+from personal_knowledge.application.knowledge.eligibility import (  # noqa: E402
+    compute_eligible_messages,
+)
 
 
 def _utc_now() -> str:
@@ -108,7 +111,6 @@ def find_affected_evidence(
 
     # 比较当前 canonical messages 与 inventory items
     con_unified = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
-    con_canon = sqlite3.connect(f"file:{canonical_db.as_posix()}?mode=ro", uri=True)
 
     # inventory 中已有的 evidence refs
     inv_refs = {
@@ -117,18 +119,11 @@ def find_affected_evidence(
         ).fetchall()
     }
 
-    # 当前 canonical store 的 eligible user evidence refs
-    current_refs = {
-        r[0] for r in con_canon.execute(
-            "SELECT m.canonical_message_id FROM canonical_messages m "
-            "JOIN canonical_sessions s ON m.canonical_session_id=s.canonical_session_id "
-            "WHERE m.role='user' AND s.evidence_eligible=1 "
-            "AND m.content IS NOT NULL AND length(m.content) > 20"
-        ).fetchall()
-    }
-
     con_unified.close()
-    con_canon.close()
+
+    # 当前 canonical store 的 eligible evidence refs（D-05：与 prepare/inventory
+    # 共用同一 eligible 函数；role 过滤不下推到 inspect，由 delta 消费方按轨过滤）
+    current_refs = {m.evidence_ref for m in compute_eligible_messages(canonical_db)[0]}
 
     # 新增的 refs（在 canonical 但不在 inventory）
     new_refs = current_refs - inv_refs
@@ -797,20 +792,18 @@ def _load_baseline_inventory_hashes(
 
 
 def _current_eligible_ref_hashes(canonical_db: Path) -> tuple[dict[str, str], dict]:
-    """Current eligible evidence set using full inventory eligibility + content hash."""
-    from personal_knowledge.application.knowledge.build_knowledge_inventory import (
-        build_inventory,
-    )
+    """Current eligible evidence set via the single eligibility function (D-05).
 
-    inventory = build_inventory(canonical_db)
-    if inventory.get("error"):
-        return {}, inventory
+    Returns (ref→content_hash, stats)。stats 来自 compute_eligible_messages，
+    含 inventory_id / ref_roles / ref_started_at 等派生元数据。
+    """
+    items, stats = compute_eligible_messages(canonical_db)
     hashes = {
-        item["evidence_ref"]: item["content_hash"]
-        for item in inventory.get("items", [])
-        if item.get("evidence_ref") and item.get("content_hash")
+        m.evidence_ref: m.content_hash
+        for m in items
+        if m.evidence_ref and m.content_hash
     }
-    return hashes, inventory
+    return hashes, stats
 
 
 def execute_run(
@@ -1699,6 +1692,7 @@ def prepare_production_delta(
 
     baseline_inventory_id = ""
     after_inventory_id = ""
+    ref_role_fallback_count = 0
     allowed_roles = frozenset(r.strip() for r in (roles or []) if r.strip()) or None
     # Resolve extract floor: explicit --since wins; else watermark day if enabled
     extract_floor = (extract_min_started_at or "").strip()
@@ -1749,15 +1743,32 @@ def prepare_production_delta(
             delta = _empty_delta_result()
         else:
             # Metadata for filters: session started_at + role
+            # 优先复用 after 集合（compute_eligible_messages 单次调用）的
+            # role / started_at；after 集合未命中时才逐行 SQL 兜底，兜底命中数
+            # 计入 artifact 的 ref_role_fallback_count（跳过路径带计数）。
             order_keys: dict[str, str] = {}
             ref_roles: dict[str, str] = {}
+            ref_role_fallback_count = 0
+            eligible_roles: dict = after_meta.get("ref_roles") or {}
+            eligible_started: dict = after_meta.get("ref_started_at") or {}
             try:
-                ccon = sqlite3.connect(
-                    f"file:{canonical_db.as_posix()}?mode=ro", uri=True
-                )
+                ccon = None
                 for ref, ct, _hb, _ha in delta_items:
                     if ct not in extract_types:
                         continue
+                    role = eligible_roles.get(ref)
+                    started = eligible_started.get(ref)
+                    if role:
+                        ref_roles[ref] = role
+                    if started:
+                        order_keys[ref] = started
+                    if role and started:
+                        continue
+                    # 兜底：after 集合未命中（理论上 delta refs 都在 after 集合）
+                    if ccon is None:
+                        ccon = sqlite3.connect(
+                            f"file:{canonical_db.as_posix()}?mode=ro", uri=True
+                        )
                     row = ccon.execute(
                         "SELECT m.role, s.started_at FROM canonical_messages m "
                         "JOIN canonical_sessions s "
@@ -1766,14 +1777,17 @@ def prepare_production_delta(
                         (ref,),
                     ).fetchone()
                     if row:
-                        if row[0]:
+                        ref_role_fallback_count += 1
+                        if row[0] and not role:
                             ref_roles[ref] = row[0]
-                        if row[1]:
+                        if row[1] and not started:
                             order_keys[ref] = row[1]
-                ccon.close()
+                if ccon is not None:
+                    ccon.close()
             except sqlite3.Error:
                 order_keys = {}
                 ref_roles = {}
+                ref_role_fallback_count = 0
 
             delta = _materialize_delta_run(
                 db_path,
@@ -1826,6 +1840,7 @@ def prepare_production_delta(
         "extract_min_started_at": extract_floor,
         "skip_succeeded": skip_succeeded,
         "roles": sorted(allowed_roles) if allowed_roles else [],
+        "ref_role_fallback_count": ref_role_fallback_count,
         "max_extract_items": max_extract_items,
         "no_op": delta.get("no_op", True),
         "provider": provider,

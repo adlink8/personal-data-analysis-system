@@ -46,8 +46,8 @@ def _setup_db(db: Path) -> str:
     )
     for pos in range(3):
         con.execute(
-            "INSERT INTO knowledge_inventory_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (None, inv_id, pos, f"cm{pos}", f"hash{pos}", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible")
+            "INSERT INTO knowledge_inventory_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (None, inv_id, pos, f"cm{pos}", f"hash{pos}", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible", "user")
         )
     con.commit()
     con.close()

@@ -26,8 +26,8 @@ def _setup_full_db(db: Path) -> str:
     )
     for pos in range(3):
         con.execute(
-            "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv1',?,?,?,?,?,?,?,?,?,?)",
-            (pos, f"cm{pos}", f"hash{pos}", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible")
+            "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv1',?,?,?,?,?,?,?,?,?,?,?)",
+            (pos, f"cm{pos}", f"hash{pos}", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible", "user")
         )
     # run
     con.execute(
@@ -218,8 +218,8 @@ def test_all_api_failure_does_not_pass(tmp_path: Path) -> None:
     )
     for pos in range(2):
         con.execute(
-            "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv1',?,?,?,?,?,?,?,?,?,?)",
-            (pos, f"cm{pos}", f"hash{pos}", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible")
+            "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv1',?,?,?,?,?,?,?,?,?,?,?)",
+            (pos, f"cm{pos}", f"hash{pos}", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible", "user")
         )
     con.execute(
         "INSERT INTO knowledge_build_runs VALUES "

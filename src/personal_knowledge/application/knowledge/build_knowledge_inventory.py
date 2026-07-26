@@ -15,10 +15,7 @@ inventory hash 由完整有序 content hash 派生，用于 resume 时 drift 检
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import re
-import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,132 +27,46 @@ _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 from personal_knowledge.core.project_paths import UNIFIED_DB, AGENT_CONVERSATIONS_DB, AI_CONTEXT_DIR  # noqa: E402
 from personal_knowledge.core.sqlite import connect_rw  # noqa: E402
+from personal_knowledge.application.knowledge.eligibility import (  # noqa: E402
+    SYSTEM_INJECTION_PATTERNS,  # noqa: F401  (re-export，兼容旧 import 路径)
+    strip_system_injections,
+    compute_content_hash,
+    compute_source_checksum,
+    compute_eligible_messages,
+)
 
 INVENTORY_JSON = AI_CONTEXT_DIR / "knowledge_unit_inventory.json"
 INVENTORY_MD = AI_CONTEXT_DIR / "knowledge_unit_inventory.md"
 
-# system-reminder 预处理（与 build_knowledge_units.py 一致）
-SYSTEM_INJECTION_PATTERNS = [
-    re.compile(r"<system-reminder[^>]*>.*?</system-reminder>", re.DOTALL | re.IGNORECASE),
-    re.compile(r"<recommended_plugins>.*?</recommended_plugins>", re.DOTALL | re.IGNORECASE),
-    re.compile(r"<environment_context>.*?</environment_context>", re.DOTALL | re.IGNORECASE),
-    re.compile(r"<additional_data>.*?</additional_data>", re.DOTALL | re.IGNORECASE),
-    re.compile(r"<user_info>.*?</user_info>", re.DOTALL | re.IGNORECASE),
-]
+# 旧名字保留为 eligibility 实现的别名（兼容既有 import 路径）
+_strip_injections = strip_system_injections
+_content_hash = compute_content_hash
+_source_checksum = compute_source_checksum
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _strip_injections(text: str) -> str:
-    for pat in SYSTEM_INJECTION_PATTERNS:
-        text = pat.sub("", text)
-    return text.strip()
-
-
-def _content_hash(text: str) -> str:
-    normalized = " ".join(text.split())
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
-
-
-def _source_checksum(db_path: Path) -> str:
-    """canonical DB 的 schema hash + count 校验值。"""
-    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
-    # schema hash
-    ddl = con.execute(
-        "SELECT name, sql FROM sqlite_master WHERE type='table' "
-        "AND name NOT LIKE '%fts%' ESCAPE '\\' ORDER BY name"
-    ).fetchall()
-    schema_text = "\n;;;".join(sql or "" for _name, sql in ddl)
-    schema_hash = hashlib.sha256(schema_text.encode("utf-8")).hexdigest()[:16]
-    # counts
-    session_count = con.execute("SELECT COUNT(*) FROM canonical_sessions").fetchone()[0]
-    message_count = con.execute("SELECT COUNT(*) FROM canonical_messages").fetchone()[0]
-    con.close()
-    payload = f"{schema_hash}|{session_count}|{message_count}"
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
-
-
 def build_inventory(canonical_db: Path = AGENT_CONVERSATIONS_DB) -> dict:
-    """构建冻结 inventory（不写 DB，只返回数据结构）。"""
+    """构建冻结 inventory（不写 DB，只返回数据结构）。
+
+    eligible 判定收编到 eligibility.compute_eligible_messages（D-05 唯一口径），
+    本函数只做 time/length 分桶与统计汇总。
+    """
     if not canonical_db.exists():
         return {"error": f"canonical DB 不存在: {canonical_db}"}
 
-    source_checksum = _source_checksum(canonical_db)
-    con = sqlite3.connect(f"file:{canonical_db.as_posix()}?mode=ro", uri=True)
-    con.row_factory = sqlite3.Row
+    eligible_items, estats = compute_eligible_messages(canonical_db)
+    source_checksum = estats["source_checksum"]
+    coarse_count = estats["coarse_count"]
+    cleaned_len = estats["cleaned_len"]
 
-    # 粗筛：eligible user message > 20 字 + eligible assistant message > 20 字
-    # assistant 消息需额外排除工具命令模式
-    coarse_rows = con.execute(
-        "SELECT m.canonical_message_id, m.canonical_session_id, m.content, "
-        "m.source, m.role, s.agent, s.started_at, s.evidence_eligible "
-        "FROM canonical_messages m JOIN canonical_sessions s "
-        "ON m.canonical_session_id=s.canonical_session_id "
-        "WHERE s.evidence_eligible=1 "
-        "AND m.content IS NOT NULL AND length(m.content) > 20 "
-        "AND m.role IN ('user','assistant') "
-        "ORDER BY s.started_at DESC, m.canonical_message_id"
-    ).fetchall()
-    coarse_count = len(coarse_rows)
-
-    # 清洗 + 去重 + 过滤
     items: list[dict] = []
-    seen_hashes: set[str] = set()
-    excluded_short = 0
-    excluded_injection_only = 0
-    excluded_dup = 0
-    excluded_tool = 0
-
-    # assistant 消息工具命令排除模式
-    import re as _re
-    _tool_patterns = [
-        _re.compile(r'^\[Bash\]', _re.DOTALL),
-        _re.compile(r'^\[Tool:', _re.DOTALL),
-        _re.compile(r'^\[Thinking\]', _re.DOTALL),
-        _re.compile(r'^\[Read\]', _re.DOTALL),
-        _re.compile(r'^\[Edit\]', _re.DOTALL),
-        _re.compile(r'^\[Write\]', _re.DOTALL),
-        _re.compile(r'^\[Grep\]', _re.DOTALL),
-        _re.compile(r'^\[Glob\]', _re.DOTALL),
-        _re.compile(r'^\[TodoWrite\]', _re.DOTALL),
-        _re.compile(r'^\[Agent\]', _re.DOTALL),
-        _re.compile(r'^\[WebFetch\]', _re.DOTALL),
-        _re.compile(r'^\[WebSearch\]', _re.DOTALL),
-        _re.compile(r'^\[Skill\]', _re.DOTALL),
-    ]
-
-    for row in coarse_rows:
-        raw_content = row["content"]
-        cleaned = _strip_injections(raw_content)
-        has_injection = cleaned != raw_content.strip()
-
-        # assistant 工具命令排除
-        if row["role"] == "assistant":
-            if any(p.match(cleaned) for p in _tool_patterns):
-                excluded_tool += 1
-                continue
-
-        # 清洗后太短
-        if len(cleaned) <= 30:
-            excluded_short += 1
-            continue
-
-        chash = _content_hash(cleaned)
-        if chash in seen_hashes:
-            excluded_dup += 1
-            continue
-        seen_hashes.add(chash)
-
-        # 只有注入内容（清洗后虽然 >30 但全是系统文本）也排除
-        if has_injection and len(cleaned.replace("<", "").replace(">", "").strip()) <= 30:
-            excluded_injection_only += 1
-            continue
-
-        started = row["started_at"] or ""
+    for msg in eligible_items:
+        started = msg.started_at
         time_bucket = started[:7] if started else "unknown"
-        clen = len(cleaned)
+        clen = cleaned_len[msg.evidence_ref]
         if clen < 100:
             length_bucket = "short"
         elif clen < 500:
@@ -164,25 +75,21 @@ def build_inventory(canonical_db: Path = AGENT_CONVERSATIONS_DB) -> dict:
             length_bucket = "long"
 
         items.append({
-            "evidence_ref": row["canonical_message_id"],
-            "content_hash": chash,
-            "session_id": row["canonical_session_id"],
-            "source": row["source"],
-            "agent": row["agent"] or "unknown",
+            "evidence_ref": msg.evidence_ref,
+            "content_hash": msg.content_hash,
+            "role": msg.role,
+            "session_id": msg.session_id,
+            "source": msg.source,
+            "agent": msg.agent,
             "time_bucket": time_bucket,
             "length_bucket": length_bucket,
-            "has_injection": int(has_injection),
+            "has_injection": int(msg.has_injection),
             "eligibility": "eligible",
         })
 
-    con.close()
-
     # 有序 dataset hash（Merkle-like：所有 content_hash 的有序拼接）
-    ordered_hashes = "|".join(item["content_hash"] for item in items)
-    dataset_hash = hashlib.sha256(ordered_hashes.encode("utf-8")).hexdigest()[:32]
-    inventory_id = hashlib.sha256(
-        f"{source_checksum}|{dataset_hash}".encode("utf-8")
-    ).hexdigest()[:32]
+    dataset_hash = estats["dataset_hash"]
+    inventory_id = estats["inventory_id"]
 
     # 时间范围
     time_min = min((item["time_bucket"] for item in items if item["time_bucket"] != "unknown"), default="")
@@ -209,9 +116,10 @@ def build_inventory(canonical_db: Path = AGENT_CONVERSATIONS_DB) -> dict:
         "time_range_min": time_min,
         "time_range_max": time_max,
         "excluded": {
-            "short_after_cleaning": excluded_short,
-            "duplicate_content_hash": excluded_dup,
-            "injection_only": excluded_injection_only,
+            "short_after_cleaning": estats["excluded_short"],
+            "duplicate_content_hash": estats["excluded_dup"],
+            "injection_only": estats["excluded_injection_only"],
+            "excluded_tool": estats["excluded_tool"],
         },
         "stats": {
             "by_agent": dict(sorted(by_agent.items(), key=lambda x: -x[1])),
@@ -224,9 +132,21 @@ def build_inventory(canonical_db: Path = AGENT_CONVERSATIONS_DB) -> dict:
 
 
 def write_inventory_to_db(inventory: dict, db_path: Path = UNIFIED_DB) -> None:
-    """把 inventory 写入 knowledge_inventory + knowledge_inventory_items 表。"""
+    """把 inventory 写入 knowledge_inventory + knowledge_inventory_items 表。
+
+    knowledge_inventory_items 需要 role 列（Phase 41 迁移）；写入前 PRAGMA
+    探测，缺列直接抛错提示跑迁移——fail closed，不静默丢 role。
+    """
     con = connect_rw(db_path)
     try:
+        item_cols = {
+            r[1] for r in con.execute("PRAGMA table_info(knowledge_inventory_items)")
+        }
+        if "role" not in item_cols:
+            raise RuntimeError(
+                "knowledge_inventory_items 缺少 role 列，请先运行迁移："
+                "python tools/migrations/add_inventory_items_role_column.py --write"
+            )
         con.execute(
             "INSERT OR REPLACE INTO knowledge_inventory VALUES (?,?,?,?,?,?,?,?,?,?)",
             (
@@ -248,7 +168,7 @@ def write_inventory_to_db(inventory: dict, db_path: Path = UNIFIED_DB) -> None:
         for pos, item in enumerate(inventory["items"]):
             con.execute(
                 "INSERT OR REPLACE INTO knowledge_inventory_items VALUES "
-                "(?,?,?,?,?,?,?,?,?,?,?,?)",
+                "(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     None,  # autoincrement
                     inventory["inventory_id"],
@@ -262,6 +182,7 @@ def write_inventory_to_db(inventory: dict, db_path: Path = UNIFIED_DB) -> None:
                     item["length_bucket"],
                     item["has_injection"],
                     item["eligibility"],
+                    item["role"],
                 ),
             )
         con.commit()
@@ -292,11 +213,12 @@ def write_report(inventory: dict, json_path: Path = INVENTORY_JSON, md_path: Pat
         "",
         f"| 阶段 | Count |",
         f"|------|-------|",
-        f"| SQL 粗筛 (eligible user >20字) | {inventory['coarse_count']} |",
+        f"| SQL 粗筛 (eligible user+assistant >20字) | {inventory['coarse_count']} |",
         f"| 清洗去重后 (authoritative) | **{inventory['authoritative_count']}** |",
         f"| 排除-清洗后过短 | {inventory['excluded']['short_after_cleaning']} |",
         f"| 排除-content_hash 重复 | {inventory['excluded']['duplicate_content_hash']} |",
         f"| 排除-仅注入内容 | {inventory['excluded']['injection_only']} |",
+        f"| 排除-assistant 工具前缀 | {inventory['excluded']['excluded_tool']} |",
         "",
         "> 报告不含 message content、evidence quote、token 或完整 prompt。",
         "",
@@ -347,6 +269,7 @@ def run(canonical_db: Path = AGENT_CONVERSATIONS_DB, db_path: Path = UNIFIED_DB,
     print(f"excluded short:     {inventory['excluded']['short_after_cleaning']}")
     print(f"excluded dup:       {inventory['excluded']['duplicate_content_hash']}")
     print(f"excluded injection: {inventory['excluded']['injection_only']}")
+    print(f"excluded tool:      {inventory['excluded']['excluded_tool']}")
     print(f"time range:         {inventory['time_range_min']} → {inventory['time_range_max']}")
     print(f"with injection:     {inventory['stats']['with_injection']}")
     print()

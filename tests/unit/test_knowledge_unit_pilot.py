@@ -40,8 +40,8 @@ def _setup_inventory(db: Path, n_items: int = 10) -> str:
     )
     for pos in range(n_items):
         con.execute(
-            "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv_pilot',?,?,?,?,?,?,?,?,?,?)",
-            (pos, f"cm{pos}", f"hash{pos}", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible")
+            "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv_pilot',?,?,?,?,?,?,?,?,?,?,?)",
+            (pos, f"cm{pos}", f"hash{pos}", "cs1", "agentsview", "codex", "2026-01", "mid", 0, "eligible", "user")
         )
     # 修正 inventory_id
     con.execute(

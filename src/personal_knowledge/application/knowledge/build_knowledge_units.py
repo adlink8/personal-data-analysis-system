@@ -88,28 +88,13 @@ class ExtractionResult(BaseModel):
     abstain_reason: str = Field(default="")
 
 
-# === System-reminder 预处理（预测试发现 LLM 不完全可靠）===
+# === System-reminder 预处理（唯一权威定义在 eligibility.py，此处 re-export 兼容旧 import 路径）===
 
-SYSTEM_INJECTION_PATTERNS = [
-    re.compile(r"<system-reminder[^>]*>.*?</system-reminder>", re.DOTALL | re.IGNORECASE),
-    re.compile(r"<recommended_plugins>.*?</recommended_plugins>", re.DOTALL | re.IGNORECASE),
-    re.compile(r"<environment_context>.*?</environment_context>", re.DOTALL | re.IGNORECASE),
-    re.compile(r"<additional_data>.*?</additional_data>", re.DOTALL | re.IGNORECASE),
-    re.compile(r"<user_info>.*?</user_info>", re.DOTALL | re.IGNORECASE),
-]
-
-
-def strip_system_injections(text: str) -> str:
-    """剥离系统注入标签内容。返回清洗后的文本。"""
-    cleaned = text
-    for pat in SYSTEM_INJECTION_PATTERNS:
-        cleaned = pat.sub("", cleaned)
-    return cleaned.strip()
-
-
-def is_meaningful(text: str) -> bool:
-    """判断清洗后的文本是否有实质内容（>30 字非空白）。"""
-    return len(text.strip()) > 30
+from personal_knowledge.application.knowledge.eligibility import (  # noqa: E402,F401
+    SYSTEM_INJECTION_PATTERNS,
+    strip_system_injections,
+    is_meaningful,
+)
 
 
 # === Vertex AI 调用 ===
@@ -198,9 +183,10 @@ def _clean_json(text: str) -> str:
 # === Evidence 加载 ===
 
 def load_evidence(canonical_db: Path, limit: int | None = None) -> list[dict]:
-    """从 canonical store 读 eligible user evidence。
+    """LEGACY (L1 path, role=user only)：从 canonical store 读 eligible user evidence。
 
     预处理：剥离 system-reminder，过滤短消息。
+    新代码应使用 eligibility.compute_eligible_messages（D-05 唯一口径）。
     """
     con = sqlite3.connect(f"file:{canonical_db.as_posix()}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row

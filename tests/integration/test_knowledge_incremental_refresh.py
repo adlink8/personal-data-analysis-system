@@ -30,8 +30,8 @@ def _setup_db(db: Path) -> None:
     )
     for i in range(3):
         con.execute(
-            "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv1',?,?,?,?,?,?,?,?,?,?)",
-            (i, f"cm{i}", f"hash{i}", "cs{i}", "agentsview", "codex", "2026-01", "mid", 0, "eligible")
+            "INSERT INTO knowledge_inventory_items VALUES (NULL,'inv1',?,?,?,?,?,?,?,?,?,?,?)",
+            (i, f"cm{i}", f"hash{i}", "cs{i}", "agentsview", "codex", "2026-01", "mid", 0, "eligible", "user")
         )
         con.execute(
             "INSERT INTO knowledge_units (unit_id, run_id, unit_type, subject, question, answer, "
@@ -47,16 +47,16 @@ def _make_canonical_db(db: Path, refs: list[str]) -> None:
     """造 canonical store fixture。"""
     con = sqlite3.connect(str(db))
     cur = con.cursor()
-    cur.execute("CREATE TABLE canonical_sessions (canonical_session_id TEXT PRIMARY KEY, evidence_eligible INTEGER DEFAULT 1)")
+    cur.execute("CREATE TABLE canonical_sessions (canonical_session_id TEXT PRIMARY KEY, agent TEXT, started_at TEXT, evidence_eligible INTEGER DEFAULT 1)")
     cur.execute(
         "CREATE TABLE canonical_messages (canonical_message_id TEXT PRIMARY KEY, "
-        "canonical_session_id TEXT, role TEXT, content TEXT)"
+        "canonical_session_id TEXT, role TEXT, content TEXT, source TEXT)"
     )
-    cur.execute("INSERT INTO canonical_sessions VALUES ('cs1', 1)")
+    cur.execute("INSERT INTO canonical_sessions VALUES ('cs1', 'codex', '2026-01-01', 1)")
     for ref in refs:
         cur.execute(
-            "INSERT INTO canonical_messages VALUES (?,?,?,?)",
-            (ref, "cs1", "user", f"content for {ref} " + "x" * 30)
+            "INSERT INTO canonical_messages VALUES (?,?,?,?,?)",
+            (ref, "cs1", "user", f"content for {ref} " + "x" * 30, "agentsview")
         )
     con.commit()
     con.close()
@@ -116,8 +116,8 @@ def test_large_delta_keeps_full_execution_lists_and_batched_subjects(
         ref = f"gone{i:03d}"
         con.execute(
             "INSERT INTO knowledge_inventory_items VALUES "
-            "(NULL,'inv1',?,?,?,?,?,?,?,?,?,?)",
-            (1000 + i, ref, f"hash-{i}", f"cs-{i}", "agentsview", "codex", "2026-01", "mid", 0, "eligible"),
+            "(NULL,'inv1',?,?,?,?,?,?,?,?,?,?,?)",
+            (1000 + i, ref, f"hash-{i}", f"cs-{i}", "agentsview", "codex", "2026-01", "mid", 0, "eligible", "user"),
         )
         con.execute(
             "INSERT INTO knowledge_units "
