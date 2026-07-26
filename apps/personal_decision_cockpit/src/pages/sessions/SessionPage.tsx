@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
+  canRetrySamePreview,
   deriveActorIdentityHash,
   newIdempotencyKey,
   NEXT_TRANSITION_BY_STATE,
@@ -285,8 +286,14 @@ function StepPanel({ session, transition, caseIdPrefill, onExecuted }: StepPanel
       setPreview(null);
       onExecuted(result);
     } catch (error) {
-      // 保留 preview 与幂等键：可用同一键安全重试，或恢复会话后重新 preview
-      setStepError(error instanceof OrchestrationError ? error : new OrchestrationError({ code: 'unknown_error', message: '未知错误' }));
+      const normalized =
+        error instanceof OrchestrationError
+          ? error
+          : new OrchestrationError({ code: 'unknown_error', message: '未知错误' });
+      setStepError(normalized);
+      // 与 NewSessionFlow 一致：仅 runtime 类（密钥/生成器暂未就绪）保留 preview 允许同一键重试；
+      // stale/confirmation/sequence/conflict 等一律丢弃本地确认意图，先 resume 再重新 preview。
+      if (!canRetrySamePreview(normalized)) setPreview(null);
     } finally {
       setBusy(false);
     }
@@ -396,7 +403,7 @@ function StepPanel({ session, transition, caseIdPrefill, onExecuted }: StepPanel
           <TypedRecoveryPanel
             error={stepError}
             operationLabel={meta.label}
-            onRetry={stepError.retryable && preview ? () => void handleExecute() : undefined}
+            onRetry={stepError && preview && canRetrySamePreview(stepError) ? () => void handleExecute() : undefined}
           />
         </div>
       ) : null}
@@ -455,6 +462,7 @@ function SessionAdvanceView({ sessionId }: { sessionId: string }) {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [lastResult, setLastResult] = useState<OperationResult | null>(null);
+  const [actorMismatch, setActorMismatch] = useState(false);
   const caseIdPrefill = searchParams.get('case_id');
   const fromRecommendation = searchParams.get('from');
 
@@ -467,6 +475,28 @@ function SessionAdvanceView({ sessionId }: { sessionId: string }) {
 
   const error = query.error;
   const session = query.data;
+
+  // 页面加载后检查当前运行期 actor 是否与 session 创建时绑定的身份一致。
+  // 刷新后 SubtleCrypto 重新派生 hash，必定不等于已持久化的 manifest.actor_identity_hash，
+  // 此时只能只读查看（resume/explain），不显示继续写入的 StepPanel（D-38-06 / T-38-08）。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (!session) return;
+      try {
+        const current = await deriveActorIdentityHash();
+        const bound = session.manifest['actor_identity_hash'];
+        if (!cancelled && typeof bound === 'string' && current !== bound) {
+          setActorMismatch(true);
+        }
+      } catch {
+        // SubtleCrypto 不可用：不阻断读取，但写入入口应由服务端拒绝对齐
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
 
   const content = useMemo(() => {
     if (!session) return null;
@@ -544,34 +574,53 @@ function SessionAdvanceView({ sessionId }: { sessionId: string }) {
           {lastResult ? (
             <div className="section-stack">
               <TypedRecoveryPanel replayed={lastResult.replayed} />
-              <section className="card border-verified bg-verified-soft" aria-label="上一跳写入结果">
-                <h2 className="flex items-center gap-1.5 font-medium text-verified">
-                  <IconCheckCircle className="h-4 w-4" />
-                  「{transitionMeta(lastResult.operation)?.label ?? lastResult.operation}」已写入
-                </h2>
-                <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-                  <div>
-                    <dt className="inline text-muted">sequence：</dt>
-                    <dd className="inline font-mono">{lastResult.sequence}</dd>
-                  </div>
-                  <div className="break-all">
-                    <dt className="inline text-muted">event_id：</dt>
-                    <dd className="inline font-mono text-xs" title={lastResult.event_id}>
-                      {shortId(lastResult.event_id, 24)}
-                    </dd>
-                  </div>
-                  <div className="break-all">
-                    <dt className="inline text-muted">event_checksum：</dt>
-                    <dd className="inline font-mono text-xs" title={lastResult.event_checksum}>
-                      {shortId(lastResult.event_checksum, 24)}
-                    </dd>
-                  </div>
-                </dl>
-              </section>
+              {/* replayed=true：服务端返回原事件，未新增写入，不渲染"已写入"卡片，仅显式提示已复用原 receipt */}
+              {lastResult.replayed ? null : (
+                <section className="card border-verified bg-verified-soft" aria-label="上一跳写入结果">
+                  <h2 className="flex items-center gap-1.5 font-medium text-verified">
+                    <IconCheckCircle className="h-4 w-4" />
+                    「{transitionMeta(lastResult.operation)?.label ?? lastResult.operation}」已写入
+                  </h2>
+                  <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                    <div>
+                      <dt className="inline text-muted">sequence：</dt>
+                      <dd className="inline font-mono">{lastResult.sequence}</dd>
+                    </div>
+                    <div className="break-all">
+                      <dt className="inline text-muted">event_id：</dt>
+                      <dd className="inline font-mono text-xs" title={lastResult.event_id}>
+                        {shortId(lastResult.event_id, 24)}
+                      </dd>
+                    </div>
+                    <div className="break-all">
+                      <dt className="inline text-muted">event_checksum：</dt>
+                      <dd className="inline font-mono text-xs" title={lastResult.event_checksum}>
+                        {shortId(lastResult.event_checksum, 24)}
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+              )}
             </div>
           ) : null}
 
-          {content.next ? (
+          {actorMismatch ? (
+            <section className="card border-uncertainty bg-uncertainty-soft" aria-label="操作者身份不匹配">
+              <h2 className="flex items-center gap-1.5 font-medium text-uncertainty">
+                <IconAlertTriangle className="h-4 w-4 shrink-0" />
+                会话操作者身份不一致
+              </h2>
+              <p className="mt-2 text-sm text-muted">
+                当前页面运行期派生的操作者身份哈希与创建本会话时绑定的身份不一致。
+                这是页面刷新后的正常结果：前端不持久化 actor_identity_hash，每次运行期随机生成新的身份哈希，
+                服务端通过精确绑定确保旧会话不能被新身份继续写入。
+              </p>
+              <p className="mt-2 text-sm text-muted">
+                本会话仍可只读查看（上方 resume 数据、事件链与快照绑定均完整），但无法继续推进写入。
+                如需继续推进，请在当前页面新建一个会话——新会话将绑定当前运行期的身份哈希。
+              </p>
+            </section>
+          ) : content.next ? (
             <StepPanel
               session={content.session}
               transition={content.next}
