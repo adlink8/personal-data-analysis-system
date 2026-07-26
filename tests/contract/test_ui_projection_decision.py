@@ -102,6 +102,20 @@ def test_classify_stage_closed_by_terminal_action_without_outcome():
         ) == "closed"
 
 
+def test_classify_stage_unknown_confirmation_never_promoted_via_action_state(): # Phase 36 task 3
+    # 词表外 confirmation_state(理论上不该在真实状态机中与非空 action_state 共存,
+    # 但 Projection 必须对此保守处理)不得因 action_state 而被提升为
+    # in_progress/awaiting_outcome/closed 等 action 驱动 stage,一律 needs_attention。
+    for action in ("planned", "started", "completed", "abandoned", "not_taken"):
+        assert _classify_stage(
+            _item(confirmation_state="mystery", action_state=action), NOW,
+        ) == "needs_attention"
+    # has_outcome 仍是独立、更强的信号,不受词表锁定影响
+    assert _classify_stage(
+        _item(confirmation_state="mystery", action_state="completed", has_outcome=True), NOW,
+    ) == "completed"
+
+
 # --- decision_queue.get ----------------------------------------------------
 
 
@@ -141,6 +155,48 @@ def test_decision_queue_failure_degrades_to_zero_shape(monkeypatch):
     assert tuple(data["stages"]) == STAGE_KEYS
     assert all(data["stage_counts"][key] == 0 for key in STAGE_KEYS)
     assert all(data["stages"][key] == [] for key in STAGE_KEYS)
+
+
+def test_decision_queue_locks_confirmation_vocabulary_end_to_end(monkeypatch):
+    """Phase 36 task 3:通过完整 decision_queue.get 管道(而非只测纯函数)证明
+    真实词表外的 confirmation_state 不会被 action_state 提升为可执行 stage。"""
+    synthetic_items = [
+        {
+            "recommendation_id": "synthetic-known-accepted",
+            "domain": "project", "recommendation_kind": "task",
+            "horizon": "short", "confidence": 0.5,
+            "confirmation_state": "accepted", "action_state": "started",
+            "expires_at": None, "current_sequence": 1, "snapshot_id": "s1",
+        },
+        {
+            "recommendation_id": "synthetic-unknown-confirmation",
+            "domain": "project", "recommendation_kind": "task",
+            "horizon": "short", "confidence": 0.5,
+            "confirmation_state": "mystery", "action_state": "started",
+            "expires_at": None, "current_sequence": 1, "snapshot_id": "s1",
+        },
+    ]
+
+    def fake_invoke(self, operation, **params):
+        if operation == "recommendations.list":
+            return {
+                "ok": True,
+                "data": {"items": synthetic_items, "total_available": len(synthetic_items)},
+            }
+        raise AssertionError(f"unexpected operation {operation}")
+
+    monkeypatch.setattr(DecisionFeedbackService, "invoke", fake_invoke)
+    result = CockpitProjectionService().invoke("decision_queue.get")
+    assert result["ok"] is True
+    stages = result["data"]["stages"]
+    known_ids = {card["recommendation_id"] for card in stages["in_progress"]}
+    assert "synthetic-known-accepted" in known_ids
+    unknown_ids = {card["recommendation_id"] for card in stages["needs_attention"]}
+    assert "synthetic-unknown-confirmation" in unknown_ids
+    for actionable_stage in ("in_progress", "awaiting_outcome", "completed"):
+        assert "synthetic-unknown-confirmation" not in {
+            card["recommendation_id"] for card in stages[actionable_stage]
+        }
 
 
 # --- decision_workspace.get ------------------------------------------------

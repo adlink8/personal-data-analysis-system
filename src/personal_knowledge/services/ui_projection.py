@@ -90,6 +90,10 @@ _STAGE_KEYS = (
 )
 # proposed 且 expires_at 距 now 不足该窗口(或已过 / 无法解析)→ needs_attention
 _NEEDS_ATTENTION_WINDOW = timedelta(hours=72)
+# confirmation_state 已发布真实词表(读自 intelligence/decision/state_machine.py);
+# 词表外的值一律不进入 action_state 驱动的 in_progress/awaiting_outcome 等可执行分支
+# (D-36-05:Projection 不得凭空提升未知/伪造的 confirmation_state)
+_KNOWN_CONFIRMATION_STATES = frozenset({"proposed", "accepted", "rejected", "deferred", "revoked"})
 # 队列卡片保留的关键字段(沿用 recommendations.list 真实字段名)
 _QUEUE_CARD_KEYS = (
     "recommendation_id", "domain", "recommendation_kind", "horizon", "confidence",
@@ -189,13 +193,17 @@ def _classify_stage(item: Mapping[str, Any], now: datetime) -> str:
     映射规则(按优先级):
     1. confirmation_state ∈ {rejected, deferred, revoked} → closed
     2. has_outcome → completed(已有 outcome,反馈闭环完成)
-    3. action_state == completed 且无 outcome → awaiting_outcome
-    4. action_state ∈ {abandoned, not_taken} 且无 outcome → closed
-    5. action_state ∈ {planned, started} → in_progress
-    6. confirmation_state == accepted(action 尚未开始)→ in_progress
-    7. proposed 且 expires_at 已过 / 72h 内到期 / 无法解析 → needs_attention
-    8. proposed 其余 → awaiting_confirmation
-    9. 无法识别的组合保守归 needs_attention
+    3. confirmation_state 不在已发布词表内(词表见上)→ 保守 needs_attention,
+       不进入下列任何 action_state 驱动分支——action 只能在 accepted 之后产生,
+       词表外 confirmation 与非空 action_state 的组合视为数据异常,不得被提升
+       为 in_progress/awaiting_outcome 等可执行/进行中 stage(D-36-05 词表锁定)
+    4. action_state == completed 且无 outcome → awaiting_outcome
+    5. action_state ∈ {abandoned, not_taken} 且无 outcome → closed
+    6. action_state ∈ {planned, started} → in_progress
+    7. confirmation_state == accepted(action 尚未开始)→ in_progress
+    8. proposed 且 expires_at 已过 / 72h 内到期 / 无法解析 → needs_attention
+    9. proposed 其余 → awaiting_confirmation
+    10. 无法识别的组合保守归 needs_attention
     """
     confirmation = str(item.get("confirmation_state") or "")
     action_raw = item.get("action_state")
@@ -204,6 +212,8 @@ def _classify_stage(item: Mapping[str, Any], now: datetime) -> str:
         return "closed"
     if bool(item.get("has_outcome")):
         return "completed"
+    if confirmation not in _KNOWN_CONFIRMATION_STATES:
+        return "needs_attention"
     if action == "completed":
         return "awaiting_outcome"
     if action in {"abandoned", "not_taken"}:

@@ -298,6 +298,64 @@ def test_proactive_summary_grouping_is_conservative():
             assert score < threshold
 
 
+def test_proactive_summary_locks_final_score_vocabulary_end_to_end(monkeypatch):
+    """Phase 36 task 3:通过完整 proactive_summary.get 管道(而非只测原始数据)证明
+    缺失/非数值/bool 型 importance.final_score 一律保守归 deferrable,真实达标分
+    才进入 now,并且降级会产生可枚举 limitation。"""
+    threshold = DEFAULT_RANKING_POLICY.threshold
+    synthetic_items = [
+        {  # 缺失 importance 整体
+            "candidate_id": "synthetic-missing-importance",
+            "domains": ["project"], "candidate_class": "task", "presentation_kind": "card",
+            "expires_at": None, "valid_from": None, "reason_codes": [],
+            "current_control_eligible": True, "current_control_reason_codes": [],
+        },
+        {  # final_score 非数值
+            "candidate_id": "synthetic-nonnumeric-score",
+            "domains": ["project"], "candidate_class": "task", "presentation_kind": "card",
+            "importance": {"final_score": "high"},
+            "expires_at": None, "valid_from": None, "reason_codes": [],
+            "current_control_eligible": True, "current_control_reason_codes": [],
+        },
+        {  # final_score 是 bool(isinstance(bool,int) 陷阱)
+            "candidate_id": "synthetic-bool-score",
+            "domains": ["project"], "candidate_class": "task", "presentation_kind": "card",
+            "importance": {"final_score": True},
+            "expires_at": None, "valid_from": None, "reason_codes": [],
+            "current_control_eligible": True, "current_control_reason_codes": [],
+        },
+        {  # 真实达标分
+            "candidate_id": "synthetic-real-now",
+            "domains": ["project"], "candidate_class": "task", "presentation_kind": "card",
+            "importance": {"final_score": threshold + 10.0},
+            "expires_at": None, "valid_from": None, "reason_codes": [],
+            "current_control_eligible": True, "current_control_reason_codes": [],
+        },
+    ]
+
+    def fake_invoke(self, operation, **params):
+        if operation == "inbox.list":
+            return {
+                "ok": True,
+                "data": {"items": synthetic_items, "total_available": len(synthetic_items)},
+            }
+        if operation == "metrics.get":
+            return {"ok": True, "data": {}}
+        raise AssertionError(f"unexpected operation {operation}")
+
+    monkeypatch.setattr(ProactiveIntelligenceService, "invoke", fake_invoke)
+    result = CockpitProjectionService().invoke("proactive_summary.get")
+    assert result["ok"] is True
+    groups = result["data"]["groups"]
+    now_ids = {card["candidate_id"] for card in groups["now"]}
+    deferrable_ids = {card["candidate_id"] for card in groups["deferrable"]}
+    assert now_ids == {"synthetic-real-now"}
+    assert deferrable_ids == {
+        "synthetic-missing-importance", "synthetic-nonnumeric-score", "synthetic-bool-score",
+    }
+    assert any("final_score" in item for item in result["limitations"])
+
+
 def test_proactive_summary_inbox_failure_partial(monkeypatch):
     original = ProactiveIntelligenceService.invoke
 
