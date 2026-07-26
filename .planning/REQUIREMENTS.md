@@ -8,7 +8,7 @@
 ### Projection and Secure Transport
 
 - [ ] **CCK-01**: 用户可通过版本化的只读 Cockpit Projection 查看汇总数据；浏览器不直连 SQLite/Chroma，不创建影子 SSOT，也不改变 Serving Snapshot、Active Pointer、KU lifecycle、External authority 或 Calibration promotion。
-- [ ] **CCK-02**: 生产 Cockpit 使用 loopback same-origin `/app` 与 API；移除 wildcard CORS，开发期仅允许显式来源，所有 mutation route 拒绝跨 origin 请求且不产生写入。
+- [x] **CCK-02**: 生产 Cockpit 使用 loopback same-origin `/app` 与 API；移除 wildcard CORS，开发期仅允许显式来源，所有 mutation route 拒绝跨 origin 请求且不产生写入。
 - [ ] **CCK-03**: UI Projection 在 authority 不可用时返回可验证的 `partial`、freshness、snapshot bindings 和 safe limitations；异常文本、路径、PII、密钥、provider body 与 confirmation/HMAC 不出现在 DOM、console 或 API 错误。
 - [ ] **CCK-04**: Cockpit 代码、Projection、契约测试和构建说明进入可审计版本基线；未通过对应验证的 WIP 不得在 README 或计划中标为已交付。
 

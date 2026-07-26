@@ -50,7 +50,7 @@
 **Requirements:** CCK-01, CCK-02, CCK-03, CCK-04
 
 **Depends on:** v1.3 Agent Productization 的 REST、Guarded Orchestration 和 authority contracts
-**Plans:** 4 documented; 0 executed
+**Plans:** 1/4 plans executed
 
 **Success criteria:**
 
@@ -155,7 +155,7 @@
 
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
-| 36 | CCK-01, CCK-02, CCK-03, CCK-04 | 0/4 executed | Planned — future plans reviewed, not executed |
+| 36 | CCK-01, CCK-02, CCK-03, CCK-04 | 1/4 executed | In Progress — 36-01 secure transport closed |
 | 37 | STATE-01, STATE-02, STATE-03, EVID-01 | 0/3 executed | Planned — future plans reviewed, not executed |
 | 38 | DEC-01, DEC-02, DEC-03 | 0/3 executed | Planned — future plans reviewed, not executed |
 | 39 | FDB-01, FDB-02, RUN-01 | 0/4 executed | Planned — future plans reviewed, not executed |

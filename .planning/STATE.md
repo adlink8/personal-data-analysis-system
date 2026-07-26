@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Decision Cockpit UI
-status: Planned — existing Cockpit/Projection WIP audited, not yet secured or accepted
-last_updated: "2026-07-26T03:25:17.995Z"
-last_activity: 2026-07-22 -- v1.4 implementation/plan reconciliation complete
+status: executing
+last_updated: "2026-07-26T11:22:06.220Z"
+last_activity: 2026-07-26
 progress:
   total_phases: 7
   completed_phases: 0
-  total_plans: 17
-  completed_plans: 0
-  percent: 0
+  total_plans: 21
+  completed_plans: 1
+  percent: 5
 ---
 
 # Project State
@@ -61,17 +61,17 @@ progress:
 
 ## Current Position
 
-Phase: 36 — Secure Projection and Cockpit Baseline
-Plan: 4 closure plans documented; 0 executed
-Status: Planned — existing Cockpit/Projection WIP audited, not yet secured or accepted
-Last activity: 2026-07-22 -- v1.4 implementation/plan reconciliation complete
+Phase: 36 (secure-projection-and-cockpit-baseline) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-07-26
 
 ## Project Reference
 
 See: `.planning/PROJECT.md` (updated 2026-07-19)
 
 **Core value:** Local, evidence-bound and uncertainty-aware personal decision support.
-**Current focus:** v1.4 Decision Cockpit UI planning reconciliation; Phase 36–40 execution is not yet authorized, and the existing Cockpit/Projection code remains unaudited WIP rather than a shipped milestone.
+**Current focus:** Phase 36 — secure-projection-and-cockpit-baseline
 
 ## Cross-cutting architecture/data governance audit
 
