@@ -228,6 +228,21 @@ def evaluate_run(run_id: str, db_path: Path = UNIFIED_DB,
         required="misattribution=0",
     ))
 
+    # === Gate 8b: assistant 轨对称检查（Phase 41-04） ===
+    # solution/decision_rationale/technical_conclusion 必须有 assistant evidence scope
+    assistant_misattributed = con.execute(
+        "SELECT COUNT(*) FROM knowledge_units "
+        "WHERE run_id=? AND unit_type IN ('solution','decision_rationale','technical_conclusion') "
+        "AND evidence_scope != 'assistant'",
+        (run_id,),
+    ).fetchone()[0]
+    checks.append(GateCheck(
+        name="speaker_attribution_assistant",
+        passed=assistant_misattributed == 0,
+        value=assistant_misattributed,
+        required="misattribution=0",
+    ))
+
     # === Gate 9: privacy（secret/deleted/excluded hit） ===
     # Full inventory: evidence must appear in knowledge_inventory_items.
     # Incremental delta (di_*): evidence must appear in knowledge_delta_items for that delta.

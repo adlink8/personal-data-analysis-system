@@ -78,7 +78,11 @@ class EvidenceResolver:
                 s = con.execute("SELECT evidence_eligible FROM canonical_sessions WHERE canonical_session_id=?", (row["canonical_session_id"],)).fetchone()
                 eligible = bool(s and s[0])
         if row and "evidence_scope" in row.keys():
-            eligible = eligible and str(row["evidence_scope"] or "user") == "user"
+            # Phase 41-04：scope 放宽为 user+assistant 双轨放行（assistant 轨
+            # KU 的证据链下钻不再被 veto）。红线不动：session 级
+            # evidence_eligible=0 与 is_system=1 的 veto 保持原样；
+            # 'system'/'sidechain'/'subagent' 等其他 scope 依然 ineligible。
+            eligible = eligible and str(row["evidence_scope"] or "user") in ("user", "assistant")
         if row and "is_system" in row.keys():
             eligible = eligible and not bool(row["is_system"])
         data = dict(row) if row else None

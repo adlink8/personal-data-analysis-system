@@ -216,7 +216,12 @@ def load_eligible_units(
         "c.confidence, c.lifecycle, c.run_id, "
         "COALESCE((SELECT source_message_ref FROM knowledge_units u "
         "  JOIN canonical_unit_members cum ON u.unit_id=cum.member_unit_id "
-        "  WHERE cum.canonical_unit_id=c.canonical_unit_id LIMIT 1), '') as source_message_ref "
+        "  WHERE cum.canonical_unit_id=c.canonical_unit_id LIMIT 1), '') as source_message_ref, "
+        # Phase 41-04 (D-02)：scope 取自 member unit，供检索层按轨过滤；
+        # load_eligible_units 不按 scope 过滤（as| units 进候选索引是期望行为）。
+        "COALESCE((SELECT u2.evidence_scope FROM knowledge_units u2 "
+        "  JOIN canonical_unit_members cum2 ON u2.unit_id=cum2.member_unit_id "
+        "  WHERE cum2.canonical_unit_id=c.canonical_unit_id LIMIT 1), 'user') as evidence_scope "
         "FROM canonical_knowledge_units c "
         "WHERE c.status='current' AND c.lifecycle='current' "
         "ORDER BY c.canonical_unit_id"
@@ -335,6 +340,7 @@ def build_candidate_index(
             "lifecycle": u.get("lifecycle", "current"),
             "run_id": u.get("run_id", "")[:12],
             "source_message_ref": u.get("source_message_ref", "") or "",
+            "evidence_scope": u.get("evidence_scope", "user") or "user",
             "embedding_policy": EMBEDDING_POLICY,
             "evidence_context_count": len(u.get("evidence_contexts", ())),
             "embedding_text_checksum": hashlib.sha256(text.encode("utf-8")).hexdigest(),

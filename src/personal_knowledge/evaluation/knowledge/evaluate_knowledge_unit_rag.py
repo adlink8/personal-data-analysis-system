@@ -52,6 +52,9 @@ def _load_eval_dataset(name: str) -> list[dict]:
         path = EVAL_DIR / "frozen_test_queries.private.jsonl"
     elif name == "dev":
         path = EVAL_DIR / "dev_queries.private.jsonl"
+    elif name == "frozen-test-assistant":
+        # Phase 41-04：assistant 轨 eval 集（文件名用下划线，dataset 名用连字符）
+        path = EVAL_DIR / "frozen_test_assistant.private.jsonl"
     else:
         path = EVAL_DIR / f"{name}.private.jsonl"
     if not path.exists():
@@ -426,12 +429,13 @@ def evaluate_hybrid(candidate_collection: str = "") -> EvalMetrics:
     return metrics
 
 
-def evaluate_candidate(candidate_collection: str = "") -> EvalMetrics:
+def evaluate_candidate(candidate_collection: str = "", dataset_name: str = "frozen-test") -> EvalMetrics:
     """在 candidate knowledge unit collection 上跑 frozen test A/B。
 
     candidate_collection 为空时自动找最新的 candidate。
+    dataset_name 默认 frozen-test；Phase 41-04 起支持 frozen-test-assistant。
     """
-    metrics = EvalMetrics(dataset="frozen-test", collection=candidate_collection or "auto")
+    metrics = EvalMetrics(dataset=dataset_name, collection=candidate_collection or "auto")
 
     ok, msg, dim = local_embed.verify_model()
     if not ok:
@@ -454,7 +458,7 @@ def evaluate_candidate(candidate_collection: str = "") -> EvalMetrics:
     coll = client.get_or_create_collection(candidate_collection)
     metrics.collection_count = coll.count()
 
-    cases = _load_eval_dataset("frozen-test")
+    cases = _load_eval_dataset(dataset_name)
     metrics.total_queries = len(cases)
     if not cases:
         metrics.per_query = [{"error": "no frozen test queries"}]
@@ -538,6 +542,9 @@ def run(dataset: str, candidate: str = "", report: str = "") -> int:
         md_path.write_text(_format_report(metrics), encoding="utf-8")
     elif dataset == "frozen-test":
         metrics = evaluate_candidate(candidate)
+    elif dataset == "frozen-test-assistant":
+        # Phase 41-04：assistant 轨 eval 集，复用 candidate 评估链
+        metrics = evaluate_candidate(candidate, dataset_name="frozen-test-assistant")
     elif dataset == "hybrid":
         metrics = evaluate_hybrid(candidate)
     else:
@@ -577,7 +584,7 @@ def _format_report(metrics: EvalMetrics) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Phase 14: knowledge unit RAG 评估")
-    p.add_argument("--dataset", choices=["raw-baseline", "frozen-test", "hybrid"], default="raw-baseline")
+    p.add_argument("--dataset", choices=["raw-baseline", "frozen-test", "hybrid", "frozen-test-assistant"], default="raw-baseline")
     p.add_argument("--candidate", default="", help="candidate collection name (frozen-test/hybrid)")
     p.add_argument("--report", default="", help="write metrics JSON to this path")
     args = p.parse_args(argv)

@@ -242,3 +242,50 @@ def test_all_api_failure_does_not_pass(tmp_path: Path) -> None:
     nonzero = [c for c in report.checks if c.name == "nonzero_output"][0]
     assert not api_check.passed  # terminal_api_errors > 0
     assert not nonzero.passed  # units_total = 0
+
+
+# --- Phase 41-04：Gate 8 双向对称（assistant 3 类型必须 scope='assistant'） ---
+
+
+def test_gate_fails_on_assistant_track_misattribution(tmp_path: Path) -> None:
+    """unit_type='solution' 但 evidence_scope='user' → speaker_attribution_assistant FAIL。"""
+    db = tmp_path / "test.sqlite"
+    run_id = _setup_full_db(db)
+
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "INSERT INTO knowledge_units (unit_id, run_id, unit_type, subject, question, answer, "
+        "confidence, evidence_quote, evidence_scope, status, created_at) "
+        "VALUES ('u2','run1','solution','x','q','a',0.9,'ev','user','staging','2026-01-01')"
+    )
+    con.commit()
+    con.close()
+
+    report = evaluate_run(run_id, db, min_yield=0.5)
+    check = [c for c in report.checks if c.name == "speaker_attribution_assistant"][0]
+    assert not check.passed
+    assert check.value == 1
+
+
+def test_gate_passes_on_assistant_track_correct_scope(tmp_path: Path) -> None:
+    """unit_type='solution' 且 evidence_scope='assistant' → 对称检查通过，整体 gate 不回归。"""
+    db = tmp_path / "test.sqlite"
+    run_id = _setup_full_db(db)
+
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "INSERT INTO knowledge_units (unit_id, run_id, unit_type, subject, question, answer, "
+        "confidence, evidence_quote, evidence_scope, status, created_at) "
+        "VALUES ('u2','run1','decision_rationale','x','q','a',0.9,'ev','assistant','staging','2026-01-01')"
+    )
+    con.commit()
+    con.close()
+
+    report = evaluate_run(run_id, db, min_yield=0.5)
+    check = [c for c in report.checks if c.name == "speaker_attribution_assistant"][0]
+    assert check.passed
+    assert check.value == 0
+    # 回归：assistant 类型不被原 Gate 8（user 方向）误拦，整体仍 passed
+    speaker_user = [c for c in report.checks if c.name == "speaker_attribution"][0]
+    assert speaker_user.passed
+    assert report.gate_status == "passed"

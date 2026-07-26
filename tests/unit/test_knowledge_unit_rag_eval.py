@@ -255,3 +255,67 @@ def test_match_found_raw_mode_not_using_union() -> None:
         gold_snippets=[],
     )
     assert rank is None
+
+
+# --- Phase 41-04 Nyquist 用例 9：assistant 轨 eval 集 ---
+
+_USER_TRACK_TYPES = {
+    "preference", "habit", "personal_fact",
+    "project_decision", "capability", "tool_usage",
+}
+
+_ASSISTANT_DATASET_FIELDS = {
+    "id", "split", "query", "gold_evidence_refs", "allowed_unit_types",
+    "expected_abstain", "expected_conflict", "group", "agent", "started_at",
+}
+
+
+def test_frozen_test_assistant_dataset_loads_20_rows() -> None:
+    """真实 eval 文件（integration/evals/knowledge_units/）可被加载且构成合规。"""
+    ds = rag._load_eval_dataset("frozen-test-assistant")
+    if not ds:
+        pytest.skip("frozen_test_assistant.private.jsonl 不存在（数据集文件未随环境提供）")
+    assert len(ds) == 20
+    for row in ds:
+        assert _ASSISTANT_DATASET_FIELDS.issubset(row.keys()), row.get("id")
+        assert row["split"] == "frozen_test_assistant"
+        # D-01：assistant 3 类型与 user 6 类型零交集
+        assert not (set(row["allowed_unit_types"]) & _USER_TRACK_TYPES)
+        assert set(row["allowed_unit_types"]) == {
+            "solution", "decision_rationale", "technical_conclusion",
+        }
+        assert row["expected_conflict"] is False
+    # 恰好 3 条 expected_abstain（驱动 no_answer_false_positive 指标）
+    assert sum(1 for row in ds if row["expected_abstain"] is True) == 3
+
+
+def test_frozen_test_assistant_gold_refs_exist_in_canonical_db() -> None:
+    """gold_evidence_refs 逐条在真实 canonical DB 中存在（integration，缺失环境则 skip）。"""
+    from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB
+
+    if not AGENT_CONVERSATIONS_DB.exists():
+        pytest.skip("canonical conversations DB 不存在")
+    ds = rag._load_eval_dataset("frozen-test-assistant")
+    if not ds:
+        pytest.skip("frozen_test_assistant.private.jsonl 不存在")
+    con = sqlite3.connect(f"file:{AGENT_CONVERSATIONS_DB.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        missing = [
+            ref
+            for row in ds
+            for ref in row["gold_evidence_refs"]
+            if con.execute(
+                "SELECT 1 FROM canonical_messages WHERE canonical_message_id=?", (ref,)
+            ).fetchone()
+            is None
+        ]
+    finally:
+        con.close()
+    assert missing == []
+
+
+def test_cli_choices_include_frozen_test_assistant(capsys: pytest.CaptureFixture) -> None:
+    with pytest.raises(SystemExit) as exc:
+        rag.main(["--help"])
+    assert exc.value.code == 0
+    assert "frozen-test-assistant" in capsys.readouterr().out
