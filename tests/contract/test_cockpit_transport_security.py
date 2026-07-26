@@ -20,9 +20,12 @@ from pathlib import Path
 import pytest
 
 import personal_knowledge.services.api_server as api_server
-from personal_knowledge.services.api_server import Handler
+from personal_knowledge.services.api_server import Handler, SESSION_WRITE_ROUTES
 
 FAKE_ORIGIN = "http://evil.example.com"
+FAKE_TOKEN = "fake-confirmation-token-should-never-appear-9f3c1a"
+FAKE_HMAC = "fake-hmac-deadbeefcafebabe-should-never-appear"
+FAKE_PATH_HINT = "C:\\Users\\someone\\secret-path\\credentials.json"
 
 
 @pytest.fixture()
@@ -135,3 +138,88 @@ def test_options_preflight_no_origin_still_allowed(live_server):
     resp = _request(live_server, "OPTIONS", "/agent/session/prepare")
     assert resp["status"] == 204
     assert "Access-Control-Allow-Origin" not in resp["headers"]
+
+
+# --- Task 2: session 写路由 Origin gate 必须先于 delegation -----------------
+
+
+def test_cross_origin_mutation_never_delegates_and_never_leaks(live_server, monkeypatch):
+    calls: list[tuple[str, dict]] = []
+
+    def fake_orchestration_rest_contract(operation, params, *, service=None):
+        calls.append((operation, params))
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(api_server, "orchestration_rest_contract", fake_orchestration_rest_contract)
+
+    for route in SESSION_WRITE_ROUTES:
+        resp = _request(
+            live_server,
+            "POST",
+            route,
+            origin=FAKE_ORIGIN,
+            body={
+                "confirmation_token": FAKE_TOKEN,
+                "hmac": FAKE_HMAC,
+                "path_hint": FAKE_PATH_HINT,
+                "preview": {"operation": route.rsplit("/", 1)[-1].replace("-", "_")},
+            },
+        )
+        assert resp["status"] in (401, 403), f"{route} did not reject cross-origin mutation"
+        assert "Access-Control-Allow-Origin" not in resp["headers"]
+        body_text = resp["body"].decode("utf-8")
+        assert FAKE_ORIGIN not in body_text
+        assert FAKE_TOKEN not in body_text
+        assert FAKE_HMAC not in body_text
+        assert FAKE_PATH_HINT not in body_text
+        payload = json.loads(resp["body"])
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "origin_not_allowed"
+
+    assert calls == [], "orchestration_rest_contract must never be invoked for rejected cross-origin mutation"
+
+
+def test_same_origin_mutation_still_reaches_orchestration(live_server, monkeypatch):
+    calls: list[str] = []
+
+    def fake(operation, params, *, service=None):
+        calls.append(operation)
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(api_server, "orchestration_rest_contract", fake)
+    resp = _request(
+        live_server, "POST", "/agent/session/prepare",
+        origin=_same_origin_header(live_server), body={"goal": "local validation"},
+    )
+    assert resp["status"] == 200
+    assert calls == ["session.prepare"]
+
+
+def test_no_origin_mutation_still_reaches_orchestration(live_server, monkeypatch):
+    calls: list[str] = []
+
+    def fake(operation, params, *, service=None):
+        calls.append(operation)
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(api_server, "orchestration_rest_contract", fake)
+    resp = _request(live_server, "POST", "/agent/session/prepare", body={"goal": "local validation"})
+    assert resp["status"] == 200
+    assert calls == ["session.prepare"]
+
+
+def test_dev_origin_mutation_still_reaches_orchestration(live_server, monkeypatch):
+    calls: list[str] = []
+
+    def fake(operation, params, *, service=None):
+        calls.append(operation)
+        return {"ok": True, "data": {}}
+
+    monkeypatch.setattr(api_server, "orchestration_rest_contract", fake)
+    resp = _request(
+        live_server, "POST", "/agent/session/prepare",
+        origin="http://127.0.0.1:5173", body={"goal": "local validation"},
+    )
+    assert resp["status"] == 200
+    assert calls == ["session.prepare"]
+    assert resp["headers"].get("Access-Control-Allow-Origin") == "http://127.0.0.1:5173"

@@ -196,6 +196,23 @@ def _origin_policy(origin: str | None, host_header: str | None) -> dict:
     return {"allowed": False, "reason": "origin_not_allowed", "cors_origin": None}
 
 
+# 需要 Origin gate 前置拦截的受控 session 写路由(mutation 抵达 orchestration_rest_contract 之前)
+SESSION_WRITE_ROUTES: dict[str, str] = {
+    "/agent/session/prepare": "session.prepare",
+    "/agent/session/confirm": "session.confirm",
+    "/agent/session/preview": "session.preview",
+    "/agent/session/execute": "session.execute",
+    "/agent/session/generate": "session.execute",
+    "/agent/session/publish": "session.execute",
+    "/agent/session/decide": "session.execute",
+    "/agent/session/preregister": "session.execute",
+    "/agent/session/action-start": "session.execute",
+    "/agent/session/action-complete": "session.execute",
+    "/agent/session/observe": "session.execute",
+    "/agent/session/calibrate": "session.execute",
+}
+
+
 def _seal_payload(data):
     """出站数据隐私封存；保持结构不变。"""
     sealed, _meta = guard_jsonable(data)
@@ -777,25 +794,24 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         url = urlparse(self.path)
         path = url.path.rstrip("/") or "/"
-        body = self._read_body()
 
         try:
-            session_write_routes = {
-                "/agent/session/prepare": "session.prepare",
-                "/agent/session/confirm": "session.confirm",
-                "/agent/session/preview": "session.preview",
-                "/agent/session/execute": "session.execute",
-                "/agent/session/generate": "session.execute",
-                "/agent/session/publish": "session.execute",
-                "/agent/session/decide": "session.execute",
-                "/agent/session/preregister": "session.execute",
-                "/agent/session/action-start": "session.execute",
-                "/agent/session/action-complete": "session.execute",
-                "/agent/session/observe": "session.execute",
-                "/agent/session/calibrate": "session.execute",
-            }
-            if path in session_write_routes:
-                operation = session_write_routes[path]
+            if path in SESSION_WRITE_ROUTES:
+                # Origin gate 必须先于 body 解析与 orchestration 委派(D-36-03):
+                # 不匹配 Origin 时零解析、零委派、零写入。
+                decision = self._origin_policy_for_request()
+                if not decision["allowed"]:
+                    payload = json.dumps(
+                        {"ok": False, "error": {"code": "origin_not_allowed", "message": "跨源请求已拒绝"}},
+                        ensure_ascii=False,
+                    ).encode("utf-8")
+                    self._send(payload, 403)
+                    return
+
+            body = self._read_body()
+
+            if path in SESSION_WRITE_ROUTES:
+                operation = SESSION_WRITE_ROUTES[path]
                 expected = path.rsplit("/", 1)[-1].replace("-", "_")
                 if operation == "session.execute" and path != "/agent/session/execute":
                     preview = body.get("preview") or {}
