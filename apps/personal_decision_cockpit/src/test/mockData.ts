@@ -351,13 +351,28 @@ export const DECISION_WORKSPACE_ENVELOPE = {
       snapshot_id: SNAPSHOT_BINDINGS.personal,
       policy_id: 'policy_time_allocation_v2',
       subject: 'me',
-      domain: 'career',
+      // Phase 38：domain=project 才是唯一开放受控会话入口的样例（D-38-03），
+      // 与其余 stage 卡片示例（career/learning 等）区分：本 fixture 用于演示
+      // "完整 DEC-01 比较 + 可发起会话" 的合格样例。
+      domain: 'project',
       scope: 'current',
       recommendation_kind: 'time_allocation',
+      // DEC-01（Phase 38）：target/expected_benefit/costs_constraints/assumptions/
+      // contraindications 锚定真实 intelligence/decision/schema.py::Recommendation
+      // 字段名，用于演示"投影补齐后"的完整决策比较；当前真实 recommendations.get
+      // 尚未透出这些字段（见 schemas.ts 注释），故另在下方提供不含这五个字段的
+      // DECISION_WORKSPACE_FIELDS_MISSING_ENVELOPE 变体演示真实现状。
+      target: '把英语学习、项目投入与求职准备的每周工时重新分配到未来 8 周窗口内',
+      expected_benefit: '在不影响项目交付的前提下为求职留出可持续的准备时间',
+      costs_constraints: ['每周总投入不超过 30 小时', '项目里程碑不可推迟', '英语学习每周至少 5 小时'],
+      assumptions: ['未来 8 周项目范围不再扩大', '当前求职市场窗口保持开放'],
+      contraindications: ['若项目风险评级上升为 high，本建议应重新评估后再确认'],
       horizon: '8w',
       confidence: 0.72,
       uncertainty: 'medium',
-      expires_at: '2026-07-26T00:00:00Z',
+      // 固定为远期日期，避免 fixture 随真实时钟推移而"过期"（原值为写死的过去
+      // 相对日期，会在系统时钟越过该日期后使 Task 3 的到期门禁样例意外触发）。
+      expires_at: '2099-01-01T00:00:00Z',
       rationale_codes: ['goal_misaligned', 'deadline_approaching'],
       support: [
         {
@@ -442,6 +457,83 @@ export const DECISION_WORKSPACE_ENVELOPE = {
     ],
     linked_analysis_run_id: 'ar_20260719_source0001ff',
   },
+};
+
+/**
+ * Phase 38 Task 3（fail-closed 资格门）样例集：每个变体只改动触发单一阻断
+ * 原因所需的字段，其余保持 DECISION_WORKSPACE_ENVELOPE 的合格基线，便于测试
+ * 逐条断言只有对应原因出现，不互相污染。
+ */
+
+// 真实现状样例：recommendations.get 当前不透出 target/expected_benefit/
+// costs_constraints/assumptions/contraindications（见 schemas.ts 注释），
+// 五个字段一律缺失，页面应对 DEC-01 对应行显式渲染"未提供"而非留空或崩溃。
+export const DECISION_WORKSPACE_FIELDS_MISSING_ENVELOPE = {
+  ...DECISION_WORKSPACE_ENVELOPE,
+  data: {
+    ...DECISION_WORKSPACE_ENVELOPE.data,
+    recommendation: {
+      ...DECISION_WORKSPACE_ENVELOPE.data.recommendation,
+      target: null,
+      expected_benefit: null,
+      costs_constraints: [],
+      assumptions: [],
+      contraindications: [],
+    },
+  },
+};
+
+// 到期样例：expires_at 已过 → 资格门必须阻断，不允许发起受控会话
+export const DECISION_WORKSPACE_EXPIRED_ENVELOPE = {
+  ...DECISION_WORKSPACE_ENVELOPE,
+  data: {
+    ...DECISION_WORKSPACE_ENVELOPE.data,
+    recommendation: { ...DECISION_WORKSPACE_ENVELOPE.data.recommendation, expires_at: '2020-01-01T00:00:00Z' },
+  },
+};
+
+// 已关闭样例：confirmation_state=rejected → 资格门必须阻断
+export const DECISION_WORKSPACE_CLOSED_ENVELOPE = {
+  ...DECISION_WORKSPACE_ENVELOPE,
+  data: {
+    ...DECISION_WORKSPACE_ENVELOPE.data,
+    recommendation: { ...DECISION_WORKSPACE_ENVELOPE.data.recommendation, confirmation_state: 'rejected' },
+  },
+};
+
+// 非 project 域样例：Phase 38 只开放 project 域的受控会话（D-38-03）
+export const DECISION_WORKSPACE_NON_PROJECT_ENVELOPE = {
+  ...DECISION_WORKSPACE_ENVELOPE,
+  data: {
+    ...DECISION_WORKSPACE_ENVELOPE.data,
+    recommendation: { ...DECISION_WORKSPACE_ENVELOPE.data.recommendation, domain: 'career' },
+  },
+};
+
+// 证据不足样例：support 为空 → 资格门必须阻断（与既有"信息不足"提示一致）
+export const DECISION_WORKSPACE_NO_EVIDENCE_ENVELOPE = {
+  ...DECISION_WORKSPACE_ENVELOPE,
+  data: {
+    ...DECISION_WORKSPACE_ENVELOPE.data,
+    recommendation: { ...DECISION_WORKSPACE_ENVELOPE.data.recommendation, support: [] },
+  },
+};
+
+// 缺少 Personal snapshot 绑定样例：snapshot_id 缺失 → 资格门必须阻断
+export const DECISION_WORKSPACE_UNBOUND_ENVELOPE = {
+  ...DECISION_WORKSPACE_ENVELOPE,
+  data: {
+    ...DECISION_WORKSPACE_ENVELOPE.data,
+    recommendation: { ...DECISION_WORKSPACE_ENVELOPE.data.recommendation, snapshot_id: null },
+  },
+};
+
+// 投影部分可用样例：envelope.partial=true（如 history 节失败）→ 资格门必须阻断
+export const DECISION_WORKSPACE_PARTIAL_ENVELOPE = {
+  ...DECISION_WORKSPACE_ENVELOPE,
+  authorities: { ...DECISION_WORKSPACE_ENVELOPE.authorities, history: 'error' },
+  partial: true,
+  limitations: [...DECISION_WORKSPACE_ENVELOPE.limitations, 'history Authority 本次未返回数据。'],
 };
 
 /* ---------------- Phase 39：actions_recent.get / proactive_summary.get / calibration_overview.get ---------------- */

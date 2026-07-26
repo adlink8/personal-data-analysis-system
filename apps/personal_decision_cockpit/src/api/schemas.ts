@@ -451,7 +451,23 @@ const SupportEntrySchema = z
   })
   .passthrough();
 
-// 完整单条 recommendation：字段宽进宽出（nullish），缺字段由页面显式"未提供"
+/**
+ * 完整单条 recommendation：字段宽进宽出（nullish），缺字段由页面显式"未提供"。
+ *
+ * DEC-01（Phase 38）决策比较字段说明：target/expected_benefit/costs_constraints/
+ * assumptions/contraindications 五个字段锚定后端真实
+ * `intelligence/decision/schema.py::Recommendation`/`RecommendationDraft`
+ * dataclass（与本 schema 其余字段 subject/domain/scope/horizon/rationale_codes
+ * 同一来源，非臆造字段名）；但当前 `recommendations.get`/`_metadata()` 投影器
+ * 尚未透出它们（后端只读服务范围外，本计划不改动 Python），故这五个字段在
+ * 真实响应中恒为 undefined/[]，页面据此显式渲染"未提供"而非静默省略——
+ * 一旦后端投影补齐，前端无需再变更 schema。goal/hard_constraints（作为独立于
+ * costs_constraints 的字段）/risk_budget（逐条建议维度）/no_action_baseline/
+ * opportunity_cost/stop_conditions/多候选比较 在 decision_workspace.get 当前
+ * 数据模型（单一 Recommendation 对象）中没有任何可锚定的真实字段名——它们只存在于
+ * 尚未与本端点关联的 Pilot/Analysis 权威（intelligence/pilot、intelligence/analysis），
+ * 因此不在此新增虚构字段，页面改为对这些概念显式渲染"未提供"说明文案。
+ */
 const RecommendationDetailSchema = z
   .object({
     recommendation_id: z.string().nullish(),
@@ -464,6 +480,11 @@ const RecommendationDetailSchema = z
     domain: z.string().nullish(),
     scope: z.string().nullish(),
     recommendation_kind: z.string().nullish(),
+    target: z.string().nullish(),
+    expected_benefit: z.string().nullish(),
+    costs_constraints: z.array(z.string()).default([]),
+    assumptions: z.array(z.string()).default([]),
+    contraindications: z.array(z.string()).default([]),
     horizon: z.string().nullish(),
     confidence: z.union([z.number(), z.string()]).nullish(),
     uncertainty: z.union([z.string(), z.number(), z.array(z.string())]).nullish(), // 智能层 uncertainty 为列表语义
