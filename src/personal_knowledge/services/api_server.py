@@ -213,6 +213,29 @@ SESSION_WRITE_ROUTES: dict[str, str] = {
 }
 
 
+# === 安全公开错误目录（Phase 36：D-36-06） ==================================
+#
+# /app 静态资源缺失/越界、Origin 拒绝与受控 mutation 的 transport 错误共用
+# 固定 code/message；不得拼接请求路径、异常文本、密钥、provider 响应体、
+# confirmation token 或 HMAC。详细诊断只进本地 stderr(traceback.print_exc)。
+_SAFE_ERRORS: dict[str, str] = {
+    "cockpit_asset_not_found": "请求的前端资源不存在",
+    "cockpit_not_built": "前端未构建,请先执行 npm run build",
+    "origin_not_allowed": "跨源请求已拒绝",
+    "internal_error": "服务器内部错误",
+}
+
+
+def _safe_error(code: str, http_status: int) -> tuple[bytes, int]:
+    """构造 allowlisted 安全错误 envelope;code 只能是模块内固定字面量,不接受外部输入。"""
+    message = _SAFE_ERRORS.get(code, "请求处理失败")
+    payload = {"ok": False, "error": {"code": code, "message": message}}
+    return (
+        json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        http_status,
+    )
+
+
 def _seal_payload(data):
     """出站数据隐私封存；保持结构不变。"""
     sealed, _meta = guard_jsonable(data)
@@ -380,11 +403,8 @@ class Handler(BaseHTTPRequestHandler):
         decision = self._origin_policy_for_request()
         if not decision["allowed"]:
             # 未知 Origin 的预检 → 安全拒绝;不下发 CORS header,不回显 Origin
-            payload = json.dumps(
-                {"ok": False, "error": {"code": "origin_not_allowed", "message": "跨源请求已拒绝"}},
-                ensure_ascii=False,
-            ).encode("utf-8")
-            self._send(payload, 403)
+            body, code = _safe_error("origin_not_allowed", 403)
+            self._send(body, code)
             return
         self._send(b"", 204)
 
@@ -411,18 +431,12 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(asset.read_bytes(), 200, ctype)
                     return
                 if not COCKPIT_DIST.is_dir():
-                    self._send(
-                        _contract(
-                            {
-                                "ok": False,
-                                "error": "cockpit_not_built",
-                                "hint": "cd apps/personal_decision_cockpit && npm run build",
-                            }
-                        ),
-                        404,
-                    )
+                    body, code = _safe_error("cockpit_not_built", 404)
+                    self._send(body, code)
                     return
-                body, code = _err(f"cockpit asset not found: {url.path}", 404)
+                # 资源不存在或路径遍历越界(_resolve_cockpit_asset 已拒绝)统一走安全错误,
+                # 不回显原始请求路径
+                body, code = _safe_error("cockpit_asset_not_found", 404)
                 self._send(body, code)
                 return
 
@@ -785,9 +799,10 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             body, code = _err(str(e), 400)
             self._send(body, code)
-        except Exception as e:
+        except Exception:
+            # 详细异常留本地 stderr;公开响应只回安全 code/message,不拼接 str(exc)
             traceback.print_exc()
-            body, code = _err(f"内部错误: {e}", 500)
+            body, code = _safe_error("internal_error", 500)
             self._send(body, code)
 
     # --- POST 路由 ---------------------------------------------------------
@@ -801,11 +816,8 @@ class Handler(BaseHTTPRequestHandler):
                 # 不匹配 Origin 时零解析、零委派、零写入。
                 decision = self._origin_policy_for_request()
                 if not decision["allowed"]:
-                    payload = json.dumps(
-                        {"ok": False, "error": {"code": "origin_not_allowed", "message": "跨源请求已拒绝"}},
-                        ensure_ascii=False,
-                    ).encode("utf-8")
-                    self._send(payload, 403)
+                    body, code = _safe_error("origin_not_allowed", 403)
+                    self._send(body, code)
                     return
 
             body = self._read_body()
@@ -857,9 +869,10 @@ class Handler(BaseHTTPRequestHandler):
             body_b, code = _err(f"未知路径: {path}", 404)
             self._send(body_b, code)
 
-        except Exception as e:
+        except Exception:
+            # 详细异常留本地 stderr;公开响应只回安全 code/message,不拼接 str(exc)
             traceback.print_exc()
-            body_b, code = _err(f"内部错误: {e}", 500)
+            body_b, code = _safe_error("internal_error", 500)
             self._send(body_b, code)
 
 def main() -> None:

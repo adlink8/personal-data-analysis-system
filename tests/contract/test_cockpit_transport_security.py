@@ -223,3 +223,52 @@ def test_dev_origin_mutation_still_reaches_orchestration(live_server, monkeypatc
     assert resp["status"] == 200
     assert calls == ["session.prepare"]
     assert resp["headers"].get("Access-Control-Allow-Origin") == "http://127.0.0.1:5173"
+
+
+# --- Task 3: 静态 Cockpit 与 transport 错误的安全公开信息 --------------------
+
+
+def test_missing_cockpit_asset_returns_safe_error_without_path_echo(live_server, monkeypatch, tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html></html>", encoding="utf-8")
+    monkeypatch.setattr(api_server, "COCKPIT_DIST", dist)
+
+    resp = _request(live_server, "GET", "/app/does-not-exist-1234.js")
+    assert resp["status"] == 404
+    payload = json.loads(resp["body"])
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "cockpit_asset_not_found"
+    assert "does-not-exist-1234.js" not in resp["body"].decode("utf-8")
+
+
+def test_cockpit_not_built_returns_safe_error(live_server, monkeypatch, tmp_path):
+    monkeypatch.setattr(api_server, "COCKPIT_DIST", tmp_path / "missing-dist")
+    resp = _request(live_server, "GET", "/app/anything.js")
+    assert resp["status"] == 404
+    payload = json.loads(resp["body"])
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "cockpit_not_built"
+
+
+def test_internal_error_never_echoes_exception_text(live_server, monkeypatch):
+    def boom_stats():
+        raise RuntimeError(f"leak-check secret={FAKE_TOKEN} path={FAKE_PATH_HINT}")
+
+    monkeypatch.setattr(api_server.backend, "stats", boom_stats)
+    resp = _request(live_server, "GET", "/stats")
+    assert resp["status"] == 500
+    body_text = resp["body"].decode("utf-8")
+    assert FAKE_TOKEN not in body_text
+    assert FAKE_PATH_HINT not in body_text
+    payload = json.loads(resp["body"])
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "internal_error"
+
+
+def test_safe_error_codes_are_allowlisted_and_static():
+    # code 只能来自模块内固定字面量,message 与 code 一一对应且不含动态内容
+    for code, message in api_server._SAFE_ERRORS.items():
+        body, _status = api_server._safe_error(code, 400)
+        payload = json.loads(body)
+        assert payload == {"ok": False, "error": {"code": code, "message": message}}
