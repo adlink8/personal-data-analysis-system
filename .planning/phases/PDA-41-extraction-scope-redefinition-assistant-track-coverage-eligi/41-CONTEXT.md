@@ -93,6 +93,7 @@
 - **confidence 校准**（99.3% ≥0.9 无区分度）——改为证据派生置信或弃用
 - **1476 条 unresolved 孤儿 unit**（引用消息已不存在）的处置决策
 - **canonical 同 subject 多 answer 组**（~5.5k 行）的 lifecycle/supersede 审查
+- **QA 联立深化（v2 prompt 候选）**——用户 2026-07-26 提出"问题和回答要联立看"：①QA 上下文从"前置 1 条 user"扩到"穿透短确认找最近实质提问"；②question-side ref 显式写入 `knowledge_unit_evidence`（role=context），供检索排序与 eval 并集匹配复用；③QA 配对跳过 <30 字确认类消息（eligible 阈值不应遮住配对逻辑）。约束：**不在 run 中途换 prompt**（compute_cache_key 含 prompt_hash，换版会分裂缓存命名空间）——等全量 run 完成后出 v2，用 eval 集对比 v1/v2 再决定存量是否重抽
 
 </deferred>
 
