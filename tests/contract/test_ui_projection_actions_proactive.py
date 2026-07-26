@@ -43,6 +43,23 @@ PROTOCOL_ITEM_KEYS = {
     "inconclusive_reasons", "sample_size", "summary_limitations",
 }
 
+# 注入含路径/密钥/Bearer/provider JSON/confirmation-HMAC 字样的异常文本,
+# 验证公开 envelope(D-36-06)绝不回显这些片段——只允许 allowlisted safe code/message。
+_POISON_MESSAGE = (
+    r'path=C:\secret\x key=sk-test-1234567890 auth=Bearer abcdef123 '
+    r'provider_body={"provider": "openai", "choices": []} '
+    r'confirmation_token=deadbeef1234 hmac=HMAC-SHA256:cafebabe'
+)
+_POISON_FRAGMENTS = (
+    r"C:\secret\x",
+    "sk-test-1234567890",
+    "Bearer abcdef123",
+    '"provider": "openai"',
+    "confirmation_token=deadbeef1234",
+    "HMAC-SHA256:cafebabe",
+    "RuntimeError",
+)
+
 
 def _event(sequence, event_type, typed_record_id):
     return {
@@ -216,6 +233,23 @@ def test_actions_recent_single_item_failure_isolated(monkeypatch):
         assert item["effectiveness"] == []
 
 
+def test_actions_recent_single_item_failure_never_leaks_exception_detail(monkeypatch):
+    original = DecisionFeedbackService.invoke
+
+    def boom(self, operation, **params):
+        if operation == "recommendations.history":
+            raise RuntimeError(_POISON_MESSAGE)
+        return original(self, operation, **params)
+
+    monkeypatch.setattr(DecisionFeedbackService, "invoke", boom)
+    result = CockpitProjectionService().invoke("actions_recent.get")
+    if not result["data"]["total_available"]:
+        pytest.skip("库中无真实 recommendation")
+    serialized = json.dumps(result, ensure_ascii=False, default=str)
+    for fragment in _POISON_FRAGMENTS:
+        assert fragment not in serialized
+
+
 # --- proactive_summary.get ---------------------------------------------------
 
 
@@ -374,6 +408,23 @@ def test_calibration_overview_single_protocol_failure_isolated(monkeypatch):
     for item in result["data"]["protocols"]:
         assert "error" in item
         assert PROTOCOL_ITEM_KEYS <= set(item)
+
+
+def test_calibration_overview_single_protocol_failure_never_leaks_exception_detail(monkeypatch):
+    original = DecisionIntelligenceReadService.invoke
+
+    def boom(self, operation, **params):
+        if operation == "calibration.explain":
+            raise RuntimeError(_POISON_MESSAGE)
+        return original(self, operation, **params)
+
+    monkeypatch.setattr(DecisionIntelligenceReadService, "invoke", boom)
+    result = CockpitProjectionService().invoke("calibration_overview.get")
+    if not result["data"]["total"]:
+        pytest.skip("库中无真实 calibration protocol")
+    serialized = json.dumps(result, ensure_ascii=False, default=str)
+    for fragment in _POISON_FRAGMENTS:
+        assert fragment not in serialized
 
 
 # --- REST parity / 路由 --------------------------------------------------------

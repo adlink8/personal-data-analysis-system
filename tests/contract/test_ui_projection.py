@@ -1,3 +1,5 @@
+import json
+
 import personal_knowledge.services.api_server as api_server
 from personal_knowledge.intelligence.proactive.service import ProactiveIntelligenceService
 from personal_knowledge.services.api_server import ui_rest_contract
@@ -7,6 +9,23 @@ from personal_knowledge.services.ui_projection import (
 )
 
 OVERVIEW_SECTIONS = {"personal", "decision", "proactive", "external", "knowledge"}
+
+# 注入含路径/密钥/Bearer/provider JSON/confirmation-HMAC 字样的异常文本,
+# 验证公开 envelope(D-36-06)绝不回显这些片段——只允许 allowlisted safe code/message。
+_POISON_MESSAGE = (
+    r'path=C:\secret\x key=sk-test-1234567890 auth=Bearer abcdef123 '
+    r'provider_body={"provider": "openai", "choices": []} '
+    r'confirmation_token=deadbeef1234 hmac=HMAC-SHA256:cafebabe'
+)
+_POISON_FRAGMENTS = (
+    r"C:\secret\x",
+    "sk-test-1234567890",
+    "Bearer abcdef123",
+    '"provider": "openai"',
+    "confirmation_token=deadbeef1234",
+    "HMAC-SHA256:cafebabe",
+    "RuntimeError",
+)
 
 
 def test_overview_envelope_shape():
@@ -51,6 +70,21 @@ def test_proactive_failure_isolated_as_partial(monkeypatch):
     for name in OVERVIEW_SECTIONS - {"proactive"}:
         assert result["authorities"][name] in {"ok", "empty"}
         assert result["data"][name] is not None
+
+
+def test_authority_failure_never_leaks_exception_detail(monkeypatch):
+    def boom(self, operation, **params):
+        raise RuntimeError(_POISON_MESSAGE)
+
+    monkeypatch.setattr(ProactiveIntelligenceService, "invoke", boom)
+    result = CockpitProjectionService().invoke("overview.get")
+    assert result["ok"] is True
+    assert result["partial"] is True
+    assert result["authorities"]["proactive"] == "error"
+    assert any("proactive" in item for item in result["limitations"])
+    serialized = json.dumps(result, ensure_ascii=False, default=str)
+    for fragment in _POISON_FRAGMENTS:
+        assert fragment not in serialized
 
 
 def test_system_status_shape():

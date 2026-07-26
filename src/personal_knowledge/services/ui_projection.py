@@ -303,6 +303,53 @@ def _calibration_summary(protocol_id: str, view: Mapping[str, Any]) -> dict[str,
     }
 
 
+# === 安全公开 limitation/error 目录(Phase 36:D-36-06) =========================
+#
+# 单权威/单条读取失败时,公开 limitations 与内联 "error" 字段只能引用这里的固定
+# code/message,绝不拼接 str(exc)、异常类型、路径、密钥、provider body 或
+# confirmation/HMAC 材料;详细异常仅用于该异常自身触发的服务端行为(如重新抛出
+# 给上层隔离),不得以任何形式序列化进返回给浏览器的 JSON。
+_SAFE_FAILURE_CODES: dict[str, str] = {
+    "authority_read_failed": "读取失败",
+    "history_count_unavailable": "历史计数读取异常",
+    "item_assembly_failed": "全链组装失败",
+    "protocol_explain_failed": "explain 失败",
+}
+
+
+def _safe_failure_message(name: str, code: str) -> str:
+    """构造 allowlisted 安全 limitation 文案;code 只能是模块内固定字面量,不接受
+    str(exc) 或其它不可信输入。"""
+    return f"{name} {_SAFE_FAILURE_CODES[code]}({code})"
+
+
+def _safe_failure_error(code: str) -> dict[str, str]:
+    """构造 allowlisted 安全内联 error 字段(actions_recent/calibration 单条失败用)。"""
+    return {"code": code, "message": _SAFE_FAILURE_CODES[code]}
+
+
+# state.current / changes.recent 等 IntelligenceService 读操作在“当前 active
+# snapshot 尚无已提交 personal_state run”时返回 ok=False + error.code=="run_missing"。
+# 这是权威自身发布的真实空状态语义(尚未产出个人状态分析),不是读取异常,必须映射
+# 为 empty 而非 error,否则会把“还没跑分析”误报成“读取失败”掩盖真实降级原因。
+_INTELLIGENCE_EMPTY_CODES = frozenset({"run_missing"})
+
+
+def _intelligence_data_or_raise(
+    result: dict[str, Any], fallback_code: str,
+) -> dict[str, Any] | None:
+    """校验 IntelligenceService 读操作结果:成功返回 data;真实空状态(run_missing)
+    返回 None 交调用方降级为零值 empty 分区;其余失败 raise ValueError(safe code)
+    交 _collect/单条 try 隔离为 error(safe code 来自权威自身的固定错误词表,
+    不是 str(exc),因此可安全传播)。"""
+    if result.get("ok"):
+        return result["data"]
+    code = str((result.get("error") or {}).get("code") or fallback_code)
+    if code in _INTELLIGENCE_EMPTY_CODES:
+        return None
+    raise ValueError(code)
+
+
 def _db_readable(path: Path) -> bool:
     """以 mode=ro 打开并执行 SELECT 1 验证可读性。"""
     if not path.exists():
@@ -379,10 +426,10 @@ class CockpitProjectionService:
         for name, loader in loaders.items():
             try:
                 section = loader()
-            except Exception as exc:  # noqa: BLE001 — 单节失败必须被隔离
+            except Exception:  # noqa: BLE001 — 单节失败必须被隔离,详情不进入公开响应
                 sections[name] = None
                 authorities[name] = "error"
-                limitations.append(f"{name} 读取失败({type(exc).__name__}): {exc}")
+                limitations.append(_safe_failure_message(name, "authority_read_failed"))
                 continue
             sections[name] = section
             authorities[name] = "empty" if is_empty(name, section) else "ok"
@@ -429,9 +476,12 @@ class CockpitProjectionService:
 
     def _personal_section(self) -> dict[str, Any]:
         result = IntelligenceService(self.db_path).invoke("state.current", limit=50)
-        if not result.get("ok"):
-            raise ValueError(str((result.get("error") or {}).get("code") or "personal_read_failed"))
-        data = result["data"]
+        data = _intelligence_data_or_raise(result, "personal_read_failed")
+        if data is None:
+            return {
+                "snapshot_id": None, "as_of": None, "total_available": 0,
+                "domains": {}, "status_counts": {}, "top_items": [],
+            }
         items = list(data.get("items") or [])
         domains: dict[str, int] = {}
         status_counts: dict[str, int] = {}
@@ -631,9 +681,13 @@ class CockpitProjectionService:
     def _personal_state_detail(self, limitations: list[str]) -> dict[str, Any]:
         service = IntelligenceService(self.db_path)
         result = service.invoke("state.current", limit=_STATE_LIMIT)
-        if not result.get("ok"):
-            raise ValueError(str((result.get("error") or {}).get("code") or "personal_read_failed"))
-        data = result["data"]
+        data = _intelligence_data_or_raise(result, "personal_read_failed")
+        if data is None:
+            return {
+                "snapshot_id": None, "as_of": None, "total_available": 0,
+                "history_total_available": None,
+                "domains": _empty_domains(), "lifecycle_counts": _zero_lifecycle_counts(),
+            }
         items = list(data.get("items") or [])
         total_available = data.get("total_available", len(items))
         domains = _empty_domains()
@@ -685,8 +739,8 @@ class CockpitProjectionService:
                     "state.history 计数读取失败(%s)"
                     % str((history.get("error") or {}).get("code") or "unknown")
                 )
-        except Exception as exc:  # noqa: BLE001 — 历史计数降级不拖垮 state 节
-            limitations.append(f"state.history 计数读取异常({type(exc).__name__}): {exc}")
+        except Exception:  # noqa: BLE001 — 历史计数降级不拖垮 state 节,详情不进入公开响应
+            limitations.append(_safe_failure_message("state.history", "history_count_unavailable"))
         return {
             "snapshot_id": (result.get("snapshot") or {}).get("snapshot_id"),
             "as_of": data.get("as_of"),
@@ -698,9 +752,9 @@ class CockpitProjectionService:
 
     def _recent_changes_detail(self) -> dict[str, Any]:
         result = IntelligenceService(self.db_path).invoke("changes.recent", limit=_CHANGES_LIMIT)
-        if not result.get("ok"):
-            raise ValueError(str((result.get("error") or {}).get("code") or "changes_read_failed"))
-        data = result["data"]
+        data = _intelligence_data_or_raise(result, "changes_read_failed")
+        if data is None:
+            return {"total_available": 0, "items": []}
         items = [
             {
                 "record_id": item.get("record_id"),
@@ -1010,14 +1064,14 @@ class CockpitProjectionService:
             rid = str(item.get("recommendation_id") or "")
             try:
                 entry = self._actions_recent_item(rid, card, action_states)
-            except Exception as exc:  # noqa: BLE001 — 单条组装失败必须被隔离
+            except Exception:  # noqa: BLE001 — 单条组装失败必须被隔离,详情不进入公开响应
                 limitations.append(
-                    f"recommendation {rid} 全链组装失败({type(exc).__name__}): {exc}"
+                    _safe_failure_message(f"recommendation {rid}", "item_assembly_failed")
                 )
                 entry = {
                     **card, "timeline": _empty_timeline(),
                     "outcomes": [], "effectiveness": [],
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "error": _safe_failure_error("item_assembly_failed"),
                 }
             else:
                 if entry["outcomes"]:
@@ -1190,13 +1244,15 @@ class CockpitProjectionService:
                         (view_result.get("error") or {}).get("code") or "calibration_read_failed"
                     ))
                 protocols.append(_calibration_summary(pid, view_result["data"]))
-            except Exception as exc:  # noqa: BLE001 — 单 protocol 失败必须被隔离
-                limitations.append(f"protocol {pid} explain 失败({type(exc).__name__}): {exc}")
+            except Exception:  # noqa: BLE001 — 单 protocol 失败必须被隔离,详情不进入公开响应
+                limitations.append(
+                    _safe_failure_message(f"protocol {pid}", "protocol_explain_failed")
+                )
                 protocols.append({
                     "protocol_id": pid, "status": None, "verdict": None,
                     "causal_claim": None, "inconclusive_reasons": [],
                     "sample_size": 0, "summary_limitations": [],
-                    "error": f"{type(exc).__name__}: {exc}",
+                    "error": _safe_failure_error("protocol_explain_failed"),
                 })
         if total > len(protocols):
             limitations.append(

@@ -3,6 +3,23 @@ import threading
 import urllib.request
 from http.server import ThreadingHTTPServer
 
+# 注入含路径/密钥/Bearer/provider JSON/confirmation-HMAC 字样的异常文本,
+# 验证公开 envelope(D-36-06)绝不回显这些片段——只允许 allowlisted safe code/message。
+_POISON_MESSAGE = (
+    r'path=C:\secret\x key=sk-test-1234567890 auth=Bearer abcdef123 '
+    r'provider_body={"provider": "openai", "choices": []} '
+    r'confirmation_token=deadbeef1234 hmac=HMAC-SHA256:cafebabe'
+)
+_POISON_FRAGMENTS = (
+    r"C:\secret\x",
+    "sk-test-1234567890",
+    "Bearer abcdef123",
+    '"provider": "openai"',
+    "confirmation_token=deadbeef1234",
+    "HMAC-SHA256:cafebabe",
+    "RuntimeError",
+)
+
 import personal_knowledge.services.api_server as api_server
 from personal_knowledge.intelligence.proactive.schema import CANONICAL_DOMAINS
 from personal_knowledge.intelligence.service import IntelligenceService
@@ -97,6 +114,23 @@ def test_personal_state_changes_failure_isolated(monkeypatch):
     assert result["data"]["recent_changes"] == []
     assert result["authorities"]["state"] in {"ok", "empty"}
     assert set(result["data"]["domains"]) == EIGHT_DOMAINS
+
+
+def test_personal_state_changes_failure_never_leaks_exception_detail(monkeypatch):
+    original = IntelligenceService.invoke
+
+    def guarded(self, operation, **params):
+        if operation == "changes.recent":
+            raise RuntimeError(_POISON_MESSAGE)
+        return original(self, operation, **params)
+
+    monkeypatch.setattr(IntelligenceService, "invoke", guarded)
+    result = CockpitProjectionService().invoke("personal_state.get")
+    assert result["ok"] is True
+    assert result["authorities"]["changes"] == "error"
+    serialized = json.dumps(result, ensure_ascii=False, default=str)
+    for fragment in _POISON_FRAGMENTS:
+        assert fragment not in serialized
 
 
 def test_external_delta_envelope_shape():
