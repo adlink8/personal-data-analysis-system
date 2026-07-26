@@ -35,7 +35,7 @@ SYSTEM_INJECTION_PATTERNS = [
     re.compile(r"<user_info>.*?</user_info>", re.DOTALL | re.IGNORECASE),
 ]
 
-# assistant 消息工具命令排除模式（13 种前缀）
+# assistant 消息工具命令排除模式（13 种前缀 + Task 元数据块）
 ASSISTANT_TOOL_PREFIX_PATTERNS = [
     re.compile(r'^\[Bash\]', re.DOTALL),
     re.compile(r'^\[Tool:', re.DOTALL),
@@ -50,6 +50,8 @@ ASSISTANT_TOOL_PREFIX_PATTERNS = [
     re.compile(r'^\[WebFetch\]', re.DOTALL),
     re.compile(r'^\[WebSearch\]', re.DOTALL),
     re.compile(r'^\[Skill\]', re.DOTALL),
+    # [Task]\n{"target":...} 元数据/凭据 blob（pilot 实测：newest-first 队列头部全是此类）
+    re.compile(r'^\[Task\]\s*\{', re.DOTALL),
 ]
 
 

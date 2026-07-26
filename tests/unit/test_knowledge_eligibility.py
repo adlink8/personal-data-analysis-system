@@ -134,7 +134,7 @@ def test_excluded_counts_present(tmp_path: Path) -> None:
     canon = _make_canonical_db(tmp_path / "canon.db")
     items, stats = compute_eligible_messages(canon)
 
-    assert len(ASSISTANT_TOOL_PREFIX_PATTERNS) == 13
+    assert len(ASSISTANT_TOOL_PREFIX_PATTERNS) == 14  # 13 前缀 + [Task] 元数据 blob（pilot 实测新增）
     for key in (
         "coarse_count",
         "excluded_short",
