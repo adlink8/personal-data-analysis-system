@@ -22,12 +22,17 @@ const FreshnessSchema = z
   .passthrough()
   .nullish();
 
-/** 统一信封工厂：operation/schema_version 等公共字段 + 各端点自己的 data。 */
-function envelope<D extends z.ZodTypeAny>(dataSchema: D) {
+/**
+ * 统一信封工厂（D-36-05/T-36-07）：schema_version 固定字面量
+ * `decision_cockpit_projection_v1`，operation 固定为调用方传入的该端点专属字面量。
+ * 错误版本或错误 operation（含被其他端点合法 payload 误用）一律 parse 失败，
+ * 不允许任意字符串通过并被当作当前 decision 状态渲染。
+ */
+function envelope<Op extends string, D extends z.ZodTypeAny>(operation: Op, dataSchema: D) {
   return z
     .object({
-      schema_version: z.string(),
-      operation: z.string(),
+      schema_version: z.literal('decision_cockpit_projection_v1'),
+      operation: z.literal(operation),
       ok: z.boolean(),
       generated_at: z.string(),
       snapshot_bindings: SnapshotBindingsSchema,
@@ -149,7 +154,7 @@ export const OverviewDataSchema = z
   })
   .passthrough();
 
-export const OverviewEnvelopeSchema = envelope(OverviewDataSchema);
+export const OverviewEnvelopeSchema = envelope('overview.get', OverviewDataSchema);
 export type OverviewEnvelope = z.infer<typeof OverviewEnvelopeSchema>;
 export type OverviewData = z.infer<typeof OverviewDataSchema>;
 
@@ -196,7 +201,7 @@ export const SystemStatusDataSchema = z
   })
   .passthrough();
 
-export const SystemStatusEnvelopeSchema = envelope(SystemStatusDataSchema);
+export const SystemStatusEnvelopeSchema = envelope('system.status.get', SystemStatusDataSchema);
 export type SystemStatusEnvelope = z.infer<typeof SystemStatusEnvelopeSchema>;
 export type SystemStatusData = z.infer<typeof SystemStatusDataSchema>;
 
@@ -279,7 +284,10 @@ export const PersonalStateDataSchema = z
   .passthrough();
 
 // data 整体为 null = 个人状态 Authority 失败，页面按 partial 降级
-export const personalStateEnvelopeSchema = envelope(PersonalStateDataSchema.nullable().default(null));
+export const personalStateEnvelopeSchema = envelope(
+  'personal_state.get',
+  PersonalStateDataSchema.nullable().default(null),
+);
 export type PersonalStateEnvelope = z.infer<typeof personalStateEnvelopeSchema>;
 export type PersonalStateData = z.infer<typeof PersonalStateDataSchema>;
 export type PersonalStateDomain = z.infer<typeof PersonalStateDomainSchema>;
@@ -346,7 +354,10 @@ export const ExternalDeltaDataSchema = z
   .passthrough();
 
 // data 整体为 null = 外部环境 Authority 失败，页面按 partial 降级
-export const externalDeltaEnvelopeSchema = envelope(ExternalDeltaDataSchema.nullable().default(null));
+export const externalDeltaEnvelopeSchema = envelope(
+  'external_delta.get',
+  ExternalDeltaDataSchema.nullable().default(null),
+);
 export type ExternalDeltaEnvelope = z.infer<typeof externalDeltaEnvelopeSchema>;
 export type ExternalDeltaData = z.infer<typeof ExternalDeltaDataSchema>;
 export type ExternalFact = z.infer<typeof ExternalFactSchema>;
@@ -390,7 +401,7 @@ export const DecisionQueueDataSchema = z
   })
   .passthrough();
 
-export const decisionQueueEnvelopeSchema = envelope(DecisionQueueDataSchema);
+export const decisionQueueEnvelopeSchema = envelope('decision_queue.get', DecisionQueueDataSchema);
 export type DecisionQueueEnvelope = z.infer<typeof decisionQueueEnvelopeSchema>;
 export type DecisionQueueData = z.infer<typeof DecisionQueueDataSchema>;
 export type DecisionCard = z.infer<typeof DecisionCardSchema>;
@@ -478,7 +489,7 @@ export const DecisionWorkspaceDataSchema = z
   })
   .passthrough();
 
-export const decisionWorkspaceEnvelopeSchema = envelope(DecisionWorkspaceDataSchema);
+export const decisionWorkspaceEnvelopeSchema = envelope('decision_workspace.get', DecisionWorkspaceDataSchema);
 export type DecisionWorkspaceEnvelope = z.infer<typeof decisionWorkspaceEnvelopeSchema>;
 export type DecisionWorkspaceData = z.infer<typeof DecisionWorkspaceDataSchema>;
 export type RecommendationDetail = z.infer<typeof RecommendationDetailSchema>;
@@ -551,7 +562,7 @@ export const ActionsRecentDataSchema = z
   })
   .passthrough();
 
-export const actionsRecentEnvelopeSchema = envelope(ActionsRecentDataSchema);
+export const actionsRecentEnvelopeSchema = envelope('actions_recent.get', ActionsRecentDataSchema);
 export type ActionsRecentEnvelope = z.infer<typeof actionsRecentEnvelopeSchema>;
 export type ActionsRecentData = z.infer<typeof ActionsRecentDataSchema>;
 export type ActionItem = z.infer<typeof ActionItemSchema>;
@@ -595,7 +606,7 @@ export const ProactiveSummaryDataSchema = z
   })
   .passthrough();
 
-export const proactiveSummaryEnvelopeSchema = envelope(ProactiveSummaryDataSchema);
+export const proactiveSummaryEnvelopeSchema = envelope('proactive_summary.get', ProactiveSummaryDataSchema);
 export type ProactiveSummaryEnvelope = z.infer<typeof proactiveSummaryEnvelopeSchema>;
 export type ProactiveSummaryData = z.infer<typeof ProactiveSummaryDataSchema>;
 export type ProactiveSummaryCard = z.infer<typeof ProactiveSummaryCardSchema>;
@@ -624,7 +635,10 @@ export const CalibrationOverviewDataSchema = z
   })
   .passthrough();
 
-export const calibrationOverviewEnvelopeSchema = envelope(CalibrationOverviewDataSchema);
+export const calibrationOverviewEnvelopeSchema = envelope(
+  'calibration_overview.get',
+  CalibrationOverviewDataSchema,
+);
 export type CalibrationOverviewEnvelope = z.infer<typeof calibrationOverviewEnvelopeSchema>;
 export type CalibrationOverviewData = z.infer<typeof CalibrationOverviewDataSchema>;
 export type CalibrationProtocol = z.infer<typeof CalibrationProtocolSchema>;

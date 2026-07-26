@@ -54,3 +54,37 @@ describe('实时后端响应 × 前端契约（fixtures 为真实抓取）', () 
     });
   }
 });
+
+/**
+ * T-36-07 回归：每个真实 fixture 一旦 schema_version 或 operation 被篡改，
+ * 对应端点 schema 必须拒绝——防止宽松 envelope 把错版本/错 operation 的响应
+ * 当作当前 decision 状态渲染。
+ */
+describe('版本/operation 篡改回归（九个 fixture 全覆盖）', () => {
+  for (const [name, schema, body] of CASES) {
+    it(`${name}：篡改 schema_version 后 parse 失败`, () => {
+      const tampered = { ...(body as Record<string, unknown>), schema_version: 'decision_cockpit_projection_v2' };
+      expect(schema.safeParse(tampered).success).toBe(false);
+    });
+
+    it(`${name}：篡改 operation 后 parse 失败`, () => {
+      const tampered = { ...(body as Record<string, unknown>), operation: 'not_a_real_operation' };
+      expect(schema.safeParse(tampered).success).toBe(false);
+    });
+  }
+});
+
+/** 端点 schema 互斥：某端点真实 fixture 不能被另一个端点的 schema 接受。 */
+describe('跨端点 payload 互斥', () => {
+  it('decision-queue fixture 不能被 personal_state.get schema 接受', () => {
+    expect(personalStateEnvelopeSchema.safeParse(decisionQueue).success).toBe(false);
+  });
+
+  it('proactive-summary fixture 不能被 actions_recent.get schema 接受', () => {
+    expect(actionsRecentEnvelopeSchema.safeParse(proactiveSummary).success).toBe(false);
+  });
+
+  it('overview fixture 不能被 system.status.get schema 接受', () => {
+    expect(SystemStatusEnvelopeSchema.safeParse(overview).success).toBe(false);
+  });
+});

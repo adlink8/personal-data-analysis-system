@@ -178,6 +178,21 @@ describe('OverviewEnvelopeSchema', () => {
     };
     expect(() => OverviewEnvelopeSchema.parse(withExtra)).not.toThrow();
   });
+
+  // T-36-07：错误版本/错误 operation 不能被 parse 成有效 Cockpit 数据
+  it('拒绝错误的 schema_version', () => {
+    const wrongVersion = { ...FULL_OVERVIEW, schema_version: 'decision_cockpit_projection_v2' };
+    expect(OverviewEnvelopeSchema.safeParse(wrongVersion).success).toBe(false);
+  });
+
+  it('拒绝错误的 operation（含被其他端点合法值冒充）', () => {
+    const wrongOperation = { ...FULL_OVERVIEW, operation: 'system.status.get' };
+    expect(OverviewEnvelopeSchema.safeParse(wrongOperation).success).toBe(false);
+  });
+
+  it('拒绝其他端点的合法 payload（system.status.get 不能当作 overview.get 渲染）', () => {
+    expect(OverviewEnvelopeSchema.safeParse(FULL_SYSTEM_STATUS).success).toBe(false);
+  });
 });
 
 describe('SystemStatusEnvelopeSchema', () => {
@@ -197,6 +212,20 @@ describe('SystemStatusEnvelopeSchema', () => {
       data: { knowledge: FULL_SYSTEM_STATUS.data.knowledge },
     };
     expect(SystemStatusEnvelopeSchema.safeParse(broken).success).toBe(false);
+  });
+
+  it('拒绝错误的 schema_version', () => {
+    const wrongVersion = { ...FULL_SYSTEM_STATUS, schema_version: 'decision_cockpit_projection_v2' };
+    expect(SystemStatusEnvelopeSchema.safeParse(wrongVersion).success).toBe(false);
+  });
+
+  it('拒绝错误的 operation（含被其他端点合法值冒充）', () => {
+    const wrongOperation = { ...FULL_SYSTEM_STATUS, operation: 'overview.get' };
+    expect(SystemStatusEnvelopeSchema.safeParse(wrongOperation).success).toBe(false);
+  });
+
+  it('拒绝其他端点的合法 payload（overview.get 不能当作 system.status.get 渲染）', () => {
+    expect(SystemStatusEnvelopeSchema.safeParse(FULL_OVERVIEW).success).toBe(false);
   });
 });
 
@@ -337,6 +366,22 @@ describe('personalStateEnvelopeSchema', () => {
     expect(parsed.data?.domains['health']).toBeNull();
     expect(parsed.data?.domains['career']?.total).toBe(12);
   });
+
+  it('拒绝错误的 schema_version 或 operation', () => {
+    expect(
+      personalStateEnvelopeSchema.safeParse({
+        ...FULL_PERSONAL_STATE,
+        schema_version: 'decision_cockpit_projection_v2',
+      }).success,
+    ).toBe(false);
+    expect(
+      personalStateEnvelopeSchema.safeParse({ ...FULL_PERSONAL_STATE, operation: 'external_delta.get' }).success,
+    ).toBe(false);
+  });
+
+  it('拒绝其他端点的合法 payload（external_delta.get 不能当作 personal_state.get 渲染）', () => {
+    expect(personalStateEnvelopeSchema.safeParse(FULL_EXTERNAL_DELTA).success).toBe(false);
+  });
 });
 
 describe('externalDeltaEnvelopeSchema', () => {
@@ -389,5 +434,21 @@ describe('externalDeltaEnvelopeSchema', () => {
     expect(parsed.partial).toBe(true);
     expect(parsed.data).toBeNull();
     expect(parsed.limitations[0]).toContain('外部环境');
+  });
+
+  it('拒绝错误的 schema_version 或 operation', () => {
+    expect(
+      externalDeltaEnvelopeSchema.safeParse({
+        ...FULL_EXTERNAL_DELTA,
+        schema_version: 'decision_cockpit_projection_v2',
+      }).success,
+    ).toBe(false);
+    expect(
+      externalDeltaEnvelopeSchema.safeParse({ ...FULL_EXTERNAL_DELTA, operation: 'personal_state.get' }).success,
+    ).toBe(false);
+  });
+
+  it('拒绝其他端点的合法 payload（personal_state.get 不能当作 external_delta.get 渲染）', () => {
+    expect(externalDeltaEnvelopeSchema.safeParse(FULL_PERSONAL_STATE).success).toBe(false);
   });
 });
