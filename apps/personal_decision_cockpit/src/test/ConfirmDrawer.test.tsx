@@ -65,6 +65,48 @@ describe('ConfirmDrawer', () => {
     expect(screen.getByText(/"operation": "decide"/)).toBeInTheDocument();
   });
 
+  it('busy=true 时 Esc、背景遮罩与关闭按钮均不触发 onClose（与底部"取消"按钮 disabled 一致）', () => {
+    const onClose = vi.fn();
+    renderDrawer({ busy: true, onClose });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭确认抽屉' }));
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(onClose).not.toHaveBeenCalled();
+
+    // 确认按钮同样禁用，防止 busy 期间重复提交
+    expect(screen.getByRole('button', { name: /正在写入/ })).toBeDisabled();
+  });
+
+  it('Esc 不会冒泡到外层对话框（嵌套模态场景，如"新建决策会话"）：只关闭当前抽屉', () => {
+    const outerListener = vi.fn();
+    // 模拟外层对话框（NewSessionDialog）自己的 window 级 bubble-phase Escape 监听
+    window.addEventListener('keydown', outerListener);
+    try {
+      const onClose = vi.fn();
+      renderDrawer({ onClose });
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(outerListener).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', outerListener);
+    }
+  });
+
+  it('busy=false 时 Esc/背景/关闭按钮均可正常触发 onClose，且不调用 onConfirm（取消零副作用）', () => {
+    const onClose = vi.fn();
+    const onConfirm = vi.fn();
+    renderDrawer({ onClose, onConfirm });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
   it('open=false 不渲染；确认按钮触发 onConfirm', () => {
     const { rerender } = render(
       <ConfirmDrawer

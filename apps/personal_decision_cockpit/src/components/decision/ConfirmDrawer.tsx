@@ -57,12 +57,18 @@ export function ConfirmDrawer({
   const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   // Esc 关闭抽屉 + 简单焦点圈（Tab 不逃逸出抽屉，不引库）；打开时重置折叠状态
+  // busy（确认请求在途）时 Esc 与背景/关闭按钮一律不生效，和底部"取消"按钮的 disabled 保持一致，
+  // 避免同一次显式确认在途时被其它出口悄悄"取消掉"UI 表现（不产生新写入，但状态展示需一致）。
+  // 监听注册为 capture 阶段并对 Escape 调用 stopPropagation：抽屉可能嵌套在外层对话框
+  // （如"新建决策会话"）之内，两者都在 window 上监听 Escape；不做拦截会导致按一次 Esc
+  // 同时关掉抽屉和外层对话框——用户只想撤销当前这一步确认，不应把整个流程一并关闭。
   useEffect(() => {
     if (!open) return;
     setPreviewExpanded(false);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        event.stopPropagation();
+        if (!busy) onClose();
         return;
       }
       if (event.key === 'Tab') {
@@ -84,9 +90,9 @@ export function ConfirmDrawer({
         }
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [open, onClose, busy]);
 
   // 仅在 打开/关闭 状态翻转时移焦：打开时焦点进抽屉并记住触发源，关闭时还原
   // （不依赖 onClose 身份，避免父组件重渲染把焦点反复拽回）
@@ -106,11 +112,12 @@ export function ConfirmDrawer({
 
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={`确认写入：${title}`}>
-      {/* 遮罩：点击关闭（未写入任何内容） */}
+      {/* 遮罩：点击关闭（未写入任何内容）；busy 时禁用，与底部"取消"按钮一致 */}
       <button
         type="button"
         aria-label="关闭确认抽屉"
-        className="absolute inset-0 h-full w-full cursor-default overlay-backdrop"
+        disabled={busy}
+        className="absolute inset-0 h-full w-full cursor-default overlay-backdrop disabled:cursor-not-allowed"
         onClick={onClose}
       />
       <aside ref={panelRef} className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-line bg-panel shadow-xl">
@@ -122,8 +129,9 @@ export function ConfirmDrawer({
           <button
             type="button"
             onClick={onClose}
+            disabled={busy}
             aria-label="关闭"
-            className="rounded-md border border-line p-1.5 text-muted transition-colors hover:bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            className="rounded-md border border-line p-1.5 text-muted transition-colors hover:bg-surface focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
             <IconX />
           </button>

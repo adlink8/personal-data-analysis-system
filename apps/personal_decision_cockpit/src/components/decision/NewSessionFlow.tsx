@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  canRetrySamePreview,
   deriveActorIdentityHash,
   newIdempotencyKey,
   OrchestrationError,
@@ -100,12 +101,15 @@ export function NewSessionFlow({ onCreated }: NewSessionFlowProps) {
       setResult(confirmed);
       setPreview(null);
     } catch (error) {
-      setFlowError(
+      const normalized =
         error instanceof OrchestrationError
           ? error
-          : new OrchestrationError({ code: 'unknown_error', message: '未知错误' }),
-      );
-      // confirm 失败：保留 preview 与幂等键，允许同一键重试（抽屉保持打开）
+          : new OrchestrationError({ code: 'unknown_error', message: '未知错误' });
+      setFlowError(normalized);
+      // 只有服务端明确标注"运行态就绪后可重试"（如密钥/生成器暂未配置）才保留 preview 与幂等键
+      // 允许同一键重试；其余情况（stale/confirmation/sequence/conflict 等）一律丢弃本地确认意图，
+      // 关闭抽屉并要求用户从头重新 prepare（不会静默重发一个可能已过期/失效的 preview）。
+      if (!canRetrySamePreview(normalized)) setPreview(null);
     } finally {
       setBusy(false);
     }
@@ -294,6 +298,10 @@ export function NewSessionFlow({ onCreated }: NewSessionFlowProps) {
             >
               {busy && !preview ? '正在生成…' : '生成 exact preview（prepare）'}
             </button>
+            <p className="mt-1.5 text-xs text-muted">
+              prepare 不会写入：本操作只读取当前 Personal/External 快照并生成只读 Preview，不创建会话、不追加任何事件；
+              是否写入由下一步的显式确认决定。
+            </p>
           </div>
         </div>
       </section>
