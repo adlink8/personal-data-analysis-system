@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ApiError } from '../../api/client';
 import { useExternalDelta } from '../../api/hooks';
 import type { ExternalDeltaData, ExternalDeltaEnvelope, ExternalFact, ExternalSource } from '../../api/schemas';
+import { LifecycleBadge } from '../../components/authority/ClaimLifecycleBadges';
 import { SnapshotChip, shortId } from '../../components/authority/SnapshotChip';
 import { FreshnessBadge } from '../../components/feedback/FreshnessBadge';
 import { StatePanel } from '../../components/feedback/StatePanel';
@@ -11,8 +12,11 @@ import { fmtNumber, fmtTime } from '../../utils/format';
 /**
  * 外部环境（spec §7.5）：Active External Snapshot、Delta 四组（新增/更新/即将过期/冲突）、
  * 来源 Allowlist 列表与地区/类型客户端筛选（只读，不打 API）。
- * 硬性要求：显著提示"外部事实不会自动成为个人事实。"；
- * 事实字段宽松渲染，缺失一律显式"未提供"，不崩。
+ * 硬性要求：显著提示"外部事实不会自动成为个人事实。"。
+ * canonical DTO（Phase 37 Plan 01）已锁定字段集合：可选展示字段（地区/有效期/来源质量等）
+ * 缺失一律显式"未提供"；但 lifecycle/freshness/来源标识/事实校验和是每条事实的必需字段，
+ * 缺失时不能悄悄降级为"未提供"三个字——必须在卡片上显式标为 partial（D-37 pitfall #7：
+ * 不能把 producer/consumer 字段漂移伪装成正常的"未提供可选字段"）。
  */
 
 type IconComponent = typeof IconInfo;
@@ -70,9 +74,24 @@ function validRangeText(from: string | null | undefined, to: string | null): str
   return `${from ? fmtTime(from) : '—'} ~ ${to ? fmtTime(to) : '—'}`;
 }
 
+/**
+ * 每条外部事实的必需字段（D-37-02 canonical DTO 已锁定，非"可能存在"的宽松猜测字段）：
+ * lifecycle（记录状态）、freshness（服务端派生新鲜度）、来源标识、事实校验和。
+ * 缺失代表 External 权威本次未完整提供该事实，需显式标为 partial，而不是印成普通"未提供"。
+ */
+function missingRequiredFactFields(fact: ExternalFact): string[] {
+  const missing: string[] = [];
+  if (!fact.lifecycle) missing.push('lifecycle（记录状态）');
+  if (!fact.freshness) missing.push('新鲜度分级');
+  if (!fact.source_ids || fact.source_ids.length === 0) missing.push('来源标识');
+  if (!fact.fact_checksum) missing.push('事实校验和');
+  return missing;
+}
+
 function ExternalFactCard({ fact }: { fact: ExternalFact }) {
   // valid_to 与 valid_at 两种命名都接受（后端并行开发，字段名可能微调）
   const validTo = fact.valid_to ?? pickString(fact, ['valid_at']);
+  const missingRequired = missingRequiredFactFields(fact);
   return (
     <li className="rounded-lg border border-line bg-surface p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -82,18 +101,20 @@ function ExternalFactCard({ fact }: { fact: ExternalFact }) {
         {/* canonical DTO 用 subject/predicate 命名轴（Phase 37：D-37-02），
             不再有独立 fact_type 字段;predicate 承担同样的"类型"展示作用 */}
         <span className="badge border-line bg-panel text-muted">{fact.predicate ?? '未提供'}</span>
-        {fact.lifecycle ? (
-          <span className="badge border-line bg-panel text-muted">{fact.lifecycle}</span>
-        ) : null}
+        {/* lifecycle 是 External 权威自身发布的记录状态，与下方 freshness 是两条独立轴（D-37-02） */}
+        <LifecycleBadge status={fact.lifecycle} />
         {fact.conflict ? (
           <span className="badge border-risk bg-risk-soft text-risk">
             <IconArrowLeftRight className="h-3.5 w-3.5" />
             冲突
           </span>
         ) : null}
-        {/* 未来（37-02）应改为直接渲染服务端 fact.freshness.level/reason，
-            而非本组件当前的本地时钟推断;此处先接入 valid_from 保持可编译 */}
-        <FreshnessBadge asOf={fact.valid_from ?? null} />
+        {/* 直接渲染服务端派生的 fact.freshness.level/reason，不再用本地时钟推断（D-37 教训） */}
+        <FreshnessBadge
+          level={fact.freshness?.level ?? null}
+          reason={fact.freshness?.reason ?? null}
+          asOf={fact.valid_from ?? null}
+        />
       </div>
       <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2 lg:grid-cols-3">
         <FactField label="主体" value={fact.subject} mono />
@@ -106,6 +127,12 @@ function ExternalFactCard({ fact }: { fact: ExternalFact }) {
           <dd className="inline">{validRangeText(fact.valid_from, validTo)}</dd>
         </div>
       </dl>
+      {missingRequired.length > 0 ? (
+        <p className="mt-2 flex items-start gap-1.5 rounded-md border border-uncertainty bg-uncertainty-soft px-2 py-1.5 text-xs text-uncertainty">
+          <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          该事实资料不完整（缺少{missingRequired.join('、')}）：External 权威本次未完整提供，而非真实空值。
+        </p>
+      ) : null}
     </li>
   );
 }
@@ -133,7 +160,16 @@ function DeltaGroupSection({
       </div>
       <p className="mt-0.5 text-sm text-muted">{meta.description}</p>
       {ids.length === 0 ? (
-        <p className="mt-3 text-sm text-muted">无</p>
+        meta.key === 'updated' ? (
+          // updated 恒为空数组是已知的权威限制（RESEARCH.md：External 权威未提供逐事实更新
+          // 事件源），必须显式陈述为 limitation，不能被误读成"本次快照没有更新"（D-37-02）。
+          <p className="mt-3 flex items-start gap-1.5 text-sm text-uncertainty">
+            <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            External 权威未提供逐事实更新事件：本组恒为空，不代表"本次没有更新"。
+          </p>
+        ) : (
+          <p className="mt-3 text-sm text-muted">无</p>
+        )
       ) : (
         <ul className="section-stack mt-3">
           {ids.map((id) => {
@@ -394,9 +430,10 @@ export function ExternalContextPage() {
 
   if (query.isError) {
     const err = query.error as ApiError;
+    // network_error = 整个同源 API 不可达，与其余查询失败区分为独立的 offline 态（D-37-03）
     return (
       <StatePanel
-        variant="error"
+        variant={err.code === 'network_error' ? 'offline' : 'error'}
         title="外部环境加载失败"
         errorMessage={err.message}
         onRetry={() => void query.refetch()}
