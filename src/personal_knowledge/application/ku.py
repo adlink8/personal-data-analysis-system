@@ -136,6 +136,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="Cap seeded queue after filters (newest first)",
     )
+    prep.add_argument(
+        "--track",
+        default="user",
+        choices=["user", "assistant"],
+        help="Extraction track (default user). assistant: watermark key "
+        "committed_assistant, roles default assistant, prompt v1_assistant",
+    )
 
     # --- extract (paid) ---
     ext = sub.add_parser(
@@ -288,6 +295,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="With --advance --write: record terminal_failed items into "
         "knowledge_dead_refs, then advance (ignored without --write)",
     )
+    wm.add_argument(
+        "--track",
+        default="user",
+        choices=["user", "assistant"],
+        help="Watermark key: user → 'committed' (default), "
+        "assistant → 'committed_assistant'",
+    )
     wm.add_argument("--db", type=Path, default=None)
     wm.add_argument("--canonical-db", type=Path, default=None)
 
@@ -408,6 +422,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip application→domains facade import inventory",
     )
+    doc.add_argument(
+        "--skip-coverage",
+        action="store_true",
+        help="Skip the source × role coverage matrix check (escape hatch)",
+    )
     doc.add_argument("--db", type=Path, default=None)
     doc.add_argument("--canonical-db", type=Path, default=None)
     doc.add_argument("--active-pointer", type=Path, default=None)
@@ -430,6 +449,9 @@ def _cmd_workflow() -> int:
        --extract-since-watermark / --no-extract-since-watermark
        --since YYYY-MM-DD
        --roles user[,assistant]
+       --track user|assistant   # assistant 轨：独立 watermark key
+                                # (committed_assistant) + v1_assistant prompt，
+                                # roles 缺省 assistant；run 级单轨不混跑
        --skip-succeeded / --no-skip-succeeded
        --baseline-inventory ID
        --max-extract-items N
@@ -528,6 +550,8 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
         argv.extend(["--baseline-inventory", args.baseline_inventory])
     if args.max_extract_items is not None:
         argv.extend(["--max-extract-items", str(args.max_extract_items)])
+    if args.track != "user":
+        argv.extend(["--track", args.track])
     return int(refresh_main(argv) or 0)
 
 
@@ -829,6 +853,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         argv.append("--json")
     if args.skip_ports:
         argv.append("--skip-ports")
+    if args.skip_coverage:
+        argv.append("--skip-coverage")
     if args.no_facade:
         argv.append("--no-facade")
     if args.db is not None:
@@ -865,13 +891,16 @@ def _cmd_watermark(args: argparse.Namespace) -> int:
 
     db_path = args.db or UNIFIED_DB
     canonical_db = args.canonical_db or AGENT_CONVERSATIONS_DB
-    committed = get_committed_watermark(db_path)
+    # watermark key 选择集中一处：user → committed，assistant → committed_assistant
+    wm_key = "committed_assistant" if args.track == "assistant" else "committed"
+    committed = get_committed_watermark(db_path, key=wm_key)
     current = compute_source_checksum(canonical_db) if canonical_db.exists() else ""
     wm_updated = ""
     try:
         con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
         row = con.execute(
-            "SELECT updated_at FROM knowledge_source_watermark WHERE key='committed'"
+            "SELECT updated_at FROM knowledge_source_watermark WHERE key=?",
+            (wm_key,),
         ).fetchone()
         wm_updated = row[0] if row else ""
         con.close()
@@ -880,6 +909,8 @@ def _cmd_watermark(args: argparse.Namespace) -> int:
 
     if not args.advance:
         doc = {
+            "track": args.track,
+            "watermark_key": wm_key,
             "committed": committed,
             "committed_updated_at": wm_updated,
             "current_source_checksum": current,
@@ -910,6 +941,8 @@ def _cmd_watermark(args: argparse.Namespace) -> int:
     preconditions = check_watermark_advance_preconditions(db_path)
     preview = {
         "action": "advance",
+        "track": args.track,
+        "watermark_key": wm_key,
         "before": committed,
         "after": new_cs,
         "changed": committed != new_cs,
@@ -946,7 +979,7 @@ def _cmd_watermark(args: argparse.Namespace) -> int:
         return 2
     dead_refs_recorded = acknowledge_dead_refs(db_path) if failed else 0
 
-    result = advance_watermark(db_path, new_cs)
+    result = advance_watermark(db_path, new_cs, key=wm_key)
     out = {**preview, **result, "write": True}
     if failed:
         out["dead_refs_recorded"] = dead_refs_recorded

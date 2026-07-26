@@ -289,6 +289,32 @@ pk-ku reconcile --write --i-know --max-subjects 20
 
 Does **not** promote active index, advance watermark, or call paid extract.
 
+### pk-ku doctor — coverage_matrix check（Phase 41, D-06）
+
+`pk-ku doctor` 注册的 `coverage_matrix` check 报告 **source × role 覆盖矩阵**：
+每个 `(source, role)` 行的 eligible 消息数（41-01 `compute_eligible_messages`
+唯一口径）、已单元化数（`knowledge_unit_evidence` ∪ `knowledge_units.source_message_ref`
+并集去重）、按 pass 族（`v1|`/`l2|`/`ku_`/`as|`）分布，以及未覆盖三分类：
+
+| 分类 | 含义 |
+|------|------|
+| `abstained` | 已入队，最新 run item status=abstained（模型判断无知识可抽） |
+| `terminal_failed` | 已入队但终结失败；另查 `knowledge_dead_refs`，未记录数计入 `dead_ref_missing_count`（失败不静默） |
+| `not_queued` | eligible 但从未出现在任何 run items——盲区（如 zcode 1032 条 0 KU） |
+
+`ku` 世代命中标 `grandfathered`（D-04 豁免；实测存量前缀为 `ku_`，`ku|` 一并豁免），不计入未覆盖。每行守恒：
+`covered + grandfathered + abstained + terminal_failed + not_queued == eligible_count`。
+
+- **WARN-only**：`severity=warn`、`ok` 恒 True、不进 `hard_fail_ids`，
+  exit code 不受影响（覆盖是观测问题不是正确性问题）。
+- **分级**：新 source 首现 → 行级 `info`；已知 source 连续零覆盖 → 行级 `warn`。
+  历史比对靠当次摘要写回 `var/reports/analysis/ai_context/ku_coverage_latest.json`
+  （count/hash-only，隐私安全；这是 doctor "不变更状态" 的唯一例外）。
+  source checksum 不变时直接复用缓存（detail `cached: true`）。
+- **逃逸口**：`pk-ku doctor --skip-coverage` 跳过该 check（canonical DB 异常
+  膨胀时兜底，detail `{"skipped": true}`）。
+- human 输出只打 WARN 行 top 10（source/role/eligible/covered/not_queued）。
+
 ### 2026-07-16 incremental cycle (reference)
 
 | Step | Result |

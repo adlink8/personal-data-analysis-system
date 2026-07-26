@@ -88,6 +88,40 @@ class ExtractionResult(BaseModel):
     abstain_reason: str = Field(default="")
 
 
+# === Phase 41（D-01）：assistant 轨独立 schema ===
+
+ASSISTANT_PROMPT_VERSION = "v1_assistant"
+ASSISTANT_PROMPT_PATH = Path(__file__).resolve().parents[4] / "assets" / "prompts" / "knowledge_unit_extractor" / "v1_assistant.md"
+
+
+class AssistantKnowledgeUnit(BaseModel):
+    """assistant 轨知识单元（D-01 独立 unit_type 集合，与 user 轨 6 类型不混）。"""
+
+    model_config = ConfigDict(extra="forbid")
+    unit_type: str = Field(...)
+    subject: str = Field(min_length=1, max_length=200)
+    question: str = Field(min_length=4, max_length=500)
+    answer: str = Field(min_length=4, max_length=2000)
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence_quote: str = Field(min_length=1)
+    lifecycle: str = Field(default="current")
+
+    @field_validator("unit_type")
+    @classmethod
+    def valid_unit_type(cls, v: str) -> str:
+        allowed = {"solution", "decision_rationale", "technical_conclusion"}
+        if v not in allowed:
+            raise ValueError(f"unit_type must be one of {allowed}")
+        return v
+
+
+class AssistantExtractionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    units: list[AssistantKnowledgeUnit] = Field(default_factory=list)
+    abstain: bool = Field(default=False)
+    abstain_reason: str = Field(default="")
+
+
 # === System-reminder 预处理（唯一权威定义在 eligibility.py，此处 re-export 兼容旧 import 路径）===
 
 from personal_knowledge.application.knowledge.eligibility import (  # noqa: E402,F401

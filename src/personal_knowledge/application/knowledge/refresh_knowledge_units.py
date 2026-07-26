@@ -1212,14 +1212,19 @@ def ensure_journal_schema(db_path: Path) -> None:
     con.close()
 
 
-def get_committed_watermark(db_path: Path) -> str:
-    """Read the committed watermark without creating or mutating schema."""
+def get_committed_watermark(db_path: Path, *, key: str = "committed") -> str:
+    """Read a watermark value without creating or mutating schema.
+
+    key='committed'（user 轨，默认）或 'committed_assistant'（assistant 轨，
+    Phase 41 D-04：存量 assistant 豁免，只抽增量）。
+    """
     if not db_path.exists():
         return ""
     con = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
     try:
         row = con.execute(
-            "SELECT value FROM knowledge_source_watermark WHERE key='committed'"
+            "SELECT value FROM knowledge_source_watermark WHERE key=?",
+            (key,),
         ).fetchone()
     except sqlite3.OperationalError:
         row = None
@@ -1233,7 +1238,7 @@ def advance_watermark(db_path: Path, checksum: str, *, key: str = "committed") -
     if not checksum:
         raise ValueError("checksum required for watermark advance")
     ensure_journal_schema(db_path)
-    before = get_committed_watermark(db_path)
+    before = get_committed_watermark(db_path, key=key)
     con = connect_rw(db_path)
     con.execute(
         "INSERT INTO knowledge_source_watermark(key, value, updated_at) VALUES (?,?,?) "
@@ -1638,6 +1643,7 @@ def prepare_production_delta(
     roles: list[str] | None = None,
     baseline_inventory_id_override: str = "",
     max_extract_items: int | None = None,
+    track: str = "user",
 ) -> dict:
     """Generate immutable production delta preflight artifact (non-paid).
 
@@ -1662,6 +1668,10 @@ def prepare_production_delta(
     - roles: optional role allow-list (user/assistant)
     - baseline_inventory_id_override: force before inventory
     - max_extract_items: cap seeded queue after filters (newest first)
+    - track: "user"（默认，watermark key 'committed'）或 "assistant"
+      （watermark key 'committed_assistant'，roles 缺省 ["assistant"]，
+      run manifest prompt_version='v1_assistant'）。run 级单轨：roles 显式
+      给出且不含本轨 role → fail closed（ValueError）。
 
     When a floor is in effect (extract_since_watermark or extract_min_started_at),
     the number of refs filtered out by it is reported as ``floor_excluded`` in
@@ -1669,6 +1679,19 @@ def prepare_production_delta(
     """
     if not model:
         raise ValueError("model is required — fail closed")
+    if track not in ("user", "assistant"):
+        raise ValueError(f"track must be 'user' or 'assistant', got {track!r}")
+    # run 级单轨：track 与显式 roles 冲突 → fail closed
+    track_role = track
+    if roles is not None and track_role not in roles:
+        raise ValueError(
+            f"track={track!r} conflicts with explicit roles={roles!r} "
+            f"(run-level single track: roles must include {track_role!r})"
+        )
+    if track == "assistant" and roles is None:
+        roles = ["assistant"]
+    watermark_key = "committed" if track == "user" else "committed_assistant"
+    prompt_version = "v1" if track == "user" else "v1_assistant"
 
     # Ensure schema (idempotent)
     from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
@@ -1680,7 +1703,8 @@ def prepare_production_delta(
     # Compute source checksums (current vs committed watermark)
     src_after = compute_source_checksum(canonical_db)
     wm_row = con.execute(
-        "SELECT value, updated_at FROM knowledge_source_watermark WHERE key='committed'"
+        "SELECT value, updated_at FROM knowledge_source_watermark WHERE key=?",
+        (watermark_key,),
     ).fetchone()
     src_before = wm_row[0] if wm_row else ""
     wm_updated_at = wm_row[1] if wm_row and len(wm_row) > 1 else ""
@@ -1799,6 +1823,7 @@ def prepare_production_delta(
                 modified_count=modified_count,
                 deleted_count=deleted_count,
                 change_types=change_types,
+                prompt_version=prompt_version,
                 config_hash=config_hash,
                 init_run_items=True,
                 extract_change_types=extract_types,
@@ -1840,6 +1865,7 @@ def prepare_production_delta(
         "extract_min_started_at": extract_floor,
         "skip_succeeded": skip_succeeded,
         "roles": sorted(allowed_roles) if allowed_roles else [],
+        "track": track,
         "ref_role_fallback_count": ref_role_fallback_count,
         "max_extract_items": max_extract_items,
         "no_op": delta.get("no_op", True),
@@ -1942,6 +1968,13 @@ def main(argv: list[str] | None = None) -> int:
         metavar="N",
         help="Cap seeded extract queue after filters (newest sessions first)",
     )
+    p.add_argument(
+        "--track",
+        default="user",
+        choices=["user", "assistant"],
+        help="Extraction track (default user). assistant: watermark key "
+        "committed_assistant, roles default [assistant], prompt_version v1_assistant",
+    )
     args = p.parse_args(argv)
 
     if args.sandbox_ku08:
@@ -1990,6 +2023,7 @@ def main(argv: list[str] | None = None) -> int:
                 roles=roles,
                 baseline_inventory_id_override=args.baseline_inventory,
                 max_extract_items=args.max_extract_items,
+                track=args.track,
             )
         except ValueError as e:
             print(f"[error] {e}", file=sys.stderr)

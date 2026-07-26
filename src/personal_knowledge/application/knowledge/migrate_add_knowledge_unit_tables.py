@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS knowledge_build_runs (
 CREATE TABLE IF NOT EXISTS knowledge_units (
     unit_id         TEXT PRIMARY KEY,  -- v1|sha256(run_id|bundle_hash|ordinal)
     run_id          TEXT NOT NULL REFERENCES knowledge_build_runs(run_id),
-    unit_type       TEXT NOT NULL CHECK(unit_type IN ('preference','habit','personal_fact','project_decision','capability','tool_usage')),
+    unit_type       TEXT NOT NULL CHECK(unit_type IN ('preference','habit','personal_fact','project_decision','capability','tool_usage','solution','decision_rationale','technical_conclusion')),
     subject         TEXT NOT NULL,
     question        TEXT NOT NULL,
     answer          TEXT NOT NULL,
@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS knowledge_unit_evidence (
 CREATE TABLE IF NOT EXISTS canonical_knowledge_units (
     canonical_unit_id   TEXT PRIMARY KEY,  -- cu|sha256(subject|unit_type|answer_hash)
     subject         TEXT NOT NULL,
-    unit_type       TEXT NOT NULL CHECK(unit_type IN ('preference','habit','personal_fact','project_decision','capability','tool_usage')),
+    unit_type       TEXT NOT NULL CHECK(unit_type IN ('preference','habit','personal_fact','project_decision','capability','tool_usage','solution','decision_rationale','technical_conclusion')),
     question        TEXT NOT NULL,
     answer          TEXT NOT NULL,
     confidence      REAL NOT NULL,

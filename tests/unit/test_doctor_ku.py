@@ -371,3 +371,159 @@ def test_registry_and_watermark_drift_fail_closed(tmp_path: Path) -> None:
     con.commit(); con.close()
     report = run_doctor(unified_db=paths["db"], conversations_db=paths["conv"], active_pointer=paths["pointer"], skip_ports=True, include_facade=False, collection_inspector=inspect_ok)
     assert next(c for c in report.checks if c.id == "source_watermarks").ok is False
+
+
+# --- Phase 41 Plan 03: coverage_matrix check (D-06, WARN-only) ---
+
+
+def _coverage_layout(tmp_path: Path) -> dict[str, Path]:
+    """composite layout + canonical DB 补齐 coverage 所需列 + 1 条 eligible 消息。"""
+    paths = _composite_layout(tmp_path)
+    con = sqlite3.connect(paths["conv"])
+    con.execute("ALTER TABLE canonical_sessions ADD COLUMN agent TEXT")
+    con.execute("ALTER TABLE canonical_sessions ADD COLUMN started_at TEXT")
+    con.execute("ALTER TABLE canonical_messages ADD COLUMN source TEXT")
+    con.execute(
+        "UPDATE canonical_sessions SET agent='gemini', started_at='2026-07-01T00:00:00Z'"
+    )
+    con.execute(
+        "INSERT INTO canonical_messages"
+        "(canonical_message_id, canonical_session_id, role, content,"
+        " evidence_scope, is_system, source) VALUES (?,?,?,?,?,?,?)",
+        (
+            "cm|z1",
+            "s1",
+            "user",
+            "eligible zcode message with enough content to pass the length gate",
+            "user",
+            0,
+            "zcode",
+        ),
+    )
+    con.commit()
+    con.close()
+    return paths
+
+
+def test_coverage_matrix_warn_rows_never_affect_exit_code(tmp_path: Path):
+    paths = _coverage_layout(tmp_path)
+    snapshot = tmp_path / "ku_coverage_latest.json"
+    # 伪造上次零覆盖快照（checksum 不同 → 强制重算；zcode 连续零覆盖 → WARN 行）
+    snapshot.write_text(
+        json.dumps(
+            {
+                "source_checksum": "stale",
+                "rows": [
+                    {
+                        "source": "zcode",
+                        "role": "user",
+                        "covered_count": 0,
+                        "grandfathered_count": 0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = run_doctor(
+        unified_db=paths["db"],
+        conversations_db=paths["conv"],
+        active_pointer=paths["pointer"],
+        skip_ports=True,
+        include_facade=False,
+        collection_inspector=lambda _: {"exists": True, "checksum": "ck", "count": 2},
+        coverage_snapshot_path=snapshot,
+    )
+    check = next(c for c in report.checks if c.id == "coverage_matrix")
+    assert check.severity == "warn"
+    assert check.ok is True
+    assert check.detail["warn_rows"] >= 1
+    warn_row = next(r for r in check.detail["rows"] if r["level"] == "warn")
+    assert warn_row["source"] == "zcode"
+    assert warn_row["eligible_count"] == 1
+    assert warn_row["not_queued_count"] == 1
+    # D-06：WARN 不 FAIL —— 其他 check 全过时 exit code 不受矩阵内容影响
+    assert report.ok is True
+    assert report.exit_code == 0
+
+
+def test_coverage_matrix_skip_escape_hatch(tmp_path: Path):
+    paths = _coverage_layout(tmp_path)
+    report = run_doctor(
+        unified_db=paths["db"],
+        conversations_db=paths["conv"],
+        active_pointer=paths["pointer"],
+        skip_ports=True,
+        include_facade=False,
+        collection_inspector=lambda _: {"exists": True, "checksum": "ck", "count": 2},
+        skip_coverage=True,
+        coverage_snapshot_path=tmp_path / "snap.json",
+    )
+    check = next(c for c in report.checks if c.id == "coverage_matrix")
+    assert check.ok is True
+    assert check.detail == {"skipped": True}
+    assert not (tmp_path / "snap.json").exists()
+
+
+_SNAPSHOT_KEY_WHITELIST = {
+    "generated_at",
+    "source_checksum",
+    "rows",
+    "totals",
+    "source",
+    "role",
+    "eligible_count",
+    "covered_count",
+    "grandfathered_count",
+    "abstained_count",
+    "terminal_failed_count",
+    "not_queued_count",
+    "dead_ref_missing_count",
+    "by_pass",
+    "level",
+    "warn_rows",
+    "info_rows",
+}
+
+
+def test_coverage_snapshot_privacy_whitelist_and_cache(tmp_path: Path):
+    paths = _coverage_layout(tmp_path)
+    snapshot = tmp_path / "ku_coverage_latest.json"
+
+    def _run():
+        return run_doctor(
+            unified_db=paths["db"],
+            conversations_db=paths["conv"],
+            active_pointer=paths["pointer"],
+            skip_ports=True,
+            include_facade=False,
+            collection_inspector=lambda _: {"exists": True, "checksum": "ck", "count": 2},
+            coverage_snapshot_path=snapshot,
+        )
+
+    report = _run()
+    check = next(c for c in report.checks if c.id == "coverage_matrix")
+    assert check.detail["cached"] is False
+    assert snapshot.exists()
+
+    doc = json.loads(snapshot.read_text(encoding="utf-8"))
+
+    def _walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                assert key in _SNAPSHOT_KEY_WHITELIST, f"unexpected key: {key}"
+                _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+        elif isinstance(node, str):
+            assert len(node) <= 100, f"string too long (possible content leak): {node!r}"
+
+    _walk(doc)
+    # 无 evidence_ref 级明细（ref 只允许存在于单测 fixture）
+    assert "cm|" not in json.dumps(doc)
+
+    # source checksum 未变 → 第二次运行复用缓存
+    report2 = _run()
+    check2 = next(c for c in report2.checks if c.id == "coverage_matrix")
+    assert check2.detail["cached"] is True

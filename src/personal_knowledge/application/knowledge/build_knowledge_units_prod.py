@@ -42,6 +42,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from personal_knowledge.core.sqlite import connect_rw
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import ValidationError
@@ -59,10 +60,73 @@ from personal_knowledge.core.runtime_config import (  # noqa: E402
     vertex_generation_config,
 )
 from personal_knowledge.application.knowledge.knowledge_unit_pipeline import RunManifest  # noqa: E402
+from personal_knowledge.application.knowledge.confirmation_signals import (  # noqa: E402
+    detect_confirmation_signal,
+)
 from personal_knowledge.application.knowledge.build_knowledge_units import (  # noqa: E402
     KnowledgeUnit, ExtractionResult, strip_system_injections, is_meaningful,
     _clean_json, PROMPT_PATH, PROMPT_VERSION,
+    AssistantExtractionResult, ASSISTANT_PROMPT_PATH, ASSISTANT_PROMPT_VERSION,
 )
+
+# === Phase 41：run 级单轨双轨引擎（D-01/D-02）===
+
+# assistant 轨单条回答尾部硬截上限（对齐 L2 MAX_WINDOW_CHARS 先例）
+ASSISTANT_MAX_CHARS = 12000
+
+
+@dataclass(frozen=True)
+class TrackConfig:
+    """一条抽取轨的全部参数（run 级单轨：一个 run 只属于一条轨）。
+
+    R2 硬约束：unit_id_prefix 必须恰好 3 字符且以 '|' 结尾——
+    StagingPublisher.promote 取 substr(unit_id,1,3) 作 pass 族，
+    构造期 fail closed。
+    """
+
+    name: str  # "user" / "assistant"
+    prompt_path: Path
+    prompt_version: str
+    role_label: str  # 注入 LLM 包装文案（证据段标签）
+    evidence_scope: str
+    unit_id_prefix: str
+    result_model: type  # ExtractionResult / AssistantExtractionResult
+    roles: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        assert len(self.unit_id_prefix) == 3 and self.unit_id_prefix.endswith("|"), (
+            f"unit_id_prefix must be exactly 3 chars ending with '|' "
+            f"(StagingPublisher pass-family contract), got {self.unit_id_prefix!r}"
+        )
+
+
+USER_TRACK = TrackConfig(
+    name="user",
+    prompt_path=PROMPT_PATH,
+    prompt_version=PROMPT_VERSION,
+    role_label="用户对话证据（role=user）：",
+    evidence_scope="user",
+    unit_id_prefix="v1|",
+    result_model=ExtractionResult,
+    roles=("user",),
+)
+ASSISTANT_TRACK = TrackConfig(
+    name="assistant",
+    prompt_path=ASSISTANT_PROMPT_PATH,
+    prompt_version=ASSISTANT_PROMPT_VERSION,
+    role_label="助手回答证据（role=assistant）：",
+    evidence_scope="assistant",
+    unit_id_prefix="as|",
+    result_model=AssistantExtractionResult,
+    roles=("assistant",),
+)
+
+
+def track_for_prompt_version(prompt_version: str) -> TrackConfig:
+    """按 run manifest 的 prompt_version 反查 TrackConfig（extract 唯一轨来源）。"""
+    if (prompt_version or "") == ASSISTANT_PROMPT_VERSION:
+        return ASSISTANT_TRACK
+    return USER_TRACK
 
 _VERTEX = vertex_config()
 GCP_PROJECT = _VERTEX.project
@@ -205,10 +269,11 @@ def call_llm_with_retry(
     base_backoff: float = 2.0,
     max_backoff: float = 60.0,
     rate_limiter: RequestRateLimiter | None = None,
+    role_label: str = "用户对话证据（role=user）：",
 ) -> dict:
     """调用 Vertex AI，分类 retry。返回 {"text":..., "usage":...} 或 {"error":..., "error_class":...}。"""
     url = vertex_generate_content_url(_VERTEX, model)
-    user_text = f"{system_prompt}\n\n---\n用户对话证据（role=user）：\n{user_content}\n\n---\n请提取知识单元，输出JSON："
+    user_text = f"{system_prompt}\n\n---\n{role_label}\n{user_content}\n\n---\n请提取知识单元，输出JSON："
     body = json.dumps({
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
         "generationConfig": vertex_generation_config(model, 2048),
@@ -471,6 +536,21 @@ def resume_run(run_id: str, model: str, db_path: Path = UNIFIED_DB,
     return {"run_id": run_id, "recovered_leases": recovered, "stats": stats}
 
 
+def _resolve_run_track(run_id: str, db_path: Path) -> TrackConfig:
+    """按 run manifest 的 prompt_version 反查 TrackConfig（查不到回退 user 轨）。"""
+    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    try:
+        row = con.execute(
+            "SELECT prompt_version FROM knowledge_build_runs WHERE run_id=?",
+            (run_id,),
+        ).fetchone()
+    except sqlite3.Error:
+        row = None
+    finally:
+        con.close()
+    return track_for_prompt_version(row[0] if row else "")
+
+
 def _evidence_supported(quote: str, source: str) -> bool:
     """quote 是否有 ≥10 字连续片段出现在 source 中（与 L2 同规则）。"""
     if not quote or not source:
@@ -488,6 +568,30 @@ def _evidence_supported(quote: str, source: str) -> bool:
     return False
 
 
+def _load_preceding_user_context(
+    canon_con: sqlite3.Connection,
+    session_id: str | None,
+    anchor_ordinal: int | None,
+) -> str:
+    """assistant 轨 QA 对：同 session 最近前置 1 条 user 消息（清洗后）。
+
+    仅供 LLM 理解上下文，不作证据（evidence_quote 回查不含此段）。
+    无前置 user / ordinal 缺失 → 返回空串（不 fail）。
+    """
+    if not session_id or anchor_ordinal is None:
+        return ""
+    row = canon_con.execute(
+        "SELECT content FROM canonical_messages "
+        "WHERE canonical_session_id=? AND role='user' AND ordinal < ? "
+        "AND content IS NOT NULL "
+        "ORDER BY ordinal DESC LIMIT 1",
+        (session_id, anchor_ordinal),
+    ).fetchone()
+    if not row or not row["content"]:
+        return ""
+    return strip_system_injections(row["content"])
+
+
 def _commit_item_result(
     con: sqlite3.Connection,
     run_id: str,
@@ -498,6 +602,7 @@ def _commit_item_result(
     schema_hash: str,
     config_hash: str,
     stats: dict,
+    track: TrackConfig = USER_TRACK,
 ) -> None:
     """主线程：把 worker 结果写入 SQLite（单 writer）。"""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -545,7 +650,7 @@ def _commit_item_result(
 
     try:
         parsed = json.loads(_clean_json(raw_text))
-        result = ExtractionResult(**parsed)
+        result = track.result_model.model_validate(parsed)
     except (json.JSONDecodeError, ValidationError):
         con.execute(
             "UPDATE knowledge_run_items SET status='terminal_failed', "
@@ -555,6 +660,13 @@ def _commit_item_result(
         con.commit()
         stats["failed"] += 1
         return
+
+    # D-03（仅 assistant 轨）：确认信号只做 confidence 修饰，不做硬 gate。
+    confirmation_signal = "none"
+    if track.name == "assistant":
+        confirmation_signal = work.get("confirmation_signal") or "none"
+        key = f"confirmation_{confirmation_signal}"
+        stats[key] = stats.get(key, 0) + 1
 
     response_hash = hashlib.sha256(raw_text.encode()).hexdigest()[:32]
     if result.abstain:
@@ -573,12 +685,21 @@ def _commit_item_result(
                 continue
             kept += 1
             ev_ref = item["evidence_ref"]
-            unit_id = "v1|" + hashlib.sha256(
+            unit_id = track.unit_id_prefix + hashlib.sha256(
                 f"{run_id}|{ev_ref}|{ordinal}".encode()
             ).hexdigest()[:32]
             lifecycle = unit.lifecycle if unit.lifecycle in (
                 "current", "deprecated", "superseded", "conflict"
             ) else "current"
+            confidence = unit.confidence
+            if track.name == "assistant":
+                # D-03 修饰（非硬 gate）：采纳 +0.05（封顶 1.0），纠正 -0.2（封底 0.0）。
+                # corrected 行是未来 lifecycle supersede 候选，自动路由属 deferred
+                # （CONTEXT deferred；docs/runbooks/ku-incremental.md §3F），此处不做。
+                if confirmation_signal == "adopted":
+                    confidence = min(1.0, confidence + 0.05)
+                elif confirmation_signal == "corrected":
+                    confidence = max(0.0, confidence - 0.2)
             con.execute(
                 "INSERT OR REPLACE INTO knowledge_units "
                 "(unit_id, run_id, unit_type, subject, question, answer, confidence, "
@@ -586,9 +707,9 @@ def _commit_item_result(
                 "source_agent, evidence_scope, status, version, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (unit_id, run_id, unit.unit_type, unit.subject, unit.question,
-                 unit.answer, unit.confidence, unit.evidence_quote, lifecycle,
+                 unit.answer, confidence, unit.evidence_quote, lifecycle,
                  work.get("source_session_id", ""), item["evidence_ref"],
-                 work.get("source_agent", ""), "user", "staging", 1, now),
+                 work.get("source_agent", ""), track.evidence_scope, "staging", 1, now),
             )
             con.execute(
                 "INSERT OR IGNORE INTO knowledge_unit_evidence (unit_id, evidence_ref) VALUES (?,?)",
@@ -615,17 +736,21 @@ def process_run(
     max_items: int | None = None,
     workers: int = DEFAULT_WORKERS,
     min_request_interval: float = DEFAULT_MIN_REQUEST_INTERVAL,
+    track: TrackConfig = USER_TRACK,
 ) -> dict:
     """处理 run 的 pending/retryable items。
 
     多线程：worker 只调 LLM 返回纯响应；主线程单 writer 提交 SQLite。
+    run 级单轨：track 注入 prompt/包装文案/evidence_scope/unit_id 前缀/结果模型。
     """
     con = connect_rw(db_path, timeout=60)
     token_provider = TokenProvider()
     rate_limiter = RequestRateLimiter(min_request_interval)
-    prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
+    prompt_text = track.prompt_path.read_text(encoding="utf-8")
     prompt_hash = hashlib.sha256(prompt_text.encode()).hexdigest()[:16]
-    schema_hash = "v1_extra_forbid"
+    # schema_hash 含 prompt_version：assistant 轨独立 cache 命名空间（双保险，
+    # prompt_hash 本身已隔离）
+    schema_hash = f"{track.prompt_version}_extra_forbid"
     # 与串行路径保持同一 cache 命名空间（workers 只影响调度，不参与 cache key）
     config_hash = hashlib.sha256(
         json.dumps({"batch_size": batch_size}, sort_keys=True).encode()
@@ -653,6 +778,10 @@ def process_run(
         "workers": max(1, workers),
         "rate_limited": 0, "stopped_reason": "", "claim_skipped": 0,
     }
+    if track.name == "assistant":
+        # assistant 轨专属计数（跳过/降级带计数；user 轨不含这些键，零回归）
+        stats["truncated"] = 0
+        stats["role_mismatch"] = 0
     workers = max(1, int(workers))
     # claim 窗口与并发对齐，避免一次挂起过多 in_flight
     claim_size = max(workers * 2, min(batch_size, workers * 4))
@@ -660,7 +789,7 @@ def process_run(
     consecutive_all_retryable = 0
     consecutive_zero_success = 0
     print(
-        f"[process] run={run_id} workers={workers} "
+        f"[process] run={run_id} track={track.name} workers={workers} "
         f"min_interval={min_request_interval}s claim_size={claim_size}",
         flush=True,
     )
@@ -669,11 +798,12 @@ def process_run(
         """worker：只做 LLM 调用，不碰 SQLite。"""
         resp = call_llm_with_retry(
             prompt_text,
-            payload["cleaned"],
+            payload.get("llm_input") or payload["cleaned"],
             model,
             token_provider,
             max_retries=2,  # 并行路径少重试，把节奏交给 rate limiter / 下一批
             rate_limiter=rate_limiter,
+            role_label=track.role_label,
         )
         if "error" in resp:
             return {
@@ -693,6 +823,7 @@ def process_run(
             "input_hash": payload["input_hash"],
             "source_session_id": payload["source_session_id"],
             "source_agent": payload["source_agent"],
+            "confirmation_signal": payload.get("confirmation_signal", "none"),
             "write_cache": True,
         }
 
@@ -718,7 +849,8 @@ def process_run(
                     continue
 
                 row = canon_con.execute(
-                    "SELECT m.content, m.canonical_session_id, s.agent "
+                    "SELECT m.content, m.canonical_session_id, s.agent, "
+                    "m.role, m.ordinal "
                     "FROM canonical_messages m LEFT JOIN canonical_sessions s "
                     "ON m.canonical_session_id=s.canonical_session_id "
                     "WHERE m.canonical_message_id=?",
@@ -734,6 +866,18 @@ def process_run(
                     stats["failed"] += 1
                     continue
 
+                if track.name == "assistant" and (row["role"] or "") != "assistant":
+                    # run 级单轨防混入：锚消息 role 不是 assistant → terminal_failed
+                    con.execute(
+                        "UPDATE knowledge_run_items SET status='terminal_failed', "
+                        "last_error_class='role_mismatch', updated_at=? WHERE id=?",
+                        (now, item["row_id"]),
+                    )
+                    con.commit()
+                    stats["failed"] += 1
+                    stats["role_mismatch"] += 1
+                    continue
+
                 cleaned = strip_system_injections(row["content"])
                 if not is_meaningful(cleaned):
                     con.execute(
@@ -744,7 +888,34 @@ def process_run(
                     stats["abstained"] += 1
                     continue
 
-                input_hash = hashlib.sha256(cleaned.encode()).hexdigest()[:32]
+                llm_input = cleaned
+                confirmation_signal = "none"
+                if track.name == "assistant":
+                    # 尾部硬截 12000（对齐 L2 MAX_WINDOW_CHARS 先例）；
+                    # quote 回查对截断后文本执行（work["cleaned"] 语义一致）
+                    if len(cleaned) > ASSISTANT_MAX_CHARS:
+                        cleaned = cleaned[:ASSISTANT_MAX_CHARS]
+                        stats["truncated"] += 1
+                    # QA 对：同 session 最近前置 1 条 user 消息（仅供理解，不作
+                    # 证据）；无前置 user 时该段为空（不 fail）。原文只进 LLM
+                    # 输入，不写 stats/日志（隐私面与 user 轨出域同级）。
+                    user_ctx = _load_preceding_user_context(
+                        canon_con, row["canonical_session_id"], row["ordinal"]
+                    )
+                    if user_ctx:
+                        llm_input = (
+                            "用户问题上下文（仅供理解，不作证据）：\n"
+                            f"{user_ctx}\n\n---\n\n{cleaned}"
+                        )
+                    # D-03 确认信号检测（confidence 修饰，非硬 gate）
+                    confirmation_signal = detect_confirmation_signal(
+                        canonical_db,
+                        session_id=row["canonical_session_id"] or "",
+                        anchor_message_ref=item["evidence_ref"],
+                        con=canon_con,
+                    )
+
+                input_hash = hashlib.sha256(llm_input.encode()).hexdigest()[:32]
                 # 溯源：evidence_ref → canonical session/agent（查不到保持空串）
                 source_session_id = row["canonical_session_id"] or ""
                 source_agent = row["agent"] or ""
@@ -762,6 +933,7 @@ def process_run(
                         "input_hash": input_hash,
                         "source_session_id": source_session_id,
                         "source_agent": source_agent,
+                        "confirmation_signal": confirmation_signal,
                         "write_cache": False,
                     }))
                 else:
@@ -769,17 +941,19 @@ def process_run(
                         "row_id": item["row_id"],
                         "item": item,
                         "cleaned": cleaned,
+                        "llm_input": llm_input,
                         "cache_key": cache_key,
                         "input_hash": input_hash,
                         "source_session_id": source_session_id,
                         "source_agent": source_agent,
+                        "confirmation_signal": confirmation_signal,
                     })
 
             # 2) 主线程先消化 cache hit
             for item, work in ready_cache:
                 _commit_item_result(
                     con, run_id, item, work, model,
-                    prompt_hash, schema_hash, config_hash, stats,
+                    prompt_hash, schema_hash, config_hash, stats, track,
                 )
 
             # 3) worker 并发 LLM；主线程按完成顺序写库
@@ -807,7 +981,7 @@ def process_run(
                         batch_retryable += 1
                     _commit_item_result(
                         con, run_id, item, work, model,
-                        prompt_hash, schema_hash, config_hash, stats,
+                        prompt_hash, schema_hash, config_hash, stats, track,
                     )
                     done = stats["processed"] + stats["failed"] + stats["abstained"]
                     if done % 10 == 0 or done == 1:
@@ -945,12 +1119,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.resume:
         info = resume_run(args.resume, args.model, args.db, args.batch_size)
         print(f"[resume] {json.dumps(info, ensure_ascii=False)}")
+        # 轨来源唯一：run manifest 的 prompt_version 反查 TrackConfig，
+        # 禁止 CLI 另传 track 造成双轨混跑
+        track = _resolve_run_track(args.resume, args.db)
         stats = process_run(
             args.resume, args.model, args.db,
             max_items=args.max_items,
             batch_size=args.batch_size,
             workers=args.workers,
             min_request_interval=args.min_request_interval,
+            track=track,
         )
         print(f"[done] {json.dumps(stats, ensure_ascii=False)}")
         return 0

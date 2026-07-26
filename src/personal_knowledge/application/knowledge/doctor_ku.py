@@ -28,12 +28,16 @@ from typing import Any, Callable, Mapping
 
 from personal_knowledge.core.project_paths import (
     AGENT_CONVERSATIONS_DB,
+    AI_CONTEXT_DIR,
     KNOWLEDGE_ACTIVE_POINTER,
     PACKAGE_DIR,
     ROOT,
     SRC_DIR,
     UNIFIED_DB,
 )
+
+# Phase 41 Plan 03 (D-06)：覆盖矩阵历史快照（count/hash-only，隐私安全）。
+COVERAGE_SNAPSHOT_PATH = AI_CONTEXT_DIR / "ku_coverage_latest.json"
 
 # Ports used by product REST / MCP (warn-only when down).
 DEFAULT_HEALTH_ENDPOINTS: tuple[tuple[str, int, str], ...] = (
@@ -335,6 +339,101 @@ def _check_source_watermarks(db_path: Path) -> CheckResult:
         return CheckResult("source_watermarks", False, "critical", f"source watermark check failed: {exc}", {"error": str(exc)})
 
 
+def _check_coverage_matrix(
+    db_path: Path,
+    canonical_db: Path,
+    *,
+    skip: bool = False,
+    snapshot_path: Path | None = None,
+) -> CheckResult:
+    """Phase 41 Plan 03 (D-06)：source × role 覆盖矩阵，WARN-only。
+
+    ok 恒 True、severity='warn'、不进 hard_fail_ids——覆盖是观测问题
+    不是正确性问题（D-06 "WARN 不 FAIL"），exit code 不受影响。
+
+    唯一的状态变更例外：doctor 文档自称 "Never mutates state"，本 check
+    会把当次矩阵摘要写回 ``ku_coverage_latest.json`` 供下次运行比对分级
+    （新 source 首现 INFO / 已知 source 连续零覆盖 WARN）。快照内容全
+    count/hash-only（隐私安全，无任何消息原文或 evidence_ref 清单）。
+    """
+    if skip:
+        return CheckResult(
+            id="coverage_matrix",
+            ok=True,
+            severity="warn",
+            message="coverage matrix skipped (--skip-coverage)",
+            detail={"skipped": True},
+        )
+    snap = snapshot_path or COVERAGE_SNAPSHOT_PATH
+    try:
+        from personal_knowledge.application.knowledge.coverage_matrix import (
+            compute_coverage_matrix,
+        )
+        from personal_knowledge.application.knowledge.eligibility import (
+            compute_source_checksum,
+        )
+
+        previous: dict | None = None
+        if snap.exists():
+            try:
+                loaded = json.loads(snap.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    previous = loaded
+            except (OSError, json.JSONDecodeError):
+                previous = None
+
+        current_checksum = compute_source_checksum(canonical_db)
+        if previous and previous.get("source_checksum") == current_checksum:
+            matrix = previous
+            cached = True
+        else:
+            matrix = compute_coverage_matrix(
+                db_path, canonical_db, previous_snapshot=previous
+            )
+            cached = False
+            # 快照写文件是 "Never mutates state" 的唯一例外（见 docstring）；
+            # 内容 count/hash-only，隐私安全。
+            snap.parent.mkdir(parents=True, exist_ok=True)
+            snap.write_text(
+                json.dumps(matrix, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+        rows = matrix.get("rows") or []
+        totals = matrix.get("totals") or {}
+        warn_rows = sum(1 for r in rows if r.get("level") == "warn")
+        info_rows = sum(1 for r in rows if r.get("level") == "info")
+        if warn_rows:
+            msg = f"coverage matrix: {warn_rows} zero-coverage WARN row(s) of {len(rows)}"
+        elif info_rows:
+            msg = f"coverage matrix: {info_rows} new source(s) INFO, no WARN rows"
+        else:
+            msg = f"coverage matrix: {len(rows)} rows, no zero-coverage warnings"
+        detail: dict[str, Any] = {
+            "cached": cached,
+            "source_checksum": str(matrix.get("source_checksum") or ""),
+            "rows": rows,
+            "totals": totals,
+            "warn_rows": warn_rows,
+            "info_rows": info_rows,
+            "snapshot_path": str(snap),
+        }
+        return CheckResult(
+            id="coverage_matrix",
+            ok=True,
+            severity="warn",
+            message=msg,
+            detail=detail,
+        )
+    except Exception as exc:  # noqa: BLE001 — 观测 check 失败不阻断 doctor
+        return CheckResult(
+            id="coverage_matrix",
+            ok=True,
+            severity="warn",
+            message=f"coverage matrix check failed: {exc}",
+            detail={"error": str(exc)},
+        )
+
+
 def _check_evidence_probe(
     db_path: Path,
     conversation_db: Path,
@@ -595,8 +694,15 @@ def run_doctor(
     registry_path: Path | None = None,
     collection_inspector: Callable[[str], Mapping[str, Any]] | None = None,
     evidence_probe: Callable[[], Mapping[str, Any]] | None = None,
+    skip_coverage: bool = False,
+    coverage_snapshot_path: Path | None = None,
 ) -> DoctorReport:
-    """Run read-only product checks. Never mutates state."""
+    """Run read-only product checks. Never mutates state.
+
+    唯一例外：coverage_matrix check 会把当次矩阵摘要写回
+    ``ku_coverage_latest.json``（count/hash-only，隐私安全）供下次
+    运行比对分级；除此之外不 promote、不推进 watermark、不改知识行。
+    """
     db = unified_db or UNIFIED_DB
     conv = conversations_db or AGENT_CONVERSATIONS_DB
     pointer = active_pointer or KNOWLEDGE_ACTIVE_POINTER
@@ -631,6 +737,14 @@ def run_doctor(
         checks.append(_check_pointer_parity(db, pointer))
         checks.append(_check_evidence_probe(db, conv, probe=evidence_probe))
         checks.append(_check_source_watermarks(db))
+        checks.append(
+            _check_coverage_matrix(
+                db,
+                conv,
+                skip=skip_coverage,
+                snapshot_path=coverage_snapshot_path,
+            )
+        )
 
     if not skip_ports:
         checks.extend(_check_ports())
@@ -654,6 +768,8 @@ def run_doctor(
         "snapshot_pointer_parity",
         "evidence_resolver",
         "source_watermarks",
+        # D-06 "WARN 不 FAIL"：coverage_matrix 永不加入本集合——
+        # 覆盖是观测问题不是正确性问题，exit code 不受矩阵内容影响。
     }
     hard_failed = [c for c in checks if c.id in hard_fail_ids and not c.ok]
     ok = not hard_failed
@@ -713,6 +829,28 @@ def format_human(report: DoctorReport) -> str:
         elif c.severity == "info" and c.ok:
             mark = "INFO"
         lines.append(f"  [{mark}] {c.id}: {c.message}")
+    coverage = next((c for c in report.checks if c.id == "coverage_matrix"), None)
+    if coverage is not None and not coverage.detail.get("skipped"):
+        rows = coverage.detail.get("rows") or []
+        warn_rows = [r for r in rows if r.get("level") == "warn"]
+        lines.append("")
+        if warn_rows:
+            lines.append(
+                f"coverage WARN rows (top 10 of {len(warn_rows)}; "
+                "zero coverage two runs in a row):"
+            )
+            lines.append("  source         role        eligible  covered  not_queued")
+            for r in warn_rows[:10]:
+                lines.append(
+                    f"  {str(r.get('source')):<14} {str(r.get('role')):<11} "
+                    f"{int(r.get('eligible_count') or 0):>8} "
+                    f"{int(r.get('covered_count') or 0):>8} "
+                    f"{int(r.get('not_queued_count') or 0):>10}"
+                )
+        elif rows:
+            lines.append(
+                f"coverage matrix: {len(rows)} rows, all ok (no zero-coverage warnings)"
+            )
     if report.facade:
         lines.append("")
         lines.append(
@@ -746,6 +884,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip TCP/HTTP checks for :8000/:8789",
     )
     p.add_argument(
+        "--skip-coverage",
+        action="store_true",
+        help="Skip the source × role coverage matrix check (escape hatch)",
+    )
+    p.add_argument(
         "--no-facade",
         action="store_true",
         help="Skip domains facade import inventory",
@@ -774,6 +917,7 @@ def main(argv: list[str] | None = None) -> int:
         active_pointer=args.active_pointer,
         skip_ports=args.skip_ports,
         include_facade=not args.no_facade,
+        skip_coverage=args.skip_coverage,
     )
     if args.json:
         print(json.dumps(report_to_dict(report), ensure_ascii=False, indent=2))
