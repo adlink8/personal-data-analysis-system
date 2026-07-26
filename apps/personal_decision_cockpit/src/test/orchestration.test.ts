@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  canResumeSession,
+  canRetrySamePreview,
   newIdempotencyKey,
   OrchestrationError,
   sessionConfirm,
@@ -14,7 +16,9 @@ import {
  * - confirm 请求体把 preview 原样回传（fetch mock 断言）；
  * - execute 走别名路由且 now 为 Z 结尾；
  * - compact 错误信封规范化为 OrchestrationError；
- * - 幂等键与 actor hash 形态。
+ * - 幂等键与 actor hash 形态；
+ * - 安全重试边界（Phase 38-02）：canRetrySamePreview / canResumeSession 只依据
+ *   服务端声明的 recovery_actions/code，不重算 category。
  */
 
 const PREVIEW: OrchestrationPreview = {
@@ -188,5 +192,66 @@ describe('orchestration client', () => {
     // 模块级缓存：同一运行期返回同一 hash（不再调 digest）
     expect(await deriveActorIdentityHash()).toBe(hash);
     expect(digest).toHaveBeenCalledTimes(1);
+  });
+
+  it('canRetrySamePreview：仅 recovery_actions 含 retry_when_ready 时才允许复用同一 preview（runtime 类）', () => {
+    const runtimeError = new OrchestrationError({
+      code: 'generation_provider_unavailable',
+      category: 'runtime',
+      message: 'runtime',
+      retryable: true,
+      recoveryActions: ['check_runtime', 'retry_when_ready'],
+    });
+    expect(canRetrySamePreview(runtimeError)).toBe(true);
+  });
+
+  it('canRetrySamePreview：stale/confirmation/sequence 类即便 retryable=true 也不允许原样重发', () => {
+    const staleError = new OrchestrationError({
+      code: 'stale_expected_sequence',
+      category: 'stale',
+      message: 'stale',
+      retryable: true,
+      recoveryActions: ['resume_session', 'prepare_fresh_preview'],
+    });
+    const confirmationError = new OrchestrationError({
+      code: 'confirmation_expired',
+      category: 'confirmation',
+      message: 'expired',
+      retryable: true,
+      recoveryActions: ['resume_session', 'prepare_fresh_preview', 'confirm_again'],
+    });
+    expect(canRetrySamePreview(staleError)).toBe(false);
+    expect(canRetrySamePreview(confirmationError)).toBe(false);
+  });
+
+  it('canRetrySamePreview：actor_identity_mismatch 无论服务端如何归类恒为 false（T-38-08）', () => {
+    // 即便服务端把它落进默认 runtime 归类并带上 retry_when_ready，前端也必须拒绝暗示"重试可继续写入"
+    const mismatch = new OrchestrationError({
+      code: 'actor_identity_mismatch',
+      category: 'runtime',
+      message: 'actor mismatch',
+      retryable: true,
+      recoveryActions: ['check_runtime', 'retry_when_ready'],
+    });
+    expect(canRetrySamePreview(mismatch)).toBe(false);
+  });
+
+  it('canResumeSession：recovery_actions 含 resume_session 时为 true，否则为 false', () => {
+    const conflictError = new OrchestrationError({
+      code: 'idempotency_conflict',
+      category: 'conflict',
+      message: 'conflict',
+      retryable: false,
+      recoveryActions: ['resume_session', 'use_original_idempotency_key', 'manual_review'],
+    });
+    const riskError = new OrchestrationError({
+      code: 'high_risk_or_external_action_forbidden',
+      category: 'risk',
+      message: 'risk',
+      retryable: false,
+      recoveryActions: ['reduce_scope', 'manual_review'],
+    });
+    expect(canResumeSession(conflictError)).toBe(true);
+    expect(canResumeSession(riskError)).toBe(false);
   });
 });

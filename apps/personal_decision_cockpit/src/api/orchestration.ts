@@ -73,6 +73,31 @@ export class OrchestrationError extends Error {
   }
 }
 
+/**
+ * 安全重试边界（Phase 38-02 收口，T-38-06/T-38-07/T-38-08）：
+ * 服务端 `error.retryable` 只表示"该类别整体不是致命的"，不等于"原样重发同一个 preview +
+ * 同一个幂等键是安全或正确的恢复动作"——`stale`/`confirmation`/`sequence`/`conflict` 等类别的
+ * 唯一合法恢复路径是 resume 拿到最新状态后重新 prepare/preview，而不是静默重试一个已经过期、
+ * 已被消费或绑定漂移的 Preview（RESEARCH.md「Typed Recovery Matrix」明确列为禁止行为）。
+ * 因此 UI 不能只看 `retryable`：
+ * - `canRetrySamePreview`：仅当服务端明确给出 `retry_when_ready`（目前只出现于 runtime 类别，
+ *   例如本地密钥/生成器暂未就绪）时，才允许调用方复用同一 preview + 同一幂等键重新提交；
+ *   `actor_identity_mismatch` 无论服务端如何归类都强制返回 false——页面刷新后的旧会话绝不能
+ *   被 UI 暗示"重试即可继续写入"（防止把身份轮换误当作可恢复的暂时性故障）。
+ * - `canResumeSession`：服务端建议先 `resume_session` 时返回 true，调用方应丢弃本地已持有的
+ *   preview/幂等键并重新拉取只读 resume，而不是复用旧状态推进。
+ * 两者都是纯函数，只读 compact 错误的 code/recoveryActions 字段，不发起任何请求、
+ * 不铸造 confirmation/HMAC、不替调用方决定下一跳。
+ */
+export function canRetrySamePreview(error: OrchestrationError): boolean {
+  if (error.code === 'actor_identity_mismatch') return false;
+  return error.recoveryActions.includes('retry_when_ready');
+}
+
+export function canResumeSession(error: OrchestrationError): boolean {
+  return error.recoveryActions.includes('resume_session');
+}
+
 /* ---------------- transition 词表（严格线性，spec §5.3） ---------------- */
 
 export type TransitionKey =
