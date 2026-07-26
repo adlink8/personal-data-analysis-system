@@ -277,6 +277,31 @@ def _build_timeline(
     return timeline
 
 
+# external_delta.get 每 fact 的 freshness 词表(Phase 37:D-37-02 canonical External DTO)。
+# lifecycle 是 External 权威自身发布的记录状态(current/stale/superseded/conflict/invalid);
+# freshness 是相对当前 active snapshot 参考时刻(activated_at)派生的独立到期判断,
+# 二者不得合并成同一个客户端颜色字段。
+_FRESHNESS_LEVELS = frozenset({"unknown", "valid", "expiring_soon", "expired"})
+
+
+def _fact_freshness(
+    valid_to: Any, reference: datetime | None, window: timedelta,
+) -> dict[str, Any]:
+    if reference is None:
+        return {"level": "unknown", "reason": "active snapshot 缺少可解析的 activated_at"}
+    valid_to_dt = _parse_iso(valid_to)
+    if valid_to_dt is None:
+        return {"level": "valid", "reason": None}
+    if valid_to_dt <= reference:
+        return {"level": "expired", "reason": "valid_to 早于 snapshot 参考时间(activated_at)"}
+    if valid_to_dt <= reference + window:
+        return {
+            "level": "expiring_soon",
+            "reason": f"valid_to 距 snapshot 参考时间不足 {_DELTA_WINDOW_DAYS} 天",
+        }
+    return {"level": "valid", "reason": None}
+
+
 def _empty_actions_recent() -> dict[str, Any]:
     return {
         "total_available": 0, "shown": 0,
@@ -728,6 +753,10 @@ class CockpitProjectionService:
                     "status": item.get("status"),
                     "confidence": item.get("confidence"),
                     "current_assertion_id": item.get("current_assertion_id"),
+                    # snapshot 绑定见 data.snapshot_id(单快照全局一致);checksum 与
+                    # current_assertion_id 一起构成 evidence.resolve 的稳定引用三元组
+                    # (Phase 37:EVID-01),不额外暴露断言明文值
+                    "current_value_checksum": item.get("current_value_checksum"),
                     "evidence_count": len(item.get("evidence_status") or []),
                 })
         if skipped_domains:
@@ -822,11 +851,25 @@ class CockpitProjectionService:
             }
             for source in list(data.get("sources") or [])
         ]
+        raw_facts = list(data.get("facts") or [])
+        reference = _parse_iso(snapshot_raw.get("activated_at"))
+        if reference is None:
+            limitations.append(
+                "active snapshot 缺少可解析的 activated_at,delta 分类与逐 fact freshness 全部保守留空/unknown"
+            )
+        window = timedelta(days=_DELTA_WINDOW_DAYS)
+        fact_ids = [str(fact.get("fact_id")) for fact in raw_facts if fact.get("fact_id")]
+        source_ids_by_fact = self._external_fact_source_ids(fact_ids)
         facts: list[dict[str, Any]] = []
-        for fact in list(data.get("facts") or []):
+        for fact in raw_facts:
             lifecycle = str(fact.get("lifecycle") or "")
+            fact_id = str(fact.get("fact_id") or "")
             facts.append({
                 "fact_id": fact.get("fact_id"),
+                # canonical External DTO(Phase 37:D-37-02):subject/predicate 命名轴 +
+                # 固定 来源/地区/有效期/quality/confidence/lifecycle/conflict/freshness 字段,
+                # 不再与 fact_type/observed_at/source_id 两套互相冲突的字段并存
+                "fact_checksum": fact.get("fact_checksum"),
                 "subject": fact.get("subject"),
                 "predicate": fact.get("predicate"),
                 "region": fact.get("region"),
@@ -834,15 +877,13 @@ class CockpitProjectionService:
                 "valid_to": fact.get("valid_to"),
                 "source_quality": fact.get("source_quality"),
                 "fact_confidence": fact.get("fact_confidence"),
+                "source_ids": source_ids_by_fact.get(fact_id, []),
                 "lifecycle": fact.get("lifecycle"),
                 "conflict": lifecycle == "conflict",
+                "freshness": _fact_freshness(fact.get("valid_to"), reference, window),
             })
         delta: dict[str, list[Any]] = {"new": [], "updated": [], "expiring": [], "conflicts": []}
-        reference = _parse_iso(snapshot_raw.get("activated_at"))
-        if reference is None:
-            limitations.append("active snapshot 缺少可解析的 activated_at,delta 分类全部留空")
-        else:
-            window = timedelta(days=_DELTA_WINDOW_DAYS)
+        if reference is not None:
             for fact in facts:
                 valid_from = _parse_iso(fact.get("valid_from"))
                 if valid_from is not None and abs(reference - valid_from) <= window:
@@ -868,6 +909,33 @@ class CockpitProjectionService:
                 "conflicts": len(delta["conflicts"]),
             },
         }
+
+    @staticmethod
+    def _external_fact_source_ids(fact_ids: list[str]) -> dict[str, list[str]]:
+        """一次性只读聚合 fact_id → 支撑 observation 的 source_id 列表(同 _outcome_counts 先例)。
+
+        external_facts 表本身不直接持有 source_id;来源身份需经
+        external_fact_support → external_observations 关联还原,单条 explain
+        (facts.get)不做该 join,故这里用一次 mode=ro 批量查询取代 N+1。
+        """
+        if not fact_ids:
+            return {}
+        con = sqlite3.connect(f"file:{EXTERNAL_CONTEXT_DB.resolve().as_posix()}?mode=ro", uri=True)
+        try:
+            con.execute("PRAGMA query_only=ON")
+            placeholders = ",".join("?" for _ in fact_ids)
+            rows = con.execute(
+                "SELECT fs.fact_id, o.source_id FROM external_fact_support fs "
+                "JOIN external_observations o ON o.observation_id = fs.observation_id "
+                f"WHERE fs.fact_id IN ({placeholders})",
+                fact_ids,
+            ).fetchall()
+            grouped: dict[str, set[str]] = {}
+            for fact_id, source_id in rows:
+                grouped.setdefault(str(fact_id), set()).add(str(source_id))
+            return {key: sorted(values) for key, values in grouped.items()}
+        finally:
+            con.close()
 
     # --- decision_queue.get ------------------------------------------------
 

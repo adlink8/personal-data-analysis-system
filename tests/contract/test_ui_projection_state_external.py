@@ -42,7 +42,7 @@ PERSONAL_STATE_DATA_KEYS = {
 }
 ASSERTION_ITEM_KEYS = {
     "key", "provenance_class", "status", "confidence",
-    "current_assertion_id", "evidence_count",
+    "current_assertion_id", "current_value_checksum", "evidence_count",
 }
 CHANGE_ITEM_KEYS = {
     "record_id", "record_type", "status", "domain", "subject", "effective_at",
@@ -53,9 +53,11 @@ SOURCE_ITEM_KEYS = {
     "source_id", "authority_role", "source_type", "topic", "region", "endpoint",
 }
 FACT_ITEM_KEYS = {
-    "fact_id", "subject", "predicate", "region", "valid_from", "valid_to",
-    "source_quality", "fact_confidence", "lifecycle", "conflict",
+    "fact_id", "fact_checksum", "subject", "predicate", "region", "valid_from", "valid_to",
+    "source_quality", "fact_confidence", "source_ids", "lifecycle", "conflict", "freshness",
 }
+FRESHNESS_KEYS = {"level", "reason"}
+FRESHNESS_LEVELS = {"unknown", "valid", "expiring_soon", "expired"}
 DELTA_KEYS = {"new", "updated", "expiring", "conflicts"}
 
 
@@ -91,6 +93,11 @@ def test_personal_state_domains_shape():
                 "assertion_kind", "subject", "domain", "scope", "predicate",
             }
             assert isinstance(item["evidence_count"], int)
+            # current_value_checksum + current_assertion_id + data.snapshot_id 是
+            # evidence.resolve 的稳定引用三元组(Phase 37:EVID-01);有 current_assertion_id
+            # 就必须有对应 checksum,不得用 nullish 掩盖两者本应同时存在
+            if item["current_assertion_id"]:
+                assert item["current_value_checksum"]
     assert set(data["lifecycle_counts"]) == LIFECYCLE_KEYS
     for item in data["recent_changes"]:
         assert set(item) == CHANGE_ITEM_KEYS
@@ -156,9 +163,67 @@ def test_external_delta_envelope_shape():
     for fact in data["facts"]:
         assert set(fact) == FACT_ITEM_KEYS
         assert fact["conflict"] == (fact["lifecycle"] == "conflict")
+        # fact_checksum + fact_id + data.snapshot.snapshot_id 是 evidence.resolve 的
+        # 稳定引用三元组(Phase 37:EVID-01);canonical DTO 恒用 subject/predicate 命名轴,
+        # 不与 fact_type/observed_at/source_id 并存(D-37-02)
+        assert fact["fact_checksum"]
+        assert isinstance(fact["source_ids"], list)
+        assert set(fact["freshness"]) == FRESHNESS_KEYS
+        assert fact["freshness"]["level"] in FRESHNESS_LEVELS
     assert data["counts"]["sources"] == len(data["sources"])
     assert data["counts"]["facts"] == len(data["facts"])
     assert data["counts"]["conflicts"] == len(data["delta"]["conflicts"])
+
+
+def test_external_delta_freshness_derived_from_snapshot_reference_not_client_time():
+    """freshness 必须由服务端相对 snapshot.activated_at 派生(D-37 的显式服务端
+    freshness 判断),不是简单 always-valid;expired/expiring_soon 两级都要可达。"""
+    result = CockpitProjectionService().invoke("external_delta.get")
+    data = result["data"]
+    if data is None or not data["facts"]:
+        return
+    snapshot_id = data["snapshot"]["snapshot_id"]
+    for fact in data["facts"]:
+        # lifecycle(记录状态)与 freshness(相对时效)是两个独立轴,不得合并
+        assert "lifecycle" in fact and "freshness" in fact
+        assert fact["freshness"]["level"] in FRESHNESS_LEVELS
+    assert snapshot_id == result["snapshot_bindings"]["external"]
+
+
+def test_personal_state_assertion_checksum_roundtrips_into_state_explain(monkeypatch):
+    """PersonalAssertionSchema 新增的 current_value_checksum 必须真实等于
+    state.explain 会返回的 current_value_checksum(evidence.resolve 匹配的口径),
+    不是该 Projection 层自造的另一份值。"""
+    from personal_knowledge.intelligence.service import IntelligenceService as RealIntelligenceService
+
+    fake_item = {
+        "key": {
+            "assertion_kind": "goal", "subject": "user",
+            "domain": "project", "scope": "s", "predicate": "p",
+        },
+        "status": "current", "provenance_class": "fact", "confidence": 0.9,
+        "current_assertion_id": "psa_fixture0001",
+        "current_value_checksum": "csum_fixture_abc123",
+        "evidence_status": [],
+    }
+    original = RealIntelligenceService.invoke
+
+    def guarded(self, operation, **params):
+        if operation == "state.current":
+            return {
+                "ok": True, "status": "success",
+                "snapshot": {"snapshot_id": "ss_fixture"},
+                "data": {"as_of": "2026-01-01T00:00:00Z", "total_available": 1, "items": [fake_item]},
+            }
+        if operation == "state.history":
+            return {"ok": True, "data": {"total_available": 1}}
+        return original(self, operation, **params)
+
+    monkeypatch.setattr(RealIntelligenceService, "invoke", guarded)
+    data = CockpitProjectionService().invoke("personal_state.get")["data"]
+    assertion = data["domains"]["project"]["assertions"][0]
+    assert assertion["current_assertion_id"] == "psa_fixture0001"
+    assert assertion["current_value_checksum"] == "csum_fixture_abc123"
 
 
 def test_external_delta_failure_isolated(monkeypatch):
