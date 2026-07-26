@@ -66,7 +66,7 @@
 **Requirements:** STATE-01, STATE-02, STATE-03, EVID-01
 
 **Depends on:** Phase 36
-**Plans:** 3 documented; 0 executed
+**Plans:** 3/3 plans executed — Phase 37 closed (verified 2026-07-27)
 
 **Success criteria:**
 
@@ -156,7 +156,7 @@
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
 | 36 | CCK-01, CCK-02, CCK-03, CCK-04 | 4/4 executed | Closed — 36-01 secure transport, 36-02 safe projection envelope, 36-03 frontend DTO/vocabulary hardening, 36-04 auditable baseline + 36-VERIFICATION.md all closed |
-| 37 | STATE-01, STATE-02, STATE-03, EVID-01 | 0/3 executed | Planned — future plans reviewed, not executed |
+| 37 | STATE-01, STATE-02, STATE-03, EVID-01 | 3/3 executed | Closed — 37-01 server contracts (evidence_resolve 六态), 37-02 authority-aware state UI, 37-03 evidence drilldown + widget containment; independent verification 4/4 PASS 2026-07-27 |
 | 38 | DEC-01, DEC-02, DEC-03 | 0/3 executed | Planned — future plans reviewed, not executed |
 | 39 | FDB-01, FDB-02, RUN-01 | 0/4 executed | Planned — future plans reviewed, not executed |
 | 40 | UX-01, UX-02, QA-01, QA-02 | 0/3 executed | Planned — future plans reviewed, not executed |
