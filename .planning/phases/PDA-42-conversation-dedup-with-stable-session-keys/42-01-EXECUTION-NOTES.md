@@ -23,4 +23,31 @@
 
 ## Resume condition
 
-After Vertex quota recovers, resume the same run with the authenticated gcloud path, verify the run has no pending/retryable/in-flight items, then rerun `pk-ku doctor --skip-ports` before starting the builder changes. Do not start a second prepare run or change provider/model as an unapproved workaround.
+The lite-model quota blocker was resolved by an explicit user-authorized switch to `gemini-3.5-flash`; the same run was resumed without a second prepare or provider change. Extraction finished with `processed=1,985`, `succeeded=1,641`, `abstained=344` in the final batch log, plus the earlier 4 abstentions in the run ledger, and `terminal_failed=5`. There are no pending, retryable, or in-flight items. `pk-ku extract-gate --run ir_ac26ce496b48f398 --min-yield 0.7` passed snapshot completeness, nonzero output, schema validity, evidence integrity, speaker attribution, privacy, and failure-rate checks, but remains `awaiting_pilot_threshold` because 3 terminal API-error slots and the configured pilot threshold were not satisfied. No promote or watermark write was performed.
+
+## Stable-key implementation and fixture verification
+
+- Commit `a5a93f3` (`feat(42-01): use stable canonical session keys`) adds `(source, source_session_id)` crosswalk matching, deterministic ordering, lifecycle/superseded metadata, and the five stable-key regression fixtures.
+- `pytest tests/integration/test_canonical_dedup_stable_keys.py tests/integration/test_agentsview_normalization.py -q`: 20 passed.
+- The real dry-run reported `stable_key_matched=281`, `file_hash_confirmed=275`, `file_hash_divergent=6`, `superseded_marked=0`, `unexpected_duplicate_stable_key=0`, `duplicate_source_links=0`.
+
+## First real stable-key rebuild
+
+- `pk-sync conversations --write`: exit 0; normalized snapshot 1,159 sessions / 102,881 messages; canonical output 1,159 sessions / 95,428 messages / 110,456 tool events; `duplicate_source_links=0`.
+- Canonical stats: `merged_by_source_mapping=281`, `stable_key_matched=281`, `file_hash_confirmed=275`, `file_hash_divergent=6`, `superseded_marked=0`, `unexpected_duplicate_stable_key=0`, `review_required=0`.
+- Immediately after the rebuild, the pre-key canonical generation was fixed at `D:\ADLINK\数据分析\var\backups\agent_conversations_pre42_20260727_154215.sqlite`; read-only counts are 1,165 canonical sessions / 97,762 canonical messages, matching `var/reports/phase42_baseline.json`.
+- Zero-duplicate acceptance on `data/canonical/agent/structured/db/agent_conversations.sqlite`:
+  - SQL A source-session-to-canonical multiplicity: `0`
+  - SQL B active stable-key multiplicity: `0`
+  - SQL C duplicate `(canonical_session_id, ordinal)`: `0`
+  - SQL D legacy-primary eligible embedded UUID found in AgentsView links: `0` (population: `0`)
+- Per 42-01 scope, no post-rebuild `pk-ku prepare`, promote, or watermark write was performed. The expected first-generation source-watermark delta remains for the controlled 42-03 flow.
+
+## 42-02 migration dry-run
+
+- Added `tools/migrations/remap_superseded_session_refs.py` and five isolated unit fixtures; `pytest tests/unit/test_remap_superseded_session_refs.py tests/integration/test_canonical_dedup_stable_keys.py -q`: 10 passed.
+- Safety checks passed: `--help` exposes `--write`, `--dry-run`, and `--old-canonical-db`; a missing old DB exits 2 with an explicit precondition error; source scan confirms no literal source-prefix classification, no row deletion SQL, and canonical URI uses `mode=ro`.
+- Command: `python tools/migrations/remap_superseded_session_refs.py --old-canonical-db var/backups/agent_conversations_pre42_20260727_154215.sqlite` (default dry-run). Old DB precondition passed with `legacy_sessions=11`, baseline minimum `6`.
+- Unified DB SHA-256 before and after dry-run: `FD7471A1CE213DECE8D209285A7C577C856A68A7A061E89D61744ED1AC2C1343` (identical).
+- Dry-run machine summary: `remapped_evidence=5`, `remapped_source_ref=5`, `remapped_inventory=0`, `remap_orphans=69`; by table, migration orphans were evidence `35`, source refs `35`, inventory `67`.
+- Preexisting orphan reconciliation: evidence-ref population `preexisting_orphans=809`, exactly equal to `phase42_baseline.json` `evidence_refs_unresolved_baseline=809`; other table views were source refs `629` and inventory `995`.
