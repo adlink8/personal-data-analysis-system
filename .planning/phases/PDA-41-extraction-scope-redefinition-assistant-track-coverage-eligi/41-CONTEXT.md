@@ -95,6 +95,7 @@
 - **canonical 同 subject 多 answer 组**（~5.5k 行）的 lifecycle/supersede 审查
 - **QA 联立深化（v2 prompt 候选）**——用户 2026-07-26 提出"问题和回答要联立看"：①QA 上下文从"前置 1 条 user"扩到"穿透短确认找最近实质提问"；②question-side ref 显式写入 `knowledge_unit_evidence`（role=context），供检索排序与 eval 并集匹配复用；③QA 配对跳过 <30 字确认类消息（eligible 阈值不应遮住配对逻辑）。约束：**不在 run 中途换 prompt**（compute_cache_key 含 prompt_hash，换版会分裂缓存命名空间）——等全量 run 完成后出 v2，用 eval 集对比 v1/v2 再决定存量是否重抽
 - **L1 单条消息截断上限（2026-07-26 用户问"多少字符合适/要不要分梯度"，实测后结论：不分梯度，单档 48k）**——实测 canonical DB（注意 15135 条 assistant content 为 NULL，统计时先排除）：assistant 文本消息 58085 条中 >12k 仅 106 条，去掉工具前缀后**真正被截的仅 34 条**（p50≈15k，p90≈52k，max≈147k）；user 文本消息 7227 条中 >12k 有 91 条（>48k 有 38 条，max 329k）。两个待办：①**user 轨目前无截断上限**（截断只在 assistant 分支，build_knowledge_units_prod.py:896），329k 字符的消息会整条进 LLM，需补对称 cap；②assistant 轨 `ASSISTANT_MAX_CHARS` 12000 → 48000，可覆盖 ~94% 真实案例，触及消息总共 ~125 条、成本可忽略。分梯度（按对话长度变档）对 ~100 条消息是过度工程，否决。与"L2 窗口 12000→48000"项同源，建议并入同一个 v2 prompt eval A/B 一起验证
+- **extract-gate / merge-gate 的 track 适配（2026-07-27 全量 assistant 轨实测踩坑）**——①extract-gate 的 `--min-yield` 默认 0.7 是 user 轨校准值，assistant 轨内容驱动 abstain 率 ~64%（抽样 10 条核实均为过程叙述，abstain 判定正确），实测 yield 0.36，本次以 `--min-yield 0.3` 通过；建议 gate 增加 `--track` 参数按轨校准默认阈值。②canonical 的 merge gate 正例对（merge_positive_pairs 20 对，`cm|` 消息级 ref）在 `canonical_unit_members.member_unit_id` 中 0/40 存在——正例集用的是旧 id 体系，对任何新 run 都结构性 FAIL（本次 7818 条全 singleton、0 合并、负例 0 误并，写入正常）；需要把正例对迁移到 unit id 体系，或在新 run 类型下跳过该 gate
 
 </deferred>
 
