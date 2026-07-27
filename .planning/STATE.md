@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Goal
 status: executing
-last_updated: 2026-07-27T01:44:51.445Z
-last_activity: 2026-07-27 -- Phase 39 execution complete (FDB-01/FDB-02/RUN-01 contract and UI evidence PASS)
+last_updated: 2026-07-27T08:15:00.000Z
+last_activity: 2026-07-27 -- Phase 42 stable-key rebuild, ref migration, doctor/idempotence complete; dual-track extraction gate remains partial
 progress:
   total_phases: 12
   completed_phases: 3
@@ -62,17 +62,17 @@ stopped_at: null
 
 ## Current Position
 
-Phase: 40
-Plan: Not started
-Status: Executing Phase 40 after Phase 39 completion
-Last activity: 2026-07-27 — Phase 39 complete (4/4), continuing to Phase 40
+Phase: 42
+Plan: 42-03
+Status: Partial — stable-key rebuild/ref migration and idempotence closed; strict dual-track yield gate blocks watermark closure
+Last activity: 2026-07-27 — A/B/C/D zero, session_dedup clean, source watermark intentionally not advanced
 
 ## Project Reference
 
 See: `.planning/PROJECT.md` (updated 2026-07-19)
 
 **Core value:** Local, evidence-bound and uncertainty-aware personal decision support.
-**Current focus:** Phase 40 — product hardening and live UAT
+**Current focus:** Phase 42 — finish controlled dual-track extraction/evaluation before watermark advancement
 
 ## Cross-cutting architecture/data governance audit
 
