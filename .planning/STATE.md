@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Goal
 status: executing
-last_updated: "2026-07-26T13:50:37.574Z"
-last_activity: 2026-07-26 -- Phase 37 execution started
+last_updated: "2026-07-27T08:10:00.000Z"
+last_activity: 2026-07-27 -- Phase 38 execution complete (DEC-03 typed recovery + negative-path regression suite PASS)
 progress:
   total_phases: 12
-  completed_phases: 1
+  completed_phases: 3
   total_plans: 21
   completed_plans: 4
-  percent: 8
+  percent: 25
 ---
 
 # Project State
@@ -61,10 +61,10 @@ progress:
 
 ## Current Position
 
-Phase: 37 (authority-aware-state-external-and-evidence) — CLOSED (verified 4/4 criteria PASS)
-Plan: 3 of 3 complete
-Status: Phase 37 closed; Phase 38 (Guarded Decision Workspace) next, not started
-Last activity: 2026-07-27 -- Phase 37 independent verification passed (backend 102/102, frontend 203/203, build clean)
+Phase: 38 (guarded-decision-workspace) — CLOSED (verified: typed recovery fail-closed + 5 negative-path families PASS)
+Plan: 3 of 3 complete (38-01 guarded workspace, 38-02 browser orchestration client boundary, 38-03 typed recovery + negative regression)
+Status: Phase 38 closed; Phase 39 (Feedback, Proactive and Runtime Truthfulness) next, not started
+Last activity: 2026-07-27 -- Phase 38 independent verification passed (frontend 249/249 Vitest, python orchestration negative-path 14/14, build clean)
 
 ## Project Reference
 
