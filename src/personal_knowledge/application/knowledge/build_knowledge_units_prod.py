@@ -61,6 +61,7 @@ from personal_knowledge.core.runtime_config import (  # noqa: E402
     vertex_generation_config,
 )
 from personal_knowledge.application.knowledge.knowledge_unit_pipeline import RunManifest  # noqa: E402
+from personal_knowledge.application.knowledge.confidence import derive_confidence  # noqa: E402
 from personal_knowledge.application.knowledge.confirmation_signals import (  # noqa: E402
     detect_confirmation_signal,
 )
@@ -753,15 +754,16 @@ def _commit_item_result(
             lifecycle = unit.lifecycle if unit.lifecycle in (
                 "current", "deprecated", "superseded", "conflict"
             ) else "current"
-            confidence = unit.confidence
-            if track.name == "assistant":
-                # D-03 修饰（非硬 gate）：采纳 +0.05（封顶 1.0），纠正 -0.2（封底 0.0）。
-                # corrected 行是未来 lifecycle supersede 候选，自动路由属 deferred
-                # （CONTEXT deferred；docs/runbooks/ku-incremental.md §3F），此处不做。
-                if confirmation_signal == "adopted":
-                    confidence = min(1.0, confidence + 0.05)
-                elif confirmation_signal == "corrected":
-                    confidence = max(0.0, confidence - 0.2)
+            # PDA-41：弃用 LLM 自报置信（95% ≥0.9 无区分度），改证据派生。
+            # D-03 修饰（非硬 gate）并入派生：采纳 +0.05，纠正 -0.2；
+            # corrected 行是未来 lifecycle supersede 候选，自动路由属 deferred
+            # （CONTEXT deferred；docs/runbooks/ku-incremental.md §3F），此处不做。
+            confidence = derive_confidence(
+                evidence_count=1,
+                evidence_scope=track.evidence_scope,
+                evidence_quote=unit.evidence_quote,
+                confirmation_signal=confirmation_signal if track.name == "assistant" else "none",
+            )
             con.execute(
                 "INSERT OR REPLACE INTO knowledge_units "
                 "(unit_id, run_id, unit_type, subject, question, answer, confidence, "

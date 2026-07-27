@@ -45,6 +45,7 @@ from personal_knowledge.application.knowledge.build_knowledge_units_prod import 
     DEFAULT_MIN_REQUEST_INTERVAL,
 )
 from personal_knowledge.application.knowledge.knowledge_unit_pipeline import RunManifest
+from personal_knowledge.application.knowledge.confidence import derive_confidence
 from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
 
 PROMPT_PATH = (
@@ -452,7 +453,13 @@ def process_l2_run(
                     unit.subject,
                     unit.question,
                     unit.answer,
-                    unit.confidence,
+                    # PDA-41：弃用 LLM 自报置信，改证据派生；L2 是会话窗口
+                    # 混合证据（非用户亲述），scope 传 "window" 不给 user 加成。
+                    derive_confidence(
+                        evidence_count=1,
+                        evidence_scope="window",
+                        evidence_quote=unit.evidence_quote,
+                    ),
                     unit.evidence_quote,
                     lifecycle,
                     session_id,

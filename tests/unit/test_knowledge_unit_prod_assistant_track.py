@@ -8,9 +8,9 @@
   user 轨零回归（默认 track 行为不变）。
 - task 4：prepare_production_delta(track="assistant") artifact/roles/watermark
   key/prompt_version；track 与显式 roles 冲突 fail closed。
-- task 6：detect_confirmation_signal 三态 + 双命中纠正优先；confidence 修饰
-  （adopted +0.05 封顶 1.0 / corrected -0.2 封底 0.0），非硬 gate；user 轨
-  stats 无 confirmation_* 键。
+- task 6：detect_confirmation_signal 三态 + 双命中纠正优先；confidence 为证据
+  派生（PDA-41 起弃用 LLM 自报），D-03 修饰并入派生（adopted +0.05 /
+  corrected -0.2），非硬 gate；user 轨 stats 无 confirmation_* 键。
 """
 
 from __future__ import annotations
@@ -256,7 +256,7 @@ def test_assistant_prompt_path_exists() -> None:
 def test_assistant_run_commits_as_prefixed_units(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """adopted 信号：confidence +0.05 封顶 1.0；无证据 unit 丢弃并计数。"""
+    """adopted 信号：证据派生 confidence（0.4+0.2 单证据+0.05 adopted=0.65）；无证据 unit 丢弃并计数。"""
     llm_text = _llm_payload([
         _unit("solution", "关键解决方案内容", confidence=0.98),
         _unit("solution", "完全编造的引文根本不在原文里", confidence=0.5),
@@ -273,7 +273,8 @@ def test_assistant_run_commits_as_prefixed_units(
     assert unit_id.startswith("as|")
     assert unit_type == "solution"
     assert scope == "assistant"
-    assert confidence == 1.0  # 0.98 + 0.05 封顶
+    # PDA-41：弃用 LLM 自报（0.98），证据派生 0.4+0.2+0.05(adopted)=0.65
+    assert confidence == 0.65
     assert stats["units_dropped_no_evidence"] == 1
     assert stats["confirmation_adopted"] == 1
     # QA 对：LLM 输入含前置 user 上下文段，role_label 为 assistant 包装
@@ -286,12 +287,13 @@ def test_assistant_run_commits_as_prefixed_units(
 def test_assistant_run_corrected_confidence_floor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """corrected 信号：confidence -0.2 封底 0.0，unit 仍正常 INSERT（非硬 gate）。"""
+    """corrected 信号：证据派生 confidence（0.4+0.2 单证据-0.2 corrected=0.4），unit 仍正常 INSERT（非硬 gate）。"""
     llm_text = _llm_payload([_unit("solution", "关键解决方案内容", confidence=0.1)])
     stats, con, _calls = _run_assistant(tmp_path, monkeypatch, ["cm_a2"], llm_text)
 
     confidence = con.execute("SELECT confidence FROM knowledge_units").fetchone()[0]
-    assert confidence == 0.0  # 0.1 - 0.2 封底
+    # PDA-41：弃用 LLM 自报（0.1），证据派生 0.4+0.2-0.2(corrected)=0.4
+    assert confidence == 0.4
     assert stats["succeeded"] == 1
     assert stats["confirmation_corrected"] == 1
     con.close()
