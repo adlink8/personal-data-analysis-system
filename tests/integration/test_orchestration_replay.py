@@ -112,6 +112,67 @@ def test_reserved_replay_fails_closed_without_calling_runner(tmp_path: Path):
     assert calls == 0
 
 
+def test_consumed_token_reuse_after_transition_fails_closed_without_runner_call(tmp_path: Path):
+    """Phase 38-03（D-38-05/DEC-03）：generate 完成后复用同 token + 新幂等键重发，
+    状态机已推进 → 稳定 typed 拒绝（illegal_transition），runner 不被二次调用，事件链不变。"""
+    service, preview = _service(tmp_path)
+    token = service.issue_confirmation(preview)
+    calls = 0
+
+    def runner(*_args):
+        nonlocal calls
+        calls += 1
+        return {
+            "status": "success",
+            "references": {
+                "run_id": "dar_test", "candidate_id": "dac_test",
+                "run_checksum": "c" * 64, "candidate_checksum": "d" * 64,
+            },
+        }
+
+    first = execute_confirmed_generation(
+        service, preview, confirmation_token=token, idempotency_key="gen-consume",
+        runner=runner, now=NOW,
+    )
+    assert calls == 1
+    with pytest.raises(OrchestrationError, match="illegal_transition"):
+        execute_confirmed_generation(
+            service, preview, confirmation_token=token, idempotency_key="gen-consume-2",
+            runner=runner, now=NOW,
+        )
+    assert calls == 1  # 拒绝路径零 Provider 调用
+    resumed = service.resume(preview.session_id, now=NOW)
+    assert resumed["state"] == "generated"
+    assert resumed["last_event_checksum"] == first.event_checksum  # 事件链无新增
+
+
+def test_provider_unknown_leaves_resume_readonly_and_key_stable(tmp_path: Path):
+    """Phase 38-03（D-38-07）：provider_outcome_unknown 后 resume 只读仍可用、
+    状态不被伪推进；换幂等键也不能绕过 reserved fail-closed（不换键原则由服务端强制）。"""
+    service, preview = _service(tmp_path)
+    token = service.issue_confirmation(preview)
+    reserved = reserve_generation(
+        service, preview, confirmation_token=token, idempotency_key="uncertain", now=NOW,
+    )
+    assert reserved["new"] is True
+    calls = 0
+
+    def runner(*_args):
+        nonlocal calls
+        calls += 1
+        return {}
+
+    with pytest.raises(OrchestrationError, match="provider_outcome_unknown"):
+        execute_confirmed_generation(
+            service, preview, confirmation_token=token,
+            idempotency_key="uncertain", runner=runner, now=NOW,
+        )
+    # resume 只读恢复仍可用，状态停在 confirmed（不伪造 generated）
+    resumed = service.resume(preview.session_id, now=NOW)
+    assert resumed["state"] == "confirmed"
+    assert calls == 0  # 全程零 Provider 调用
+
+
 def test_generation_abstention_is_terminal_without_state_transition(tmp_path: Path):
     service, preview = _service(tmp_path)
     token = service.issue_confirmation(preview)

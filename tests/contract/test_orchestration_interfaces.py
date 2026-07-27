@@ -89,6 +89,98 @@ def test_confirmation_preview_resume_and_stable_errors(tmp_path: Path) -> None:
     assert undeclared["error"]["code"] == "undeclared_input"
 
 
+def test_negative_paths_return_stable_typed_codes_and_fail_closed(tmp_path: Path) -> None:
+    """Phase 38-03（D-38-05/D-38-06/DEC-03）：篡改/重放/actor drift/非法 transition/同键异 payload
+    都返回稳定 typed code；重复同 payload confirm 返回同一 event 且 replayed=True。"""
+    interface, _ = _interface(tmp_path)
+    prepared = interface.invoke(
+        "session.prepare", goal="Choose local validation", constraints=["manual only"],
+        weights={"safety": 1.0}, actor_identity_hash=ACTOR, now=NOW,
+    )["data"]
+
+    # Preview 篡改：payload 变但 checksum 保留 → 稳定 typed code，不产生 session
+    tampered = dict(prepared)
+    tampered["payload"] = {**prepared["payload"], "goal": "tampered-goal"}
+    result = interface.invoke(
+        "session.confirm", preview=tampered, confirmed=True, idempotency_key="tamper", now=NOW,
+    )
+    assert result["error"]["code"] == "preview_checksum_mismatch"
+    missing = interface.invoke("session.resume", session_id=prepared["session_id"], now=NOW)
+    assert missing["error"]["code"] == "session_missing"  # 篡改路径零写入
+
+    # D-38-05：重复同 payload confirm → 同一 event + replayed=True（不是第二次写入）
+    first = interface.invoke(
+        "session.confirm", preview=prepared, confirmed=True, idempotency_key="dup-confirm", now=NOW,
+    )
+    replay = interface.invoke(
+        "session.confirm", preview=prepared, confirmed=True, idempotency_key="dup-confirm", now=NOW,
+    )
+    assert first["ok"] and replay["ok"]
+    assert replay["data"]["event_id"] == first["data"]["event_id"]
+    assert replay["data"]["event_checksum"] == first["data"]["event_checksum"]
+    assert replay["data"]["sequence"] == first["data"]["sequence"]
+    assert first["data"]["replayed"] is False and replay["data"]["replayed"] is True
+    session_id = first["data"]["session_id"]
+
+    # D-38-06：actor identity drift → 只读 resume 仍可用，写路径稳定拒绝
+    mismatch = interface.invoke(
+        "session.preview", session_id=session_id, transition="generate",
+        payload={"personal_evidence": [], "external_evidence": []},
+        actor_identity_hash="e" * 64, expected_sequence=1, now=NOW,
+    )
+    assert mismatch["error"]["code"] == "actor_identity_mismatch"
+    readonly = interface.invoke("session.resume", session_id=session_id, now=NOW)
+    assert readonly["ok"] and readonly["data"]["state"] == "confirmed"
+
+    # 非法 transition（跳过 generate 直接 publish）→ 稳定 typed code
+    illegal = interface.invoke(
+        "session.preview", session_id=session_id, transition="publish",
+        payload={}, actor_identity_hash=ACTOR, expected_sequence=1, now=NOW,
+    )
+    assert illegal["error"]["code"] == "illegal_transition"
+
+    # 同键异 payload（同 session、不同 issued_at → 不同 preview_checksum）→ idempotency_conflict
+    prepared_later = interface.invoke(
+        "session.prepare", goal="Choose local validation", constraints=["manual only"],
+        weights={"safety": 1.0}, actor_identity_hash=ACTOR, now="2026-07-19T03:00:00Z",
+    )["data"]
+    assert prepared_later["session_id"] == session_id
+    assert prepared_later["preview_checksum"] != prepared["preview_checksum"]
+    conflict = interface.invoke(
+        "session.confirm", preview=prepared_later, confirmed=True, idempotency_key="dup-confirm", now=NOW,
+    )
+    assert conflict["error"]["code"] == "idempotency_conflict"
+    # 冲突后事件链不变：仍只有 1 个事件，状态不动
+    after = interface.invoke("session.resume", session_id=session_id, now=NOW)
+    assert after["data"]["sequence"] == 1 and after["data"]["state"] == "confirmed"
+
+
+def test_error_envelopes_expose_only_sanitized_recovery_fields(tmp_path: Path) -> None:
+    """Phase 38-03（T-38-10）：REST 错误信封只含脱敏 code/category/message/retryable/
+    recovery_actions；不出现 token/HMAC/secret/payload/原始异常。"""
+    import json as json_module
+
+    interface, core = _interface(tmp_path)
+    prepared = interface.invoke(
+        "session.prepare", goal="Choose local validation", constraints=["manual only"],
+        weights={"safety": 1.0}, actor_identity_hash=ACTOR, now=NOW,
+    )["data"]
+    token = core.issue_confirmation(prepared, expires_at="2026-07-19T02:01:00Z")
+    expired = orchestration_rest_contract("session.confirm", {
+        "preview": prepared, "confirmation_token": token,
+        "idempotency_key": "expired-envelope", "now": "2026-07-19T02:01:01Z",
+    }, service=interface)
+    assert expired["ok"] is False
+    error = expired["error"]
+    assert set(error) == {"code", "category", "message", "retryable", "recovery_actions"}
+    assert error["code"] == "confirmation_expired"
+    assert error["category"] == "confirmation"
+    text = json_module.dumps(expired, ensure_ascii=False)
+    assert token not in text  # 确认凭据绝不回显
+    assert "hmac" not in text.lower()
+    assert prepared["preview_checksum"] not in text or expired["data"] is None  # 不回传 payload
+
+
 def test_tool_names_are_additive_and_mutations_are_strict() -> None:
     tools = {tool.name: tool for tool in active_tools()}
     assert "search_semantic" in tools

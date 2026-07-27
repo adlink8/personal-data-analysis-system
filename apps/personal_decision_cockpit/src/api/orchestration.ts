@@ -89,12 +89,12 @@ export class OrchestrationError extends Error {
  * 两者都是纯函数，只读 compact 错误的 code/recoveryActions 字段，不发起任何请求、
  * 不铸造 confirmation/HMAC、不替调用方决定下一跳。
  */
-export function canRetrySamePreview(error: OrchestrationError): boolean {
+export function canRetrySamePreview(error: Pick<OrchestrationError, 'code' | 'recoveryActions'>): boolean {
   if (error.code === 'actor_identity_mismatch') return false;
   return error.recoveryActions.includes('retry_when_ready');
 }
 
-export function canResumeSession(error: OrchestrationError): boolean {
+export function canResumeSession(error: Pick<OrchestrationError, 'recoveryActions'>): boolean {
   return error.recoveryActions.includes('resume_session');
 }
 

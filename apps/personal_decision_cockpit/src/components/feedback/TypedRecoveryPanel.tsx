@@ -1,10 +1,18 @@
+import { canRetrySamePreview } from '../../api/orchestration';
 import { IconAlertTriangle, IconCheckCircle, IconRefresh, IconXCircle } from '../icons';
 
 /**
- * 分类恢复面板（spec §8 TypedRecoveryPanel / §12 状态模型）：
- * 按 error.code 分类渲染恢复路径；retryable 时给"重试"；
- * replayed=true 显示 Replay 状态"已返回原事件，未重复写入"。
+ * 分类恢复面板（spec §8 TypedRecoveryPanel / §12 状态模型，Phase 38-03 收口）：
+ * 按 error.code/category 分类渲染恢复路径；replayed=true 显示 Replay 状态
+ * "已返回原事件，未重复写入"。
  * 输入只含规范化错误字段（code/category/message/retryable/recovery_actions），不含 payload。
+ *
+ * 重试 CTA 的 fail-closed 边界（T-38-09 自动重试防线，组件层兜底）：
+ * 服务端 `retryable=true` 只表示"类别整体非致命"，不代表原样重发同一 preview + 幂等键安全。
+ * 即便调用方误传了 onRetry，本组件也只在 `canRetrySamePreview`（recovery_actions 含
+ * retry_when_ready 且非 actor_identity_mismatch，目前仅 runtime 类）时渲染"重试"按钮；
+ * stale/confirmation/sequence/conflict/integrity/risk/unknown_outcome 一律不出现重试 CTA，
+ * 只提供 resume 只读恢复与人工路径。本组件自身不发起任何网络请求。
  */
 
 export interface RecoveryError {
@@ -45,6 +53,30 @@ function codeSpecificNote(code: string): string | null {
       return '会话已被其他写入推进，expected_sequence 已过期。请恢复会话获取最新 sequence 后重新 preview。';
     case 'session_missing':
       return '会话不存在：请核对 session_id 是否完整（可从写入成功结果中复制）。';
+    case 'provider_outcome_unknown':
+      return 'Provider 执行结果未知：可能已产生真实副作用，自动重试不安全（可能造成重复调用）。请先恢复会话查看只读状态、检查 provider 预留的执行结果，人工确认后再决定下一步。';
+    default:
+      return null;
+  }
+}
+
+/** error.category → 类别级稳定说明（code 未命中专项说明时兜底，保证每类都有明确恢复方向） */
+function categorySpecificNote(category: string): string | null {
+  switch (category) {
+    case 'unknown_outcome':
+      return 'Provider 结果未知类：浏览器不会自动重试，也不需要更换幂等键；只允许恢复会话（只读）、检查 provider 预留与人工复核。';
+    case 'integrity':
+      return '完整性校验失败类：事件链或校验和不一致，禁止任何重试或继续写入。请检查对应 Authority 的完整性并人工复核。';
+    case 'risk':
+      return '风险边界类：请求超出低风险 project 域许可，服务端已拒绝。请缩小请求范围或人工复核，不要原样重发。';
+    case 'confirmation':
+      return '确认凭据类：确认已缺失、过期、被消费或与 preview 不匹配。请恢复会话后基于最新状态重新生成 preview 并再次显式确认，不要重发旧请求。';
+    case 'sequence':
+      return '序列/状态类：expected_sequence 或 transition 与当前状态不符。请恢复会话核对最新 sequence 后重新 preview。';
+    case 'stale':
+      return '过期类：请求所基于的状态已过时。请恢复会话获取最新状态后重新 preview，不要原样重发旧 preview。';
+    case 'conflict':
+      return '冲突类：与既有不可变记录冲突，写入已被拒绝以保护事件链。请恢复会话核对状态，人工确认后再决定下一步。';
     default:
       return null;
   }
@@ -86,8 +118,9 @@ export function TypedRecoveryPanel({ error, replayed, onRetry, onResume, operati
 
   if (!error) return null;
 
-  const note = codeSpecificNote(error.code);
-  const showRetry = error.retryable && Boolean(onRetry);
+  const note = codeSpecificNote(error.code) ?? categorySpecificNote(error.category);
+  // fail-closed：即便调用方传了 onRetry，也只有 canRetrySamePreview 允许时才渲染重试 CTA
+  const showRetry = error.retryable && Boolean(onRetry) && canRetrySamePreview(error);
 
   return (
     <div className="card border-risk bg-risk-soft" role="alert">
@@ -100,7 +133,7 @@ export function TypedRecoveryPanel({ error, replayed, onRetry, onResume, operati
           <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
             <span className="badge border-risk bg-panel font-mono text-risk">{error.code}</span>
             <span className="badge border-line bg-panel text-muted">分类：{error.category}</span>
-            {error.retryable ? (
+            {canRetrySamePreview(error) ? (
               <span className="badge border-uncertainty bg-uncertainty-soft text-uncertainty">可重试</span>
             ) : (
               <span className="badge border-risk bg-panel text-risk">不可自动重试</span>
