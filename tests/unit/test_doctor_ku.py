@@ -9,12 +9,59 @@ from pathlib import Path
 import pytest
 
 from personal_knowledge.application.knowledge.doctor_ku import (
+    _check_session_dedup,
     _check_source_watermarks,
     format_human,
     report_to_dict,
     run_doctor,
     scan_facade_imports,
 )
+
+
+def _dedup_fixture(path: Path, *, duplicate: bool) -> None:
+    con = sqlite3.connect(path)
+    con.executescript(
+        """
+        CREATE TABLE canonical_sessions(
+            canonical_session_id TEXT PRIMARY KEY,
+            primary_source TEXT,
+            evidence_eligible INTEGER,
+            lifecycle TEXT
+        );
+        CREATE TABLE session_source_links(
+            link_id TEXT PRIMARY KEY,
+            canonical_session_id TEXT,
+            source TEXT,
+            source_session_id TEXT
+        );
+        """
+    )
+    rows = [("s1", "agentsview", 1, "active")]
+    links = [("l1", "s1", "agentsview", "agent:stable")]
+    if duplicate:
+        rows.append(("s2", "agentsview", 1, "active"))
+        links.append(("l2", "s2", "agentsview", "agent:stable"))
+    con.executemany("INSERT INTO canonical_sessions VALUES (?,?,?,?)", rows)
+    con.executemany("INSERT INTO session_source_links VALUES (?,?,?,?)", links)
+    con.commit()
+    con.close()
+
+
+def test_session_dedup_warns_on_shared_active_stable_key(tmp_path: Path):
+    path = tmp_path / "canonical.sqlite"
+    _dedup_fixture(path, duplicate=True)
+    result = _check_session_dedup(path)
+    assert result.ok is True
+    assert result.severity == "warn"
+    assert result.detail["duplicate_stable_key_groups"] == 1
+
+
+def test_session_dedup_clean_fixture(tmp_path: Path):
+    path = tmp_path / "canonical.sqlite"
+    _dedup_fixture(path, duplicate=False)
+    result = _check_session_dedup(path)
+    assert result.detail == {"duplicate_stable_key_groups": 0, "codex_dup_pairs": 0}
+    assert result.message == "session dedup clean"
 from personal_knowledge.application.ku import build_parser, main as ku_main
 from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
 from personal_knowledge.application.serving.snapshots import activate_snapshot, prepare_snapshot, validate_snapshot

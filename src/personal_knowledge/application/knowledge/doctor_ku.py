@@ -434,6 +434,72 @@ def _check_coverage_matrix(
         )
 
 
+def _check_session_dedup(canonical_db: Path) -> CheckResult:
+    """稳定键/双份率观测，WARN-only；不进入 hard_fail_ids。
+
+    ok 恒 True、severity='warn'——双份率是观测问题，不是正确性 gate。
+    任何 schema 或读取异常也只报告，不阻断 doctor。
+    """
+    try:
+        con = sqlite3.connect(
+            f"file:{canonical_db.resolve().as_posix()}?mode=ro", uri=True
+        )
+        try:
+            duplicate_stable_key_groups = con.execute(
+                "SELECT COUNT(*) FROM (SELECT s.source, s.source_session_id "
+                "FROM session_source_links s "
+                "JOIN canonical_sessions c USING(canonical_session_id) "
+                "WHERE c.lifecycle IS NULL OR c.lifecycle='active' "
+                "GROUP BY 1,2 HAVING COUNT(DISTINCT s.canonical_session_id)>1)"
+            ).fetchone()[0]
+            av_ids = {
+                str(row[0])
+                for row in con.execute(
+                    "SELECT DISTINCT source_session_id FROM session_source_links "
+                    "WHERE source='agentsview'"
+                )
+            }
+            legacy_rows = [
+                str(row[0])
+                for row in con.execute(
+                    "SELECT l.source_session_id FROM session_source_links l "
+                    "JOIN canonical_sessions c USING(canonical_session_id) "
+                    "WHERE l.source='legacy' AND c.primary_source='legacy' "
+                    "AND c.evidence_eligible=1"
+                )
+            ]
+        finally:
+            con.close()
+
+        uuid_pattern = re.compile(
+            r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+            r"[0-9a-f]{4}-[0-9a-f]{12})$",
+            re.IGNORECASE,
+        )
+        av_native = {
+            (uuid_pattern.search(value).group(1).lower() if uuid_pattern.search(value) else value.lower())
+            for value in av_ids
+        }
+        codex_dup_pairs = sum(
+            bool(uuid_pattern.search(value) and uuid_pattern.search(value).group(1).lower() in av_native)
+            for value in legacy_rows
+        )
+        detail = {
+            "duplicate_stable_key_groups": int(duplicate_stable_key_groups),
+            "codex_dup_pairs": int(codex_dup_pairs),
+        }
+        message = "session dedup clean" if not any(detail.values()) else (
+            "session dedup observations: "
+            f"duplicate_stable_key_groups={detail['duplicate_stable_key_groups']}, "
+            f"codex_dup_pairs={detail['codex_dup_pairs']}"
+        )
+        return CheckResult("session_dedup", True, "warn", message, detail)
+    except Exception as exc:  # noqa: BLE001 — observation must not block doctor
+        return CheckResult(
+            "session_dedup", True, "warn", f"session dedup check failed: {exc}", {"error": str(exc)}
+        )
+
+
 def _check_evidence_probe(
     db_path: Path,
     conversation_db: Path,
@@ -745,6 +811,7 @@ def run_doctor(
                 snapshot_path=coverage_snapshot_path,
             )
         )
+        checks.append(_check_session_dedup(conv))
 
     if not skip_ports:
         checks.extend(_check_ports())
@@ -757,6 +824,7 @@ def run_doctor(
         c for c in checks if c.severity == "critical" and not c.ok
     ]
     # Plan: exit 1 if active pointer missing or DB missing
+    # Phase 42 的 session_dedup 是 WARN-only 观测，不加入下面的 hard-fail 集合。
     hard_fail_ids = {
         "import_personal_knowledge",
         "unified_db",

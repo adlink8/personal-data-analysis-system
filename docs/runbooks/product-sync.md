@@ -114,6 +114,32 @@ read-only.
 **Do not** chain `pk-sync` into `build_knowledge_inventory --write` + `build_knowledge_units_prod --start`.  
 That freezes the **full** eligible set and re-queues old evidence (banned for daily use).
 
+### Phase 42：稳定会话键改造后的顺序与复检
+
+涉及会话去重键或 evidence 口径的改动，必须先用现行代码执行一次常规
+`pk-sync conversations --write` 消化 normalized 数据积压，再切换新键重建
+canonical；否则 `pk-ku inspect` 的 delta 无法归因。改键首轮之后，`deleted_refs`
+突增属于 superseded/合并副本退出 eligible 集的真实口径修正，双 watermark 轨
+（`committed` / `committed_assistant`）各执行一次受控 `inspect → prepare` 即可。
+只有“inspect 有 delta 而 prepare 为 no_op”才是 Gate B 真异常，应立即 STOP。
+
+重建后日常复检可运行 `pk-ku doctor --skip-ports`；其中 `session_dedup` 是
+warn-only 观测项，不阻断产品健康检查。正式 canonical 库可执行以下三条零重复 SQL：
+
+```sql
+-- A. 一个源会话只归属一个 canonical session
+SELECT COUNT(*) FROM (SELECT source, source_session_id FROM session_source_links
+  GROUP BY 1,2 HAVING COUNT(DISTINCT canonical_session_id)>1);
+-- B. active 稳定键唯一
+SELECT COUNT(*) FROM (SELECT s.source, s.source_session_id FROM session_source_links s
+  JOIN canonical_sessions c USING(canonical_session_id)
+  WHERE c.lifecycle IS NULL OR c.lifecycle='active'
+  GROUP BY 1,2 HAVING COUNT(DISTINCT s.canonical_session_id)>1);
+-- C. 消息键唯一
+SELECT COUNT(*) FROM (SELECT canonical_session_id, ordinal FROM canonical_messages
+  GROUP BY 1,2 HAVING COUNT(*)>1);
+```
+
 ## Retired: integrated pipeline
 
 | Entry | Status |

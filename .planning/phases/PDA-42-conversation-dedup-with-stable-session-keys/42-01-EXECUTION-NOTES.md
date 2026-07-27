@@ -51,3 +51,20 @@ The lite-model quota blocker was resolved by an explicit user-authorized switch 
 - Unified DB SHA-256 before and after dry-run: `FD7471A1CE213DECE8D209285A7C577C856A68A7A061E89D61744ED1AC2C1343` (identical).
 - Dry-run machine summary: `remapped_evidence=5`, `remapped_source_ref=5`, `remapped_inventory=0`, `remap_orphans=69`; by table, migration orphans were evidence `35`, source refs `35`, inventory `67`.
 - Preexisting orphan reconciliation: evidence-ref population `preexisting_orphans=809`, exactly equal to `phase42_baseline.json` `evidence_refs_unresolved_baseline=809`; other table views were source refs `629` and inventory `995`.
+
+## 42-02 write and idempotence
+
+- `--write` completed with backup `D:\ADLINK\数据分析\var\backups\personal_system_20260727T075010Z.sqlite`; the single transaction updated 15 evidence rows and 15 source-ref rows, with 0 inventory rows changed. The plan-level distinct ref counts were 5 / 5 / 0 respectively.
+- Immediate dry-run with the same explicit old-canonical path returned `[no_op]` and JSON `no_op=true`; no further rows were planned.
+- Residual superseded-session ref SQL (evidence/source/inventory) returned `0 / 0 / 0`. The real rebuild produced `superseded_marked=0`, so the 69 classified migration orphans are old legacy refs with no content-hash target, not refs still resolving to a current superseded session; they remain unchanged by design.
+- `pk-ku doctor --skip-ports` remains blocked only by the pre-existing source-watermark drift; all other doctor checks pass. Watermark consumption and controlled delta handling are deferred to 42-03.
+
+## 42-03 end-to-end verification
+
+- Doctor implementation and fixtures are complete: `pytest tests/unit/test_doctor_ku.py -q` passed 20 tests. The real doctor output includes `[WARN] session_dedup: session dedup clean`; this check is warn-only. The only failing check remains `source_watermarks: source watermark drift`.
+- Fixed-input double build: full sorted-table dump SHA-256 was `08f927c3dc06a8d0bda730535119f56ca49d7d169e17c06193296e6917675f64` for both outputs; `compute_source_checksum` was `fa23c1bb5d7249a9d2d544fb84b9f745` for both. Both equality assertions are true.
+- Two real `pk-sync conversations --write` runs both published the same 1,159-session / 95,428-message canonical result, with `stable_key_matched=281`, `file_hash_divergent=6`, and `duplicate_source_links=0`. The normalized `dataset_hash` was `1948c3e202bf01a76b10101123d5610a` in both the rolling backup and current DB; the run timestamps differed but the input hash did not.
+- Repeated real-canonical SQL A/B/C remained `0 / 0 / 0`.
+- User-track controlled prepare: run `ir_66042a26a44199f2`, `new_refs=1,995`, `deleted_refs=197` in its delta inventory, `extract_item_count=354`. Assistant-track controlled prepare: run `ir_038025607c7d4e00`, same inventory, `extract_item_count=239`. Both used the explicit user-authorized `gemini-3.5-flash` / Vertex gcloud configuration and made no active-pointer or watermark writes.
+- Both extraction queues reached terminal completeness, but strict gate minimum-yield failed: user `5 succeeded / 347 abstained / 2 terminal_failed`, `units_total=21`, yield `0.0141`; assistant `33 succeeded / 206 abstained / 0 failed`, `units_total=20`, yield `0.1381`. API completion, schema, evidence-ref, speaker, and privacy checks passed. Per Gate B, no promote or watermark write was attempted.
+- `pk-ku inspect` after prepare/extract still reports `source_changed=True`, checksum `ae44b63925e52663755c16808432a4d9`, `new_refs=1,995`, `deleted_refs=12,496`; this is not falsely recorded as consumed because the strict yield gate did not pass. `knowledge_units` count was 44,839 before the controlled runs and 44,880 after; it did not decrease.
