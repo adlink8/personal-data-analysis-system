@@ -28,6 +28,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 from dataclasses import dataclass, field
@@ -57,6 +58,8 @@ CANONICAL_SCHEMA: dict[str, list[tuple[str, str]]] = {
         ("evidence_eligible", "INTEGER NOT NULL DEFAULT 1"),
         ("evidence_scope", "TEXT NOT NULL DEFAULT 'user'"),
         ("merged", "INTEGER NOT NULL DEFAULT 0"),  # 是否由多 source 合并
+        ("lifecycle", "TEXT NOT NULL DEFAULT 'active'"),
+        ("superseded_by_canonical_id", "TEXT"),
     ],
     "canonical_messages": [
         ("canonical_message_id", "TEXT PRIMARY KEY"),
@@ -141,6 +144,26 @@ class CrosswalkStats:
     canonical_tool_events: int = 0
     duplicate_source_links: int = 0  # Revision gate: 必须 0
     review_auto_merged: int = 0  # Revision gate: review 项被自动合并数必须 0
+    stable_key_matched: int = 0
+    file_hash_confirmed: int = 0
+    file_hash_divergent: int = 0
+    superseded_marked: int = 0
+    unexpected_duplicate_stable_key: int = 0
+
+
+def _native_session_uuid(source: str, session_id: str) -> str | None:
+    """Return the cross-source native UUID, without using source_session_ref."""
+    value = str(session_id or "")
+    if source == "agentsview" and value.startswith("codex:"):
+        value = value[len("codex:"):]
+    elif source == "legacy":
+        match = re.search(
+            r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
+            value,
+            flags=re.IGNORECASE,
+        )
+        value = match.group(1) if match else ""
+    return value.lower() if value else None
 
 
 def _load_agentsview_sessions(db: Path) -> list[dict]:
@@ -155,6 +178,7 @@ def _load_agentsview_sessions(db: Path) -> list[dict]:
             "message_count, user_message_count, file_hash, parent_session_id, "
             "relationship_type, cwd, git_branch, evidence_eligible, evidence_scope "
             "FROM sessions"
+            " ORDER BY started_at, session_id"
         )
     ]
     con.close()
@@ -175,7 +199,8 @@ def _load_legacy_sessions(db: Path) -> list[dict]:
     sessions = [
         dict(r) for r in con.execute(
             "SELECT session_id, source, family, raw_file, timestamp, cwd, model "
-            "FROM agent_sessions_meta"
+            "FROM agent_sessions_meta "
+            "ORDER BY timestamp ASC, raw_file ASC, rowid ASC"
         )
     ]
     con.close()
@@ -273,146 +298,175 @@ def build_crosswalk(
     stats.agentsview_sessions = len(agentsview_sessions)
     stats.legacy_sessions = len(legacy_sessions)
 
-    # AgentView file_hash → session 索引
-    av_by_hash: dict[str, dict] = {}
+    # Stable source-session index. Unexpected duplicate native keys are kept
+    # deterministic rather than silently overwritten by a hash index.
+    av_by_sid: dict[str, dict] = {}
     for s in agentsview_sessions:
-        fh = s.get("file_hash")
-        if fh:
-            av_by_hash[fh] = s
+        sid = s.get("source_session_id") or s.get("session_id")
+        if not sid:
+            continue
+        previous = av_by_sid.get(sid)
+        if previous is not None:
+            stats.unexpected_duplicate_stable_key += 1
+            candidates = [previous, s]
+            av_by_sid[sid] = sorted(
+                candidates,
+                key=lambda x: (x.get("started_at") or "", x.get("session_id") or sid),
+            )[0]
+        else:
+            av_by_sid[sid] = s
+    av_sessions = sorted(av_by_sid.values(), key=lambda x: (
+        x.get("started_at") or "", x.get("source_session_id") or ""
+    ))
 
-    # legacy session_id → file_hash
     legacy_hash = _legacy_session_to_hash(legacy_sessions, legacy_db)
-    # legacy file_hash → [session, ...]（一个 hash 可对应多个 legacy session：
-    # basename 碰撞，如多个项目目录的 history.jsonl 共享同一 sha256）
     legacy_by_hash: dict[str, list[dict]] = {}
+    legacy_by_uuid: dict[str, list[dict]] = {}
     for s in legacy_sessions:
         fh = legacy_hash.get(s["session_id"])
         if fh:
             legacy_by_hash.setdefault(fh, []).append(s)
+        native = _native_session_uuid("legacy", s["session_id"])
+        if native:
+            legacy_by_uuid.setdefault(native, []).append(s)
+    for values in legacy_by_hash.values():
+        values.sort(key=lambda x: (
+            x.get("timestamp") or "", x.get("raw_file") or "", x.get("session_id") or ""
+        ))
+    for values in legacy_by_uuid.values():
+        values.sort(key=lambda x: (
+            x.get("timestamp") or "", x.get("raw_file") or "", x.get("session_id") or ""
+        ))
+
+    legacy_message_counts: dict[str, int] = {}
+    if legacy_db.exists():
+        con = sqlite3.connect(f"file:{legacy_db.as_posix()}?mode=ro", uri=True)
+        legacy_message_counts = dict(con.execute(
+            "SELECT session_id, COUNT(*) FROM agent_messages GROUP BY session_id"
+        ).fetchall())
+        con.close()
 
     canonical_list: list[dict] = []
     source_links: list[dict] = []
     seen_av: set[str] = set()
     seen_legacy: set[str] = set()
 
-    # Pass 1: file_hash 精确匹配
-    for fh, av_sess in av_by_hash.items():
-        if fh in legacy_by_hash:
-            leg_sessions = legacy_by_hash[fh]
-            av_sid = av_sess["source_session_id"]
-            # 代表性 legacy session（第一个）用于 canonical session 元数据
-            leg_sess = leg_sessions[0]
-            csid = _norm_id("cs", "merged", fh)
-            canonical_list.append({
-                "canonical_session_id": csid,
-                "primary_source": "agentsview",
-                "agent": av_sess.get("agent") or leg_sess.get("source"),
-                "started_at": av_sess.get("started_at") or leg_sess.get("timestamp"),
-                "ended_at": av_sess.get("ended_at"),
-                "message_count": av_sess.get("message_count"),
-                "user_message_count": av_sess.get("user_message_count"),
-                "file_hash": fh,
-                "parent_session_id": av_sess.get("parent_session_id"),
-                "relationship_type": av_sess.get("relationship_type"),
-                "cwd": av_sess.get("cwd") or leg_sess.get("cwd"),
-                "git_branch": av_sess.get("git_branch"),
-                "evidence_eligible": av_sess.get("evidence_eligible", 1),
-                "evidence_scope": av_sess.get("evidence_scope", "user"),
-                "merged": 1,
-                "_av_session_id": av_sid,
-                "_legacy_session_id": leg_sess["session_id"],
-                "_legacy_raw_file": leg_sess.get("raw_file"),
-            })
+    def add_canonical(av_sess: dict | None, leg_sess: dict | None,
+                      *, match_method: str, merged: bool) -> dict:
+        av_sid = (av_sess or {}).get("source_session_id") if av_sess else None
+        leg_sid = (leg_sess or {}).get("session_id") if leg_sess else None
+        csid = _norm_id(
+            "cs", "agentsview", av_sid
+        ) if av_sid else _norm_id("cs", "legacy", leg_sid)
+        item = {
+            "canonical_session_id": csid,
+            "primary_source": "agentsview" if av_sess else "legacy",
+            "agent": (av_sess or {}).get("agent") or (leg_sess or {}).get("source"),
+            "started_at": (av_sess or {}).get("started_at") or (leg_sess or {}).get("timestamp"),
+            "ended_at": (av_sess or {}).get("ended_at"),
+            "message_count": (av_sess or {}).get("message_count") or (
+                legacy_message_counts.get(leg_sid, 0) if leg_sid else None
+            ),
+            "user_message_count": (av_sess or {}).get("user_message_count"),
+            "file_hash": (av_sess or {}).get("file_hash") or (legacy_hash.get(leg_sid) if leg_sid else None),
+            "parent_session_id": (av_sess or {}).get("parent_session_id"),
+            "relationship_type": (av_sess or {}).get("relationship_type"),
+            "cwd": (av_sess or {}).get("cwd") or (leg_sess or {}).get("cwd"),
+            "git_branch": (av_sess or {}).get("git_branch"),
+            "evidence_eligible": (av_sess or {}).get("evidence_eligible", 1),
+            "evidence_scope": (av_sess or {}).get("evidence_scope", "user"),
+            "merged": int(merged),
+            "lifecycle": "active",
+            "superseded_by_canonical_id": None,
+            "_av_session_id": av_sid,
+            "_legacy_session_id": leg_sid,
+            "_legacy_raw_file": (leg_sess or {}).get("raw_file"),
+            "_message_count_hint": (av_sess or {}).get("message_count") or legacy_message_counts.get(leg_sid, 0),
+        }
+        canonical_list.append(item)
+        if av_sid:
             source_links.append({
                 "link_id": _norm_id("link", csid, "agentsview", av_sid),
                 "canonical_session_id": csid, "source": "agentsview",
-                "source_session_id": av_sid,
-                "source_raw_file": None,
-                "match_method": "file_hash", "match_confidence": "strong",
+                "source_session_id": av_sid, "source_raw_file": None,
+                "match_method": match_method, "match_confidence": "strong",
             })
-            # 所有共享该 hash 的 legacy session 都 link 到同一 canonical session
-            for ls in leg_sessions:
-                source_links.append({
-                    "link_id": _norm_id("link", csid, "legacy", ls["session_id"]),
-                    "canonical_session_id": csid, "source": "legacy",
-                    "source_session_id": ls["session_id"],
-                    "source_raw_file": ls.get("raw_file"),
-                    "match_method": "file_hash", "match_confidence": "strong",
-                })
-                seen_legacy.add(ls["session_id"])
             seen_av.add(av_sid)
-            stats.merged_by_file_hash += 1
+        if leg_sid:
+            source_links.append({
+                "link_id": _norm_id("link", csid, "legacy", leg_sid),
+                "canonical_session_id": csid, "source": "legacy",
+                "source_session_id": leg_sid,
+                "source_raw_file": (leg_sess or {}).get("raw_file"),
+                "match_method": match_method, "match_confidence": "strong",
+            })
+            seen_legacy.add(leg_sid)
+        return item
 
-    # Pass 2: AgentView-only sessions
-    for av_sess in agentsview_sessions:
+    # Pass 1: native source mapping is identity. file_hash is only a signal.
+    for av_sess in av_sessions:
+        av_sid = av_sess["source_session_id"]
+        native = _native_session_uuid("agentsview", av_sid)
+        candidates = [s for s in legacy_by_uuid.get(native or "", []) if s["session_id"] not in seen_legacy]
+        if not candidates:
+            continue
+        leg_sess = candidates[0]
+        add_canonical(av_sess, leg_sess, match_method="source_mapping", merged=True)
+        stats.stable_key_matched += 1
+        stats.merged_by_source_mapping += 1
+        av_hash = av_sess.get("file_hash")
+        leg_hash = legacy_hash.get(leg_sess["session_id"])
+        if av_hash and leg_hash:
+            if av_hash == leg_hash:
+                stats.file_hash_confirmed += 1
+            else:
+                stats.file_hash_divergent += 1
+
+    # Pass 2: file_hash is a fallback only for sessions without native mapping.
+    for av_sess in av_sessions:
         av_sid = av_sess["source_session_id"]
         if av_sid in seen_av:
             continue
-        csid = _norm_id("cs", "agentsview", av_sid)
-        canonical_list.append({
-            "canonical_session_id": csid,
-            "primary_source": "agentsview",
-            "agent": av_sess.get("agent"),
-            "started_at": av_sess.get("started_at"),
-            "ended_at": av_sess.get("ended_at"),
-            "message_count": av_sess.get("message_count"),
-            "user_message_count": av_sess.get("user_message_count"),
-            "file_hash": av_sess.get("file_hash"),
-            "parent_session_id": av_sess.get("parent_session_id"),
-            "relationship_type": av_sess.get("relationship_type"),
-            "cwd": av_sess.get("cwd"),
-            "git_branch": av_sess.get("git_branch"),
-            "evidence_eligible": av_sess.get("evidence_eligible", 1),
-            "evidence_scope": av_sess.get("evidence_scope", "user"),
-            "merged": 0,
-            "_av_session_id": av_sid,
-            "_legacy_session_id": None,
-            "_legacy_raw_file": None,
-        })
-        source_links.append({
-            "link_id": _norm_id("link", csid, "agentsview", av_sid),
-            "canonical_session_id": csid, "source": "agentsview",
-            "source_session_id": av_sid, "source_raw_file": None,
-            "match_method": "single_source", "match_confidence": "strong",
-        })
-        seen_av.add(av_sid)
+        fh = av_sess.get("file_hash")
+        candidates = [s for s in legacy_by_hash.get(fh or "", []) if s["session_id"] not in seen_legacy]
+        if candidates:
+            leg_sess = candidates[0]
+            add_canonical(av_sess, leg_sess, match_method="file_hash", merged=True)
+            stats.merged_by_file_hash += 1
+            continue
+        add_canonical(av_sess, None, match_method="single_source", merged=False)
         stats.agentsview_only += 1
 
-    # Pass 3: legacy-only sessions
+    # Pass 3: legacy-only sessions. Same-hash legacy twins remain separate so
+    # lifecycle/supersede semantics are observable instead of being collapsed.
     for leg_sess in legacy_sessions:
         leg_sid = leg_sess["session_id"]
         if leg_sid in seen_legacy:
             continue
-        csid = _norm_id("cs", "legacy", leg_sid)
-        canonical_list.append({
-            "canonical_session_id": csid,
-            "primary_source": "legacy",
-            "agent": leg_sess.get("source"),
-            "started_at": leg_sess.get("timestamp"),
-            "ended_at": None,
-            "message_count": None,
-            "user_message_count": None,
-            "file_hash": legacy_hash.get(leg_sid),
-            "parent_session_id": None,
-            "relationship_type": None,
-            "cwd": leg_sess.get("cwd"),
-            "git_branch": None,
-            "evidence_eligible": 1,
-            "evidence_scope": "user",
-            "merged": 0,
-            "_av_session_id": None,
-            "_legacy_session_id": leg_sid,
-            "_legacy_raw_file": leg_sess.get("raw_file"),
-        })
-        source_links.append({
-            "link_id": _norm_id("link", csid, "legacy", leg_sid),
-            "canonical_session_id": csid, "source": "legacy",
-            "source_session_id": leg_sid,
-            "source_raw_file": leg_sess.get("raw_file"),
-            "match_method": "single_source", "match_confidence": "strong",
-        })
-        seen_legacy.add(leg_sid)
+        add_canonical(None, leg_sess, match_method="single_source", merged=False)
         stats.legacy_only += 1
+
+    weak_groups: dict[str, list[dict]] = {}
+    for item in canonical_list:
+        if item["_av_session_id"] is None and item.get("file_hash"):
+            weak_groups.setdefault(item["file_hash"], []).append(item)
+    for group in weak_groups.values():
+        if len(group) < 2:
+            continue
+        highest_count = max(x.get("_message_count_hint") or 0 for x in group)
+        count_tied = [x for x in group if (x.get("_message_count_hint") or 0) == highest_count]
+        latest_started = max(x.get("started_at") or "" for x in count_tied)
+        active = sorted(
+            [x for x in count_tied if (x.get("started_at") or "") == latest_started],
+            key=lambda x: x["canonical_session_id"],
+        )[0]
+        for item in group:
+            if item is active:
+                continue
+            item["lifecycle"] = "superseded"
+            item["superseded_by_canonical_id"] = active["canonical_session_id"]
+            item["evidence_eligible"] = 0
+            stats.superseded_marked += 1
 
     stats.canonical_sessions = len(canonical_list)
     return canonical_list, source_links
@@ -451,14 +505,14 @@ def _write_canonical_store(
         csid = c["canonical_session_id"]
         cur.execute(
             "INSERT INTO canonical_sessions VALUES "
-            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 csid, c["primary_source"], c["agent"], c["started_at"],
                 c["ended_at"], c["message_count"], c["user_message_count"],
                 c["file_hash"], None,  # parent_canonical_id（第二趟回填）
                 c["relationship_type"], c["cwd"], c["git_branch"], None,  # model
                 c["evidence_eligible"], c["evidence_scope"],
-                c["merged"],
+                c["merged"], c["lifecycle"], c["superseded_by_canonical_id"],
             ),
         )
         if c["_av_session_id"]:
@@ -572,7 +626,7 @@ def _write_canonical_store(
     merged_csids = {c["canonical_session_id"] for c in canonical_list if c["merged"]}
     ineligible_csids = {
         c["canonical_session_id"] for c in canonical_list
-        if not c.get("evidence_eligible", 1)
+        if not c.get("evidence_eligible", 1) and c.get("lifecycle") != "superseded"
     }
     av_populated_csids: set[str] = {r[1] for r in msg_rows}  # 已有 AV message 的 csid
     if legacy_db.exists():
@@ -677,6 +731,12 @@ def run(dry_run: bool, write: bool,
     print(f"AgentView sessions: {stats.agentsview_sessions}")
     print(f"Legacy sessions:    {stats.legacy_sessions}")
     print(f"Merged (file_hash): {stats.merged_by_file_hash}")
+    print(f"Merged (source_mapping): {stats.merged_by_source_mapping}")
+    print(f"stable_key_matched: {stats.stable_key_matched}")
+    print(f"file_hash_confirmed: {stats.file_hash_confirmed}")
+    print(f"file_hash_divergent: {stats.file_hash_divergent}")
+    print(f"superseded_marked: {stats.superseded_marked}")
+    print(f"unexpected_duplicate_stable_key: {stats.unexpected_duplicate_stable_key}")
     print(f"AgentView-only:     {stats.agentsview_only}")
     print(f"Legacy-only:        {stats.legacy_only}")
     print(f"Review required:    {stats.review_required}")
