@@ -256,7 +256,7 @@ def test_assistant_prompt_path_exists() -> None:
 def test_assistant_run_commits_as_prefixed_units(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """adopted 信号：证据派生 confidence（0.4+0.2 单证据+0.05 adopted=0.65）；无证据 unit 丢弃并计数。"""
+    """adopted 信号：证据派生 confidence（0.4+0.2+0.15 QA 双证据+0.05 adopted=0.8）；无证据 unit 丢弃并计数。"""
     llm_text = _llm_payload([
         _unit("solution", "关键解决方案内容", confidence=0.98),
         _unit("solution", "完全编造的引文根本不在原文里", confidence=0.5),
@@ -273,8 +273,8 @@ def test_assistant_run_commits_as_prefixed_units(
     assert unit_id.startswith("as|")
     assert unit_type == "solution"
     assert scope == "assistant"
-    # PDA-41：弃用 LLM 自报（0.98），证据派生 0.4+0.2+0.05(adopted)=0.65
-    assert confidence == 0.65
+    # PDA-41：弃用 LLM 自报（0.98），证据派生 0.4+0.2+0.15(QA 双证据)+0.05(adopted)=0.8
+    assert confidence == 0.8
     assert stats["units_dropped_no_evidence"] == 1
     assert stats["confirmation_adopted"] == 1
     # QA 对：LLM 输入含前置 user 上下文段，role_label 为 assistant 包装
@@ -523,3 +523,72 @@ def test_prepare_invalid_track_fail_closed(tmp_path: Path) -> None:
         prepare_production_delta(
             db_path=db, canonical_db=canon, track="system", **_PROVIDER
         )
+
+
+# === QA 联立 v2：穿透短确认 + question-side evidence（PDA-41 deferred）===
+
+def test_qa_context_penetrates_short_confirmations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """锚点前的"继续"被穿透，QA 上下文挂到最近实质提问；question-side ref 以
+    evidence_type='context' 落盘；confidence 按双证据派生（0.4+0.2+0.15=0.75）。"""
+    rows = [
+        ("cm_q1", "cs4", "test", 1, "user", "如何配置 Claude Desktop 的 MCP 代理？", "2026-07-23T10:00:01"),
+        ("cm_x1", "cs4", "test", 2, "assistant", "先打开设置页看一下。", "2026-07-23T10:00:02"),
+        ("cm_c1", "cs4", "test", 3, "user", "继续", "2026-07-23T10:00:03"),
+        ("cm_a9", "cs4", "test", 4, "assistant", SOLUTION_TEXT, "2026-07-23T10:00:04"),
+    ]
+    llm_text = _llm_payload([_unit("solution", "关键解决方案内容")])
+    stats, con, calls = _run_assistant(
+        tmp_path, monkeypatch, ["cm_a9"], llm_text, canonical_rows=rows
+    )
+    ctx = calls[0]["user_content"].split("用户问题上下文（仅供理解，不作证据）：\n")[1].split("\n\n---")[0]
+    assert "如何配置 Claude Desktop 的 MCP 代理？" in ctx
+    assert "继续" not in ctx
+    uid, conf = con.execute("SELECT unit_id, confidence FROM knowledge_units").fetchone()
+    evs = set(con.execute(
+        "SELECT evidence_ref, evidence_type FROM knowledge_unit_evidence WHERE unit_id=?",
+        (uid,),
+    ).fetchall())
+    assert evs == {("cm_a9", "message"), ("cm_q1", "context")}
+    assert conf == 0.75
+    con.close()
+
+
+def test_qa_context_keeps_short_substantive_question(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """短但实质的提问（"怎么配代理？"）不匹配确认套话，不得被穿透跳过。"""
+    rows = [
+        ("cm_q2", "cs4", "test", 1, "user", "怎么配代理？", "2026-07-23T10:00:01"),
+        ("cm_a8", "cs4", "test", 2, "assistant", SOLUTION_TEXT, "2026-07-23T10:00:02"),
+    ]
+    llm_text = _llm_payload([_unit("solution", "关键解决方案内容")])
+    stats, con, calls = _run_assistant(
+        tmp_path, monkeypatch, ["cm_a8"], llm_text, canonical_rows=rows
+    )
+    assert "怎么配代理？" in calls[0]["user_content"]
+    con.close()
+
+
+def test_qa_context_empty_when_only_confirmations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """前置 user 全是短确认 → 无 QA 上下文段、无 context 证据行、单证据派生 0.6。"""
+    rows = [
+        ("cm_c2", "cs4", "test", 1, "user", "好的", "2026-07-23T10:00:01"),
+        ("cm_a7", "cs4", "test", 2, "assistant", SOLUTION_TEXT, "2026-07-23T10:00:02"),
+    ]
+    llm_text = _llm_payload([_unit("solution", "关键解决方案内容")])
+    stats, con, calls = _run_assistant(
+        tmp_path, monkeypatch, ["cm_a7"], llm_text, canonical_rows=rows
+    )
+    assert "用户问题上下文" not in calls[0]["user_content"]
+    uid, conf = con.execute("SELECT unit_id, confidence FROM knowledge_units").fetchone()
+    evs = con.execute(
+        "SELECT evidence_ref, evidence_type FROM knowledge_unit_evidence WHERE unit_id=?",
+        (uid,),
+    ).fetchall()
+    assert evs == [("cm_a7", "message")]
+    assert conf == 0.6
+    con.close()

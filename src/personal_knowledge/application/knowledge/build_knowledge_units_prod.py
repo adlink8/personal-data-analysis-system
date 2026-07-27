@@ -624,28 +624,53 @@ def _tolerant_parse(track, raw_text: str):
     return result, dropped
 
 
+# 短确认形态（<30 字且匹配确认/续跑套话才判确认；短问题如"怎么配代理？"不误伤）
+_CONFIRM_RE = re.compile(
+    r"^(嗯+|呃+|啊+|好[的嘞呀吧]?|行|可以|是的?|对的?|没错|ok(ay)?|yes|y|"
+    r"继续|接着说|continue|go on|收到|明白|懂了|了解|谢谢|thanks?|"
+    r"差不多了|就这样|没问题|可以了|同意|赞成|行吧|好吧|嗯嗯)[\s!~。．.!！…]*$",
+    re.I,
+)
+
+
+def _is_short_confirmation(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return True
+    if len(t) >= 30:
+        return False
+    return bool(_CONFIRM_RE.match(t))
+
+
 def _load_preceding_user_context(
     canon_con: sqlite3.Connection,
     session_id: str | None,
     anchor_ordinal: int | None,
-) -> str:
-    """assistant 轨 QA 对：同 session 最近前置 1 条 user 消息（清洗后）。
+    max_back: int = 5,
+) -> tuple[str, str]:
+    """assistant 轨 QA 对（v2）：同 session 向前穿透短确认，找最近实质 user 提问。
+
+    v1 只取紧邻前 1 条 user 消息——对话里"嗯/继续/好的"类短确认会让 QA 对
+    挂到无信息量的上下文上。v2 在最多 max_back 条前置 user 消息里跳过
+    短确认（<30 字且匹配确认套话），返回最近实质提问。
 
     仅供 LLM 理解上下文，不作证据（evidence_quote 回查不含此段）。
-    无前置 user / ordinal 缺失 → 返回空串（不 fail）。
+    返回 (清洗后文本, 消息 ref)；无实质前置 user / ordinal 缺失 → ("", "")。
     """
     if not session_id or anchor_ordinal is None:
-        return ""
-    row = canon_con.execute(
-        "SELECT content FROM canonical_messages "
+        return "", ""
+    rows = canon_con.execute(
+        "SELECT canonical_message_id, content FROM canonical_messages "
         "WHERE canonical_session_id=? AND role='user' AND ordinal < ? "
         "AND content IS NOT NULL "
-        "ORDER BY ordinal DESC LIMIT 1",
-        (session_id, anchor_ordinal),
-    ).fetchone()
-    if not row or not row["content"]:
-        return ""
-    return strip_system_injections(row["content"])
+        "ORDER BY ordinal DESC LIMIT ?",
+        (session_id, anchor_ordinal, max_back),
+    ).fetchall()
+    for row in rows:
+        if _is_short_confirmation(row["content"] or ""):
+            continue
+        return strip_system_injections(row["content"]), str(row["canonical_message_id"])
+    return "", ""
 
 
 def _commit_item_result(
@@ -758,8 +783,10 @@ def _commit_item_result(
             # D-03 修饰（非硬 gate）并入派生：采纳 +0.05，纠正 -0.2；
             # corrected 行是未来 lifecycle supersede 候选，自动路由属 deferred
             # （CONTEXT deferred；docs/runbooks/ku-incremental.md §3F），此处不做。
+            # evidence_count 计入 question-side context ref（多证据互证）。
+            has_qa_context = bool(track.name == "assistant" and str(work.get("question_ref") or ""))
             confidence = derive_confidence(
-                evidence_count=1,
+                evidence_count=1 + (1 if has_qa_context else 0),
                 evidence_scope=track.evidence_scope,
                 evidence_quote=unit.evidence_quote,
                 confirmation_signal=confirmation_signal if track.name == "assistant" else "none",
@@ -779,6 +806,15 @@ def _commit_item_result(
                 "INSERT OR IGNORE INTO knowledge_unit_evidence (unit_id, evidence_ref) VALUES (?,?)",
                 (unit_id, item["evidence_ref"]),
             )
+            # QA 联立 v2：question-side ref 显式落盘（role=context），
+            # 供检索排序与 eval 并集匹配复用；quote 回查不覆盖此段（不作证据）。
+            question_ref = str(work.get("question_ref") or "")
+            if track.name == "assistant" and question_ref:
+                con.execute(
+                    "INSERT OR IGNORE INTO knowledge_unit_evidence (unit_id, evidence_ref, evidence_type) "
+                    "VALUES (?,?,'context')",
+                    (unit_id, question_ref),
+                )
         con.execute(
             "UPDATE knowledge_run_items SET status='succeeded', cache_key=?, "
             "response_hash=?, unit_count=?, updated_at=? WHERE id=?",
@@ -889,6 +925,7 @@ def process_run(
             "source_session_id": payload["source_session_id"],
             "source_agent": payload["source_agent"],
             "confirmation_signal": payload.get("confirmation_signal", "none"),
+            "question_ref": payload.get("question_ref", ""),
             "write_cache": True,
         }
 
@@ -961,11 +998,14 @@ def process_run(
                     stats["truncated"] += 1
                 llm_input = cleaned
                 confirmation_signal = "none"
+                question_ref = ""
                 if track.name == "assistant":
-                    # QA 对：同 session 最近前置 1 条 user 消息（仅供理解，不作
-                    # 证据）；无前置 user 时该段为空（不 fail）。原文只进 LLM
-                    # 输入，不写 stats/日志（隐私面与 user 轨出域同级）。
-                    user_ctx = _load_preceding_user_context(
+                    # QA 对（v2）：向前穿透短确认找最近实质 user 提问（仅供理解，
+                    # 不作证据）；question-side ref 随 work 透传，提交时以
+                    # evidence_type='context' 落盘供检索/eval 复用。无实质前置
+                    # user 时该段为空（不 fail）。原文只进 LLM 输入，不写
+                    # stats/日志（隐私面与 user 轨出域同级）。
+                    user_ctx, question_ref = _load_preceding_user_context(
                         canon_con, row["canonical_session_id"], row["ordinal"]
                     )
                     if user_ctx:
@@ -1000,6 +1040,7 @@ def process_run(
                         "source_session_id": source_session_id,
                         "source_agent": source_agent,
                         "confirmation_signal": confirmation_signal,
+                        "question_ref": question_ref,
                         "write_cache": False,
                     }))
                 else:
@@ -1013,6 +1054,7 @@ def process_run(
                         "source_session_id": source_session_id,
                         "source_agent": source_agent,
                         "confirmation_signal": confirmation_signal,
+                        "question_ref": question_ref,
                     })
 
             # 2) 主线程先消化 cache hit

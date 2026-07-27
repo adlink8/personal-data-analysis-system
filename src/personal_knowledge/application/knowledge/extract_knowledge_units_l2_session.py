@@ -156,25 +156,58 @@ def list_l2_sessions(
     for sid, msgs in by_session.items():
         if len(msgs) < min_user_msgs:
             continue
-        window_msgs, window_text = build_window(msgs)
-        if not window_text:
-            continue
-        sessions.append(
-            {
-                "session_id": sid,
-                "agent": meta[sid]["agent"],
-                "started_at": meta[sid]["started_at"],
-                "messages": window_msgs,
-                "window_text": window_text,
-                "window_hash": hashlib.sha256(window_text.encode()).hexdigest()[:32],
-                "message_ids": [m["message_id"] for m in window_msgs],
-            }
+        # 长尾分块：>MAX_WINDOW_CHARS 的会话切成多窗（伪 session id "sid#c<n>"，
+        # 零 schema 变更复用 jobs/window 机制）；≤上限的会话行为与 v1 完全一致。
+        total_chars = sum(len(m["cleaned"]) for m in msgs)
+        chunks = (
+            [msgs]
+            if total_chars <= MAX_WINDOW_CHARS
+            else _partition_chunks(msgs, MAX_WINDOW_CHARS)
         )
+        for ci, chunk in enumerate(chunks, 1):
+            window_msgs, window_text = build_window(chunk)
+            if not window_text:
+                continue
+            sessions.append(
+                {
+                    "session_id": sid if len(chunks) == 1 else f"{sid}#c{ci}",
+                    "source_session_id": sid,
+                    "chunk_count": len(chunks),
+                    "agent": meta[sid]["agent"],
+                    "started_at": meta[sid]["started_at"],
+                    "messages": window_msgs,
+                    "window_text": window_text,
+                    "window_hash": hashlib.sha256(window_text.encode()).hexdigest()[:32],
+                    "message_ids": [m["message_id"] for m in window_msgs],
+                }
+            )
     # started_at DESC already from query grouping order — re-sort
     sessions.sort(key=lambda s: s["started_at"], reverse=True)
     if limit is not None:
         sessions = sessions[: max(0, limit)]
     return sessions
+
+
+def _partition_chunks(messages: list[dict], max_chars: int) -> list[list[dict]]:
+    """超长会话按时间顺序确定性切成 ≤max_chars 的消息块（PDA-41 deferred ⑩）。
+
+    v1 对 >48k 会话直接丢弃最老消息（实测 8.7% 会话被截，最大 237 万字符），
+    早期内容的知识永久丢失。分块后每块独立成窗抽取，块边界由消息集唯一确定，
+    重跑幂等。
+    """
+    chunks: list[list[dict]] = []
+    current: list[dict] = []
+    total = 0
+    for m in messages:
+        block_len = len(m["cleaned"]) + 24  # "[msg cm|…]\n" 标记与分隔开销
+        if current and total + block_len > max_chars:
+            chunks.append(current)
+            current, total = [], 0
+        current.append(m)
+        total += block_len
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def build_window(
@@ -462,7 +495,9 @@ def process_l2_run(
                     ),
                     unit.evidence_quote,
                     lifecycle,
-                    session_id,
+                    # 分块伪 id（sid#c<n>）只用于 jobs/unit_id 去重；
+                    # source_session_id 始终写真实会话 id
+                    session.get("source_session_id") or session_id,
                     mid,
                     session.get("agent") or "l2_session_window",
                     "user",  # CHECK constraint; L2 marked via unit_id prefix l2| + run source_build_id
