@@ -129,10 +129,13 @@ def _validate_reviewer(payload: Mapping[str, Any]) -> tuple[str, str, str]:
 
 def ensure_lifecycle_schema(con: sqlite3.Connection) -> None:
     # 既有库的 knowledge_lifecycle_actions 带着旧 CHECK（不含 'deprecate'），
-    # SQLite 无法 ALTER CHECK，需要整表重建迁移。注意两点：
+    # SQLite 无法 ALTER CHECK，需要整表重建迁移。注意三点：
     # 1. DROP 被引用表在 foreign_keys=ON 下会因隐式 DELETE 违反 FK；
-    # 2. RENAME 在 foreign_keys=ON 时会改写其他表的 FK 引用文本。
-    # 因此迁移全程 foreign_keys=OFF；events 表若已被改写到中间表名也一并重建。
+    # 2. RENAME 自 SQLite 3.25 起会改写其他表的 FK 引用文本，foreign_keys=OFF
+    #    并不阻止——必须 legacy_alter_table=ON（实证：knowledge_unit_corrections
+    #    的 FK 被改写到中间表名，DROP 中间表后留下悬空引用，doctor FK 检查 FAIL）；
+    # 3. 迁移全程 foreign_keys=OFF 防 DROP 隐式 DELETE；events 表若已被改写
+    #    到中间表名也一并重建。
     row = con.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='knowledge_lifecycle_actions'"
     ).fetchone()
@@ -148,7 +151,9 @@ def ensure_lifecycle_schema(con: sqlite3.Connection) -> None:
         con.executescript(LIFECYCLE_SCHEMA_SQL)
         return
     fk_on = bool(int(con.execute("PRAGMA foreign_keys").fetchone()[0]))
+    legacy = bool(int(con.execute("PRAGMA legacy_alter_table").fetchone()[0]))
     con.execute("PRAGMA foreign_keys=OFF")
+    con.execute("PRAGMA legacy_alter_table=ON")
     try:
         if needs_actions:
             con.execute(
@@ -171,6 +176,7 @@ def ensure_lifecycle_schema(con: sqlite3.Connection) -> None:
             con.execute("DROP TABLE knowledge_lifecycle_events_pre_deprecate")
         con.commit()  # 结束隐式事务，否则下面的 PRAGMA 在事务内静默无效
     finally:
+        con.execute(f"PRAGMA legacy_alter_table={'ON' if legacy else 'OFF'}")
         con.execute(f"PRAGMA foreign_keys={'ON' if fk_on else 'OFF'}")
 
 

@@ -264,11 +264,26 @@ def test_ensure_schema_migrates_legacy_actions_check_for_deprecate(tmp_path: Pat
     )
     con.commit()
     con.execute("PRAGMA foreign_keys=ON")  # 镜像 connect_rw：FK 开启下的迁移
+    # 第三方表引用 events：迁移的 RENAME 不得改写其 FK 文本
+    # （实证事故 2026-07-27：knowledge_unit_corrections 被改写到中间表名，
+    # DROP 中间表后留下悬空 FK，doctor sqlite_foreign_keys FAIL）
+    con.executescript(
+        """
+        CREATE TABLE knowledge_unit_corrections (
+            correction_id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL REFERENCES knowledge_lifecycle_events(event_id),
+            unit_id TEXT NOT NULL REFERENCES canonical_knowledge_units(canonical_unit_id)
+        );
+        """
+    )
     ensure_lifecycle_schema(con)
     assert con.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     sql = con.execute("SELECT sql FROM sqlite_master WHERE name='knowledge_lifecycle_actions'").fetchone()[0]
     assert "'deprecate'" in sql
     assert con.execute("SELECT action_id, action FROM knowledge_lifecycle_actions").fetchone() == ("a1", "conflict")
+    assert "pre_deprecate" not in con.execute(
+        "SELECT sql FROM sqlite_master WHERE name='knowledge_unit_corrections'"
+    ).fetchone()[0]
     con.execute(
         "INSERT INTO knowledge_lifecycle_actions VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         ("a2", "m1", 2, "new", "deprecate", 1, "current", None, "r", "[]", "{}"),
