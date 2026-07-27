@@ -92,7 +92,7 @@ export function WidgetDiagnosticCard({
           <p className="mt-1 text-sm text-muted">
             {url === null
               ? 'Widget 来源不在允许的 origin 范围内，已阻止加载。'
-              : 'MCP 服务（127.0.0.1:8789）当前未运行或未确认可达；本区域不会显示为空白成功，也不代表历史数据已丢失。'}
+              : 'MCP 服务当前未运行或未确认可达；本区域不会显示为空白成功，也不代表历史数据已丢失。'}
           </p>
           {url ? (
             <div className="mt-2 flex flex-wrap gap-2">

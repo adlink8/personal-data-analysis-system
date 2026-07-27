@@ -55,7 +55,7 @@ export function EvidencePage() {
           诊断 / 历史集成
         </h2>
         <p className="mt-0.5 px-1 text-sm text-muted">
-          以下 Widget 由本地 MCP 服务（127.0.0.1:8789）托管，仅用于历史数据浏览与治理审核辅助；
+          以下 Widget 由本地 MCP 服务托管，仅用于历史数据浏览与治理审核辅助；
           它们不是当前 Personal State 的权威读取路径，加载失败或服务未启动时会显示明确的恢复说明，不会呈现为空白成功。
         </p>
 
