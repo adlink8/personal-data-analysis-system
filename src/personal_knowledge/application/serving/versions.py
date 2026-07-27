@@ -128,6 +128,15 @@ def record_publication(
                 now,
             ),
         )
+        # watermark_id 是 registry|source_key|value 的稳定哈希：同一 source 位置
+        # 重新发布（如同一 canonical build 重建索引）时，已存在的 watermark 仍指向
+        # 旧 artifact version，导致 doctor 报 watermark_version_mismatch。
+        # 这里把指向校正到本次发布的 version（幂等：指向相同则不触发）。
+        con.execute(
+            "UPDATE source_watermarks SET artifact_version_id=?, recorded_at=? "
+            "WHERE watermark_id=? AND artifact_version_id<>?",
+            (version_id, now, watermark_id, version_id),
+        )
         con.commit()
         return {
             "registry_id": registry_id,
