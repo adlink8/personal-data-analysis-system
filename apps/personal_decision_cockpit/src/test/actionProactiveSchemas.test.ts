@@ -94,7 +94,7 @@ describe('proactiveSummaryEnvelopeSchema', () => {
     expect(now).toHaveLength(1);
     expect(deferrable).toHaveLength(1);
     expect(now[0]?.candidate_id).toBe('cand_20260719_now000001aa');
-    expect(now[0]?.importance['score']).toBe(0.83);
+    expect(now[0]?.importance['final_score']).toBe(0.83);
     expect(now[0]?.reason_codes).toContain('deadline_approaching');
     expect(now[0]?.current_control_eligible).toBe(true);
     expect(deferrable[0]?.current_control_reason_codes).toContain('snoozed_recently');

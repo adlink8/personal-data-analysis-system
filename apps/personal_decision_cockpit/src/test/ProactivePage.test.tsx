@@ -31,8 +31,11 @@ describe('ProactivePage（/proactive）', () => {
     expect(within(nowRegion).getByText('learning')).toBeInTheDocument();
     expect(within(nowRegion).getByText('opportunity')).toBeInTheDocument();
     expect(within(nowRegion).getByText('card')).toBeInTheDocument();
-    // importance 尽力解析：level（score）
-    expect(within(nowRegion).getByText(/high（0\.83）/)).toBeInTheDocument();
+    // importance 必须使用 authority 的 final_score
+    expect(within(nowRegion).getByText(/high（final_score 0\.83）/)).toBeInTheDocument();
+    expect(within(nowRegion).getByText('Control history（authority 原始顺序） · as-of 9999-12-31T23:59:59Z')).toBeInTheDocument();
+    expect(within(nowRegion).getByText('suppress')).toBeInTheDocument();
+    expect(within(nowRegion).getByText('restore')).toBeInTheDocument();
     // 触发依据
     expect(within(nowRegion).getByText('deadline_approaching')).toBeInTheDocument();
     // 控制状态

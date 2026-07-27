@@ -61,6 +61,12 @@ function ProtocolCard({ protocol }: { protocol: CalibrationProtocol }) {
           {protocol.sample_size === null || protocol.sample_size === undefined ? '未提供' : fmtNumber(protocol.sample_size)}
         </span>
       </p>
+      <div className="flex flex-wrap gap-1.5 text-xs">
+        <span className="badge border-uncertainty bg-uncertainty-soft text-uncertainty">不自动 promotion</span>
+        <span className="badge border-uncertainty bg-uncertainty-soft text-uncertainty">不执行 external action</span>
+        {protocol.promotion_available === false ? <span className="badge border-line bg-panel text-muted">promotion_available=false</span> : null}
+        {protocol.external_action_available === false ? <span className="badge border-line bg-panel text-muted">external_action_available=false</span> : null}
+      </div>
       {inconclusive ? (
         <div className="rounded-lg border border-uncertainty bg-uncertainty-soft p-3" role="note">
           <p className="flex items-start gap-1.5 text-sm text-uncertainty">

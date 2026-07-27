@@ -31,11 +31,11 @@ function ImportanceLine({ importance }: { importance: Record<string, unknown> })
       </p>
     );
   }
-  const score = importance['score'];
+  const score = importance['final_score'];
   const level = importance['level'];
   const renderedKeys = new Set<string>();
   if (typeof level === 'string') renderedKeys.add('level');
-  if (typeof score === 'number') renderedKeys.add('score');
+  if (typeof score === 'number') renderedKeys.add('final_score');
   const rest = entries.filter(([key]) => !renderedKeys.has(key));
   return (
     <p className="flex flex-wrap items-center gap-2 text-sm">
@@ -43,7 +43,7 @@ function ImportanceLine({ importance }: { importance: Record<string, unknown> })
       {renderedKeys.size > 0 ? (
         <span className="badge border-primary bg-primary-soft text-primary">
           {typeof level === 'string' ? level : '未提供'}
-          {typeof score === 'number' ? `（${score.toFixed(2)}）` : ''}
+          {typeof score === 'number' ? `（final_score ${score.toFixed(2)}）` : ''}
         </span>
       ) : null}
       {rest.map(([key, value]) => (
@@ -199,6 +199,26 @@ export function ProactiveCard({ card }: { card: ProactiveSummaryCard }) {
           </ul>
         </div>
       ) : null}
+
+      <div>
+        <p className="text-sm text-muted">
+          Control history（authority 原始顺序）
+          {card.control_as_of ? ` · as-of ${card.control_as_of}` : ''}
+        </p>
+        {card.control_history.length === 0 ? (
+          <p className="mt-1 text-sm text-muted">未提供（不代表没有历史）</p>
+        ) : (
+          <ol className="mt-1 section-stack rounded-lg border border-line bg-surface p-2 text-xs">
+            {card.control_history.map((event, index) => (
+              <li key={String(event.event_id ?? index)} className="flex flex-wrap gap-2">
+                <span className="font-mono">{String(event.operation ?? 'unknown')}</span>
+                <span className="text-muted">{String(event.reason_code ?? 'reason 未提供')}</span>
+                <span className="text-muted">sequence {String(event.sequence ?? '未提供')}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <button

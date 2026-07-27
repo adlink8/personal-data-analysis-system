@@ -385,6 +385,42 @@ def test_proactive_summary_inbox_failure_partial(monkeypatch):
     assert isinstance(result["data"]["metrics"], dict)
 
 
+def test_proactive_summary_projects_authority_control_history_and_as_of(monkeypatch):
+    item = {
+        "candidate_id": "candidate-with-history",
+        "domains": ["project"],
+        "candidate_class": "task",
+        "presentation_kind": "card",
+        "importance": {"final_score": 0.9},
+        "expires_at": None,
+        "valid_from": None,
+        "reason_codes": ["deadline_approaching"],
+        "current_control_eligible": True,
+        "current_control_reason_codes": [],
+    }
+
+    def fake_invoke(self, operation, **params):
+        if operation == "inbox.list":
+            return {"ok": True, "data": {"items": [item], "total_available": 1}}
+        if operation == "controls.status":
+            return {"ok": True, "data": {
+                "as_of": "9999-12-31T23:59:59Z",
+                "frontier_checksum": "f" * 64,
+                "history": [{"event_id": "evt-1", "sequence": 1, "operation": "suppress", "reason_code": "manual_review"}],
+            }}
+        if operation == "metrics.get":
+            return {"ok": True, "data": {}}
+        raise AssertionError(f"unexpected operation {operation}")
+
+    monkeypatch.setattr(ProactiveIntelligenceService, "invoke", fake_invoke)
+    result = CockpitProjectionService().invoke("proactive_summary.get")
+    card = result["data"]["groups"]["now"][0]
+    assert card["importance"]["final_score"] == 0.9
+    assert card["control_as_of"] == "9999-12-31T23:59:59Z"
+    assert card["control_history"][0]["operation"] == "suppress"
+    assert card["control_frontier_checksum"] == "f" * 64
+
+
 def test_proactive_summary_metrics_failure_partial(monkeypatch):
     original = ProactiveIntelligenceService.invoke
 

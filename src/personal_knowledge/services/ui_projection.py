@@ -135,6 +135,7 @@ _PROACTIVE_CARD_KEYS = (
     "candidate_id", "domains", "candidate_class", "presentation_kind", "importance",
     "expires_at", "valid_from", "reason_codes",
     "current_control_eligible", "current_control_reason_codes",
+    "control_as_of", "control_history", "control_frontier_checksum",
 )
 
 # calibration_overview.get 的固定上限
@@ -346,6 +347,8 @@ def _calibration_summary(protocol_id: str, view: Mapping[str, Any]) -> dict[str,
         "status": protocol_rows[0].get("protocol_status") if protocol_rows else None,
         "verdict": verdict_row.get("verdict_status"),
         "causal_claim": view.get("causal_claim"),
+        "promotion_available": view.get("promotion_available"),
+        "external_action_available": view.get("external_action_available"),
         "inconclusive_reasons": list(verdict_payload.get("reason_codes") or []),
         "sample_size": len(list(view.get("cohort") or [])),
         "summary_limitations": list(view.get("limitations") or []),
@@ -1275,6 +1278,24 @@ class CockpitProjectionService:
         unscored = 0
         for item in items:
             card = {key: item.get(key) for key in _PROACTIVE_CARD_KEYS}
+            # controls.status 是同一 proactive authority 的只读 overlay；把既有
+            # append-only history 带到卡片，避免页面用本地状态猜测 suppression/restore。
+            try:
+                control = ProactiveIntelligenceService(self.db_path).invoke(
+                    "controls.status", candidate_id=str(item.get("candidate_id") or "")
+                )
+            except Exception:  # noqa: BLE001 — detail read failure is section-local
+                control = {"ok": False}
+            if control.get("ok"):
+                control_data = control.get("data") or {}
+                card["control_as_of"] = control_data.get("as_of")
+                card["control_history"] = list(control_data.get("history") or [])
+                card["control_frontier_checksum"] = control_data.get("frontier_checksum")
+            else:
+                card["control_as_of"] = None
+                card["control_history"] = []
+                card["control_frontier_checksum"] = None
+                limitations.append("部分候选 control history 暂不可用")
             score = (item.get("importance") or {}).get("final_score")
             # importance 结构不确定时保守归 deferrable + limitation,不臆造分组
             if isinstance(score, bool) or not isinstance(score, (int, float)):

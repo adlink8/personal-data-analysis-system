@@ -629,11 +629,15 @@ const ProactiveSummaryCardSchema = z
     candidate_class: z.string().nullish(),
     presentation_kind: z.string().nullish(),
     importance: z.record(z.unknown()).default({}),
+    final_score: z.number().nullish(),
     expires_at: z.string().nullish(),
     valid_from: z.string().nullish(),
     reason_codes: z.array(z.string()).default([]),
     current_control_eligible: z.boolean().nullish(),
     current_control_reason_codes: z.array(z.string()).default([]),
+    control_as_of: z.string().nullish(),
+    control_history: z.array(z.record(z.unknown())).default([]),
+    control_frontier_checksum: z.string().nullish(),
   })
   .passthrough();
 
@@ -669,6 +673,8 @@ const CalibrationProtocolSchema = z
     status: z.string().nullish(),
     verdict: z.string().nullish(),
     causal_claim: z.boolean().nullish(),
+    promotion_available: z.boolean().nullish(),
+    external_action_available: z.boolean().nullish(),
     inconclusive_reasons: z.array(z.string()).default([]),
     sample_size: z.number().nullish(),
     summary_limitations: z.array(z.string()).default([]),

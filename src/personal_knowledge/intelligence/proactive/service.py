@@ -250,7 +250,7 @@ class ProactiveIntelligenceService:
             target = ControlTarget("a.proactive_intelligence", "candidate", candidate_id, str(row["payload_checksum"]))
             projected = project_controls(self.db_path, targets=(target,), as_of=as_of, scope=str(row["scope"]), domains=tuple(json.loads(str(row["domains_json"]))))
             events = con.execute("SELECT event_id,sequence,operation,scope,reason_code,rollback_of_event_id,payload_checksum,created_at FROM proactive_control_events WHERE target_authority=? AND target_type=? AND target_id=? ORDER BY sequence", (target.authority, target.record_type, target.record_id)).fetchall()
-            return self._success("controls.status", {"candidate_id": candidate_id, "eligible": projected.eligible, "reason_codes": list(projected.reason_codes), "winning_event_id": projected.winning_event_id, "active_event_ids": list(projected.active_event_ids), "correction_requested": projected.correction_requested, "projection_checksum": projected.checksum, "frontier_checksum": active_control_frontier(self.db_path), "history": [dict(e) for e in events]})
+            return self._success("controls.status", {"candidate_id": candidate_id, "as_of": as_of, "eligible": projected.eligible, "reason_codes": list(projected.reason_codes), "winning_event_id": projected.winning_event_id, "active_event_ids": list(projected.active_event_ids), "correction_requested": projected.correction_requested, "projection_checksum": projected.checksum, "frontier_checksum": active_control_frontier(self.db_path), "history": [dict(e) for e in events]})
         finally: con.close()
 
     def metrics_get(self) -> dict[str, Any]:
