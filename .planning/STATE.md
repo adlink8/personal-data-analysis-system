@@ -3,14 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Goal
 status: executing
-last_updated: "2026-07-27T08:10:00.000Z"
-last_activity: 2026-07-27 -- Phase 38 execution complete (DEC-03 typed recovery + negative-path regression suite PASS)
+last_updated: 2026-07-27T01:44:51.445Z
+last_activity: 2026-07-27 -- Phase 39 execution complete (FDB-01/FDB-02/RUN-01 contract and UI evidence PASS)
 progress:
   total_phases: 12
   completed_phases: 3
-  total_plans: 21
-  completed_plans: 4
-  percent: 25
+  total_plans: 24
+  completed_plans: 14
+  percent: 58
+stopped_at: null
 ---
 
 # Project State
@@ -61,17 +62,17 @@ progress:
 
 ## Current Position
 
-Phase: 38 (guarded-decision-workspace) — CLOSED (verified: typed recovery fail-closed + 5 negative-path families PASS)
-Plan: 3 of 3 complete (38-01 guarded workspace, 38-02 browser orchestration client boundary, 38-03 typed recovery + negative regression)
-Status: Phase 38 closed; Phase 39 (Feedback, Proactive and Runtime Truthfulness) next, not started
-Last activity: 2026-07-27 -- Phase 38 independent verification passed (frontend 249/249 Vitest, python orchestration negative-path 14/14, build clean)
+Phase: 40
+Plan: Not started
+Status: Executing Phase 40 after Phase 39 completion
+Last activity: 2026-07-27 — Phase 39 complete (4/4), continuing to Phase 40
 
 ## Project Reference
 
 See: `.planning/PROJECT.md` (updated 2026-07-19)
 
 **Core value:** Local, evidence-bound and uncertainty-aware personal decision support.
-**Current focus:** Phase 42 — conversation-dedup-with-stable-session-keys
+**Current focus:** Phase 40 — product hardening and live UAT
 
 ## Cross-cutting architecture/data governance audit
 

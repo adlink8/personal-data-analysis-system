@@ -97,7 +97,7 @@
 **Requirements:** FDB-01, FDB-02, RUN-01
 
 **Depends on:** Phase 38
-**Plans:** 4 documented; 0 executed
+**Plans:** 4/4 plans complete
 
 **Success criteria:**
 
@@ -158,7 +158,7 @@
 | 36 | CCK-01, CCK-02, CCK-03, CCK-04 | 4/4 executed | Closed — 36-01 secure transport, 36-02 safe projection envelope, 36-03 frontend DTO/vocabulary hardening, 36-04 auditable baseline + 36-VERIFICATION.md all closed |
 | 37 | STATE-01, STATE-02, STATE-03, EVID-01 | 3/3 executed | Closed — 37-01 server contracts (evidence_resolve 六态), 37-02 authority-aware state UI, 37-03 evidence drilldown + widget containment; independent verification 4/4 PASS 2026-07-27 |
 | 38 | DEC-01, DEC-02, DEC-03 | 0/3 executed | Planned — future plans reviewed, not executed |
-| 39 | FDB-01, FDB-02, RUN-01 | 0/4 executed | Planned — future plans reviewed, not executed |
+| 39 | 4/4 | Complete    | 2026-07-27 |
 | 40 | UX-01, UX-02, QA-01, QA-02 | 0/3 executed | Planned — future plans reviewed, not executed |
 | 41 | EXT-01, EXT-02, EXT-03 | 4/4 waves + closure | **Complete 2026-07-27** — assistant 轨全链闭合,active 40,200 向量,doctor OK（见 41-CLOSURE-CHECKLIST） |
 | 42 | DED-01, DED-02 | 3/3 plans | Planned — 42-01:消化积压+builder改键(稳定键+supersede+16→18),42-02:ref迁移(old-DB字段判源+硬断言),42-03:doctor+双轨消化+幂等复核;checker 复检 PASSED 2026-07-27 |

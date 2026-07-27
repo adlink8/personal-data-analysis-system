@@ -27,9 +27,9 @@
 
 ### Feedback, Proactive and Runtime Truthfulness
 
-- [ ] **FDB-01**: 用户可浏览 Recommendation → Decision → Action → Outcome → Effectiveness → Calibration 的完整 append-only 历史，且所有结果明确保留 `causal_claim=false` 与样本/限制说明。
-- [ ] **FDB-02**: 用户可查看 Proactive 候选、协调、用户控制历史和 Calibration 状态；未暴露的 REST 写入能力必须诚实禁用或说明，UI 不新增自动 promotion 或外部动作。
-- [ ] **RUN-01**: 用户可分别看到 REST、MCP、Tunnel、Chroma 与 authority freshness 的真实健康状态；Cockpit 只读展示，不启动、停止或重启任何服务。
+- [x] **FDB-01**: 用户可浏览 Recommendation → Decision → Action → Outcome → Effectiveness → Calibration 的完整 append-only 历史，且所有结果明确保留 `causal_claim=false` 与样本/限制说明。
+- [x] **FDB-02**: 用户可查看 Proactive 候选、协调、用户控制历史和 Calibration 状态；未暴露的 REST 写入能力必须诚实禁用或说明，UI 不新增自动 promotion 或外部动作。
+- [x] **RUN-01**: 用户可分别看到 REST、MCP、Tunnel、Chroma 与 authority freshness 的真实健康状态；Cockpit 只读展示，不启动、停止或重启任何服务。
 
 ### Product Quality and Acceptance
 

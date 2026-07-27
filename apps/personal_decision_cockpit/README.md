@@ -12,7 +12,7 @@
 > Phase 已通过验收或 v1.4 已发布**；只有在各自 Phase 的计划执行、测试与
 > `36-VERIFICATION.md` 同类证据记录完成后，才构成可审计基线的一部分。
 
-## 本轮范围（Phase 36–39 等价）
+## 当前实现范围（Phase 36–40 的候选实现，按阶段分别验收）
 
 - 应用壳：桌面侧栏（1024+）/ 平板横条（768–1023）/ 移动底部五栏（<768），全局顶栏（快照、新鲜度、系统状态点、主题/密度切换、新建决策入口）。
 - 今日总览（`/ui/overview`）：Now Stack、目标与约束、变化与风险、待决策事项、主动提醒预览、外部环境摘要、新鲜度 Footer。任何一节为 null 时只降级该卡片，不整页白。
@@ -25,13 +25,13 @@
 - Guarded 写入（Phase 38，spec §5.3）：顶栏"新建决策"对话框（goal + constraints 动态行 + weights 键值 + 固定 domain=project/risk_budget=low 只读）→ prepare → ConfirmDrawer（操作名称 / exact preview JSON 只读折叠展开 / 将新增 Event 说明 / "不会执行的动作"固定提示 / preview_checksum / idempotency_key / 风险提示 / 具体文案确认按钮）→ confirm → OperationResult（sequence/event_id/checksum）→ 会话推进视图 `/sessions/:id`（DecisionStageStepper + 仅合法下一跳可点 + 每跳独立 preview/confirm；`intent=observe&from=/actions` 进入时显示"不能跳段"amber 说明并回链行动与结果页）。失败走 TypedRecoveryPanel（按 error.code 分类恢复说明，retryable 给"重试"），`replayed==true` 显示"已返回原事件，未重复写入"。写流程契约详见 [`docs/write-flow.md`](docs/write-flow.md)。
 - 系统状态（`/ui/system/status`）：用户态区 + 默认折叠的开发者区域。
 - 证据中心：嵌入 MCP 服务（8789）托管的三个 Widget。
-- 全部八个主导航页面均为真实实现，占位页已清空（"更多"菜单中亦无占位）。
+- 全部八个主导航页面均已有真实实现代码；这不等于真实浏览器 UAT 或发布通过。
 
 ### Proactive 写入限制
 
 REST 只暴露 `/agent/session/*` 与 `/search/*` 写路由，**没有 proactive 写路由**：Snooze / Suppress / 限定 Scope / Restore 在页面上为 disabled，title 与卡片内文案均注明"该写入由 MCP 工具或 pk CLI 提供，REST 未暴露"，不做假按钮或静默不可点。本轮不新增任何写入路径；所有写入仍只走 Guarded 显式确认会话流。
 
-**Phase 40（硬化与 Live UAT）尚未执行**：无障碍/响应式硬化、真实浏览器 UAT 与下方"验收清单"逐项勾选均未发生——组件级 Vitest（`npm run test`）与 `npm run build` 通过不等同于 Phase 40 的真实浏览器验收；该阶段结果只能在 Phase 40 自己的 PLAN/SUMMARY/VERIFICATION 中如实记录。
+**Phase 40（硬化与 Live UAT）正在执行**：组件级 Vitest（`npm run test`）与 `npm run build` 只构成自动化回归证据，不等同于真实浏览器验收；真实浏览器、响应式、无障碍、隐私与发布结论只能记录在 Phase 40 自己的 UAT/VERIFICATION 中。
 
 ## 技术栈
 
