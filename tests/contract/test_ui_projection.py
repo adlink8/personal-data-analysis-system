@@ -109,6 +109,15 @@ def test_system_status_shape():
     for entry in authority_dbs.values():
         assert "exists" in entry
         assert "readable" in entry
+    observations = result["data"]["observations"]
+    assert observations
+    assert any(item["id"] == "rest_request" and item["state"] == "healthy" for item in observations)
+    assert any(item["id"] == "mcp" for item in observations)
+    supervisor = result["data"]["supervisor_state"]
+    assert supervisor["state"] in {"healthy", "stale_observation", "unknown"}
+    serialized = json.dumps(result, ensure_ascii=False)
+    assert "supervisor_pid" not in serialized
+    assert "health_url" not in serialized
 
 
 def test_rest_adapter_delegates_to_identical_service():

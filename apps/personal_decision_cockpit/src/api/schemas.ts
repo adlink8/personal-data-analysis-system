@@ -187,6 +187,29 @@ const AuthorityDbSchema = z
   })
   .passthrough();
 
+const RuntimeObservationSchema = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    state: z.enum(['healthy', 'reachable_only', 'unavailable', 'stale_observation', 'unknown', 'partial']),
+    source: z.string(),
+    observed_at: z.string().nullable().optional(),
+    scope: z.string(),
+    recovery_hint: z.string(),
+  })
+  .passthrough();
+
+const SupervisorStateSchema = z
+  .object({
+    state: z.enum(['healthy', 'reachable_only', 'unavailable', 'stale_observation', 'unknown', 'partial']),
+    source: z.string(),
+    observed_at: z.string().nullable().optional(),
+    scope: z.string(),
+    recovery_hint: z.string(),
+    services: z.array(z.object({ service: z.string(), healthy: z.boolean() }).passthrough()).default([]),
+  })
+  .passthrough();
+
 export const SystemStatusDataSchema = z
   .object({
     ports: z
@@ -198,6 +221,8 @@ export const SystemStatusDataSchema = z
       .passthrough(),
     knowledge: SystemKnowledgeSchema,
     authority_dbs: z.record(AuthorityDbSchema).default({}),
+    observations: z.array(RuntimeObservationSchema).default([]),
+    supervisor_state: SupervisorStateSchema.nullish(),
   })
   .passthrough();
 

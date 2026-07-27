@@ -808,6 +808,11 @@ export const SYSTEM_STATUS_ENVELOPE = {
   partial: false,
   limitations: [],
   data: {
+    observations: [
+      { id: 'rest_request', label: 'REST 当前响应', state: 'healthy', source: 'Cockpit projection request', observed_at: '2026-07-19T08:00:00Z', scope: '本次只读请求', recovery_hint: '无需恢复；该观察不证明其它组件健康。' },
+      { id: 'mcp', label: 'MCP listener', state: 'reachable_only', source: 'local TCP listener probe', observed_at: '2026-07-19T08:00:00Z', scope: 'listener only；未证明 endpoint readiness', recovery_hint: '仅可达；请使用对应服务自身的健康检查。' },
+    ],
+    supervisor_state: { state: 'stale_observation', source: 'supervisor saved state', observed_at: '2026-07-18T08:00:00Z', scope: 'historical last observation; not current ownership/readiness', recovery_hint: '重新执行受控健康检查；Cockpit 不读取 PID，也不控制进程。', services: [{ service: 'rest', healthy: true }] },
     ports: {
       rest: { up: true, port: 8000 },
       mcp: { up: true, port: 8789 },

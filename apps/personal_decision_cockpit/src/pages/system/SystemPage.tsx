@@ -184,6 +184,10 @@ export function SystemPage() {
     <div className="section-stack">
       <h1 className="text-lg font-semibold">系统状态</h1>
 
+      <p className="card text-sm text-muted" role="note">
+        Cockpit 仅展示只读观测；不能启动、停止、重启、杀掉进程或配置 Tunnel。
+      </p>
+
       {envelope.partial || envelope.limitations.length > 0 ? (
         <div className="card border-uncertainty bg-uncertainty-soft" role="status">
           <p className="flex items-center gap-2 text-sm font-medium text-uncertainty">
