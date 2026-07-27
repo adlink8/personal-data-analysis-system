@@ -19,7 +19,7 @@ from personal_knowledge.retrieval.evidence import EvidenceResolver
 from personal_knowledge.application.serving.snapshots import get_active_snapshot
 
 
-ALLOWED_ACTIONS = {"supersede", "conflict", "correct", "restore"}
+ALLOWED_ACTIONS = {"supersede", "conflict", "correct", "restore", "deprecate"}
 ALLOWED_CORRECTION_FIELDS = {"question", "answer"}
 MAX_ACTIONS = 50
 _NON_HUMAN_RE = re.compile(r"agent|codex|gpt|claude|gemini|synthetic|auto", re.I)
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS knowledge_lifecycle_actions (
     manifest_id TEXT NOT NULL REFERENCES knowledge_lifecycle_manifests(manifest_id),
     ordinal INTEGER NOT NULL,
     unit_id TEXT NOT NULL REFERENCES canonical_knowledge_units(canonical_unit_id),
-    action TEXT NOT NULL CHECK(action IN ('supersede','conflict','correct','restore')),
+    action TEXT NOT NULL CHECK(action IN ('supersede','conflict','correct','restore','deprecate')),
     expected_version INTEGER NOT NULL,
     expected_lifecycle TEXT NOT NULL,
     target_unit_id TEXT,
@@ -128,7 +128,50 @@ def _validate_reviewer(payload: Mapping[str, Any]) -> tuple[str, str, str]:
 
 
 def ensure_lifecycle_schema(con: sqlite3.Connection) -> None:
-    con.executescript(LIFECYCLE_SCHEMA_SQL)
+    # 既有库的 knowledge_lifecycle_actions 带着旧 CHECK（不含 'deprecate'），
+    # SQLite 无法 ALTER CHECK，需要整表重建迁移。注意两点：
+    # 1. DROP 被引用表在 foreign_keys=ON 下会因隐式 DELETE 违反 FK；
+    # 2. RENAME 在 foreign_keys=ON 时会改写其他表的 FK 引用文本。
+    # 因此迁移全程 foreign_keys=OFF；events 表若已被改写到中间表名也一并重建。
+    row = con.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='knowledge_lifecycle_actions'"
+    ).fetchone()
+    needs_actions = row is not None and "'deprecate'" not in str(row[0])
+    has_legacy_copy = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='knowledge_lifecycle_actions_pre_deprecate'"
+    ).fetchone() is not None
+    ev = con.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='knowledge_lifecycle_events'"
+    ).fetchone()
+    needs_events = ev is not None and "knowledge_lifecycle_actions_pre_deprecate" in str(ev[0])
+    if not (needs_actions or has_legacy_copy or needs_events):
+        con.executescript(LIFECYCLE_SCHEMA_SQL)
+        return
+    fk_on = bool(int(con.execute("PRAGMA foreign_keys").fetchone()[0]))
+    con.execute("PRAGMA foreign_keys=OFF")
+    try:
+        if needs_actions:
+            con.execute(
+                "ALTER TABLE knowledge_lifecycle_actions RENAME TO knowledge_lifecycle_actions_pre_deprecate"
+            )
+        if needs_events:
+            con.execute(
+                "ALTER TABLE knowledge_lifecycle_events RENAME TO knowledge_lifecycle_events_pre_deprecate"
+            )
+        con.executescript(LIFECYCLE_SCHEMA_SQL)
+        if needs_actions or has_legacy_copy:
+            con.execute(
+                "INSERT INTO knowledge_lifecycle_actions SELECT * FROM knowledge_lifecycle_actions_pre_deprecate"
+            )
+            con.execute("DROP TABLE knowledge_lifecycle_actions_pre_deprecate")
+        if needs_events:
+            con.execute(
+                "INSERT INTO knowledge_lifecycle_events SELECT * FROM knowledge_lifecycle_events_pre_deprecate"
+            )
+            con.execute("DROP TABLE knowledge_lifecycle_events_pre_deprecate")
+        con.commit()  # 结束隐式事务，否则下面的 PRAGMA 在事务内静默无效
+    finally:
+        con.execute(f"PRAGMA foreign_keys={'ON' if fk_on else 'OFF'}")
 
 
 def build_manifest(
@@ -306,8 +349,11 @@ def finalize_review(proposal_path: Path, review_path: Path, artifact: Path) -> d
 
 
 def _default_evidence_validator(refs: list[str]) -> bool:
+    # 自动识别 ref 类型（cm| 消息 / cu| 知识单元 / g| / turn）：
+    # deprecate 等动作的证据可能不是消息本体（例如证据已随 canonical 重建丢失，
+    # 只能引用 canonical unit 记录自身定位被审对象）。
     resolver = EvidenceResolver()
-    return all(resolver.resolve(ref, artifact_type="canonical_message").get("status") == "ok" for ref in refs)
+    return all(resolver.resolve(ref).get("status") == "ok" for ref in refs)
 
 
 def apply_manifest(
@@ -357,6 +403,8 @@ def apply_manifest(
                 after_lifecycle, after_supersedes = "superseded", action["target_unit_id"]
             elif action["action"] == "conflict":
                 after_lifecycle = "conflict"
+            elif action["action"] == "deprecate":
+                after_lifecycle, after_supersedes = "deprecated", None
             elif action["action"] == "restore":
                 after_lifecycle, after_supersedes = "current", None
             changes = dict(action.get("changes") or {}) if action["action"] == "correct" else {}

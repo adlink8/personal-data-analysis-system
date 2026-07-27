@@ -10,6 +10,7 @@ from personal_knowledge.application.knowledge.lifecycle_events import (
     LifecycleError,
     apply_manifest,
     build_manifest,
+    ensure_lifecycle_schema,
     event_history,
     finalize_review,
     register_manifest,
@@ -212,6 +213,78 @@ def test_correction_records_hashes_and_restore_is_explicit(tmp_path: Path) -> No
     register_manifest(db, restore, write=True)
     apply_manifest(db, restore, actor_id="operator-01", evidence_validator=lambda refs: True)
     assert _state(db)[0][:2] == ("current", 3)
+
+
+def test_deprecate_sets_deprecated_lifecycle_and_rolls_back(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    manifest = _manifest("deprecate", target_unit_id="")
+    register_manifest(db, manifest, write=True)
+    apply_manifest(db, manifest, actor_id="operator-01", evidence_validator=lambda refs: True)
+    state, _ = _state(db)
+    assert state[:3] == ("deprecated", 2, None)
+    history = event_history(db, "old")
+    assert history[0]["event_type"] == "deprecate"
+    rolled = rollback_manifest(db, manifest["manifest_id"], actor_id="operator-02")
+    assert rolled["ok"] is True
+    assert _state(db)[0][:2] == ("current", 3)
+
+
+def test_ensure_schema_migrates_legacy_actions_check_for_deprecate(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        CREATE TABLE knowledge_lifecycle_manifests (
+            manifest_id TEXT PRIMARY KEY, manifest_json TEXT NOT NULL,
+            manifest_checksum TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL CHECK(status IN ('proposed','reviewed','applied','rejected','rolled_back')),
+            reviewer_id_hash TEXT, reviewed_at TEXT, actor_id TEXT,
+            source_snapshot_id TEXT, created_at TEXT NOT NULL, applied_at TEXT
+        );
+        CREATE TABLE knowledge_lifecycle_actions (
+            action_id TEXT PRIMARY KEY,
+            manifest_id TEXT NOT NULL REFERENCES knowledge_lifecycle_manifests(manifest_id),
+            ordinal INTEGER NOT NULL,
+            unit_id TEXT NOT NULL REFERENCES canonical_knowledge_units(canonical_unit_id),
+            action TEXT NOT NULL CHECK(action IN ('supersede','conflict','correct','restore')),
+            expected_version INTEGER NOT NULL, expected_lifecycle TEXT NOT NULL,
+            target_unit_id TEXT, reason TEXT NOT NULL,
+            evidence_refs_json TEXT NOT NULL, changes_json TEXT NOT NULL,
+            UNIQUE(manifest_id, ordinal), UNIQUE(manifest_id, unit_id)
+        );
+        """
+    )
+    con.execute(
+        "INSERT INTO knowledge_lifecycle_manifests VALUES (?,?,?,?,?,?,?,?,?,?)",
+        ("m1", "{}", "sum1", "applied", None, None, None, None, "2026-01-01", None),
+    )
+    con.execute(
+        "INSERT INTO knowledge_lifecycle_actions VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("a1", "m1", 1, "old", "conflict", 1, "current", None, "r", "[]", "{}"),
+    )
+    con.commit()
+    con.execute("PRAGMA foreign_keys=ON")  # 镜像 connect_rw：FK 开启下的迁移
+    ensure_lifecycle_schema(con)
+    assert con.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    sql = con.execute("SELECT sql FROM sqlite_master WHERE name='knowledge_lifecycle_actions'").fetchone()[0]
+    assert "'deprecate'" in sql
+    assert con.execute("SELECT action_id, action FROM knowledge_lifecycle_actions").fetchone() == ("a1", "conflict")
+    con.execute(
+        "INSERT INTO knowledge_lifecycle_actions VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("a2", "m1", 2, "new", "deprecate", 1, "current", None, "r", "[]", "{}"),
+    )
+    con.commit()
+    # 模拟曾被污染的状态：FK=ON 下 rename 会把 events 的 FK 引用改写到中间表
+    con.execute("ALTER TABLE knowledge_lifecycle_actions RENAME TO knowledge_lifecycle_actions_pre_deprecate")
+    assert "pre_deprecate" in con.execute(
+        "SELECT sql FROM sqlite_master WHERE name='knowledge_lifecycle_events'"
+    ).fetchone()[0]
+    ensure_lifecycle_schema(con)
+    assert "pre_deprecate" not in con.execute(
+        "SELECT sql FROM sqlite_master WHERE name='knowledge_lifecycle_events'"
+    ).fetchone()[0]
+    assert con.execute("SELECT COUNT(*) FROM knowledge_lifecycle_actions").fetchone()[0] == 2
+    con.close()
 
 
 def test_cli_status_is_strict_and_direct_heuristic_write_is_retired(tmp_path: Path, capsys) -> None:
