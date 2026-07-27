@@ -66,13 +66,46 @@ def test_gate_passes_on_complete_run(tmp_path: Path) -> None:
     assert all(c.passed for c in report.checks if c.name != "minimum_yield")
 
 
-def test_gate_awaiting_pilot_threshold_without_min_yield(tmp_path: Path) -> None:
-    """无 min_yield 时 gate = awaiting_pilot_threshold（不是 PASS）。"""
+def test_gate_awaiting_pilot_threshold_unknown_track(tmp_path: Path) -> None:
+    """track 无法推断（prompt_version 为空）且无 min_yield → fail-closed awaiting。"""
+    db = tmp_path / "test.sqlite"
+    run_id = _setup_full_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute("UPDATE knowledge_build_runs SET prompt_version='' WHERE run_id='run1'")
+    con.commit()
+    con.close()
+
+    report = evaluate_run(run_id, db, min_yield=None)
+    assert report.gate_status == "awaiting_pilot_threshold"
+
+
+def test_gate_track_default_min_yield_inferred(tmp_path: Path) -> None:
+    """prompt_version='v1' → 推断 user 轨，缺省用 0.7；yield 1.0 → passed。"""
     db = tmp_path / "test.sqlite"
     run_id = _setup_full_db(db)
 
     report = evaluate_run(run_id, db, min_yield=None)
-    assert report.gate_status == "awaiting_pilot_threshold"
+    assert report.gate_status == "passed"
+    yield_check = next(c for c in report.checks if c.name == "minimum_yield")
+    assert yield_check.passed
+    assert "track=user default" in yield_check.required
+
+
+def test_gate_track_assistant_default_lower_threshold(tmp_path: Path) -> None:
+    """assistant 轨缺省 0.3：yield 0.33 过 assistant 默认、不过 user 默认。"""
+    db = tmp_path / "test.sqlite"
+    run_id = _setup_full_db(db)
+    con = sqlite3.connect(str(db))
+    con.execute("UPDATE knowledge_build_runs SET prompt_version='v1_assistant' WHERE run_id='run1'")
+    # 3 items：1 succeeded / 2 abstained → yield 0.333
+    con.execute("UPDATE knowledge_run_items SET status='abstained', unit_count=0 WHERE run_id='run1' AND position>0")
+    con.commit()
+    con.close()
+
+    report = evaluate_run(run_id, db, min_yield=None)
+    yield_check = next(c for c in report.checks if c.name == "minimum_yield")
+    assert yield_check.passed
+    assert "track=assistant default" in yield_check.required
 
 
 def test_gate_fails_on_incomplete_items(tmp_path: Path) -> None:

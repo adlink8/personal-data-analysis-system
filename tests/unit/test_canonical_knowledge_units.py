@@ -271,3 +271,94 @@ def test_merge_gate_no_eval_files(tmp_path: Path) -> None:
     """无 eval pair 文件时返回 error。"""
     result = evaluate_merge_gate(tmp_path / "test.sqlite", eval_dir=tmp_path)
     assert "error" in result
+
+
+def _setup_merge_gate_db(db: Path) -> None:
+    """u1/u2 合并进 cu1（消息 cm|A/cm|B），u3 独立 cu2（消息 cm|C）。"""
+    con = sqlite3.connect(str(db))
+    con.executescript(SCHEMA_SQL)
+    con.execute(
+        "INSERT INTO knowledge_build_runs VALUES "
+        "('run1','extraction','2026-01-01','cs','h','v1','v1','m',NULL,NULL,NULL,NULL,'staging',NULL,NULL)"
+    )
+    for uid, ref in (("u1", "cm|A"), ("u2", "cm|B"), ("u3", "cm|C")):
+        con.execute(
+            "INSERT INTO knowledge_units (unit_id, run_id, unit_type, subject, question, answer, "
+            "confidence, evidence_quote, evidence_scope, status, created_at, source_message_ref) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (uid, "run1", "preference", "shell", "q", "a", 0.9, "ev", "user",
+             "staging", "2026-01-01", ref),
+        )
+        con.execute(
+            "INSERT INTO knowledge_unit_evidence (unit_id, evidence_ref) VALUES (?,?)",
+            (uid, ref),
+        )
+    for cid, uid in (("cu|1", "u1"), ("cu|1", "u2"), ("cu|2", "u3")):
+        con.execute(
+            "INSERT INTO canonical_unit_members (canonical_unit_id, member_unit_id) VALUES (?,?)",
+            (cid, uid),
+        )
+    con.commit()
+    con.close()
+
+
+def _write_pairs(eval_dir: Path, positives: list[dict], negatives: list[dict]) -> None:
+    import json as _json
+
+    (eval_dir / "merge_positive_pairs.private.jsonl").write_text(
+        "\n".join(_json.dumps(p) for p in positives), encoding="utf-8"
+    )
+    (eval_dir / "hard_negative_pairs.private.jsonl").write_text(
+        "\n".join(_json.dumps(p) for p in negatives), encoding="utf-8"
+    )
+
+
+def test_merge_gate_resolves_message_refs_via_evidence(tmp_path: Path) -> None:
+    """cm| 消息级 pair 经 evidence 解析：正例命中（同 canonical）、负例不误并。"""
+    db = tmp_path / "test.sqlite"
+    _setup_merge_gate_db(db)
+    eval_dir = tmp_path / "eval"
+    eval_dir.mkdir()
+    _write_pairs(
+        eval_dir,
+        positives=[{"unit_a_ref": "cm|A", "unit_b_ref": "cm|B"}],
+        negatives=[{"unit_a_ref": "cm|A", "unit_b_ref": "cm|C"}],
+    )
+    result = evaluate_merge_gate(db, eval_dir=eval_dir)
+    assert result["passed"]
+    assert result["positive_recall"] == 1.0
+    assert result["hard_negative_false_merge"] == 0
+    assert result["positive_unresolvable"] == 0
+
+
+def test_merge_gate_false_merge_detected(tmp_path: Path) -> None:
+    """负例对被错误合并（cm|A vs cm|B 同 cu|1）→ false_merge=1 → FAIL。"""
+    db = tmp_path / "test.sqlite"
+    _setup_merge_gate_db(db)
+    eval_dir = tmp_path / "eval"
+    eval_dir.mkdir()
+    _write_pairs(
+        eval_dir,
+        positives=[{"unit_a_ref": "cm|A", "unit_b_ref": "cm|B"}],
+        negatives=[{"unit_a_ref": "cm|A", "unit_b_ref": "cm|B"}],
+    )
+    result = evaluate_merge_gate(db, eval_dir=eval_dir)
+    assert not result["passed"]
+    assert result["hard_negative_false_merge"] == 1
+
+
+def test_merge_gate_all_positives_unresolvable_not_applicable(tmp_path: Path) -> None:
+    """正例全无法解析 → not_applicable（不 FAIL），负例误并仍硬要求 0。"""
+    db = tmp_path / "test.sqlite"
+    _setup_merge_gate_db(db)
+    eval_dir = tmp_path / "eval"
+    eval_dir.mkdir()
+    _write_pairs(
+        eval_dir,
+        positives=[{"unit_a_ref": "cm|X", "unit_b_ref": "cm|Y"}],
+        negatives=[{"unit_a_ref": "cm|A", "unit_b_ref": "cm|C"}],
+    )
+    result = evaluate_merge_gate(db, eval_dir=eval_dir)
+    assert result["not_applicable"]
+    assert result["passed"]
+    assert result["positive_unresolvable"] == 1

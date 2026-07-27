@@ -300,11 +300,11 @@ def test_assistant_run_corrected_confidence_floor(
 def test_assistant_run_no_followup_none_and_truncation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """无后续 user → confirmation_none；>12000 尾部硬截，截断外 quote 丢弃。"""
-    head = "解决方案正文段落。" * 1000  # 8000 字
+    """无后续 user → confirmation_none；>48000 尾部硬截，截断外 quote 丢弃。"""
+    head = "解决方案正文段落。" * 5000  # 40000 字
     mid = "关键证据片段abcdefg"
-    tail = "尾" * 3900 + "超出截断的独特内容" + "尾" * 200
-    long_content = head + mid + tail  # >12000
+    tail = "尾" * 9000 + "超出截断的独特内容" + "尾" * 200
+    long_content = head + mid + tail  # >48000，独特内容落在 49017 处（截断外）
     rows = [("cm_long", "cs3", "test", 9, "assistant", long_content,
              "2026-07-22T10:00:09")]
     llm_text = _llm_payload([
@@ -348,7 +348,10 @@ def test_assistant_run_role_mismatch_terminal_failed(
 def test_user_track_zero_regression(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """默认 USER_TRACK：v1| 前缀 / scope=user / stats 无 confirmation_*、truncated 键。"""
+    """默认 USER_TRACK：v1| 前缀 / scope=user / stats 无 confirmation_*、role_mismatch 键。
+
+    truncated 自双轨对称截断（MESSAGE_MAX_CHARS=48000）起两轨都有，短消息为 0。
+    """
     db = tmp_path / "unified.db"
     canon = tmp_path / "canonical.db"
     _make_unified_db(db)
@@ -369,7 +372,7 @@ def test_user_track_zero_regression(
     assert unit_id.startswith("v1|")
     assert scope == "user"
     assert not any(k.startswith("confirmation_") for k in stats)
-    assert "truncated" not in stats
+    assert stats["truncated"] == 0
     assert "role_mismatch" not in stats
     con.close()
 

@@ -85,9 +85,30 @@ class GateReport:
         }
 
 
+# 按轨校准的 min-yield 默认值（--min-yield 显式传入时优先）。
+# user 轨 0.7：pilot 固化值；assistant 轨 0.3：全量 run ir_13486f30c029db49
+# 实测 yield 0.36（内容驱动 abstain ~64%，抽样核实判定正确）。
+TRACK_MIN_YIELD = {"user": 0.7, "assistant": 0.3}
+
+
+def _infer_track(prompt_version: str) -> str:
+    """从 run manifest 的 prompt_version 推断抽取轨（v1_assistant → assistant）。"""
+    pv = (prompt_version or "").lower()
+    if "assistant" in pv:
+        return "assistant"
+    if pv:
+        return "user"
+    return ""
+
+
 def evaluate_run(run_id: str, db_path: Path = UNIFIED_DB,
-                 min_yield: float | None = None) -> GateReport:
-    """评估 run 的 extraction gate。返回 GateReport。"""
+                 min_yield: float | None = None,
+                 track: str | None = None) -> GateReport:
+    """评估 run 的 extraction gate。返回 GateReport。
+
+    track：显式指定抽取轨；None 时从 run manifest 的 prompt_version 推断。
+    min_yield 未显式传入且 track 已知时，用 TRACK_MIN_YIELD 按轨默认值。
+    """
     con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
 
@@ -150,12 +171,17 @@ def evaluate_run(run_id: str, db_path: Path = UNIFIED_DB,
         required="units_total>0",
     ))
 
-    # === Gate 4: minimum yield（pilot 预固化） ===
+    # === Gate 4: minimum yield（--min-yield 显式优先；否则按轨默认） ===
     total_items = sum(item_stats.values())
     succeeded = item_stats.get("succeeded", 0)
     actual_yield = succeeded / total_items if total_items > 0 else 0
+    effective_track = track if track is not None else _infer_track(run["prompt_version"])
+    yield_source = "explicit"
+    if min_yield is None and effective_track in TRACK_MIN_YIELD:
+        min_yield = TRACK_MIN_YIELD[effective_track]
+        yield_source = f"track={effective_track} default"
     if min_yield is None:
-        # pilot 未固化
+        # 轨未知且未显式给阈值：fail-closed
         yield_check = GateCheck(
             name="minimum_yield",
             passed=False,
@@ -168,7 +194,7 @@ def evaluate_run(run_id: str, db_path: Path = UNIFIED_DB,
             name="minimum_yield",
             passed=actual_yield >= min_yield,
             value=actual_yield,
-            required=f"yield>={min_yield}",
+            required=f"yield>={min_yield} ({yield_source})",
         )
     checks.append(yield_check)
 
@@ -326,8 +352,9 @@ def write_gate_to_db(report: GateReport, db_path: Path = UNIFIED_DB) -> None:
     con.close()
 
 
-def run(run_id: str, db_path: Path = UNIFIED_DB, min_yield: float | None = None) -> int:
-    report = evaluate_run(run_id, db_path, min_yield)
+def run(run_id: str, db_path: Path = UNIFIED_DB, min_yield: float | None = None,
+        track: str | None = None) -> int:
+    report = evaluate_run(run_id, db_path, min_yield, track)
 
     print("=" * 60)
     print("Phase 14 Plan 02 Task 3: Strict Extraction Gate")
@@ -349,10 +376,13 @@ def run(run_id: str, db_path: Path = UNIFIED_DB, min_yield: float | None = None)
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Phase 14 Plan 02 Task 3: strict extraction gate")
     p.add_argument("--run", required=True, help="run_id to evaluate")
-    p.add_argument("--min-yield", type=float, default=None, help="pilot-preset yield threshold")
+    p.add_argument("--min-yield", type=float, default=None,
+                   help="yield 阈值（显式优先；缺省按 track 校准：user 0.7 / assistant 0.3）")
+    p.add_argument("--track", choices=["user", "assistant"], default=None,
+                   help="抽取轨（缺省从 run manifest 的 prompt_version 推断）")
     p.add_argument("--db", type=Path, default=UNIFIED_DB)
     args = p.parse_args(argv)
-    return run(args.run, args.db, args.min_yield)
+    return run(args.run, args.db, args.min_yield, args.track)
 
 
 if __name__ == "__main__":

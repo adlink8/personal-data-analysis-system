@@ -186,6 +186,8 @@ def build_parser() -> argparse.ArgumentParser:
     eg = sub.add_parser("extract-gate", help="Strict extraction gate for a run (writes gate row)")
     eg.add_argument("--run", required=True, metavar="RUN_ID")
     eg.add_argument("--min-yield", type=float, default=None)
+    eg.add_argument("--track", choices=["user", "assistant"], default=None,
+                    help="抽取轨（缺省从 run manifest 推断）；min-yield 缺省按轨校准")
     eg.add_argument("--db", type=Path, default=None)
 
     # --- canary ---
@@ -662,6 +664,8 @@ def _cmd_extract_gate(args: argparse.Namespace) -> int:
     argv: list[str] = ["--run", args.run]
     if args.min_yield is not None:
         argv.extend(["--min-yield", str(args.min_yield)])
+    if getattr(args, "track", None):
+        argv.extend(["--track", args.track])
     if args.db is not None:
         argv.extend(["--db", str(args.db)])
     return int(gate_main(argv) or 0)

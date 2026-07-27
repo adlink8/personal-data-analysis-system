@@ -268,11 +268,44 @@ def _write_canonical_to_db(canonical_list: list[dict], run_id: str,
         con.close()
 
 
+def _resolve_pair_units(con: sqlite3.Connection, ref: str) -> set[str]:
+    """把 pair ref 解析为 unit_id 集。
+
+    eval pair 的 ref 是 cm| 消息级引用（消息 → 多条 unit 一对多），
+    需经 knowledge_unit_evidence 解析；若 ref 本身已是 member unit_id
+    则原样返回。
+    """
+    if con.execute(
+        "SELECT 1 FROM canonical_unit_members WHERE member_unit_id=? LIMIT 1", (ref,)
+    ).fetchone():
+        return {ref}
+    rows = con.execute(
+        "SELECT unit_id FROM knowledge_unit_evidence WHERE evidence_ref=?", (ref,)
+    ).fetchall()
+    return {str(r[0]) for r in rows}
+
+
+def _canonical_ids_of(con: sqlite3.Connection, unit_ids: set[str]) -> set[str]:
+    out: set[str] = set()
+    for uid in unit_ids:
+        row = con.execute(
+            "SELECT canonical_unit_id FROM canonical_unit_members WHERE member_unit_id=?",
+            (uid,),
+        ).fetchone()
+        if row:
+            out.add(str(row[0]))
+    return out
+
+
 def evaluate_merge_gate(db_path: Path = UNIFIED_DB,
                         eval_dir: Path | None = None) -> dict:
     """评估 merge gate：20 positives recall≥80%，20 hard negatives false merge=0。
 
     用 eval dataset 的 merge_positive_pairs 和 hard_negative_pairs。
+    pair ref 为 cm| 消息级引用，经 knowledge_unit_evidence 解析到 unit，
+    再经 canonical_unit_members 映射到 canonical；一对多时任一组合并即算命中。
+    无法解析的 pair（消息未产 unit / 未进本批 canonical）单独计数，
+    不计入 recall 分母；全部无法解析时 gate 标记 not_applicable 而非 FAIL。
     """
     if eval_dir is None:
         eval_dir = KNOWLEDGE_EVAL_DIR
@@ -289,51 +322,49 @@ def evaluate_merge_gate(db_path: Path = UNIFIED_DB,
     positives = [json.loads(l) for l in pos_path.read_text(encoding="utf-8").strip().split("\n") if l.strip()]
     negatives = [json.loads(l) for l in neg_path.read_text(encoding="utf-8").strip().split("\n") if l.strip()]
 
-    # 从 DB 读 units
     con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
-    con.row_factory = sqlite3.Row
 
-    # positives: 检查 should_merge 的 pair 是否被合并到同一 canonical
+    # positives: 任一 A unit 与任一 B unit 被合并到同一 canonical → 命中
     true_positive = 0
+    pos_unresolvable = 0
     for pair in positives:
-        a_id = pair["unit_a_ref"]
-        b_id = pair["unit_b_ref"]
-        # 查这两个 unit 是否属于同一 canonical
-        ca = con.execute(
-            "SELECT canonical_unit_id FROM canonical_unit_members WHERE member_unit_id=?",
-            (a_id,),
-        ).fetchone()
-        cb = con.execute(
-            "SELECT canonical_unit_id FROM canonical_unit_members WHERE member_unit_id=?",
-            (b_id,),
-        ).fetchone()
-        if ca and cb and ca[0] == cb[0]:
+        ca = _canonical_ids_of(con, _resolve_pair_units(con, pair["unit_a_ref"]))
+        cb = _canonical_ids_of(con, _resolve_pair_units(con, pair["unit_b_ref"]))
+        if not ca or not cb:
+            pos_unresolvable += 1
+            continue
+        if ca & cb:
             true_positive += 1
 
-    # negatives: 检查 should_not_merge 的 pair 是否被错误合并
+    # negatives: 任一 A unit 与任一 B unit 被错误合并到同一 canonical → 误并
     false_merge = 0
+    neg_unresolvable = 0
     for pair in negatives:
-        a_id = pair["unit_a_ref"]
-        b_id = pair["unit_b_ref"]
-        ca = con.execute(
-            "SELECT canonical_unit_id FROM canonical_unit_members WHERE member_unit_id=?",
-            (a_id,),
-        ).fetchone()
-        cb = con.execute(
-            "SELECT canonical_unit_id FROM canonical_unit_members WHERE member_unit_id=?",
-            (b_id,),
-        ).fetchone()
-        if ca and cb and ca[0] == cb[0]:
+        ca = _canonical_ids_of(con, _resolve_pair_units(con, pair["unit_a_ref"]))
+        cb = _canonical_ids_of(con, _resolve_pair_units(con, pair["unit_b_ref"]))
+        if not ca or not cb:
+            neg_unresolvable += 1
+            continue
+        if ca & cb:
             false_merge += 1
 
     con.close()
 
-    results["positive_recall"] = round(true_positive / max(len(positives), 1), 4)
+    resolvable = len(positives) - pos_unresolvable
+    results["positive_recall"] = round(true_positive / max(resolvable, 1), 4)
+    results["positive_unresolvable"] = pos_unresolvable
+    results["negative_unresolvable"] = neg_unresolvable
     results["hard_negative_false_merge"] = false_merge
-    results["passed"] = (
-        results["positive_recall"] >= 0.80
-        and false_merge == 0
-    )
+    if resolvable == 0:
+        # 正例全部无法解析（如 eval pair 的 unit 不在本批 canonical 范围内）：
+        # 无正例可评，gate 不适用；负例误并仍硬要求 0
+        results["not_applicable"] = True
+        results["passed"] = false_merge == 0
+    else:
+        results["passed"] = (
+            results["positive_recall"] >= 0.80
+            and false_merge == 0
+        )
     return results
 
 
@@ -359,7 +390,11 @@ def run(run_id: str, db_path: Path = UNIFIED_DB, write: bool = False) -> int:
         print("=== Merge Gate ===")
         print(f"positive recall:      {gate.get('positive_recall', 'n/a')}")
         print(f"hard neg false merge: {gate.get('hard_negative_false_merge', 'n/a')}")
-        print(f"gate:                 {'PASS' if gate.get('passed') else 'FAIL'}")
+        if gate.get("positive_unresolvable") or gate.get("negative_unresolvable"):
+            print(f"unresolvable pairs:   pos={gate.get('positive_unresolvable', 0)} "
+                  f"neg={gate.get('negative_unresolvable', 0)}")
+        note = " (not_applicable: no resolvable positives)" if gate.get("not_applicable") else ""
+        print(f"gate:                 {'PASS' if gate.get('passed') else 'FAIL'}{note}")
     else:
         print("\n[dry-run] 未写入 DB")
 

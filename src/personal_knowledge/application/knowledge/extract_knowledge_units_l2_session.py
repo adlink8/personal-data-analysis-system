@@ -51,7 +51,9 @@ PROMPT_PATH = (
     Path(__file__).resolve().parents[4] / "assets" / "prompts" / "knowledge_unit_extractor" / "v1_session_window.md"
 )
 PROMPT_VERSION = "v1_session_window"
-MAX_WINDOW_CHARS = 12000
+# 48000：对齐 L1 MESSAGE_MAX_CHARS（实测 8.7% 会话超 12k 被截；
+# window policy 键含该值，改值即换新窗口命名空间）
+MAX_WINDOW_CHARS = 48000
 MIN_USER_MSGS = 2
 REPORT_PATH = AI_CONTEXT_DIR / "knowledge_l2_session_extract_report.json"
 

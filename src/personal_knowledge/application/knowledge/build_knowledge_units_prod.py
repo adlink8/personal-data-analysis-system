@@ -72,8 +72,9 @@ from personal_knowledge.application.knowledge.build_knowledge_units import (  # 
 
 # === Phase 41：run 级单轨双轨引擎（D-01/D-02）===
 
-# assistant 轨单条回答尾部硬截上限（对齐 L2 MAX_WINDOW_CHARS 先例）
-ASSISTANT_MAX_CHARS = 12000
+# 单条消息尾部硬截上限（双轨对称；对齐 L2 MAX_WINDOW_CHARS。
+# 48000 依据：实测 >12k 真实候选 p90≈52k，覆盖 ~94%；Phase 41 CONTEXT deferred）
+MESSAGE_MAX_CHARS = 48000
 
 
 @dataclass(frozen=True)
@@ -838,10 +839,11 @@ def process_run(
         "cache_hits": 0, "units": 0, "units_dropped_no_evidence": 0,
         "workers": max(1, workers),
         "rate_limited": 0, "stopped_reason": "", "claim_skipped": 0,
+        # 双轨对称截断计数（MESSAGE_MAX_CHARS）
+        "truncated": 0,
     }
     if track.name == "assistant":
-        # assistant 轨专属计数（跳过/降级带计数；user 轨不含这些键，零回归）
-        stats["truncated"] = 0
+        # assistant 轨专属计数（user 轨不含这些键，零回归）
         stats["role_mismatch"] = 0
     workers = max(1, int(workers))
     # claim 窗口与并发对齐，避免一次挂起过多 in_flight
@@ -949,14 +951,15 @@ def process_run(
                     stats["abstained"] += 1
                     continue
 
+                # 单条消息尾部硬截（双轨对称；实测 >48k 仅 ~40 条，
+                # 见 Phase 41 CONTEXT deferred）。quote 回查对截断后文本执行
+                # （work["cleaned"] 语义一致），不会抽出来自被截部分的证据。
+                if len(cleaned) > MESSAGE_MAX_CHARS:
+                    cleaned = cleaned[:MESSAGE_MAX_CHARS]
+                    stats["truncated"] += 1
                 llm_input = cleaned
                 confirmation_signal = "none"
                 if track.name == "assistant":
-                    # 尾部硬截 12000（对齐 L2 MAX_WINDOW_CHARS 先例）；
-                    # quote 回查对截断后文本执行（work["cleaned"] 语义一致）
-                    if len(cleaned) > ASSISTANT_MAX_CHARS:
-                        cleaned = cleaned[:ASSISTANT_MAX_CHARS]
-                        stats["truncated"] += 1
                     # QA 对：同 session 最近前置 1 条 user 消息（仅供理解，不作
                     # 证据）；无前置 user 时该段为空（不 fail）。原文只进 LLM
                     # 输入，不写 stats/日志（隐私面与 user 轨出域同级）。
