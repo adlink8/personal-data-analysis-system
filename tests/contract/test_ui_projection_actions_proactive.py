@@ -1,12 +1,19 @@
 """Phase 39:actions_recent.get / proactive_summary.get / calibration_overview.get 投影契约测试。"""
+import base64
 import json
+import tempfile
 import threading
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 
-from personal_knowledge.intelligence.decision.service import DecisionFeedbackService
+from personal_knowledge.core.project_paths import UNIFIED_DB
+from personal_knowledge.intelligence.decision.service import (
+    DecisionFeedbackService,
+    DecisionServiceError,
+)
 from personal_knowledge.intelligence.proactive.ranking import DEFAULT_RANKING_POLICY
 from personal_knowledge.intelligence.proactive.service import ProactiveIntelligenceService
 from personal_knowledge.services import api_server
@@ -152,7 +159,7 @@ def test_actions_recent_envelope_and_shape():
     assert set(result["authorities"]) == {"decision"}
     data = result["data"]
     assert set(data) == {
-        "total_available", "shown", "with_outcome", "awaiting_outcome", "items",
+        "total_available", "shown", "with_outcome", "awaiting_outcome", "items", "next_cursor",
     }
     assert data["shown"] == len(data["items"])
     assert data["shown"] <= 10
@@ -204,6 +211,7 @@ def test_actions_recent_failure_degrades_to_zero_shape(monkeypatch):
     assert data == {
         "total_available": 0, "shown": 0,
         "with_outcome": 0, "awaiting_outcome": 0, "items": [],
+        "next_cursor": None,
     }
 
 
@@ -527,3 +535,124 @@ def test_ui_routes_serve_phase39_endpoints():
     finally:
         server.shutdown()
         server.server_close()
+
+
+# --- 39-01 稳定游标分页(newest-first + 不透明 cursor + fail-closed) ----------
+
+
+def test_cursor_encode_decode_round_trip():
+    enc = DecisionFeedbackService._encode_cursor("2026-01-02T03:04:05", "r-9")
+    assert isinstance(enc, str) and enc
+    assert DecisionFeedbackService._decode_cursor(enc) == ("2026-01-02T03:04:05", "r-9")
+
+
+def test_cursor_decode_rejects_garbage():
+    with pytest.raises(DecisionServiceError):
+        DecisionFeedbackService._decode_cursor("!!!not-base64~~~")
+
+
+def test_cursor_decode_rejects_valid_base64_wrong_format():
+    # base64 可解码但字段数错误 → cursor_invalid,不得静默接受
+    bad = base64.urlsafe_b64encode(b"onlyonefield").decode("ascii")
+    with pytest.raises(DecisionServiceError):
+        DecisionFeedbackService._decode_cursor(bad)
+
+
+def test_recommendations_list_rejects_invalid_cursor_fail_closed():
+    # 解码发生在打开 DB 之前;非法 cursor 必须 fail-closed,不得静默丢弃或降级
+    svc = DecisionFeedbackService(UNIFIED_DB)
+    result = svc.invoke("recommendations.list", cursor="@@@invalid@@@")
+    assert result["ok"] is False
+    assert result["error"]["code"] == "cursor_invalid"
+
+
+def _synthetic_recommendations_db(path: Path, n: int) -> None:
+    import sqlite3 as _sq
+
+    con = _sq.connect(path)
+    con.execute("CREATE TABLE decision_recommendations (recommendation_id TEXT, created_at TEXT)")
+    for i in range(n):
+        rid = f"r{i:02d}"
+        ts = f"2026-01-01T00:{i:02d}:00"  # i 越大越新
+        con.execute(
+            "INSERT INTO decision_recommendations (recommendation_id, created_at) VALUES (?, ?)",
+            (rid, ts),
+        )
+    con.commit()
+    con.close()
+
+
+class _FakeState:
+    confirmation_state = "confirmed"
+    action_state = "completed"
+    events = [type("E", (), {"sequence": 5})()]
+
+
+def _fake_context(self, con, recommendation_id):
+    rec = {
+        "recommendation_id": recommendation_id, "run_id": "run1", "subject": "s",
+        "domain": "d", "scope": "sc", "recommendation_kind": "k", "horizon": "h",
+        "confidence": 0.5, "uncertainty": "low", "expires_at": "2099-01-01T00:00:00",
+        "payload_json": "{}", "payload_checksum": "x", "recommendation_checksum": "x",
+        "snapshot_id": "snap1", "snapshot_hash": "h1", "policy_id": "p1", "policy_version": "v1",
+        "source_run_id": "run1", "source_run_checksum": "c1", "source_publication_sequence": 1,
+    }
+    run = {
+        "run_id": "run1", "run_checksum": "rc", "source_run_id": "run1",
+        "source_run_checksum": "c1", "source_publication_sequence": 1, "snapshot_id": "snap1",
+        "snapshot_hash": "h1", "policy_id": "p1", "policy_version": "v1",
+        "input_manifest_checksum": "imc",
+    }
+    return rec, run, {"payload": {}, "state": _FakeState()}
+
+
+def test_recommendations_list_newest_first_with_cursor_pagination(monkeypatch):
+    monkeypatch.setattr(DecisionFeedbackService, "_context", _fake_context)
+    with tempfile.TemporaryDirectory() as td:
+        db = Path(td) / "rec.sqlite"
+        _synthetic_recommendations_db(db, 12)
+        svc = DecisionFeedbackService(db)
+        page1 = svc.invoke("recommendations.list", limit=10)
+        assert page1["ok"] is True
+        items1 = page1["data"]["items"]
+        assert len(items1) == 10
+        # newest-first:首项最新(r11),末项最旧窗口边界(r02)
+        assert [it["recommendation_id"] for it in items1][0] == "r11"
+        assert [it["recommendation_id"] for it in items1][-1] == "r02"
+        assert page1["data"]["total_available"] == 12
+        assert page1["data"]["next_cursor"] is not None
+        # 翻页:严格更旧,且与第一页无重叠、并集为全集
+        page2 = svc.invoke("recommendations.list", limit=10, cursor=page1["data"]["next_cursor"])
+        assert page2["ok"] is True
+        items2 = page2["data"]["items"]
+        assert len(items2) == 2
+        assert [it["recommendation_id"] for it in items2] == ["r01", "r00"]
+        assert page2["data"]["next_cursor"] is None
+        assert page2["data"]["total_available"] == 12
+        page1_ids = {it["recommendation_id"] for it in items1}
+        page2_ids = {it["recommendation_id"] for it in items2}
+        assert page1_ids.isdisjoint(page2_ids)
+        assert page1_ids | page2_ids == {f"r{i:02d}" for i in range(12)}
+
+
+def test_actions_recent_forwards_cursor_to_service(monkeypatch):
+    # 验证 REST → projection → service 的 cursor 透传链路
+    captured: dict = {}
+    original = DecisionFeedbackService.invoke
+
+    def spy(self, operation, **params):
+        if operation == "recommendations.list":
+            captured.update(params)
+            return {
+                "schema_version": INTERFACE_SCHEMA_VERSION, "operation": operation,
+                "ok": True, "status": "success",
+                "data": {"items": [], "next_cursor": None},
+                "total_available": 0, "limit": 10,
+                "privacy": {"metadata_only": True, "private_bodies": 0},
+            }
+        return original(self, operation, **params)
+
+    monkeypatch.setattr(DecisionFeedbackService, "invoke", spy)
+    CockpitProjectionService().invoke("actions_recent.get", cursor="CUR123", limit=5)
+    assert captured.get("cursor") == "CUR123"
+    assert captured.get("limit") == 5

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import base64
 import json
 from pathlib import Path
 import sqlite3
@@ -241,27 +242,81 @@ class DecisionFeedbackService:
             "privacy": {"metadata_only": True, "private_bodies": 0},
         }
 
-    def recommendations_list(self, *, limit: int = 50, domain: str | None = None) -> dict[str, Any]:
+    def recommendations_list(
+        self, *, limit: int = 50, domain: str | None = None, cursor: str | None = None,
+    ) -> dict[str, Any]:
         limit = self._limit(limit)
+        cursor_created_at: str | None = None
+        cursor_rid: str | None = None
+        if cursor:
+            # 不透明游标:仅编码 (created_at, recommendation_id);解码失败 → fail-closed
+            cursor_created_at, cursor_rid = self._decode_cursor(cursor)
+
         con = _ro(self.db_path)
         try:
-            query = "SELECT recommendation_id FROM decision_recommendations"
-            args: tuple[Any, ...] = ()
+            domain_conditions: list[str] = []
+            domain_args: list[Any] = []
             if domain:
-                query += " WHERE domain=?"
-                args = (domain,)
-            ids = [str(row[0]) for row in con.execute(query + " ORDER BY created_at,recommendation_id", args)]
-            items = []
-            for recommendation_id in ids[:limit]:
+                domain_conditions.append("domain=?")
+                domain_args.append(domain)
+            domain_where = (" WHERE " + " AND ".join(domain_conditions)) if domain_conditions else ""
+            # total_available = 匹配 domain 过滤的全量(忽略游标),保证分页视图计数稳定
+            total = con.execute(
+                "SELECT COUNT(*) FROM decision_recommendations" + domain_where, domain_args,
+            ).fetchone()[0]
+
+            conditions = list(domain_conditions)
+            params: list[Any] = list(domain_args)
+            if cursor_created_at is not None:
+                conditions.append("(created_at, recommendation_id) < (?, ?)")
+                params.extend([cursor_created_at, cursor_rid])
+            where_sql = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+            # 取 limit+1 行以稳定判定 has_more;newest-first 保证「加载更早」语义正确
+            rows = con.execute(
+                "SELECT recommendation_id, created_at FROM decision_recommendations"
+                + where_sql
+                + " ORDER BY created_at DESC, recommendation_id DESC LIMIT ?",
+                params + [limit + 1],
+            ).fetchall()
+            has_more = len(rows) > limit
+            page = rows[:limit]
+            items: list[dict[str, Any]] = []
+            for row in page:
+                recommendation_id = str(row[0])
                 rec, run, context = self._context(con, recommendation_id)
                 item = self._metadata(rec, run, context["payload"])
                 item["confirmation_state"] = context["state"].confirmation_state
                 item["action_state"] = context["state"].action_state
                 item["current_sequence"] = context["state"].events[-1].sequence
                 items.append(item)
-            return self._success("recommendations.list", items, total=len(ids), limit=limit)
+            next_cursor: str | None = None
+            if has_more and page:
+                last = page[-1]
+                next_cursor = self._encode_cursor(str(last[1]), str(last[0]))
+            return self._success(
+                "recommendations.list",
+                {"items": items, "next_cursor": next_cursor},
+                total=total, limit=limit,
+            )
         finally:
             con.close()
+
+    @staticmethod
+    def _encode_cursor(created_at: str, recommendation_id: str) -> str:
+        raw = f"{created_at}|{recommendation_id}"
+        return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
+
+    @staticmethod
+    def _decode_cursor(cursor: str) -> tuple[str, str]:
+        """解码不透明游标;任何格式错误 → DecisionServiceError('cursor_invalid')。"""
+        try:
+            raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+        except Exception:
+            raise DecisionServiceError("cursor_invalid", "decode_failed")
+        parts = raw.split("|")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise DecisionServiceError("cursor_invalid", "malformed")
+        return parts[0], parts[1]
 
     def recommendations_get(self, *, recommendation_id: str) -> dict[str, Any]:
         con = _ro(self.db_path)

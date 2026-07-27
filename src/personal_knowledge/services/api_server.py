@@ -616,6 +616,9 @@ class Handler(BaseHTTPRequestHandler):
                 params = {}
                 if path == "/ui/decision/workspace":
                     params = {"recommendation_id": qs.get("recommendation_id")}
+                elif path == "/ui/actions/recent":
+                    # 游标分页透传:cursor 不透明,limit 可选;GET-only,无副作用
+                    params = {"cursor": qs.get("cursor"), "limit": qs.get("limit")}
                 elif path == "/ui/evidence/resolve":
                     # 只读证据解析(Phase 37:EVID-01);GET-only,无对应 POST 路由,
                     # 参数原样透传给 evidence_resolve.get 做结构校验,不在此层猜测/补全

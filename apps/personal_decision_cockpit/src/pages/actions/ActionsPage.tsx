@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ApiError } from '../../api/client';
 import { useActionsRecent, useCalibrationOverview } from '../../api/hooks';
@@ -208,9 +209,44 @@ function ActionItemCard({ item }: { item: ActionItem }) {
 /* ---------------- 行动与结果区 ---------------- */
 
 function ActionsRecentSection() {
-  const query = useActionsRecent();
+  const [cursor, setCursor] = useState<string | null>(null);
+  const query = useActionsRecent(cursor);
 
-  if (query.isPending) {
+  // 分页累积:每页按 cursor 去重加入,避免 StrictMode/重渲染重复 append
+  const loadedPages = useRef<Set<string>>(new Set());
+  const [items, setItems] = useState<ActionItem[]>([]);
+  const [meta, setMeta] = useState({ shown: 0, with_outcome: 0, awaiting_outcome: 0 });
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
+
+  useEffect(() => {
+    const envelope = query.data;
+    if (!envelope) return;
+    const d = envelope.data;
+    const pageKey = cursor ?? '__first__';
+    setTotal(d.total_available ?? null);
+    if (!loadedPages.current.has(pageKey)) {
+      loadedPages.current.add(pageKey);
+      setItems((prev) => [...prev, ...(d.items ?? [])]);
+      setMeta((m) => ({
+        shown: m.shown + (d.shown ?? 0),
+        with_outcome: m.with_outcome + (d.with_outcome ?? 0),
+        awaiting_outcome: m.awaiting_outcome + (d.awaiting_outcome ?? 0),
+      }));
+    }
+    setNextCursor(d.next_cursor ?? null);
+  }, [query.data, cursor]);
+
+  const resetToLatest = () => {
+    setCursor(null);
+    loadedPages.current = new Set();
+    setItems([]);
+    setMeta({ shown: 0, with_outcome: 0, awaiting_outcome: 0 });
+    setNextCursor(null);
+    setTotal(null);
+  };
+
+  if (query.isPending && items.length === 0) {
     return (
       <div className="section-stack" aria-label="行动与结果加载中">
         <StatePanel variant="loading" />
@@ -232,8 +268,8 @@ function ActionsRecentSection() {
   }
 
   const envelope = query.data;
-  const { data } = envelope;
-  const total = data.total_available ?? 0;
+  if (!envelope) return null;
+  const isPaginated = cursor !== null;
 
   return (
     <section className="section-stack" aria-labelledby="actions-recent-title">
@@ -259,19 +295,24 @@ function ActionsRecentSection() {
           <h2 id="actions-recent-title" className="font-semibold">
             最近行动
           </h2>
-          <span className="badge border-line bg-panel text-muted">共 {fmtNumber(data.total_available)} 条</span>
-          <span className="badge border-line bg-panel text-muted">本次展示 {fmtNumber(data.shown)} 条</span>
+          <span className="badge border-line bg-panel text-muted">共 {fmtNumber(total)} 条</span>
+          <span className="badge border-line bg-panel text-muted">本次展示 {fmtNumber(meta.shown)} 条</span>
           <span className="badge border-verified bg-verified-soft text-verified">
-            已有结果 {fmtNumber(data.with_outcome)} 条
+            已有结果 {fmtNumber(meta.with_outcome)} 条
           </span>
           <span className="badge border-uncertainty bg-uncertainty-soft text-uncertainty">
-            等待结果 {fmtNumber(data.awaiting_outcome)} 条
+            等待结果 {fmtNumber(meta.awaiting_outcome)} 条
           </span>
+          {isPaginated ? (
+            <span className="badge border-uncertainty bg-uncertainty-soft text-uncertainty">
+              分页视图（更早记录）
+            </span>
+          ) : null}
         </div>
         <p className="mt-2 text-xs text-muted">投影生成于 {fmtTime(envelope.generated_at)}（每分钟自动刷新）</p>
       </div>
 
-      {total === 0 && data.items.length === 0 ? (
+      {total === 0 && items.length === 0 ? (
         <StatePanel
           variant="empty"
           title="当前没有行动与结果记录"
@@ -279,10 +320,33 @@ function ActionsRecentSection() {
           nextStep="可从顶栏「新建决策」发起一个 Guarded 决策会话，或先到决策中心查看待确认建议。"
         />
       ) : (
-        data.items.map((item, index) => (
+        items.map((item, index) => (
           <ActionItemCard key={item.recommendation_id ?? `item-${index}`} item={item} />
         ))
       )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        {nextCursor ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary bg-primary-soft px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary"
+            onClick={() => setCursor(nextCursor)}
+            disabled={query.isFetching}
+          >
+            <IconChevronRight className="h-4 w-4" />
+            {query.isFetching ? '加载更早记录中…' : '加载更早记录'}
+          </button>
+        ) : null}
+        {isPaginated ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-panel focus:outline-none focus:ring-2 focus:ring-primary"
+            onClick={resetToLatest}
+          >
+            返回最新
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }

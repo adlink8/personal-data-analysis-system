@@ -81,11 +81,13 @@ export function useDecisionWorkspace(recommendationId: string | undefined) {
   });
 }
 
-/** 行动与结果投影：GET /ui/actions/recent（六阶段时间线 + outcome/effectiveness，Phase 39） */
-export function useActionsRecent() {
+/** 行动与结果投影：GET /ui/actions/recent（六阶段时间线 + outcome/effectiveness，Phase 39）。
+ *  可选 cursor 触发分页(加载更早记录);GET-only,无副作用。 */
+export function useActionsRecent(cursor?: string | null) {
+  const path = cursor ? `/ui/actions/recent?cursor=${encodeURIComponent(cursor)}` : '/ui/actions/recent';
   return useQuery({
-    queryKey: ['ui', 'actions-recent'],
-    queryFn: () => apiGet('/ui/actions/recent', actionsRecentEnvelopeSchema),
+    queryKey: ['ui', 'actions-recent', cursor ?? 'first'],
+    queryFn: () => apiGet(path, actionsRecentEnvelopeSchema),
     ...PROJECTION_QUERY_OPTIONS,
   });
 }

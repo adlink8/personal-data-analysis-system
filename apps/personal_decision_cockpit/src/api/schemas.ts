@@ -607,6 +607,7 @@ export const ActionsRecentDataSchema = z
     with_outcome: z.number().nullable(),
     awaiting_outcome: z.number().nullable(),
     items: z.array(ActionItemSchema).default([]),
+    next_cursor: z.string().nullish(),
   })
   .passthrough();
 

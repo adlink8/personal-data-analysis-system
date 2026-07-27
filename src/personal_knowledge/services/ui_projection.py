@@ -108,7 +108,8 @@ _HISTORY_EVENT_KEYS = (
 )
 
 # actions_recent.get 的固定词表与上限
-_ACTIONS_RECENT_LIST_LIMIT = 20
+# 单页显示上限,同时作为游标分页的每页大小;recommendations.list 现在 newest-first
+# 返回,超出部分经 next_cursor 暴露给前端「加载更早」,不再用升序尾窗 hack。
 _ACTIONS_RECENT_MAX = 10
 _TIMELINE_STAGES = (
     "recommendation", "decision", "action_start",
@@ -318,6 +319,7 @@ def _empty_actions_recent() -> dict[str, Any]:
     return {
         "total_available": 0, "shown": 0,
         "with_outcome": 0, "awaiting_outcome": 0, "items": [],
+        "next_cursor": None,
     }
 
 
@@ -1106,12 +1108,17 @@ class CockpitProjectionService:
 
     # --- actions_recent.get ------------------------------------------------
 
-    def _actions_recent_get(self, **_params: Any) -> dict[str, Any]:
+    def _actions_recent_get(
+        self, *, cursor: str | None = None, limit: int | None = None,
+    ) -> dict[str, Any]:
         generated_at = _utc_now()
         limitations: list[str] = [
             "recommendations.history 不暴露事件时间戳/status,timeline 仅含链上校验字段",
+            "时间线按 created_at 降序分页呈现(最新在前),更早记录经 next_cursor 加载,非全量快照",
         ]
-        loaders = {"decision": lambda: self._actions_recent_section(limitations)}
+        loaders = {
+            "decision": lambda: self._actions_recent_section(limitations, cursor=cursor, limit=limit),
+        }
         sections, authorities = self._collect(loaders, limitations, self._actions_recent_empty)
         # data 恒为完整形状,decision 节失败时退化为全零(authorities/limitations 表达降级)
         data = sections.get("decision") or _empty_actions_recent()
@@ -1130,26 +1137,30 @@ class CockpitProjectionService:
     def _actions_recent_empty(_name: str, section: dict[str, Any]) -> bool:
         return not section.get("total_available")
 
-    def _actions_recent_section(self, limitations: list[str]) -> dict[str, Any]:
+    def _actions_recent_section(
+        self, limitations: list[str], *, cursor: str | None = None, limit: int | None = None,
+    ) -> dict[str, Any]:
+        list_limit = int(limit) if limit is not None else _ACTIONS_RECENT_MAX
         result = DecisionFeedbackService(self.db_path).invoke(
-            "recommendations.list", limit=_ACTIONS_RECENT_LIST_LIMIT,
+            "recommendations.list", limit=list_limit, cursor=cursor,
         )
         if not result.get("ok"):
+            # fail-closed:游标非法/读取失败 → 单节降级为 error,详情不进入公开响应
             raise ValueError(str((result.get("error") or {}).get("code") or "decision_read_failed"))
         data = result["data"]
         items = list(data.get("items") or [])
+        next_cursor = data.get("next_cursor")
         total_available = data.get("total_available", len(items))
-        if total_available > len(items):
-            limitations.append(
-                f"recommendations.list 按 created_at 升序仅取前 {len(items)}/{total_available} 条,"
-                "最近推荐可能未进入窗口"
-            )
         action_states = self._action_states()
-        # 升序窗口内最近的一组在尾部,超出 _ACTIONS_RECENT_MAX 的只计数不组装
-        window = items[-_ACTIONS_RECENT_MAX:] if len(items) > _ACTIONS_RECENT_MAX else items
         section = _empty_actions_recent()
         section["total_available"] = total_available
-        for item in window:
+        section["next_cursor"] = next_cursor
+        if cursor and total_available:
+            # 分页视图:total_available 为全量计数,items 仅含本页,避免「过期窗口误导」
+            limitations.append(
+                "当前为分页视图(已加载更早记录),total_available 为全量计数,items 仅含本页"
+            )
+        for item in items:  # items 已由 recommendations.list 按 created_at 降序返回
             card = {key: item.get(key) for key in _ACTION_CARD_KEYS}
             rid = str(item.get("recommendation_id") or "")
             try:
