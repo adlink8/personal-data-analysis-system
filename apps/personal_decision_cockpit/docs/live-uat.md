@@ -12,6 +12,8 @@
 | QA-02 / D-40-05 | project+low prepare → exact preview → confirm → exact replay | orchestration/replay contracts | 同源真实浏览器一次写入与同 payload replay | 优先 disposable authority；live 写入需每次单独授权 |
 | QA-01 / D-40-07 | 浏览器 runner 依赖与 artifact 审查 | package/dependency review | 记录 local-only、redaction、保留策略 | 未批准新增 runner 时只能手动 UAT |
 
+当前 runner 决策：仓库未安装 `@playwright/test`；本阶段不新增浏览器依赖，按 `browser-e2e-dependency-review.md` 执行手动 UAT。
+
 ## 当前阶段边界
 
 - Phase 39 的 contract/component 证据已完成；不宣称 Phase 40 UAT 通过。

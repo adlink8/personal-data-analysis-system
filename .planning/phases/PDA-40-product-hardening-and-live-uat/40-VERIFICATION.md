@@ -1,17 +1,24 @@
 ---
 phase: 40-product-hardening-and-live-uat
-status: planned
-verification_mode: future_execution
+status: blocked
+verification_mode: automated_plus_human_checkpoint
 requirements:
-  UX-01: planned
-  UX-02: planned
-  QA-01: planned
-  QA-02: planned
-technical_status: not_run
-security_status: not_run
+  UX-01: pending_human_uat
+  UX-02: automated_pass_human_pending
+  QA-01: passed
+  QA-02: pending_human_uat
+technical_status: passed
+security_status: pending_human_uat
 ---
 
 # Phase 40: Product Hardening and Live UAT — Verification Plan
+
+## Automated Evidence (2026-07-27)
+
+- Frontend: `npm run build` passed; `npm run test` passed with 24 files / 255 tests.
+- Python UI Projection + orchestration/replay/e2e matrix passed.
+- Browser dependency review selected manual local-only UAT; no browser runner was added.
+- See `40-UAT.md` for the remaining blocking human checkpoint.
 
 ## Completion Conditions
 
