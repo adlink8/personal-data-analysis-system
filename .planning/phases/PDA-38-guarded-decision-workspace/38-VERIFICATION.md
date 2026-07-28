@@ -1,13 +1,13 @@
 ---
 phase: 38-guarded-decision-workspace
-status: planned
-verification_mode: future_execution
+status: verified
+verification_mode: automated_component_contract
 requirements:
-  DEC-01: planned
-  DEC-02: planned
-  DEC-03: planned
-technical_status: not_run
-security_status: not_run
+  DEC-01: passed
+  DEC-02: passed
+  DEC-03: passed
+technical_status: passed
+security_status: contract_scoped_passed
 ---
 
 # Phase 38: Guarded Decision Workspace — Verification Plan
@@ -38,9 +38,9 @@ security_status: not_run
 
 ## Human Check
 
-On a disposable fixture, inspect a preview before confirming: it must state the precise event, what will not happen, sequence/checksum and risk. Repeat the identical confirmation and verify that the receipt explicitly says it is a replay.
+The browser contract and component tests cover this flow, including exact preview, cancellation, explicit confirmation and replay rendering. A real browser run on a disposable fixture remains a Phase 40 human-UAT gate; it is not claimed here.
 
 ## Passing Rule
 
-DEC-02 and DEC-03 cannot pass without the negative matrix. Any silent write, payload substitution, cross-origin mutation, duplicate event or automatic provider retry blocks the phase.
+DEC-02 and DEC-03 passed the automated component/contract negative matrix. No silent write, payload substitution, cross-origin mutation, duplicate event or automatic provider retry was observed in the executed evidence. Phase 38 is technically verified; milestone acceptance still depends on the outstanding Phase 40 human-UAT items.
 

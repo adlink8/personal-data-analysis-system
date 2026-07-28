@@ -3,7 +3,7 @@ status: partial
 phase: 40-product-hardening-and-live-uat
 source: [40-VERIFICATION.md, docs/live-uat.md, docs/browser-e2e-dependency-review.md]
 started: 2026-07-27
-updated: 2026-07-27
+updated: 2026-07-28
 ---
 
 # Phase 40 Live UAT
@@ -14,6 +14,13 @@ updated: 2026-07-27
 - Frontend `npm run build`: passed.
 - Python UI Projection + state/external/decision + orchestration/replay/e2e matrix: passed.
 - Browser runner review: no existing runner; no new dependency added; manual UAT path selected.
+
+## Runtime preflight — 2026-07-28
+
+- Existing REST owner was already listening on `127.0.0.1:8000`; no process restart or authority mutation was performed.
+- `GET http://127.0.0.1:8000/health` returned HTTP 200 with the service health envelope.
+- `GET http://127.0.0.1:8000/app/` returned HTTP 200 and served the built Cockpit shell.
+- This is a read-only availability check only. It does not prove browser viewport/accessibility/privacy behavior or guarded write/replay acceptance.
 
 ## Human checkpoint — pending
 

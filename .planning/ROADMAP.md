@@ -151,17 +151,56 @@
 1. 同一会话的内容增长（jsonl 追加）被识别为同一 canonical session 的更新而非新会话：canonical 库中同会话不再多份并存，旧副本有明确的 supersede/替代语义。
 2. 全量重建幂等：重跑 sync 不产生重复 session/message，merge 结果跨运行稳定（含 legacy 代表行选择的确定性）。
 
+### Phase 43: L2 Scope Redefinition (Cross-turn State Ownership and Incremental Dedup)
+
+**Goal:** 把 L2 从"L1 补漏"重定义为"跨轮状态变更所有者 + 增量去重守门"：同一事实不再被 L1/L2 反复产出平行重述 unit，目录/分支/阶段/计划类状态知识有可查的时效语义。
+
+**Requirements:** L2G-01, L2G-02, L2G-03, L2G-04
+
+**Depends on:** Phase 42（stable session key 去重收敛后，subject/会话级增量语义才可定义）；42-03 delta 归因已查明（41 eligibility 收紧的口径账，非会话合并）
+**Plans:** 9 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 43-01-PLAN.md — 状态 subject 清单 yaml + 归一化/匹配共用模块 + LLM 聚类建议人工确认（D-04/D-05）
+- [ ] 43-03-PLAN.md — candidate lifecycle 值扩展迁移 + publish 排除 + pk-ku promote 人工转正通道（D-06/D-09）
+- [ ] 43-06-PLAN.md — L2G-03 当前值视图：history「← 当前值」+ rag-search --current-only（最小路线）
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 43-02-PLAN.md — 注入召回（两阶段）+ duplicate_of 模型字段与白名单校验（D-01/D-02/D-03）
+- [ ] 43-08-PLAN.md — L2G-04 前半：11,008 条三层分级报告 + LLM 复核 + 抽样人工检视（D-08）
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 43-04-PLAN.md — L1 双轨接线：v2 prompt + 注入段 + 提交处校验/candidate 路由
+- [ ] 43-05-PLAN.md — L2 接线：v2_session_window prompt + 状态管辖语义 + 提交处校验
+- [ ] 43-09-PLAN.md — L2G-04 后半：治理链分批处置 + watermark 收敛执行笔记（D-09/D-10）
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 43-07-PLAN.md — L2G-01/02 验收：集成对照测试 + 实验库实跑证据
+
+**Success criteria:**
+
+1. 增量去重守门：L1/L2 抽取时注入同 subject 已有 canonical 清单，新抽 unit 与已有等价时标 supersede 而非新增 current；构造重复会话重跑抽取，平行重述新增率相对基线（⑧ 一轮 294 q-gated 对）显著下降。
+2. 状态类知识归属：目录/分支/阶段/计划类 subject 归 L2 跨轮管辖，双轨 run 后这些 subject 的 L1 current 新增为 0（或产出即标 candidate）。
+3. 时效语义：状态类 unit 沿用 supersede 链区分"当前值/历史值"，查询侧可区分，不新增 schema 字段。
+4. 工具输出源知识分级处置：11,008 条源消息被 41 新口径排除的 staging unit 先分级（真知识/噪音）再处置，不一刀切 deprecate；分级报告 + 治理链处置记录 + inspect delta 收敛方案（watermark 推进时机）写进执行笔记。
+
 ## Progress
 
 | Phase | Requirements | Plans Complete | Status |
 |---|---|---:|---|
 | 36 | CCK-01, CCK-02, CCK-03, CCK-04 | 4/4 executed | Closed — 36-01 secure transport, 36-02 safe projection envelope, 36-03 frontend DTO/vocabulary hardening, 36-04 auditable baseline + 36-VERIFICATION.md all closed |
 | 37 | STATE-01, STATE-02, STATE-03, EVID-01 | 3/3 executed | Closed — 37-01 server contracts (evidence_resolve 六态), 37-02 authority-aware state UI, 37-03 evidence drilldown + widget containment; independent verification 4/4 PASS 2026-07-27 |
-| 38 | DEC-01, DEC-02, DEC-03 | 0/3 executed | Planned — future plans reviewed, not executed |
+| 38 | DEC-01, DEC-02, DEC-03 | 3/3 executed | **Verified 2026-07-27** — technical passed, security contract_scoped_passed（38-VERIFICATION） |
 | 39 | 4/4 | Complete    | 2026-07-27 |
-| 40 | UX-01, UX-02, QA-01, QA-02 | 0/3 executed | Planned — future plans reviewed, not executed |
+| 40 | UX-01, UX-02, QA-01, QA-02 | 3/3 executed | **Blocked 2026-07-27** — technical passed（npm build+255 tests、Python 矩阵全绿）；UX-01/QA-02 pending_human_uat，待真实浏览器 Live UAT |
 | 41 | EXT-01, EXT-02, EXT-03 | 4/4 waves + closure | **Complete 2026-07-27** — assistant 轨全链闭合,active 40,200 向量,doctor OK（见 41-CLOSURE-CHECKLIST） |
 | 42 | DED-01, DED-02 | 2/3 complete | **Partial 2026-07-27** — 42-01 stable-key rebuild and 42-02 ref migration complete; 42-03 doctor/idempotence complete but dual-track strict yield gate failed, so watermark remains intentionally unadvanced |
+| 43 | L2G-01, L2G-02, L2G-03, L2G-04 | 9/9 executed | **Partial 2026-07-28** — 施工完成、测试全绿、doctor OK；224 个治理 proposal 待人工裁定，watermark 按判据未推进（43-WATERMARK-NOTE） |
 
 ## Requirement Coverage
 
@@ -175,7 +214,8 @@
 | **Total v1.4** | — | **18/18** |
 | EXT-01..03 | 41 | 3 |
 | DED-01..02 | 42 | 2 |
-| **Total v1.4.1** | — | **5/5** |
+| L2G-01..04 | 43 | 4 |
+| **Total v1.4.1** | — | **9/9** |
 
 ## Backlog
 
