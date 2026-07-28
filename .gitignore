@@ -72,6 +72,7 @@ imports/*
 
 # Phase 17: private gold / judge calibration stay local
 integration/runtime/private_evals/
+integration/evals/**/*.bak_*
 
 # Python and local tooling caches
 __pycache__/
