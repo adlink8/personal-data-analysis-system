@@ -9,6 +9,7 @@ import pytest
 
 from personal_knowledge.application.knowledge.history_knowledge_units import (
     GROWTH_LINE_LIFECYCLES,
+    format_table,
     list_history_for_subject,
 )
 from personal_knowledge.application.ku import build_parser, main as ku_main
@@ -130,6 +131,8 @@ def test_growth_line_returns_multi_version_ordered(tmp_path: Path) -> None:
     ids = [r["unit_id"] for r in report.rows]
     assert ids == ["cu_new", "cu_mid", "cu_old"]  # created_at desc
     assert report.rows[0]["lifecycle"] == "current"
+    assert report.rows[0]["is_current_value"] is True
+    assert sum(row["is_current_value"] for row in report.rows) == 1
     assert report.rows[0]["supersedes_id"] == "cu_mid"
     assert report.rows[1]["lifecycle"] == "superseded"
     assert "PowerShell" in report.rows[0]["answer_snippet"]
@@ -151,6 +154,13 @@ def test_include_all_lifecycle_includes_draft(tmp_path: Path) -> None:
     ids = {r["unit_id"] for r in report.rows}
     assert "cu_draft" in ids
     assert report.count == 4
+
+
+def test_format_table_marks_only_current_value(tmp_path: Path) -> None:
+    report = list_history_for_subject(_setup_db(tmp_path), "Shell", limit=10)
+    table = format_table(report.rows)
+    assert table.count("← 当前值") == 1
+    assert "cu_new" in table
 
 
 def test_missing_subject_empty(tmp_path: Path) -> None:

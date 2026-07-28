@@ -185,6 +185,15 @@ def test_hybrid_top_k_bounded() -> None:
     assert result["route"] == "abstain"
 
 
+def test_current_only_is_explicit_and_fail_closed() -> None:
+    from inspect import signature
+    from personal_knowledge.retrieval.semantic_search import search_knowledge_units
+
+    assert "current_only" in signature(search_knowledge_units).parameters
+    # Empty query avoids any vector/Chroma call while proving both contracts
+    # remain the same abstaining result.
+    assert search_knowledge_units("", current_only=True)["route"] == "abstain"
+    assert search_knowledge_units("", current_only=False)["route"] == "abstain"
 def test_hybrid_result_contract_fields() -> None:
     """生产 backend 结果包含必需字段：rank/unit_id/retrieval_unit/score/collection。"""
     # 这个测试验证字段 schema，不依赖真实向量库

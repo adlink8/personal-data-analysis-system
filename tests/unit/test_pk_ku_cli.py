@@ -16,7 +16,7 @@ def test_parser_subcommands_exist():
     for cmd in (
         "inspect", "prepare", "extract", "status", "extract-gate",
         "canonical", "publish", "vector", "canary", "promote", "watermark",
-        "reconcile", "history", "doctor",
+        "reconcile", "history", "promote-units", "doctor",
         "workflow",
     ):
         # --help exits SystemExit 0
