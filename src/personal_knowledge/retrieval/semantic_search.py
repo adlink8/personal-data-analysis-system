@@ -477,6 +477,7 @@ def search_knowledge_units(
     collection_override: Optional[str] = None,
     fallback_policy: str | None = None,
     allow_legacy_pad: bool | None = None,
+    current_only: bool = True,
 ) -> dict:
     """知识单元混合检索 backend。
 
@@ -494,6 +495,8 @@ def search_knowledge_units(
     collection_override: 指定 knowledge collection（canary 用，不改变 active pointer）
     fallback_policy: "legacy" | "layered"；None=读 env PERSONAL_DATA_FALLBACK_POLICY，默认 layered
     allow_legacy_pad: layered 仍不足时是否用非 Google personal_events 填充；默认 True
+    current_only: 显式声明当前检索契约；当前索引与知识层过滤均只放行 lifecycle=current。
+      传 False 暂不改变结果，因为索引不包含非 current 单元。
 
     返回: {
         "route": "knowledge" | "fallback_raw" | "abstain",
@@ -506,6 +509,10 @@ def search_knowledge_units(
         "versions": {"index_version","build_id","canonical_build_id","unit_count","status"},
     }
     """
+    # The active index and knowledge-layer guard are current-only today. Keep
+    # the parameter explicit without widening the result set until a future
+    # historical-value index is designed and evaluated.
+    _ = current_only
     top_k = max(1, min(20, top_k))
     policy = _resolve_fallback_policy(fallback_policy)
     pad_allowed = _resolve_allow_legacy_pad(allow_legacy_pad)

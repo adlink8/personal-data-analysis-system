@@ -368,6 +368,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit JSON only (no human table)",
     )
 
+    # --- promote-units (human candidate/staging promotion; dry-run by default) ---
+    prom_units = sub.add_parser(
+        "promote-units",
+        help="Promote selected candidate/staging units after evidence re-match",
+    )
+    prom_units.add_argument("--unit-id", action="append", required=True)
+    prom_units.add_argument("--write", action="store_true", help="Persist after snapshot and re-match")
+    prom_units.add_argument("--report", type=Path, default=None)
+
     life_prop = sub.add_parser("lifecycle-propose", help="Build bounded metadata-safe lifecycle review manifest")
     life_prop.add_argument("--subject", default="")
     life_prop.add_argument("--max-subjects", type=int, default=20)
@@ -848,6 +857,20 @@ def _cmd_history(args: argparse.Namespace) -> int:
     return int(history_main(argv) or 0)
 
 
+def _cmd_promote_units(args: argparse.Namespace) -> int:
+    """Human-invoked per-unit promotion; dry-run unless --write is explicit."""
+    from personal_knowledge.application.knowledge.promote_units import main as promote_units_main
+
+    argv: list[str] = []
+    for unit_id in args.unit_id:
+        argv.extend(["--unit-id", unit_id])
+    if args.write:
+        argv.append("--write")
+    if args.report is not None:
+        argv.extend(["--report", str(args.report)])
+    return int(promote_units_main(argv) or 0)
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """Read-only product health; never promote / watermark write / DELETE."""
     from personal_knowledge.application.knowledge.doctor_ku import main as doctor_main
@@ -1024,6 +1047,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_lifecycle(args)
     if args.command == "history":
         return _cmd_history(args)
+    if args.command == "promote-units":
+        return _cmd_promote_units(args)
     if args.command == "doctor":
         return _cmd_doctor(args)
 

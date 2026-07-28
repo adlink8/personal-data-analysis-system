@@ -123,6 +123,11 @@ def _cli() -> None:
     )
     ps.add_argument("--dedup", action="store_true",
                     help="按合并层折叠重复命中(L1/L2 同簇只留代表,附 merged_count)")
+    ps.add_argument(
+        "--current-only",
+        action="store_true",
+        help="仅返回当前值 unit（现行默认行为，flag 用于显式声明）",
+    )
     ps.add_argument("--json", action="store_true", help="输出 JSON(默认人类可读)")
 
     pk = sub.add_parser("knowledge", help="知识索引状态(active pointer / unit_count)")
@@ -191,6 +196,7 @@ def _cli() -> None:
             top_k=args.top_k,
             source=args.source,
             fallback_policy=getattr(args, "fallback_policy", None),
+            current_only=True,
         )
         data = ku_result.get("results", [])
         # 在 json 模式下输出 route/versions + results
