@@ -47,11 +47,21 @@ from personal_knowledge.application.knowledge.build_knowledge_units_prod import 
 from personal_knowledge.application.knowledge.knowledge_unit_pipeline import RunManifest
 from personal_knowledge.application.knowledge.confidence import derive_confidence
 from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+from personal_knowledge.application.knowledge.injection_context import (
+    INJECTION_ANSWER_CHARS,
+    INJECTION_MAX_UNITS,
+    SubjectIndex,
+    format_injection_block,
+    validate_duplicate_of,
+)
+from personal_knowledge.application.knowledge.state_subjects import load_state_subjects
 
 PROMPT_PATH = (
     Path(__file__).resolve().parents[4] / "assets" / "prompts" / "knowledge_unit_extractor" / "v1_session_window.md"
 )
 PROMPT_VERSION = "v1_session_window"
+V2_PROMPT_VERSION = "v2_session_window"
+V2_PROMPT_PATH = PROMPT_PATH.with_name("v2_session_window.md")
 # 48000：对齐 L1 MESSAGE_MAX_CHARS（实测 8.7% 会话超 12k 被截；
 # window policy 键含该值，改值即换新窗口命名空间）
 MAX_WINDOW_CHARS = 48000
@@ -258,19 +268,20 @@ def start_l2_run(
     *,
     model: str,
     db_path: Path = UNIFIED_DB,
+    prompt_version: str = PROMPT_VERSION,
 ) -> str:
     ensure_schema(db_path)
     payload = {
         "n_sessions": len(sessions),
         "session_ids": [s["session_id"] for s in sessions[:50]],
-        "prompt": PROMPT_VERSION,
+        "prompt": prompt_version,
     }
     # knowledge_build_runs CHECK only allows extraction|merge|index|promote|incremental
     manifest = RunManifest.create(
         run_type="extraction",
         source_build_id="l2_session_window",
         input_data=payload,
-        prompt_version=PROMPT_VERSION,
+        prompt_version=prompt_version,
         model=model,
         config={
             "pass": "l2_session_window",
@@ -287,7 +298,7 @@ def start_l2_run(
             manifest.generated_at,
             "l2_session_window",
             manifest.input_hash,
-            PROMPT_VERSION,
+            prompt_version,
             "v1",
             model,
             "",
@@ -344,13 +355,24 @@ def process_l2_run(
     min_request_interval: float = DEFAULT_MIN_REQUEST_INTERVAL,
     max_jobs: int | None = None,
     min_user_msgs: int = MIN_USER_MSGS,
+    prompt_version: str | None = None,
 ) -> dict:
     ensure_schema(db_path)
-    prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
+    probe = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    row = probe.execute(
+        "SELECT prompt_version FROM knowledge_build_runs WHERE run_id=?", (run_id,)
+    ).fetchone()
+    probe.close()
+    selected_prompt = prompt_version or (row[0] if row else PROMPT_VERSION)
+    if selected_prompt not in (PROMPT_VERSION, V2_PROMPT_VERSION):
+        raise ValueError(f"unsupported L2 prompt version: {selected_prompt}")
+    prompt_path = V2_PROMPT_PATH if selected_prompt == V2_PROMPT_VERSION else PROMPT_PATH
+    prompt_text = prompt_path.read_text(encoding="utf-8")
     prompt_hash = hashlib.sha256(prompt_text.encode()).hexdigest()[:16]
-    schema_hash = "v1_session_window"
+    schema_hash = selected_prompt
     config_hash = hashlib.sha256(
-        f"l2|{MAX_WINDOW_CHARS}|{min_user_msgs}".encode()
+        f"l2|{MAX_WINDOW_CHARS}|{min_user_msgs}|{selected_prompt}|"
+        f"inj{INJECTION_MAX_UNITS}|ans{INJECTION_ANSWER_CHARS}".encode()
     ).hexdigest()[:16]
 
     # Reload session windows for pending jobs
@@ -358,6 +380,32 @@ def process_l2_run(
         s["session_id"]: s
         for s in list_l2_sessions(canonical_db, min_user_msgs=min_user_msgs, limit=None)
     }
+
+    injected_ids_by_session: dict[str, set[str]] = {}
+    if selected_prompt == V2_PROMPT_VERSION:
+        idx_con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+        subject_index = SubjectIndex(idx_con)
+        idx_con.close()
+        rules = load_state_subjects()
+        state_subjects = []
+        for family in rules.get("families", []):
+            for rule in family.get("subjects", []):
+                state_subjects.append(str(rule.get("pattern") or ""))
+        injected = []
+        for subject in state_subjects:
+            for unit in subject_index.lookup(subject):
+                if unit["unit_id"] not in {u["unit_id"] for u in injected}:
+                    injected.append(unit)
+        injected = injected[:INJECTION_MAX_UNITS]
+        block = format_injection_block(injected)
+        for sid, session in list(sessions_by_id.items()):
+            sessions_by_id[sid] = dict(session)
+            if block:
+                sessions_by_id[sid]["window_text"] = block + "\n\n---\n\n" + session["window_text"]
+                sessions_by_id[sid]["window_hash"] = hashlib.sha256(
+                    sessions_by_id[sid]["window_text"].encode()
+                ).hexdigest()[:32]
+            injected_ids_by_session[sid] = {u["unit_id"] for u in injected}
 
     con = connect_rw(db_path, timeout=60)
     token_provider = TokenProvider()
@@ -371,7 +419,11 @@ def process_l2_run(
         "units_dropped_no_evidence": 0,
         "cache_hits": 0,
         "workers": max(1, workers),
+        "invalid_duplicate_of": 0,
+        "injection_empty": 0,
     }
+    if selected_prompt == V2_PROMPT_VERSION and not injected:
+        stats["injection_empty"] = len(sessions_by_id)
     t0 = time.time()
     workers = max(1, int(workers))
 
@@ -473,6 +525,12 @@ def process_l2_run(
             lifecycle = unit.lifecycle if unit.lifecycle in (
                 "current", "deprecated", "superseded", "conflict"
             ) else "current"
+            duplicate_of = validate_duplicate_of(
+                unit.duplicate_of,
+                injected_ids_by_session.get(session_id, set()),
+            )
+            if unit.duplicate_of and duplicate_of is None:
+                stats["invalid_duplicate_of"] += 1
             con.execute(
                 "INSERT OR REPLACE INTO knowledge_units "
                 "(unit_id, run_id, unit_type, subject, question, answer, confidence, "
@@ -506,6 +564,11 @@ def process_l2_run(
                     now,
                 ),
             )
+            if duplicate_of:
+                con.execute(
+                    "UPDATE knowledge_units SET supersedes_id=? WHERE unit_id=?",
+                    (duplicate_of, unit_id),
+                )
             con.execute(
                 "INSERT OR IGNORE INTO knowledge_unit_evidence (unit_id, evidence_ref) VALUES (?,?)",
                 (unit_id, mid),
@@ -652,7 +715,7 @@ def write_report(run_id: str, stats: dict, path: Path = REPORT_PATH) -> None:
         "generated_at": _utc_now(),
         "phase": "l2_session_window",
         "run_id": run_id,
-        "prompt_version": PROMPT_VERSION,
+        "prompt_version": selected_prompt,
         "stats": stats,
         "notes": [
             "L2 complements L1 message extraction; units stored status=staging.",
@@ -673,6 +736,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-jobs", type=int, default=None, help="Max jobs this process")
     p.add_argument("--min-user-msgs", type=int, default=MIN_USER_MSGS)
     p.add_argument("--model", default="gemini-2.5-flash")
+    p.add_argument("--prompt-version", choices=[PROMPT_VERSION, V2_PROMPT_VERSION], default=None)
     p.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     p.add_argument("--min-request-interval", type=float, default=DEFAULT_MIN_REQUEST_INTERVAL)
     p.add_argument("--db", type=Path, default=UNIFIED_DB)
@@ -708,7 +772,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.write:
-        run_id = start_l2_run(sessions, model=args.model, db_path=args.db)
+        selected = args.prompt_version or PROMPT_VERSION
+        if selected == V2_PROMPT_VERSION:
+            probe = sqlite3.connect(f"file:{args.db.as_posix()}?mode=ro", uri=True)
+            active = probe.execute(
+                "SELECT status, COUNT(*) FROM knowledge_l2_session_jobs "
+                "WHERE status IN ('in_flight','retryable') GROUP BY status"
+            ).fetchall()
+            probe.close()
+            if active:
+                raise SystemExit(f"refuse v2 L2 switch while jobs active: {dict(active)}")
+        run_id = start_l2_run(
+            sessions, model=args.model, db_path=args.db, prompt_version=selected
+        )
         print(f"[l2] started run_id={run_id}")
     else:
         run_id = args.resume
@@ -723,6 +799,7 @@ def main(argv: list[str] | None = None) -> int:
         min_request_interval=args.min_request_interval,
         max_jobs=args.max_jobs,
         min_user_msgs=min_user,
+        prompt_version=args.prompt_version,
     )
     write_report(run_id, stats, args.report)
     print(json.dumps(stats, ensure_ascii=False, indent=2))

@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS knowledge_units (
     answer          TEXT NOT NULL,
     confidence      REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
     evidence_quote  TEXT NOT NULL,
-    lifecycle       TEXT NOT NULL DEFAULT 'current' CHECK(lifecycle IN ('current','deprecated','superseded','conflict')),
+    lifecycle       TEXT NOT NULL DEFAULT 'current' CHECK(lifecycle IN ('current','deprecated','superseded','conflict','candidate')),
     source_session_id   TEXT,
     source_message_ref  TEXT,
     source_agent    TEXT,

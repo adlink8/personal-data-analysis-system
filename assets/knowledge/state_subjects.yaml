@@ -1,0 +1,50 @@
+# State subject registry for L2 ownership.
+# `prefix` means the normalized subject starts with the normalized pattern;
+# the reverse direction does not match.
+version: v1
+families:
+  - name: directory_path
+    description: 工作目录、项目根目录与路径状态
+    subjects:
+      - pattern: 工作目录
+        match: prefix
+      - pattern: 项目根目录
+        match: prefix
+      - pattern: repository path
+        match: prefix
+  - name: git_branch
+    description: Git 分支与工作树状态
+    subjects:
+      - pattern: git 分支
+        match: prefix
+      - pattern: 当前分支
+        match: prefix
+      - pattern: git branch
+        match: prefix
+  - name: project_phase
+    description: 项目阶段与里程碑状态
+    subjects:
+      - pattern: 项目阶段
+        match: prefix
+      - pattern: 当前 milestone
+        match: prefix
+      - pattern: project phase
+        match: prefix
+  - name: current_plan
+    description: 当前计划、任务与执行状态
+    subjects:
+      - pattern: 当前计划
+        match: prefix
+      - pattern: 当前任务
+        match: prefix
+      - pattern: phase 计划
+        match: prefix
+  - name: device_environment
+    description: 在用设备、开发机与运行环境
+    subjects:
+      - pattern: 开发机
+        match: prefix
+      - pattern: 在用设备
+        match: prefix
+      - pattern: 运行环境
+        match: prefix

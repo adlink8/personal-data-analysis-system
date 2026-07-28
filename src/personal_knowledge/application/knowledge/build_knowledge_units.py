@@ -58,6 +58,8 @@ VERTEX_MODEL = _VERTEX.model
 PROMPT_VERSION = "v1"
 
 PROMPT_PATH = Path(__file__).resolve().parents[4] / "assets" / "prompts" / "knowledge_unit_extractor" / "v1_main.md"
+V2_PROMPT_VERSION = "v2"
+V2_PROMPT_PATH = Path(__file__).resolve().parents[4] / "assets" / "prompts" / "knowledge_unit_extractor" / "v2_main.md"
 
 
 # === Pydantic schema（与 v1_schema.md 一致，extra=forbid）===
@@ -71,6 +73,7 @@ class KnowledgeUnit(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     evidence_quote: str = Field(min_length=1)
     lifecycle: str = Field(default="current")
+    duplicate_of: str | None = Field(default=None, max_length=48)
 
     @field_validator("unit_type")
     @classmethod
@@ -92,6 +95,8 @@ class ExtractionResult(BaseModel):
 
 ASSISTANT_PROMPT_VERSION = "v1_assistant"
 ASSISTANT_PROMPT_PATH = Path(__file__).resolve().parents[4] / "assets" / "prompts" / "knowledge_unit_extractor" / "v1_assistant.md"
+V2_ASSISTANT_PROMPT_VERSION = "v2_assistant"
+V2_ASSISTANT_PROMPT_PATH = Path(__file__).resolve().parents[4] / "assets" / "prompts" / "knowledge_unit_extractor" / "v2_assistant.md"
 
 
 class AssistantKnowledgeUnit(BaseModel):
@@ -105,6 +110,7 @@ class AssistantKnowledgeUnit(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     evidence_quote: str = Field(min_length=1)
     lifecycle: str = Field(default="current")
+    duplicate_of: str | None = Field(default=None, max_length=48)
 
     @field_validator("unit_type")
     @classmethod

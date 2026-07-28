@@ -44,6 +44,7 @@ class HistoryRow:
     status: str | None = None
     question: str | None = None
     lifecycle_events: list[dict] = field(default_factory=list)
+    is_current_value: bool = False
 
 
 @dataclass
@@ -165,6 +166,13 @@ def list_history_for_subject(
                     lifecycle_events=events,
                 )
             )
+        superseded_ids = {row.supersedes_id for row in out if row.supersedes_id}
+        current_candidates = [
+            row for row in out
+            if row.lifecycle == "current" and row.unit_id not in superseded_ids
+        ]
+        for row in current_candidates:
+            row.is_current_value = True
         report.rows = [asdict(x) for x in out]
         report.count = len(out)
     finally:
@@ -204,7 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def format_table(rows: Iterable[dict]) -> str:
     lines = [
-        f"{'unit_id':<36}  {'lifecycle':<12}  {'conf':>5}  "
+        f"{'unit_id':<36}  {'lifecycle':<18}  {'conf':>5}  "
         f"{'created_at':<20}  supersedes_id  answer",
         "-" * 100,
     ]
@@ -214,7 +222,7 @@ def format_table(rows: Iterable[dict]) -> str:
         conf_s = f"{conf:.2f}" if isinstance(conf, (int, float)) else ""
         lines.append(
             f"{(r.get('unit_id') or '')[:36]:<36}  "
-            f"{(r.get('lifecycle') or ''):<12}  "
+            f"{(r.get('lifecycle') or '') + (' ← 当前值' if r.get('is_current_value') else ''):<18}  "
             f"{conf_s:>5}  "
             f"{(r.get('created_at') or '')[:20]:<20}  "
             f"{sid:<14}  "

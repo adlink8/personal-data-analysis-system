@@ -68,8 +68,19 @@ from personal_knowledge.application.knowledge.confirmation_signals import (  # n
 from personal_knowledge.application.knowledge.build_knowledge_units import (  # noqa: E402
     KnowledgeUnit, ExtractionResult, strip_system_injections, is_meaningful,
     _clean_json, PROMPT_PATH, PROMPT_VERSION,
+    V2_PROMPT_PATH, V2_PROMPT_VERSION,
     AssistantExtractionResult, ASSISTANT_PROMPT_PATH, ASSISTANT_PROMPT_VERSION,
+    V2_ASSISTANT_PROMPT_PATH, V2_ASSISTANT_PROMPT_VERSION,
 )
+from personal_knowledge.application.knowledge.injection_context import (
+    INJECTION_ANSWER_CHARS,
+    INJECTION_MAX_UNITS,
+    SubjectIndex,
+    format_injection_block,
+    scan_subject_occurrences,
+    validate_duplicate_of,
+)
+from personal_knowledge.application.knowledge.state_subjects import load_state_subjects, match_state_subject
 
 # === Phase 41：run 级单轨双轨引擎（D-01/D-02）===
 
@@ -123,13 +134,27 @@ ASSISTANT_TRACK = TrackConfig(
     result_model=AssistantExtractionResult,
     roles=("assistant",),
 )
+V2_USER_TRACK = TrackConfig(
+    name="user", prompt_path=V2_PROMPT_PATH, prompt_version=V2_PROMPT_VERSION,
+    role_label="用户对话证据（role=user）：", evidence_scope="user",
+    unit_id_prefix="v1|", result_model=ExtractionResult, roles=("user",),
+)
+V2_ASSISTANT_TRACK = TrackConfig(
+    name="assistant", prompt_path=V2_ASSISTANT_PROMPT_PATH,
+    prompt_version=V2_ASSISTANT_PROMPT_VERSION,
+    role_label="助手回答证据（role=assistant）：", evidence_scope="assistant",
+    unit_id_prefix="as|", result_model=AssistantExtractionResult, roles=("assistant",),
+)
 
 
 def track_for_prompt_version(prompt_version: str) -> TrackConfig:
     """按 run manifest 的 prompt_version 反查 TrackConfig（extract 唯一轨来源）。"""
-    if (prompt_version or "") == ASSISTANT_PROMPT_VERSION:
-        return ASSISTANT_TRACK
-    return USER_TRACK
+    tracks = {
+        ASSISTANT_PROMPT_VERSION: ASSISTANT_TRACK,
+        V2_PROMPT_VERSION: V2_USER_TRACK,
+        V2_ASSISTANT_PROMPT_VERSION: V2_ASSISTANT_TRACK,
+    }
+    return tracks.get(prompt_version or "", USER_TRACK)
 
 _VERTEX = vertex_config()
 GCP_PROJECT = _VERTEX.project
@@ -446,6 +471,7 @@ def start_run(
     limit: int | None = None,
     batch_size: int = 50,
     pilot_positions: list[int] | None = None,
+    prompt_version: str | None = None,
 ) -> str:
     """启动新 production extraction run。返回 run_id。
 
@@ -462,18 +488,36 @@ def start_run(
         raise ValueError(f"inventory 不存在: {inventory_id}")
     dataset_hash, source_checksum, item_count = inv
 
-    prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
+    track = track_for_prompt_version(prompt_version or PROMPT_VERSION)
+    if track.prompt_version.startswith("v2"):
+        pending_elsewhere = con.execute(
+            "SELECT status, COUNT(*) FROM knowledge_run_items "
+            "WHERE status IN ('pending','in_flight','retryable') GROUP BY status"
+        ).fetchall()
+        if pending_elsewhere:
+            counts = {row[0]: row[1] for row in pending_elsewhere}
+            con.close()
+            raise ValueError(
+                f"refuse v2 prompt switch while work is active: {counts}"
+            )
+
+    prompt_text = track.prompt_path.read_text(encoding="utf-8")
     prompt_hash = hashlib.sha256(prompt_text.encode()).hexdigest()[:16]
-    schema_hash = "v1_extra_forbid"
+    schema_hash = f"{track.prompt_version}_extra_forbid"
     config = {"batch_size": batch_size, "limit": limit,
-              "pilot_positions": pilot_positions is not None}
+              "pilot_positions": pilot_positions is not None,
+              "injection": {
+                  "top_k": INJECTION_MAX_UNITS,
+                  "answer_chars": INJECTION_ANSWER_CHARS,
+                  "scan_min_chars": 4,
+              } if track.prompt_version.startswith("v2") else None}
     config_hash = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
 
     manifest = RunManifest.create(
         run_type="extraction",
         source_build_id=source_checksum,
         input_data={"inventory_id": inventory_id, "dataset_hash": dataset_hash},
-        prompt_version=PROMPT_VERSION,
+        prompt_version=track.prompt_version,
         model=model,
         config=config,
     )
@@ -482,7 +526,7 @@ def start_run(
     con.execute(
         "INSERT OR REPLACE INTO knowledge_build_runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (manifest.run_id, "extraction", manifest.generated_at, source_checksum,
-         manifest.input_hash, PROMPT_VERSION, "v1", model, "", config_hash,
+         manifest.input_hash, track.prompt_version, "v1", model, "", config_hash,
          "", "", "staging", "", ""),
     )
 
@@ -684,6 +728,7 @@ def _commit_item_result(
     config_hash: str,
     stats: dict,
     track: TrackConfig = USER_TRACK,
+    state_rules: dict | None = None,
 ) -> None:
     """主线程：把 worker 结果写入 SQLite（单 writer）。"""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -766,6 +811,7 @@ def _commit_item_result(
         stats["abstained"] += 1
     else:
         source = work.get("cleaned", "")
+        injected_ids = set(work.get("injected_ids") or ())
         kept = 0
         for ordinal, unit in enumerate(result.units, 1):
             if not _evidence_supported(unit.evidence_quote, source):
@@ -776,9 +822,21 @@ def _commit_item_result(
             unit_id = track.unit_id_prefix + hashlib.sha256(
                 f"{run_id}|{ev_ref}|{ordinal}".encode()
             ).hexdigest()[:32]
+            duplicate_of = validate_duplicate_of(unit.duplicate_of, injected_ids)
+            if unit.duplicate_of and duplicate_of is None:
+                stats["invalid_duplicate_of"] = stats.get("invalid_duplicate_of", 0) + 1
             lifecycle = unit.lifecycle if unit.lifecycle in (
                 "current", "deprecated", "superseded", "conflict"
             ) else "current"
+            state_match = None
+            if track.prompt_version.startswith("v2"):
+                state_match = match_state_subject(
+                    unit.subject,
+                    state_rules if state_rules is not None else load_state_subjects(),
+                )
+            if state_match:
+                lifecycle = "candidate"
+                stats["units_downgraded_candidate"] = stats.get("units_downgraded_candidate", 0) + 1
             # PDA-41：弃用 LLM 自报置信（95% ≥0.9 无区分度），改证据派生。
             # D-03 修饰（非硬 gate）并入派生：采纳 +0.05，纠正 -0.2；
             # corrected 行是未来 lifecycle supersede 候选，自动路由属 deferred
@@ -802,6 +860,11 @@ def _commit_item_result(
                  work.get("source_session_id", ""), item["evidence_ref"],
                  work.get("source_agent", ""), track.evidence_scope, "staging", 1, now),
             )
+            if duplicate_of:
+                con.execute(
+                    "UPDATE knowledge_units SET supersedes_id=? WHERE unit_id=?",
+                    (duplicate_of, unit_id),
+                )
             con.execute(
                 "INSERT OR IGNORE INTO knowledge_unit_evidence (unit_id, evidence_ref) VALUES (?,?)",
                 (unit_id, item["evidence_ref"]),
@@ -852,9 +915,15 @@ def process_run(
     # prompt_hash 本身已隔离）
     schema_hash = f"{track.prompt_version}_extra_forbid"
     # 与串行路径保持同一 cache 命名空间（workers 只影响调度，不参与 cache key）
-    config_hash = hashlib.sha256(
-        json.dumps({"batch_size": batch_size}, sort_keys=True).encode()
-    ).hexdigest()[:16]
+    config_hash = hashlib.sha256(json.dumps({
+        "batch_size": batch_size,
+        "injection": {
+            "top_k": INJECTION_MAX_UNITS,
+            "answer_chars": INJECTION_ANSWER_CHARS,
+            "scan_min_chars": 4,
+            "prompt": track.prompt_version,
+        } if track.prompt_version.startswith("v2") else None,
+    }, sort_keys=True).encode()).hexdigest()[:16]
 
     inv_row = con.execute(
         "SELECT inventory_id FROM knowledge_run_items WHERE run_id=? LIMIT 1",
@@ -871,6 +940,13 @@ def process_run(
 
     canon_con = sqlite3.connect(f"file:{canonical_db.as_posix()}?mode=ro", uri=True)
     canon_con.row_factory = sqlite3.Row
+    subject_index = None
+    state_rules = None
+    if track.prompt_version.startswith("v2"):
+        index_con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+        subject_index = SubjectIndex(index_con)
+        index_con.close()
+        state_rules = load_state_subjects()
 
     stats = {
         "processed": 0, "succeeded": 0, "abstained": 0, "failed": 0,
@@ -880,6 +956,9 @@ def process_run(
         # 双轨对称截断计数（MESSAGE_MAX_CHARS）
         "truncated": 0,
     }
+    if track.prompt_version.startswith("v2"):
+        stats.update({"injection_embed_unavailable": 0, "invalid_duplicate_of": 0,
+                      "units_downgraded_candidate": 0})
     if track.name == "assistant":
         # assistant 轨专属计数（user 轨不含这些键，零回归）
         stats["role_mismatch"] = 0
@@ -926,6 +1005,7 @@ def process_run(
             "source_agent": payload["source_agent"],
             "confirmation_signal": payload.get("confirmation_signal", "none"),
             "question_ref": payload.get("question_ref", ""),
+            "injected_ids": payload.get("injected_ids", set()),
             "write_cache": True,
         }
 
@@ -997,6 +1077,16 @@ def process_run(
                     cleaned = cleaned[:MESSAGE_MAX_CHARS]
                     stats["truncated"] += 1
                 llm_input = cleaned
+                injected_ids: set[str] = set()
+                if subject_index is not None:
+                    recalled = scan_subject_occurrences(subject_index, cleaned)
+                    if recalled:
+                        injected_ids = {str(unit["unit_id"]) for unit in recalled}
+                        llm_input = (
+                            format_injection_block(recalled)
+                            + "\n\n---\n\n"
+                            + llm_input
+                        )
                 confirmation_signal = "none"
                 question_ref = ""
                 if track.name == "assistant":
@@ -1041,6 +1131,7 @@ def process_run(
                         "source_agent": source_agent,
                         "confirmation_signal": confirmation_signal,
                         "question_ref": question_ref,
+                        "injected_ids": injected_ids,
                         "write_cache": False,
                     }))
                 else:
@@ -1055,13 +1146,14 @@ def process_run(
                         "source_agent": source_agent,
                         "confirmation_signal": confirmation_signal,
                         "question_ref": question_ref,
+                        "injected_ids": injected_ids,
                     })
 
             # 2) 主线程先消化 cache hit
             for item, work in ready_cache:
                 _commit_item_result(
                     con, run_id, item, work, model,
-                    prompt_hash, schema_hash, config_hash, stats, track,
+                    prompt_hash, schema_hash, config_hash, stats, track, state_rules,
                 )
 
             # 3) worker 并发 LLM；主线程按完成顺序写库
@@ -1089,7 +1181,7 @@ def process_run(
                         batch_retryable += 1
                     _commit_item_result(
                         con, run_id, item, work, model,
-                        prompt_hash, schema_hash, config_hash, stats, track,
+                        prompt_hash, schema_hash, config_hash, stats, track, state_rules,
                     )
                     done = stats["processed"] + stats["failed"] + stats["abstained"]
                     if done % 10 == 0 or done == 1:
@@ -1168,6 +1260,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--inventory", help="inventory ID（--start 时必须）")
     p.add_argument("--pilot-manifest", help="pilot manifest JSON 路径（--start 时用分层 sample positions）")
     p.add_argument("--model", required=False, default=_VERTEX.model, help="模型 ID")
+    p.add_argument(
+        "--prompt-version",
+        choices=[PROMPT_VERSION, ASSISTANT_PROMPT_VERSION, V2_PROMPT_VERSION, V2_ASSISTANT_PROMPT_VERSION],
+        default=None,
+        help="显式选择新 run 的 prompt 轨；v2 仅在 run 间隙启用",
+    )
     p.add_argument("--limit", type=int, default=None, help="只处理前 N 条")
     p.add_argument("--batch-size", type=int, default=50)
     p.add_argument("--max-items", type=int, default=None, help="单次最多处理 N 条（分批模式）")
@@ -1212,7 +1310,8 @@ def main(argv: list[str] | None = None) -> int:
             pilot_positions = manifest.get("sample_positions", [])
             print(f"[pilot] {len(pilot_positions)} positions from manifest")
         run_id = start_run(args.model, args.inventory, args.db, args.limit,
-                           args.batch_size, pilot_positions=pilot_positions)
+                           args.batch_size, pilot_positions=pilot_positions,
+                           prompt_version=args.prompt_version)
         print(f"[start] run_id: {run_id}")
         stats = process_run(
             run_id, args.model, args.db,

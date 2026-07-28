@@ -83,6 +83,7 @@ def publish_incremental_run(
         "canonical_staging": canon_staging,
         "canonical_current_before": canon_current,
         "demoted_other_runs": 0,
+        "candidate_excluded": 0,
         "active_pointer_touched": False,
         "published_at": _utc_now() if write else None,
     }
@@ -94,9 +95,14 @@ def publish_incremental_run(
 
     # Additive only — never demote other runs
     assert_foreign_key_integrity(con)
+    report["candidate_excluded"] = con.execute(
+        "SELECT COUNT(*) FROM knowledge_units "
+        "WHERE run_id=? AND status='staging' AND lifecycle='candidate'",
+        (run_id,),
+    ).fetchone()[0]
     con.execute(
         "UPDATE knowledge_units SET status='current' "
-        "WHERE run_id=? AND status='staging'",
+        "WHERE run_id=? AND status='staging' AND lifecycle<>'candidate'",
         (run_id,),
     )
     units_promoted = con.execute("SELECT changes()").fetchone()[0]
