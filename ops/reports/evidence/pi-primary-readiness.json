@@ -1,0 +1,24 @@
+{
+  "schema": "pi-primary-readiness-v1",
+  "status": "BLOCKED",
+  "ready": false,
+  "run_at": "2026-08-04T23:31:31.0870793Z",
+  "reason_codes": [
+    "phase53_decision_not_proceed",
+    "baseline_not_pass",
+    "baseline_sample_below_minimum",
+    "arm_response_schema_invalid",
+    "entrypoint_receipts_missing"
+  ],
+  "production_entrypoint_count": 12,
+  "entrypoint_receipts": {},
+  "linked_evidence": {
+    "inventory": "governance/manifests/ai/pi-ai-entrypoints.json",
+    "baseline": "ops/reports/evidence/pi-phase53-real-paired-baseline.json",
+    "fault_matrix": "ops/reports/evidence/pi-kernel-fault-matrix.json",
+    "browser_uat": "ops/reports/evidence/pi-browser-uat.json"
+  },
+  "authority_mutations": 0,
+  "raw_bodies_committed": false,
+  "primary_activated": false
+}
