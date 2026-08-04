@@ -1,0 +1,10 @@
+{
+  "schema":"pi-legacy-real-baseline-v1",
+  "status":"blocked",
+  "decision":"INCONCLUSIVE",
+  "evidence_class":"not_executed",
+  "reason":"explicit_provider_authorization_missing",
+  "provider_calls":0,
+  "preregistration_checksum":"pi53-preregistration-frozen-v1",
+  "output_bodies_committed":false
+}
