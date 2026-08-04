@@ -96,6 +96,7 @@ def test_real_arm_prompt_freezes_exact_response_contract(tmp_path: Path) -> None
     class CaptureProvider:
         def generate(self, request):
             seen["prompt"] = request.prompt
+            seen["request"] = request
             payload = {
                 "protocol_checksum": protocol.payload_checksum,
                 "blind_label": "arm_a",
@@ -119,3 +120,5 @@ def test_real_arm_prompt_freezes_exact_response_contract(tmp_path: Path) -> None
     execute_frozen_arm(db, arm_id=ids["generic"], provider=CaptureProvider())
     assert "exactly these top-level keys" in seen["prompt"]
     assert "Do not add markdown, commentary, or extra keys" in seen["prompt"]
+    assert seen["request"].temperature == protocol.payload["common_generation"]["temperature"]
+    assert seen["request"].max_output_tokens == protocol.payload["common_generation"]["max_output_tokens"]

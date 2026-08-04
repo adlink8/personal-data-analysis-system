@@ -124,7 +124,11 @@ def execute_frozen_arm(
         "non-empty JSON arrays of strings. confidence must be a number from 0 to 1.\n"
         + canonical_json(request)
     )
-    result=provider.generate(ProviderRequest(prompt,arm["request_checksum"],0,2048,timeout_seconds))
+    generation = request.get("generation") or {}
+    result=provider.generate(ProviderRequest(
+        prompt, arm["request_checksum"], float(generation["temperature"]),
+        int(generation["max_output_tokens"]), timeout_seconds,
+    ))
     payload=dict(result.response_payload)
     _validate_response_contract(payload, request, arm["blind_label"])
     envelope={"response":payload,"response_checksum":result.response_checksum,"receipt":asdict(result.telemetry)}
