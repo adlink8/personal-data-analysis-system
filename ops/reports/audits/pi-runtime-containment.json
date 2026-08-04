@@ -1,0 +1,67 @@
+{
+  "schema": "pi-runtime-containment-v1",
+  "version": "48.02.1",
+  "status": "passed",
+  "run_id": "piq_f7896e839999ed2eac87ebd4",
+  "evidence_checksums": {
+    "package_json": "ccef56537700b798289963f1be8b678bb686d0a088cb4d8c7758247528ee7ff1",
+    "package_lock": "24758cc8719a060d884bc6613b80bb10c2348c01a612a2d2ce16c660165a684a",
+    "package_baseline": "bf6f4b401ad0561d20bbfe47dfad4dcd24c3c9c7ac9c7343836ec07c43450d43",
+    "tool_registry": "0be0b25b36e97b3451e06f460a1e81cbbd018f95f85f6f1308e8bbba9b46d46f",
+    "network_allowlist": "67554e5ed0896d34e6fd9ccabc2f40f38069f10b24bf5d343359b09baa72079d"
+  },
+  "containment_pass": true,
+  "privacy_pass": true,
+  "protected_fingerprints_unchanged": true,
+  "tests_passed": true,
+  "expiry": "2026-09-03T23:59:59Z",
+  "runtime_evidence_checksum": "8ee0e022c7ed6b1983b9458bef8a20e53c0c1500490298fbf663c5e1e3190cb6",
+  "probe": {
+    "node_version": "24.13.0",
+    "counts": {
+      "extensions": 0,
+      "skills": 0,
+      "prompt_templates": 0,
+      "themes": 0,
+      "context_files": 0,
+      "forbidden_tools": 0,
+      "fixture_files": 18,
+      "provider_calls": 0
+    },
+    "tool_names": ["domain_candidate", "domain_inspect"],
+    "reason_codes": [
+      "builtin_tools_disabled",
+      "domain_tools_allowlisted",
+      "egress_denied",
+      "explicit_paths",
+      "fixture_checksums_only",
+      "hostile_fixtures_unreachable",
+      "in_memory_session",
+      "in_memory_settings",
+      "metadata_only_output",
+      "provider_not_called",
+      "resource_discovery_disabled",
+      "temporary_state_cleaned"
+    ],
+    "fixture_checksums": {
+      "auth": "734b3f3c33f48d98f66b69327683703a336c90777b42a663d49e527737043713",
+      "child_process_marker": "4c41f97d4a5d30ededbc38234b21640cf87a24d02dc2fcd363e5fc1d2f548612",
+      "credential_like_env": "d14135d0d18b73a69f26a3eabadfaddd8c1503b1f4ed0ae3b21db9d4bc1028f6",
+      "global_context": "8a73a5f3212b318660a13f7dc41d4f818fa3b2d3169111725b51b260526939a4",
+      "global_extension": "0c0153ee6caffbbfc1281cf8135fe1a54c8906e23563833e5577f85870259479",
+      "global_prompt": "604150b47dd3661b4d84a30106ddf5b71a266cffe4f14f9f86bafb1cfad9e10e",
+      "global_skill": "843f9481b5c58f57b7a6da9dd2a38c96bfc397e9b1a5341e7a0cfcbb1edb4fe4",
+      "global_theme": "e47a4f7183513ccbf672ba5d5c933e82deeef53498aef24152e18456d95eaec9",
+      "hidden_tool": "bdaa582a32229675c22545ba18b0063ba2ad8ccf33c22b739337a7d346676579",
+      "local_context": "103e6650a169f4ccb419e52d9abfe52bf90d52943c16f2bb83a6e9c9e6d21c81",
+      "local_extension": "ecf8c8f362ab81cf4eaa8500e2b3b398f3fbff76ab9c34c942b837a7033ac2b0",
+      "local_prompt": "a82ec584d8f2a7d4d1329178cb279a846b1ab1e03832a732f76ed9e068c82669",
+      "local_skill": "c59acf80d162a92f840b8627612d3f7f0d523ba6f39dcb9e60d1511d79662bf9",
+      "local_theme": "6a10c5753367d324572148cc9dec0d74fc72823a976dc106742bb8e49d0cfe93",
+      "oversized_result": "f9433195076d5f914e02e4ed7df6714e4caed40fc9db40b391c713bfbf7667be",
+      "parent_context": "2a887413a22b7501f867eefb091e94018341e2e53b6496e7146f6d6ee0c11116",
+      "settings": "59fedfbc9a6307bf3416e4a924cfa61fbc1d93fdb29c5affd2e67541038dee1a",
+      "unknown_network_host": "c1f34c79fe516be89a85f45d874761e544b46d25bec5caf0716635049febb63d"
+    }
+  }
+}

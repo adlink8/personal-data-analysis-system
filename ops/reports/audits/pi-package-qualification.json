@@ -7,22 +7,20 @@
     "version": "0.1.0"
   },
   "registry": "https://registry.npmjs.org",
-  "decision": "conditional",
-  "accepted": false,
+  "decision": "accepted",
+  "accepted": true,
   "package_security_pass": true,
-  "runtime_containment_pass": false,
-  "reason_codes": [
-    "runtime_evidence_missing"
-  ],
+  "runtime_containment_pass": true,
+  "reason_codes": [],
   "evidence_checksums": {
     "package_json": "ccef56537700b798289963f1be8b678bb686d0a088cb4d8c7758247528ee7ff1",
     "package_lock": "24758cc8719a060d884bc6613b80bb10c2348c01a612a2d2ce16c660165a684a",
     "package_baseline": "bf6f4b401ad0561d20bbfe47dfad4dcd24c3c9c7ac9c7343836ec07c43450d43",
     "tool_registry": "0be0b25b36e97b3451e06f460a1e81cbbd018f95f85f6f1308e8bbba9b46d46f",
     "network_allowlist": "67554e5ed0896d34e6fd9ccabc2f40f38069f10b24bf5d343359b09baa72079d",
-    "runtime_evidence": null
+    "runtime_evidence": "8893573f913e489e24cec40f3fbd2779681107962770e5252778cfa94ab99816"
   },
-  "evidence_checksum": "64965a9d6a9079e63013efc45a1458667751397b1db7c3ac1d052557dfd046e2",
+  "evidence_checksum": "6419dfd5979909192a1be8ae23321f72f965da54d5fa332cd21e0ff04858d704",
   "checks": {
     "manifest": {
       "pass": true,
@@ -63,7 +61,12 @@
       "reason_codes": []
     },
     "runtime_containment": {
-      "present": false
+      "present": true,
+      "schema": "pi-runtime-containment-v1",
+      "status": "passed",
+      "run_id_match": true,
+      "evidence_checksums_match": true,
+      "checks_pass": true
     },
     "gates": {
       "SEC-01": {
@@ -71,23 +74,19 @@
         "reason_codes": []
       },
       "SEC-02": {
-        "pass": false,
-        "reason_codes": [
-          "runtime_evidence_missing"
-        ]
+        "pass": true,
+        "reason_codes": []
       },
       "TOOL-02": {
-        "pass": false,
-        "reason_codes": [
-          "runtime_evidence_missing"
-        ]
+        "pass": true,
+        "reason_codes": []
       }
     }
   },
   "governance": {
     "owner": "Phase 48 security governance",
-    "reviewed_at": "2026-08-04T08:37:59.839Z",
-    "expiry": "2026-09-03T08:37:59.839Z",
+    "reviewed_at": "2026-08-04T09:09:39.040Z",
+    "expiry": "2026-09-03T09:09:39.040Z",
     "requalification_triggers": [
       "package.json or package-lock.json changes",
       "npmjs.org metadata, integrity, license, repository or engine changes",
@@ -96,8 +95,7 @@
       "runtime containment evidence expires or regresses"
     ],
     "allowed_scope": [
-      "isolated qualification evidence only",
-      "no Phase 49 production dependency use"
+      "Phase 49 dependency use only after its own runtime and activation gates"
     ]
   },
   "packages": [

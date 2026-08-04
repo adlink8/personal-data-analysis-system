@@ -273,7 +273,11 @@ function qualify(options) {
   const baselinePath = resolve(options.baseline ?? DEFAULT_BASELINE);
   const toolRegistryPath = resolve(options.tool_registry ?? DEFAULT_TOOL_REGISTRY);
   const networkAllowlistPath = resolve(options.network_allowlist ?? DEFAULT_NETWORK_ALLOWLIST);
-  const runtimePath = resolve(options.runtime_evidence ?? DEFAULT_RUNTIME_EVIDENCE);
+  const runtimePath = options.runtime_evidence
+    ? resolve(options.runtime_evidence)
+    : options.package_dir
+      ? resolve(packageDir, "runtime-evidence.json")
+      : DEFAULT_RUNTIME_EVIDENCE;
   const baseline = readJson(baselinePath);
   const manifestPath = join(packageDir, "package.json");
   const lockPath = join(packageDir, "package-lock.json");
