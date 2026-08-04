@@ -1,0 +1,10 @@
+{
+  "schema":"pi-shadow-canary-v1",
+  "status":"blocked",
+  "decision":"revise",
+  "evidence_class":"synthetic_replay",
+  "mode":"legacy",
+  "provider_calls":0,
+  "reason":"phase53_real_baseline_and_user_acceptance_missing",
+  "automatic_downgrade_target":"legacy"
+}

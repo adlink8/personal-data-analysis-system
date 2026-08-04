@@ -1,0 +1,10 @@
+{
+  "schema":"pi-primary-activation-v1",
+  "status":"blocked",
+  "mode":"legacy",
+  "primary_activated":false,
+  "provider_calls":0,
+  "reason":"phase53_decision_revise_and_explicit_primary_confirmation_missing",
+  "authority_mutated":false,
+  "history_preserved":true
+}
