@@ -158,6 +158,28 @@ export const OverviewEnvelopeSchema = envelope('overview.get', OverviewDataSchem
 export type OverviewEnvelope = z.infer<typeof OverviewEnvelopeSchema>;
 export type OverviewData = z.infer<typeof OverviewDataSchema>;
 
+/* ---------------- pi runtime (Phase 52) ---------------- */
+export const piCockpitEventSchema = z.object({
+  schema_version: z.literal('pi_cockpit_event_v1'),
+  event_id: z.string(), task_id: z.string(), session_id: z.string(),
+  state: z.enum(['queued', 'claimed', 'running', 'cancel_requested', 'succeeded', 'failed', 'outcome_unknown', 'offline', 'stale']),
+  version: z.number(), progress: z.number(), tool_label: z.string(),
+  evidence_refs: z.array(z.unknown()), recovery_action: z.string(), observed_at: z.string(),
+}).passthrough();
+export const piRuntimeStatusSchema = z.object({
+  schema_version: z.literal('pi_cockpit_event_v1'), service: z.literal('pi-kernel'),
+  state: z.enum(['ready', 'degraded', 'offline', 'stale']), host: z.literal('127.0.0.1'), port: z.number(),
+  provider_calls: z.number(), observed_at: z.string(), recovery_action: z.string(),
+}).passthrough();
+export const piRuntimeTasksSchema = z.object({ schema_version: z.literal('pi_cockpit_event_v1'), tasks: z.array(piCockpitEventSchema), observed_at: z.string() }).passthrough();
+export const piRuntimeMutationSchema = z.object({
+  ok: z.boolean(),
+  data: piCockpitEventSchema.optional(),
+  error: z.object({ code: z.string() }).optional(),
+}).passthrough();
+export type PiRuntimeStatus = z.infer<typeof piRuntimeStatusSchema>;
+export type PiRuntimeTasks = z.infer<typeof piRuntimeTasksSchema>;
+
 /* ---------------- system.status.get ---------------- */
 
 const PortSchema = z
@@ -818,3 +840,174 @@ export type EvidenceResolveEnvelope = z.infer<typeof evidenceResolveEnvelopeSche
 export type EvidenceResolveData = z.infer<typeof EvidenceResolveDataSchema>;
 export type EvidenceResult = z.infer<typeof EvidenceResultSchema>;
 export type EvidenceReference = z.infer<typeof EvidenceReferenceSchema>;
+
+/* ---------------- personal_wiki_projection_v1（v1.5） ---------------- */
+
+const WikiSnapshotBindingsSchema = z
+  .object({
+    personal: z.string().nullable().optional(),
+    external: z.string().nullable().optional(),
+    decision: z.string().nullable().optional(),
+    serving: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const WikiFreshnessSchema = z
+  .object({
+    state: z.enum(['fresh', 'partial', 'stale', 'missing', 'unavailable']).optional(),
+    generated_at: z.string().optional(),
+    personal_as_of: z.string().nullable().optional(),
+    external_as_of: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const WikiEvidenceRefSchema = z
+  .object({
+    ref: z.string().nullish(),
+    artifact_type: z.string().nullish(),
+    serving_role: z.string().nullish(),
+    artifact_version_id: z.string().nullish(),
+    privacy_class: z.string().nullish(),
+    status: z.string().nullish(),
+  })
+  .passthrough();
+
+const WikiAuthorityRefSchema = z
+  .object({
+    authority_id: z.string(),
+    record_type: z.string(),
+    record_id: z.string().nullish(),
+    snapshot_id: z.string().nullish(),
+    checksum: z.string().nullish(),
+  })
+  .passthrough();
+
+const WikiTopicSchema = z
+  .object({
+    topic_id: z.string().min(1),
+    topic_type: z.enum(['project', 'goal', 'decision']),
+    canonical_key: z.string(),
+    display_label: z.string().optional(),
+  })
+  .passthrough();
+
+const WikiTopicCardSchema = WikiTopicSchema.extend({
+  authority: z.string().nullish(),
+  snapshot_id: z.string().nullish(),
+  freshness: z.string().nullish(),
+});
+
+const WikiClaimSchema = z
+  .object({
+    claim_type: z.string().nullish(),
+    key: AssertionKeySchema.nullish(),
+    status: z.string().nullish(),
+    assertion_type: z.string().nullish(),
+    provenance_class: z.string().nullish(),
+    confidence: z.union([z.number(), z.string()]).nullish(),
+    uncertainty: z.array(z.string()).default([]),
+    recommendation_id: z.string().nullish(),
+    domain: z.string().nullish(),
+    scope: z.string().nullish(),
+    recommendation_kind: z.string().nullish(),
+    horizon: z.string().nullish(),
+    confirmation_state: z.string().nullish(),
+    action_state: z.string().nullish(),
+    causal_claim: z.boolean().nullish(),
+    authority_ref: WikiAuthorityRefSchema.nullish(),
+    evidence_refs: z.array(WikiEvidenceRefSchema).default([]),
+  })
+  .passthrough();
+
+const WikiClaimsSchema = z
+  .object({
+    current: z.array(WikiClaimSchema).default([]),
+    observations: z.array(WikiClaimSchema).default([]),
+    inferences: z.array(WikiClaimSchema).default([]),
+    recommendations: z.array(WikiClaimSchema).default([]),
+    historical: z.array(WikiClaimSchema).default([]),
+    conflicts: z.array(WikiClaimSchema).default([]),
+    external: z.array(WikiClaimSchema).default([]),
+    decision_feedback: z.array(WikiClaimSchema).default([]),
+  })
+  .passthrough();
+
+function wikiEnvelope<Op extends string, D extends z.ZodTypeAny>(operation: Op, dataSchema: D) {
+  return z
+    .object({
+      schema_version: z.literal('personal_wiki_projection_v1'),
+      operation: z.literal(operation),
+      ok: z.boolean(),
+      status: z.enum(['fresh', 'partial', 'stale', 'unavailable', 'success']).optional(),
+      generated_at: z.string().optional(),
+      snapshot_bindings: WikiSnapshotBindingsSchema,
+      freshness: WikiFreshnessSchema,
+      authorities: z.record(z.string()).default({}),
+      partial: z.boolean().default(false),
+      limitations: z.array(z.string()).default([]),
+      projection_checksum: z.string().nullable().optional(),
+      error: z.string().nullish(),
+      data: dataSchema.nullable(),
+    })
+    .passthrough();
+}
+
+export const WikiTopicListDataSchema = z
+  .object({
+    items: z.array(WikiTopicCardSchema).default([]),
+    total_available: z.number().nullable().optional(),
+    limit: z.number().nullable().optional(),
+    next_cursor: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export const WikiTopicGetDataSchema = z
+  .object({
+    topic: WikiTopicSchema,
+    claims: WikiClaimsSchema,
+    evidence_refs: z.array(WikiEvidenceRefSchema).default([]),
+  })
+  .passthrough();
+
+const WikiBacklinkSchema = z
+  .object({
+    relation_type: z.enum([
+      'assertion_matches_topic',
+      'recommendation_targets_topic',
+      'decision_feedback_for_recommendation',
+    ]),
+    join_basis: z.string(),
+    source: WikiAuthorityRefSchema,
+  })
+  .passthrough();
+
+export const WikiTopicBacklinksDataSchema = z
+  .object({
+    topic: WikiTopicSchema,
+    links: z.array(WikiBacklinkSchema).default([]),
+  })
+  .passthrough();
+
+export const wikiTopicListEnvelopeSchema = wikiEnvelope('topic.list', WikiTopicListDataSchema);
+export const wikiTopicGetEnvelopeSchema = wikiEnvelope('topic.get', WikiTopicGetDataSchema);
+export const wikiTopicBacklinksEnvelopeSchema = wikiEnvelope('topic.backlinks', WikiTopicBacklinksDataSchema);
+export const WikiTopicResolveDataSchema = z
+  .object({
+    selected_source: z.enum(['fresh_wiki', 'structured_authority', 'active_ku_search', 'raw_evidence']),
+    attempted_sources: z.array(z.string()),
+    fallback_reason: z.string().nullable().optional(),
+    source: z.record(z.unknown()),
+    topic: WikiTopicSchema.nullish(),
+  })
+  .passthrough();
+export const wikiTopicResolveEnvelopeSchema = wikiEnvelope('topic.resolve', WikiTopicResolveDataSchema);
+export type WikiTopicListEnvelope = z.infer<typeof wikiTopicListEnvelopeSchema>;
+export type WikiTopicGetEnvelope = z.infer<typeof wikiTopicGetEnvelopeSchema>;
+export type WikiTopicBacklinksEnvelope = z.infer<typeof wikiTopicBacklinksEnvelopeSchema>;
+export type WikiTopicResolveEnvelope = z.infer<typeof wikiTopicResolveEnvelopeSchema>;
+export type WikiTopic = z.infer<typeof WikiTopicSchema>;
+export type WikiTopicCard = z.infer<typeof WikiTopicCardSchema>;
+export type WikiTopicGetData = z.infer<typeof WikiTopicGetDataSchema>;
+export type WikiClaim = z.infer<typeof WikiClaimSchema>;
+export type WikiBacklink = z.infer<typeof WikiBacklinkSchema>;
+export type WikiTopicType = WikiTopic['topic_type'];

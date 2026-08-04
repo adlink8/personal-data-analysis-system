@@ -1,9 +1,9 @@
 # Core
 ## Responsibility
 Foundation contracts, paths, IDs and narrow shared utilities.
-Includes **`llm.py`** (Phase 21): generic OpenAI-compatible client + retry,
-extracted from conversation summary so graph/memory peers no longer import a
-conversation domain hub.
+Includes **`llm.py`**: a small OpenAI-compatible facade backed by one
+capability-protected Pi Kernel task per completion. The old OpenAI-compatible
+client is retained only behind explicit `PI_KERNEL_LEGACY_MODE=1` rollback.
 ## Boundaries
 Cannot import domain, pipeline, service or evaluation modules.
 ## Entry points
@@ -13,7 +13,9 @@ Legacy `integration.scripts.core` shims may re-export during compatibility.
 ## I/O and privacy
 No direct raw/private content reads. Path resolution prefers Phase 20 trees
 (`data/`, `var/`, `archive/`) via `project_paths`, with optional legacy fallback.
-AgentsView live DB stays external and read-only.
+AgentsView live DB stays external and read-only. Raw prompts/responses used by
+the compatibility facade remain in process memory; Pi stores receive only
+task/session/event metadata and checksums.
 `privacy_guard` is the shared exit sealer for MCP/REST retrieval payloads
 (keys, tokens, PEM, assignment secrets → `[PRIVACY:…]`).
 ## Tests

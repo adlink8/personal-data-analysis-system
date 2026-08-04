@@ -80,6 +80,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-19)
 - Phase 53: deterministic replay/fault-matrix infrastructure, real Pi Kernel smoke and automated/browser-accepted UAT complete; the paired baseline executed but remains **INCONCLUSIVE** on response-contract and minimum-sample gates.
 - Phase 54: activation ledger, shadow/canary policy, primary-routing guard and exact rollback are verified; primary was **not activated** and current mode remains `legacy`.
 - One authorized minimum personal cohort was used for a two-arm paired call (0.001113 CNY); raw bodies were not committed. No production primary switch, promotion, watermark change or remote write was performed; runtime remains `legacy`.
+- Runtime migration follow-up: normal guarded generation and knowledge extraction now use `PiKernelProvider` over the loopback Kernel task route; explicit legacy Vertex execution requires `PI_KERNEL_LEGACY_MODE=1`.
+- The remaining application LLM facade is now Pi-backed as well: conversation summaries, memory extraction/repair, graph relation judging and other generic generation calls use purpose-specific Pi routes; direct OpenAI construction is rollback-only. Evaluation and provider-probe scripts remain explicitly classified as test-only.
+- Pi task execution now supports a capability-protected ephemeral response handoff for trusted Python parsers. Task/Session/Event/Candidate stores receive metadata/checksums only; Candidate staging emits a `candidate_staged` Event and a Session receipt.
+- Same-origin Cockpit now exposes a projected Kernel SSE stream and versioned cancel/result-reconciliation controls. Primary/canary remain blocked because the frozen Phase 53 decision is `revise`.
 
 ## Cross-cutting architecture/data governance audit
 

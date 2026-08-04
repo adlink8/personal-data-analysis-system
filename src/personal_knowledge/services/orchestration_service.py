@@ -57,6 +57,19 @@ class GuardedOrchestrationInterface:
         self.analysis_db = Path(analysis_db)
         self.pilot_db = Path(pilot_db)
         self.calibration_db = Path(calibration_db)
+        if generation_runner is None:
+            # Normal generation is Pi-owned. The adapter preserves the
+            # existing Python validation/publication contract, while the
+            # actual provider task, session and model receipt are created by
+            # the loopback Kernel route.
+            from personal_knowledge.intelligence.analysis.providers import PiKernelProvider
+            from personal_knowledge.intelligence.orchestration.generation import ExistingAnalysisAdapter
+            generation_runner = ExistingAnalysisAdapter(
+                provider=PiKernelProvider(purpose="guarded_generation"),
+                personal_db=personal_db,
+                external_db=external_db,
+                analysis_db=analysis_db,
+            )
         self.generation_runner = generation_runner
         self.calibration_runner = calibration_runner
 

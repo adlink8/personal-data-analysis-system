@@ -57,6 +57,14 @@ def test_rest_and_stdio_delegate_to_identical_shared_contract(tmp_path: Path) ->
     assert rest["data"]["operation"] == "confirm"
 
 
+def test_default_generation_runner_is_pi_kernel_owned(tmp_path: Path) -> None:
+    interface, _ = _interface(tmp_path)
+    runner = interface.generation_runner
+    assert runner.__class__.__name__ == "ExistingAnalysisAdapter"
+    assert runner.provider.__class__.__name__ == "PiKernelProvider"
+    assert runner.provider.purpose == "guarded_generation"
+
+
 def test_confirmation_preview_resume_and_stable_errors(tmp_path: Path) -> None:
     interface, core = _interface(tmp_path)
     prepared = interface.invoke(

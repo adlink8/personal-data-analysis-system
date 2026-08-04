@@ -17,7 +17,8 @@
   "reduced_motion_rule_present": true,
   "privacy_boundary": "PASS_NO_PROMPT_OR_PROVIDER_BODY",
   "authority_mutations": 0,
-  "real_personal_cohort_accessed": false,
+  "real_personal_cohort_accessed": true,
+  "paired_baseline_evidence": "ops/reports/evidence/pi-phase53-real-paired-baseline.json",
   "human_acceptance_signed": true,
   "human_acceptance_basis": "explicit user confirmation in current task",
   "primary_activated": false

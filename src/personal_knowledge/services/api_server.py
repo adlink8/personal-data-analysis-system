@@ -113,6 +113,7 @@ from personal_knowledge.services.pi_domain_gateway import (  # noqa: E402
 from personal_knowledge.services.pi_runtime_projection import (  # noqa: E402
     kernel_status,
     mutate_task,
+    open_event_stream,
     safe_event,
     task_list,
 )
@@ -258,6 +259,79 @@ def _safe_error(code: str, http_status: int) -> tuple[bytes, int]:
         json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         http_status,
     )
+
+
+_PI_EVENT_STATE = {
+    "task_accepted": "queued", "task_started": "running",
+    "task_completed": "succeeded", "task_failed": "failed",
+    "task_cancel_requested": "cancel_requested", "error": "failed",
+}
+
+
+def _project_kernel_sse_event(event: dict) -> dict:
+    event_type = str(event.get("type") or "")
+    payload_ref = event.get("payload_ref") if isinstance(event.get("payload_ref"), dict) else {}
+    task_id = str(event.get("correlation_id") or payload_ref.get("ref") or "")
+    return safe_event({
+        "event_id": event.get("event_id"),
+        "task_id": task_id,
+        "session_id": "",
+        "state": _PI_EVENT_STATE.get(event_type, "stale"),
+        "version": 0,
+        "progress": None,
+        "tool_label": "pi-kernel task",
+        "evidence_refs": [],
+        "observed_at": event.get("occurred_at"),
+    })
+
+
+def _stream_pi_events(handler: "Handler") -> None:
+    """Proxy Kernel SSE and project every record to safe cockpit metadata."""
+    upstream = None
+    headers_sent = False
+    try:
+        upstream = open_event_stream(handler.headers.get("Last-Event-ID"))
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        handler.send_header("Cache-Control", "no-cache, no-transform")
+        handler.send_header("Connection", "keep-alive")
+        handler.send_header("X-Accel-Buffering", "no")
+        handler.end_headers()
+        headers_sent = True
+        event_id, event_name, data_lines = "", "", []
+        for raw_line in upstream:
+            line = raw_line.decode("utf-8", errors="strict").rstrip("\r\n")
+            if line.startswith("id:"):
+                event_id = line[3:].strip()
+            elif line.startswith("event:"):
+                event_name = line[6:].strip()
+            elif line.startswith("data:"):
+                data_lines.append(line[5:].lstrip())
+            elif not line and data_lines:
+                try:
+                    payload = json.loads("\n".join(data_lines))
+                    if event_name == "heartbeat":
+                        output = f"event: heartbeat\ndata: {json.dumps({'status': 'alive', 'latest_sequence': int(payload.get('latest_sequence') or 0)}, ensure_ascii=False)}\n\n"
+                    elif isinstance(payload, dict) and isinstance(payload.get("event"), dict):
+                        safe = _project_kernel_sse_event(payload["event"])
+                        output = f"id: {event_id}\nevent: pi-event\ndata: {json.dumps(safe, ensure_ascii=False)}\n\n"
+                    else:
+                        output = ""
+                    if output:
+                        handler.wfile.write(output.encode("utf-8"))
+                        handler.wfile.flush()
+                except (ValueError, TypeError, UnicodeError):
+                    pass
+                event_id, event_name, data_lines = "", "", []
+    except Exception:
+        if not headers_sent:
+            body, code = _safe_error("internal_error", 503)
+            handler._send(body, code)
+    finally:
+        try:
+            upstream.close()
+        except Exception:
+            pass
 
 
 def _seal_payload(data):
@@ -464,6 +538,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(_contract(payload))
                 return
             if path == "/api/pi/events":
+                if qs.get("stream", "").lower() in {"1", "true", "yes"}:
+                    _stream_pi_events(self)
+                    return
                 event = safe_event({"event_id": qs.get("event_id"), "task_id": qs.get("task_id"), "state": qs.get("state"), "version": qs.get("version")})
                 self._send(_ok(event))
                 return

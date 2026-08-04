@@ -259,12 +259,15 @@ try {
   $secretBytes = [byte[]]::new(32)
   [Security.Cryptography.RandomNumberGenerator]::Fill($secretBytes)
   $orchestrationSecret = [Convert]::ToBase64String($secretBytes)
+  $piKernelCapabilityBytes = [byte[]]::new(32)
+  [Security.Cryptography.RandomNumberGenerator]::Fill($piKernelCapabilityBytes)
+  $piKernelCapability = [Convert]::ToBase64String($piKernelCapabilityBytes)
   & $preflight.Python -c "from personal_knowledge.intelligence.orchestration import apply_schema; apply_schema(r'$ProjectRoot\var\db\decision_orchestration.sqlite')" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'orchestration_schema_provision_failed' }
 
   $specs = @(
-    @{ Key='rest'; FilePath=$preflight.Python; Arguments=@('-m','personal_knowledge.services.api_server','--host',$loopbackHost,'--port',[string]$RestPort); WorkDir=$ProjectRoot; HealthUrl=$restHealth; Port=$RestPort; Environment=@{ PERSONAL_DATA_ORCHESTRATION_SECRET=$orchestrationSecret } },
-    @{ Key='pi-kernel'; FilePath=$preflight.Node; Arguments=@('apps\personal_intelligence_kernel\src\server.mjs','--port',[string]$KernelPort); WorkDir=$ProjectRoot; HealthUrl=$kernelHealth; Port=$KernelPort; Environment=@{ PI_KERNEL_PORT=[string]$KernelPort } },
+    @{ Key='rest'; FilePath=$preflight.Python; Arguments=@('-m','personal_knowledge.services.api_server','--host',$loopbackHost,'--port',[string]$RestPort); WorkDir=$ProjectRoot; HealthUrl=$restHealth; Port=$RestPort; Environment=@{ PERSONAL_DATA_ORCHESTRATION_SECRET=$orchestrationSecret; PI_KERNEL_INTERNAL_CAPABILITY=$piKernelCapability; PI_KERNEL_URL=(New-LocalUrl $KernelPort ''); PI_KERNEL_AI_WORKFLOW='1' } },
+    @{ Key='pi-kernel'; FilePath=$preflight.Node; Arguments=@('apps\personal_intelligence_kernel\src\server.mjs','--port',[string]$KernelPort); WorkDir=$ProjectRoot; HealthUrl=$kernelHealth; Port=$KernelPort; Environment=@{ PI_KERNEL_PORT=[string]$KernelPort; PI_KERNEL_INTERNAL_CAPABILITY=$piKernelCapability } },
     @{ Key='mcp'; FilePath=$preflight.Node; Arguments=@('server.mjs'); WorkDir=$appDir; HealthUrl=$mcpHealth; Port=$McpPort; Environment=@{ PORT=[string]$McpPort; PERSONAL_DATA_REST_URL=(New-LocalUrl $RestPort '') } }
   )
   if (-not $SkipTunnel) {

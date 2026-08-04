@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
-import { apiGet } from './client';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { apiGet, apiPost } from './client';
 import { fetchProactiveCandidateExplain, fetchProactiveControlsStatus } from './proactive';
 import {
   OverviewEnvelopeSchema,
@@ -13,6 +13,14 @@ import {
   personalStateEnvelopeSchema,
   proactiveSummaryEnvelopeSchema,
   type EvidenceSubjectType,
+  wikiTopicBacklinksEnvelopeSchema,
+  wikiTopicGetEnvelopeSchema,
+  wikiTopicListEnvelopeSchema,
+  wikiTopicResolveEnvelopeSchema,
+  type WikiTopicType,
+  piRuntimeStatusSchema,
+  piRuntimeTasksSchema,
+  piRuntimeMutationSchema,
 } from './schemas';
 
 // 只读投影的通用节奏：30s 内不算 stale，失败只重试 1 次，每分钟后台刷新一次。
@@ -173,6 +181,58 @@ export function useEvidenceResolve(reference: EvidenceReferenceInput | null) {
   });
 }
 
+/** Wiki P0 目录：仅同源 GET，服务端发布的 opaque topic_id 才进入页面。 */
+export function useWikiTopicList() {
+  return useQuery({
+    queryKey: ['wiki', 'personal_wiki_projection_v1', 'topic.list'],
+    queryFn: () => apiGet('/ui/topics?limit=50', wikiTopicListEnvelopeSchema),
+    ...PROJECTION_QUERY_OPTIONS,
+  });
+}
+
+/** Wiki P0 主题页：缺少 typed type/id 时不发请求。 */
+export function useWikiTopic(topicType: WikiTopicType | undefined, topicId: string | undefined) {
+  const enabled = Boolean(topicType && topicId);
+  const path = enabled
+    ? `/ui/topic?topic_type=${encodeURIComponent(topicType as string)}&topic_id=${encodeURIComponent(topicId as string)}`
+    : '';
+  return useQuery({
+    queryKey: ['wiki', 'personal_wiki_projection_v1', 'topic.get', topicType ?? '', topicId ?? ''],
+    queryFn: () => apiGet(path, wikiTopicGetEnvelopeSchema),
+    enabled,
+    ...PROJECTION_QUERY_OPTIONS,
+  });
+}
+
+/** Wiki P0 显式反链：关系词表由服务端锁定。 */
+export function useWikiTopicBacklinks(topicType: WikiTopicType | undefined, topicId: string | undefined) {
+  const enabled = Boolean(topicType && topicId);
+  const path = enabled
+    ? `/ui/topic/backlinks?topic_type=${encodeURIComponent(topicType as string)}&topic_id=${encodeURIComponent(topicId as string)}`
+    : '';
+  return useQuery({
+    queryKey: ['wiki', 'personal_wiki_projection_v1', 'topic.backlinks', topicType ?? '', topicId ?? ''],
+    queryFn: () => apiGet(path, wikiTopicBacklinksEnvelopeSchema),
+    enabled,
+    ...PROJECTION_QUERY_OPTIONS,
+  });
+}
+
+/** Wiki-first/fallback read verdict：客户端只显示服务端选定来源，不计算 freshness。 */
+export function useWikiTopicResolve(topicKey: string | undefined, query?: string) {
+  const enabled = Boolean(topicKey || query);
+  const params = new URLSearchParams();
+  if (topicKey) params.set('topic_key', topicKey);
+  if (query) params.set('query', query);
+  const path = enabled ? `/ui/topic/resolve?${params.toString()}` : '';
+  return useQuery({
+    queryKey: ['wiki', 'personal_wiki_projection_v1', 'topic.resolve', topicKey ?? '', query ?? ''],
+    queryFn: () => apiGet(path, wikiTopicResolveEnvelopeSchema),
+    enabled,
+    ...PROJECTION_QUERY_OPTIONS,
+  });
+}
+
 /** 候选解释直读：GET /proactive/candidate/explain?candidate_id=X（compact 信封，按需触发） */
 export function useProactiveCandidateExplain(candidateId: string | null) {
   return useQuery({
@@ -192,5 +252,21 @@ export function useProactiveControlStatus(candidateId: string | null) {
     enabled: Boolean(candidateId),
     staleTime: 30_000,
     retry: 1,
+  });
+}
+
+/** Pi runtime is same-origin only; the browser never opens 8790 directly. */
+export function usePiRuntimeStatus() {
+  return useQuery({ queryKey: ['pi', 'runtime-status'], queryFn: () => apiGet('/api/pi/status', piRuntimeStatusSchema), ...PROJECTION_QUERY_OPTIONS });
+}
+
+export function usePiRuntimeTasks() {
+  return useQuery({ queryKey: ['pi', 'runtime-tasks'], queryFn: () => apiGet('/api/pi/tasks', piRuntimeTasksSchema), ...PROJECTION_QUERY_OPTIONS });
+}
+
+export function usePiRuntimeMutation(action: 'cancel' | 'resume') {
+  return useMutation({
+    mutationFn: (payload: { task_id: string; expected_version: number; idempotency_key: string; state?: 'failed'; error_code?: string }) =>
+      apiPost(`/api/pi/${action}`, payload, piRuntimeMutationSchema),
   });
 }

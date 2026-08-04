@@ -44,3 +44,21 @@ export async function apiGet<S extends z.ZodTypeAny>(path: string, schema: S): P
   }
   return parsed.data as z.infer<S>;
 }
+
+/** Same-origin guarded POST; only the typed metadata envelope enters UI state. */
+export async function apiPost<S extends z.ZodTypeAny>(path: string, payload: unknown, schema: S): Promise<z.infer<S>> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw toApiError('network_error', '无法连接后端服务');
+  }
+  let body: unknown;
+  try { body = await response.json(); } catch { throw toApiError('invalid_json', '响应不是合法 JSON'); }
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) throw toApiError(`http_${response.status}`, '运行时控制响应格式无效');
+  return parsed.data as z.infer<S>;
+}

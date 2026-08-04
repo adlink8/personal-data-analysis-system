@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import personal_knowledge.services.pi_runtime_projection as projection
+from personal_knowledge.services.api_server import _project_kernel_sse_event
 from personal_knowledge.services.pi_runtime_projection import PI_COCKPIT_SCHEMA, mutate_task, safe_event
 
 
@@ -32,3 +33,17 @@ def test_kernel_unreachable_is_typed_offline(monkeypatch):
     assert status["state"] == "offline"
     result = mutate_task("cancel", {"task_id": "t-offline", "expected_version": 1, "idempotency_key": "i-offline"})
     assert result == {"ok": False, "error": {"code": "kernel_offline"}}
+
+
+def test_kernel_sse_is_projected_to_cockpit_metadata_only():
+    event = _project_kernel_sse_event({
+        "event_id": "pi_evt_" + "a" * 64,
+        "type": "task_completed",
+        "correlation_id": "pi_task_1",
+        "occurred_at": "2026-08-04T00:00:00.000Z",
+        "payload_ref": {"kind": "task", "ref": "pi_task_1", "checksum": "b" * 64},
+        "prompt": "must not cross proxy",
+    })
+    assert event["schema_version"] == PI_COCKPIT_SCHEMA
+    assert event["state"] == "succeeded"
+    assert all(key not in event for key in ("prompt", "payload_ref", "completion", "provider_body"))

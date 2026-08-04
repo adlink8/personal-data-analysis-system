@@ -155,6 +155,15 @@ def task_list() -> list[dict[str, Any]]:
     return [_project_task(task) for task in payload["tasks"] if isinstance(task, Mapping)]
 
 
+def open_event_stream(last_event_id: str | None = None):
+    """Open the internal Kernel SSE cursor for the same-origin API proxy."""
+    headers = {"Accept": "text/event-stream", "Cache-Control": "no-cache"}
+    if last_event_id:
+        headers["Last-Event-ID"] = str(last_event_id)
+    request = Request(f"{_kernel_url()}/v1/events/stream", headers=headers, method="GET")
+    return urlopen(request, timeout=None)
+
+
 def mutate_task(action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     task_id = str(payload.get("task_id") or "")
     if action not in {"cancel", "resume"} or not task_id or not payload.get("idempotency_key"):
@@ -170,4 +179,4 @@ def mutate_task(action: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     return {"ok": False, "error": {"code": str(code)}}
 
 
-__all__ = ["PI_COCKPIT_SCHEMA", "kernel_status", "safe_event", "task_list", "mutate_task"]
+__all__ = ["PI_COCKPIT_SCHEMA", "kernel_status", "safe_event", "task_list", "mutate_task", "open_event_stream"]

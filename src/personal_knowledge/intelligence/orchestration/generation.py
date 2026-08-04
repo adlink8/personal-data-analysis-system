@@ -270,6 +270,35 @@ class ExistingAnalysisAdapter:
                 "reason_codes": list(receipt.reason_codes), "attempts": receipt.attempts,
             }
         detail = AnalysisReadService(self.analysis_db).get_run(receipt.run_id)
+        stage_candidate = getattr(self.provider, "stage_candidate", None)
+        if callable(stage_candidate):
+            evidence_refs = []
+            for claim in detail.get("claims") or ():
+                for evidence in claim.get("evidence") or ():
+                    evidence_refs.append({
+                        "ref": str(evidence.get("evidence_ref_id") or evidence.get("record_id") or "evidence"),
+                        "checksum": str(evidence.get("record_checksum") or evidence.get("payload_checksum") or ""),
+                    })
+            try:
+                stage_candidate(
+                    candidate_id=str(receipt.candidate_id),
+                    proposal={
+                        "status": str(detail.get("candidate_status") or "candidate"),
+                        "claim_count": int(detail.get("claim_count") or 0),
+                        "run_id": str(receipt.run_id),
+                    },
+                    evidence_refs=evidence_refs,
+                    candidate_checksum=str(detail["candidate_checksum"]),
+                    run_checksum=str(detail["run_checksum"]),
+                )
+            except Exception:
+                # The authority write above is retained, but the Pi receipt
+                # contract must not report a completed generation when its
+                # durable candidate staging failed.
+                return {
+                    "status": "abstain", "stage": "pi_candidate_stage",
+                    "reason_codes": ["pi_candidate_stage_failed"], "attempts": receipt.attempts,
+                }
         return {
             "status": "success",
             "references": {

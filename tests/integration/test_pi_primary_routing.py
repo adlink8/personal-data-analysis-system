@@ -12,8 +12,9 @@ def test_primary_is_blocked_without_phase53_proceed_evidence(tmp_path):
     runtime = RuntimeActivation(tmp_path / "activation.sqlite")
     preview = runtime.prepare("shadow", evidence_checksum="phase53-replay")
     runtime.confirm(preview, confirmation_phrase=preview["confirmation_phrase"], idempotency_key="shadow-1")
-    canary = runtime.prepare("canary", evidence_checksum="phase53-revise")
-    runtime.confirm(canary, confirmation_phrase=canary["confirmation_phrase"], idempotency_key="canary-1")
-    primary = runtime.prepare("primary", evidence_checksum="phase53-revise")
-    assert primary["preview"]["to"] == "primary"
+    try:
+        runtime.prepare("canary", evidence_checksum="phase53-revise")
+    except ActivationError as exc:
+        assert exc.code == "phase53_decision_not_proceed"
+    else: raise AssertionError("canary must be blocked by Phase 53 revise decision")
     runtime.close()
