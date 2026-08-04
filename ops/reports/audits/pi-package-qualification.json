@@ -1,0 +1,133 @@
+{
+  "schema": "pi-package-qualification-v1",
+  "version": "48.03.1",
+  "run_id": "piq_f7896e839999ed2eac87ebd4",
+  "candidate": {
+    "name": "personal-intelligence-kernel",
+    "version": "0.1.0"
+  },
+  "registry": "https://registry.npmjs.org",
+  "decision": "conditional",
+  "accepted": false,
+  "package_security_pass": true,
+  "runtime_containment_pass": false,
+  "reason_codes": [
+    "runtime_evidence_missing"
+  ],
+  "evidence_checksums": {
+    "package_json": "ccef56537700b798289963f1be8b678bb686d0a088cb4d8c7758247528ee7ff1",
+    "package_lock": "24758cc8719a060d884bc6613b80bb10c2348c01a612a2d2ce16c660165a684a",
+    "package_baseline": "bf6f4b401ad0561d20bbfe47dfad4dcd24c3c9c7ac9c7343836ec07c43450d43",
+    "tool_registry": "0be0b25b36e97b3451e06f460a1e81cbbd018f95f85f6f1308e8bbba9b46d46f",
+    "network_allowlist": "67554e5ed0896d34e6fd9ccabc2f40f38069f10b24bf5d343359b09baa72079d",
+    "runtime_evidence": null
+  },
+  "evidence_checksum": "64965a9d6a9079e63013efc45a1458667751397b1db7c3ac1d052557dfd046e2",
+  "checks": {
+    "manifest": {
+      "pass": true,
+      "reason_codes": []
+    },
+    "lockfile": {
+      "pass": true,
+      "reason_codes": []
+    },
+    "metadata": {
+      "pass": true,
+      "reason_codes": []
+    },
+    "install_scripts": {
+      "pass": true,
+      "policy": "ignore-scripts",
+      "reason_codes": []
+    },
+    "audit": {
+      "pass": true,
+      "source": "npmjs.org",
+      "severities": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "reason_codes": []
+    },
+    "tool_registry": {
+      "pass": true,
+      "reason_codes": []
+    },
+    "network_allowlist": {
+      "pass": true,
+      "reason_codes": []
+    },
+    "runtime_containment": {
+      "present": false
+    },
+    "gates": {
+      "SEC-01": {
+        "pass": true,
+        "reason_codes": []
+      },
+      "SEC-02": {
+        "pass": false,
+        "reason_codes": [
+          "runtime_evidence_missing"
+        ]
+      },
+      "TOOL-02": {
+        "pass": false,
+        "reason_codes": [
+          "runtime_evidence_missing"
+        ]
+      }
+    }
+  },
+  "governance": {
+    "owner": "Phase 48 security governance",
+    "reviewed_at": "2026-08-04T08:37:59.839Z",
+    "expiry": "2026-09-03T08:37:59.839Z",
+    "requalification_triggers": [
+      "package.json or package-lock.json changes",
+      "npmjs.org metadata, integrity, license, repository or engine changes",
+      "any npm audit advisory or severity change",
+      "override target or transitive package version changes",
+      "runtime containment evidence expires or regresses"
+    ],
+    "allowed_scope": [
+      "isolated qualification evidence only",
+      "no Phase 49 production dependency use"
+    ]
+  },
+  "packages": [
+    {
+      "name": "@earendil-works/pi-ai",
+      "version": "0.83.0",
+      "resolved": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.83.0.tgz",
+      "integrity": "sha512-m3IZD4g3er0V8TC9+Vpgw/sjTKqcJlkcIBy/JvsgRubuuik3tAVzyugUg4rVrShIkkOT69mEd34NEqKUIsl6JQ==",
+      "license": "MIT",
+      "repository": "https://github.com/earendil-works/pi",
+      "engine": ">=22.19.0"
+    },
+    {
+      "name": "@earendil-works/pi-coding-agent",
+      "version": "0.83.0",
+      "resolved": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-0.83.0.tgz",
+      "integrity": "sha512-uYhF+FsZxogoSX/AxBcUdiY+ZklubwaXyAoEGA2eQwsHcyEAhUYIKh/WLXe/a8+k8eTCmxb+ZN2Zo9mzQtzbWw==",
+      "license": "MIT",
+      "repository": "https://github.com/earendil-works/pi",
+      "engine": ">=22.19.0"
+    },
+    {
+      "name": "@earendil-works/pi-storage-sqlite-node",
+      "version": "0.83.0",
+      "resolved": "https://registry.npmjs.org/@earendil-works/pi-storage-sqlite-node/-/pi-storage-sqlite-node-0.83.0.tgz",
+      "integrity": "sha512-kgoseZj0VGPM2ldwcfyVeEY6QJSGgmiqcPXpKi2FlQFlHjpVEX+VEoWkjUvNl99yTRkCvBoveVqETV5FSI9qQQ==",
+      "license": "MIT",
+      "repository": "https://github.com/earendil-works/pi",
+      "engine": ">=22.19.0"
+    }
+  ],
+  "install_command": "npm ci --ignore-scripts --registry=https://registry.npmjs.org"
+}

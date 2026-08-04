@@ -1,0 +1,51 @@
+{
+  "schema": "pi-package-decision-v1",
+  "qualification_schema": "pi-package-qualification-v1",
+  "run_id": "piq_f7896e839999ed2eac87ebd4",
+  "status": "conditional",
+  "accepted": false,
+  "owner": "Phase 48 security governance",
+  "reviewed_at": "2026-08-04T08:37:59.839Z",
+  "expiry": "2026-09-03T08:37:59.839Z",
+  "requalification_triggers": [
+    "package.json or package-lock.json changes",
+    "npmjs.org metadata, integrity, license, repository or engine changes",
+    "any npm audit advisory or severity change",
+    "override target or transitive package version changes",
+    "runtime containment evidence expires or regresses"
+  ],
+  "allowed_scope": [
+    "isolated qualification evidence only",
+    "no Phase 49 production dependency use"
+  ],
+  "reason_codes": [
+    "runtime_evidence_missing"
+  ],
+  "evidence_checksum": "64965a9d6a9079e63013efc45a1458667751397b1db7c3ac1d052557dfd046e2",
+  "evidence_checksums": {
+    "package_json": "ccef56537700b798289963f1be8b678bb686d0a088cb4d8c7758247528ee7ff1",
+    "package_lock": "24758cc8719a060d884bc6613b80bb10c2348c01a612a2d2ce16c660165a684a",
+    "package_baseline": "bf6f4b401ad0561d20bbfe47dfad4dcd24c3c9c7ac9c7343836ec07c43450d43",
+    "tool_registry": "0be0b25b36e97b3451e06f460a1e81cbbd018f95f85f6f1308e8bbba9b46d46f",
+    "network_allowlist": "67554e5ed0896d34e6fd9ccabc2f40f38069f10b24bf5d343359b09baa72079d",
+    "runtime_evidence": null
+  },
+  "requirements": {
+    "SEC-01": {
+      "pass": true,
+      "reason_codes": []
+    },
+    "SEC-02": {
+      "pass": false,
+      "reason_codes": [
+        "runtime_evidence_missing"
+      ]
+    },
+    "TOOL-02": {
+      "pass": false,
+      "reason_codes": [
+        "runtime_evidence_missing"
+      ]
+    }
+  }
+}
