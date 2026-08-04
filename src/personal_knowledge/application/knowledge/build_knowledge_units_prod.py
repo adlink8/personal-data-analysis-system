@@ -81,6 +81,9 @@ from personal_knowledge.application.knowledge.injection_context import (
     validate_duplicate_of,
 )
 from personal_knowledge.application.knowledge.state_subjects import load_state_subjects, match_state_subject
+from personal_knowledge.intelligence.analysis.providers import (  # noqa: E402
+    PiKernelProvider, ProviderError, ProviderRequest, ProviderTimeout,
+)
 
 # === Phase 41：run 级单轨双轨引擎（D-01/D-02）===
 
@@ -299,7 +302,20 @@ def call_llm_with_retry(
     rate_limiter: RequestRateLimiter | None = None,
     role_label: str = "用户对话证据（role=user）：",
 ) -> dict:
-    """调用 Vertex AI，分类 retry。返回 {"text":..., "usage":...} 或 {"error":..., "error_class":...}。"""
+    """调用受控模型边界，分类 retry。
+
+    Supervisor 运行的生产路径由 Pi Kernel 接管；Vertex 代码保留为显式
+    rollback/test seam，便于既有单元测试和回滚适配器复用。
+    """
+    if os.environ.get("PI_KERNEL_LEGACY_MODE", "").strip() != "1" and (
+        os.environ.get("PI_KERNEL_AI_WORKFLOW", "").strip() == "1"
+        or isinstance(token_provider, TokenProvider)
+    ):
+        return _call_pi_kernel_with_receipt(
+            system_prompt, user_content, max_output_tokens=2048,
+            timeout_seconds=120.0,
+            role_label=role_label,
+        )
     url = vertex_generate_content_url(_VERTEX, model)
     user_text = f"{system_prompt}\n\n---\n{role_label}\n{user_content}\n\n---\n请提取知识单元，输出JSON："
     body = json.dumps({
@@ -358,6 +374,54 @@ def call_llm_with_retry(
                 continue
             return {"error": f"{type(e).__name__}: {str(e)[:150]}", "error_class": error_class, "attempts": attempt + 1}
     return {"error": "max retries exceeded", "error_class": "retryable", "attempts": max_retries + 1}
+
+
+def _call_pi_kernel_with_receipt(
+    system_prompt: str,
+    user_content: str,
+    *,
+    max_output_tokens: int,
+    timeout_seconds: float,
+    role_label: str,
+) -> dict:
+    """One Pi task for extraction; no local retry after an unknown outcome."""
+    user_text = f"{system_prompt}\n\n---\n{role_label}\n{user_content}\n\n---\n请提取知识单元，输出JSON："
+    request_checksum = hashlib.sha256(user_text.encode("utf-8")).hexdigest()
+    provider = PiKernelProvider(purpose="extraction_summary", timeout_seconds=timeout_seconds)
+    try:
+        result = provider.generate(ProviderRequest(
+            prompt=user_text, request_checksum=request_checksum, temperature=0,
+            max_output_tokens=min(max_output_tokens, 4096), timeout_seconds=min(timeout_seconds, 120.0),
+        ))
+        raw_text = json.dumps(dict(result.response_payload), ensure_ascii=False, separators=(",", ":"))
+        candidate_id = f"pi_ku_{request_checksum[:24]}"
+        provider.stage_candidate(
+            candidate_id=candidate_id,
+            proposal={
+                "kind": "knowledge_extraction",
+                "status": "pending_validation",
+                "input_checksum": request_checksum,
+                "response_checksum": result.response_checksum,
+            },
+            evidence_refs=[{
+                "ref": f"artifact:{hashlib.sha256(user_content.encode('utf-8')).hexdigest()[:32]}",
+                "checksum": hashlib.sha256(user_content.encode("utf-8")).hexdigest(),
+            }],
+            candidate_checksum=result.response_checksum,
+            run_checksum=hashlib.sha256(f"{request_checksum}:{result.response_checksum}".encode()).hexdigest(),
+        )
+        return {
+            "text": raw_text,
+            "usage": {
+                "promptTokenCount": result.telemetry.input_tokens,
+                "candidatesTokenCount": result.telemetry.output_tokens,
+            },
+            "pi_receipt": dict(provider.last_receipt or {}),
+        }
+    except ProviderTimeout:
+        return {"error": "provider outcome unknown", "error_class": "terminal", "attempts": 1}
+    except ProviderError as exc:
+        return {"error": "pi kernel task failed", "error_class": "terminal", "attempts": 1, "code": exc.code}
 
 
 # === Item ledger 状态机 ===

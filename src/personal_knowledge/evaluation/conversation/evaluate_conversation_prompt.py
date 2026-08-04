@@ -135,14 +135,9 @@ def build_user_prompt(focus_notes: str, turn_text: str, source_refs: list[str]) 
 # ============ LLM client ============
 
 def make_llm_client():
-    try:
-        from openai import OpenAI
-    except ImportError:
-        sys.exit("[error] 未安装 openai 库,请运行: pip install openai")
-    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("MEM0_API_KEY")
-    if not api_key:
-        sys.exit("[error] 未设置 OPENAI_API_KEY / MEM0_API_KEY")
-    return OpenAI()
+    from personal_knowledge.core.llm import make_llm_client as make_pi_client
+
+    return make_pi_client(purpose="generic_generation")
 
 
 def extract_json(raw: str) -> dict | None:

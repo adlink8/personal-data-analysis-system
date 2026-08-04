@@ -203,7 +203,7 @@ def guess_main_topic(client, model: str, turn_summaries: list[TurnSummary]) -> s
         resp = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": "用一句中文概括这个对话的主要话题,不超过20字,只输出话题本身。"},
+                {"role": "system", "content": "用一句中文概括这个对话的主要话题,不超过20字,只输出话题本身。请返回 JSON：{\"text\":\"话题\"}。"},
                 {"role": "user", "content": combined},
             ],
             temperature=0.2,

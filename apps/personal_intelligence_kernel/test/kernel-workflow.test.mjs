@@ -12,12 +12,12 @@ import { TaskLedger } from "../src/tasks/ledger.mjs";
 import { SessionStore } from "../src/sessions/store.mjs";
 import { CandidateStore } from "../src/candidates/store.mjs";
 
-function requestJson(port, method, path, body) {
+function requestJson(port, method, path, body, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? null : JSON.stringify(body);
     const request = httpRequest({
       host: "127.0.0.1", port, method, path,
-      headers: payload ? { "content-type": "application/json", "content-length": Buffer.byteLength(payload) } : {},
+      headers: payload ? { "content-type": "application/json", "content-length": Buffer.byteLength(payload), ...extraHeaders } : { ...extraHeaders },
     }, (response) => {
       const chunks = [];
       response.on("data", (chunk) => chunks.push(chunk));
@@ -42,7 +42,7 @@ test("Kernel task route persists metadata-only task/session receipts and replays
   const runtime = await startKernelServer({
     projectRoot: process.cwd(), decisionPath, databasePath: join(dir, "events.sqlite"), controlDatabaseDirectory: dir,
     cwd: dir, agentDir: join(dir, "agent"), host: "127.0.0.1", port: 0,
-    providerMode: "replay",
+    providerMode: "replay", internalCapability: "test-kernel-capability",
   });
   const port = runtime.server.address().port;
   t.after(async () => { await runtime.stop(100); await rm(dir, { recursive: true, force: true }); });
@@ -53,19 +53,31 @@ test("Kernel task route persists metadata-only task/session receipts and replays
     idempotency_key: "pi-idem-kernel-workflow-001",
     purpose: "structured_analysis",
     prompt: "private prompt must never be returned or persisted: return a JSON object with ok=true",
+    include_response: true,
   };
-  const first = await requestJson(port, "POST", "/v1/tasks", body);
+  const first = await requestJson(port, "POST", "/v1/tasks", body, { "x-pi-internal-capability": "test-kernel-capability" });
   assert.equal(first.status, 201);
   assert.equal(first.json.ok, true);
   assert.equal(first.json.task.state, "succeeded");
   assert.equal(first.json.receipt.provider, "replay");
+  assert.equal(first.json.response.replay, true);
   assert.equal(first.json.provider_calls, 0);
   assert.equal(first.text.includes("private prompt"), false);
 
-  const duplicate = await requestJson(port, "POST", "/v1/tasks", body);
+  const duplicate = await requestJson(port, "POST", "/v1/tasks", body, { "x-pi-internal-capability": "test-kernel-capability" });
   assert.equal(duplicate.status, 200);
   assert.equal(duplicate.json.duplicate, true);
   assert.equal(duplicate.json.provider_calls, 0);
+
+  const candidate = await requestJson(port, "POST", "/internal/v1/candidates", {
+    task_id: body.task_id, session_id: body.session_id, idempotency_key: "pi-idem-kernel-workflow-001:candidate",
+    candidate_id: "pi_candidate_kernel_workflow_001",
+    proposal: { kind: "analysis_candidate", status: "pending", candidate_checksum: "c".repeat(64) },
+    evidence_refs: [{ ref: "artifact:evidence-1", checksum: "a".repeat(64) }],
+    model_receipt: { task_id: body.task_id, session_id: body.session_id, response_checksum: first.json.receipt.response_checksum, model: "replay-v1" },
+  }, { "x-pi-internal-capability": "test-kernel-capability" });
+  assert.equal(candidate.status, 201);
+  assert.equal(candidate.json.candidate.candidate_id, "pi_candidate_kernel_workflow_001");
 
   const task = await requestJson(port, "GET", "/v1/tasks/pi_task_kernel_workflow_001");
   assert.equal(task.status, 200);
@@ -79,10 +91,11 @@ test("Kernel task route persists metadata-only task/session receipts and replays
   const candidates = new CandidateStore(join(dir, "pi_kernel_candidates.sqlite"));
   try {
     assert.equal(events.integrityCheck().ok, true);
-    assert.equal(events.replay(0, 10).events.length, 3);
+    assert.equal(events.replay(0, 10).events.length, 4);
     assert.equal(tasks.integrityCheck().ok, true);
     assert.equal(sessions.integrityCheck().ok, true);
     assert.equal(candidates.integrityCheck().ok, true);
+    assert.equal(candidates.list().length, 1);
     assert.equal(JSON.stringify(sessions.get("pi_session_kernel_workflow_001")).includes("private prompt"), false);
   } finally {
     events.close(); tasks.close(); sessions.close(); candidates.close();

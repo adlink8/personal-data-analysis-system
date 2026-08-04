@@ -89,16 +89,20 @@ def load_prompt_assets() -> tuple[str, str]:
 
 
 def resolve_llm_runtime(*, model: str = DEFAULT_MODEL, temperature: float = DEFAULT_TEMPERATURE) -> LLMRuntime:
-    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("MEM0_API_KEY")
-    if not api_key:
+    pi_enabled = (
+        os.environ.get("PI_KERNEL_AI_WORKFLOW", "").strip() == "1"
+        or bool(os.environ.get("PI_KERNEL_INTERNAL_CAPABILITY"))
+        or os.environ.get("PI_KERNEL_LEGACY_MODE", "").strip() == "1"
+    )
+    if not pi_enabled:
         return LLMRuntime(
             llm_status="blocked:no_live_llm",
             model=model,
             temperature=temperature,
-            blocked_reason="missing OPENAI_API_KEY/MEM0_API_KEY",
+            blocked_reason="Pi Kernel 未启动或缺少内部能力",
         )
     try:
-        client = llm_mod.make_llm_client()
+        client = llm_mod.make_llm_client(purpose="memory_repair")
     except SystemExit as exc:
         return LLMRuntime(
             llm_status="blocked:no_live_llm",

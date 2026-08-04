@@ -250,7 +250,8 @@ SUMMARY_SYSTEM_PROMPT = """你是对话结构化摘要助手。你的任务是�
    - 必须用 `Turn {N}:` 作为每段开头,**N 是绝对编号**(与输入的 `--- Turn N ---` 一致),不要用相对编号(如"下一个 turn")。
    - 不要用 markdown 加粗/标题装饰 `Turn N:` 标记(不要写 `**Turn N:**` 或 `### Turn N`)。
    - 段与段之间用空行分隔。
-6. 只输出摘要本身,不要加额外解释、前言或总结。"""
+6. 只输出摘要本身,不要加额外解释、前言或总结。
+7. Pi Kernel 使用 JSON 传输：请返回 `{"text":"..."}`，其中 `text` 的值必须是上述摘要原文。"""
 
 
 SUMMARY_USER_PROMPT_TEMPLATE = """下面是一个 Agent 会话的多个 turn(已按时间顺序排列)。请生成逐 turn 的中文叙述摘要。
@@ -464,7 +465,7 @@ def guess_main_topic(client, model: str, turn_summaries: list[TurnSummary]) -> s
         topic = _chat_with_retry(
             client, model,
             messages=[
-                {"role": "system", "content": "用一句中文概括这个会话的主要话题,不超过20字,只输出话题本身。"},
+                {"role": "system", "content": "用一句中文概括这个会话的主要话题,不超过20字,只输出话题本身。请返回 JSON：{\"text\":\"话题\"}。"},
                 {"role": "user", "content": combined},
             ],
             temperature=0.2,
@@ -552,7 +553,7 @@ def run(dry_run: bool, write: bool, limit: int | None, max_chars: int,
         return 0
 
     # ---- 阶段2: 并发调用 LLM 生成摘要 ----
-    client = make_llm_client()
+    client = make_llm_client(purpose="conversation_summary")
     total = len(prepared)
     workers = max(1, min(workers, total))
     print(f"[start] {total} session | 并发 {workers} 路 | 模型 {model}")

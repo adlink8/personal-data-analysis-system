@@ -6,23 +6,79 @@ Extracted from build_conversation_summary to break the cross-domain hub coupling
 from __future__ import annotations
 
 import os
+import json
 import sys
 import time
+from types import SimpleNamespace
+
+from personal_knowledge.intelligence.analysis.providers import (
+    PiKernelProvider,
+    ProviderRequest,
+)
+from personal_knowledge.intelligence.analysis.schema import checksum
 
 MAX_RETRY = 4  # 429/网络错误最大重试次数
 
 
-def make_llm_client():
-    """构造 OpenAI 兼容 client,配置全走环境变量。
+class _PiCompletionClient:
+    """最小 OpenAI-compatible facade backed by one Pi task per completion."""
 
-    默认端点为小米 MiMo(token-plan-cn),与 README 文档一致;
-    可用 OPENAI_BASE_URL / OPENAI_API_KEY 覆盖走其他兼容端点(如智谱、第三方中转)。
+    def __init__(self, *, purpose: str) -> None:
+        self._provider = PiKernelProvider(purpose=purpose)
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
-    两个工程适配(2026-06-28 Wave 8 加入):
-    1. 代理:openai 库底层 httpx 不读 HTTPS_PROXY 环境变量,需显式注入 http_client。
-    2. UA 伪装:部分第三方中转站按 X-Stainless-* / User-Agent 指纹拦截官方 SDK,
-       改 UA 为 curl/8.0 绕过(直连官方端点时无影响)。
-    """
+    @staticmethod
+    def _render_messages(messages: list[dict]) -> str:
+        parts = []
+        for message in messages or []:
+            role = str(message.get("role") or "user")
+            content = str(message.get("content") or "")
+            parts.append(f"[{role}]\n{content}")
+        return "\n\n".join(parts).strip()
+
+    def _create(self, *, model: str, messages: list[dict], **kwargs):
+        prompt = self._render_messages(messages)
+        if not prompt:
+            raise ValueError("messages must not be empty")
+        temperature = float(kwargs.get("temperature", 0.2) or 0.0)
+        max_tokens = int(kwargs.get("max_tokens", kwargs.get("max_output_tokens", 1024)) or 1024)
+        request_checksum = checksum({
+            "purpose": self._provider.purpose,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        })
+        request = ProviderRequest(
+            prompt=prompt,
+            request_checksum=request_checksum,
+            temperature=min(max(temperature, 0.0), 0.3),
+            max_output_tokens=min(max(max_tokens, 1), 4096),
+            timeout_seconds=min(float(kwargs.get("timeout", 120) or 120), 120.0),
+        )
+        result = self._provider.generate(request)
+        payload = result.response_payload
+        if isinstance(payload, dict) and isinstance(payload.get("text"), str):
+            content = payload["text"]
+        elif isinstance(payload, str):
+            content = payload
+        else:
+            content = json.dumps(payload, ensure_ascii=False)
+        usage = SimpleNamespace(
+            prompt_tokens=result.telemetry.input_tokens,
+            completion_tokens=result.telemetry.output_tokens,
+        )
+        message = SimpleNamespace(role="assistant", content=content)
+        choice = SimpleNamespace(index=0, message=message, finish_reason="stop")
+        return SimpleNamespace(
+            id=self._provider.last_task_id,
+            model=result.telemetry.model,
+            choices=[choice],
+            usage=usage,
+        )
+
+
+def _make_legacy_openai_client():
+    """Construct the compatibility client only for an explicit rollback mode."""
     try:
         from openai import OpenAI
     except ImportError:
@@ -42,6 +98,15 @@ def make_llm_client():
         except ImportError:
             pass  # 无 httpx 则退回默认连接(直连场景)
     return OpenAI(**kw)
+
+
+def make_llm_client(*, purpose: str = "generic_generation"):
+    """Return the Pi-backed compatibility client; legacy requires explicit rollback."""
+    if os.environ.get("PI_KERNEL_LEGACY_MODE", "").strip() == "1":
+        return _make_legacy_openai_client()
+    if os.environ.get("PI_KERNEL_AI_WORKFLOW", "").strip() == "1" or os.environ.get("PI_KERNEL_INTERNAL_CAPABILITY"):
+        return _PiCompletionClient(purpose=purpose)
+    sys.exit("[error] Pi Kernel 未启动或缺少内部能力；请先启动 agent stack")
 
 
 def _chat_with_retry(client, model: str, messages: list[dict], **kwargs) -> str:

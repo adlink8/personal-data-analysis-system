@@ -50,6 +50,9 @@ from personal_knowledge.core.runtime_config import (  # noqa: E402
     vertex_generation_config,
 )
 from personal_knowledge.application.knowledge.knowledge_unit_pipeline import RunManifest, StagingPublisher  # noqa: E402
+from personal_knowledge.intelligence.analysis.providers import (  # noqa: E402
+    PiKernelProvider, ProviderError, ProviderRequest, ProviderTimeout,
+)
 
 # Vertex AI 配置
 _VERTEX = vertex_config()
@@ -152,7 +155,30 @@ def _extract_text(candidate: dict) -> str:
 
 
 def call_llm(system_prompt: str, user_content: str) -> dict:
-    """调用 Vertex AI Gemini。返回 {"text": ..., "usage": ...} 或 {"error": ...}。"""
+    """调用 Pi extraction route; Vertex remains an explicit rollback seam."""
+    if os.environ.get("PI_KERNEL_LEGACY_MODE", "").strip() != "1":
+        prompt = f"{system_prompt}\n\n---\n用户对话证据（role=user）：\n{user_content}\n\n---\n请提取知识单元，输出JSON："
+        request_checksum = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        provider = PiKernelProvider(purpose="extraction_summary")
+        try:
+            result = provider.generate(ProviderRequest(
+                prompt=prompt, request_checksum=request_checksum, temperature=0,
+                max_output_tokens=2048, timeout_seconds=120,
+            ))
+            provider.stage_candidate(
+                candidate_id=f"pi_ku_legacy_{request_checksum[:24]}",
+                proposal={"kind": "knowledge_extraction", "status": "pending_validation", "input_checksum": request_checksum, "response_checksum": result.response_checksum},
+                evidence_refs=[{"ref": f"artifact:{hashlib.sha256(user_content.encode('utf-8')).hexdigest()[:32]}", "checksum": hashlib.sha256(user_content.encode("utf-8")).hexdigest()}],
+                candidate_checksum=result.response_checksum,
+                run_checksum=hashlib.sha256(f"{request_checksum}:{result.response_checksum}".encode()).hexdigest(),
+            )
+            return {"text": json.dumps(dict(result.response_payload), ensure_ascii=False), "usage": {"promptTokenCount": result.telemetry.input_tokens, "candidatesTokenCount": result.telemetry.output_tokens}}
+        except ProviderTimeout:
+            return {"error": "provider outcome unknown", "error_class": "terminal"}
+        except ProviderError:
+            return {"error": "pi kernel task failed", "error_class": "terminal"}
+
+    # Explicit rollback-only Vertex compatibility path.
     token = _get_gcloud_token()
     url = vertex_generate_content_url(_VERTEX)
     user_text = f"{system_prompt}\n\n---\n用户对话证据（role=user）：\n{user_content}\n\n---\n请提取知识单元，输出JSON："

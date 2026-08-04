@@ -1,10 +1,14 @@
 {
   "schema": "pi-model-routes-v1",
-  "version": "51.01.1",
+  "version": "54.02.2",
   "routes": [
     {"purpose":"structured_analysis","provider":"replay","model":"replay-v1","timeout_ms":30000,"max_input_tokens":4096,"max_output_tokens":1024,"cost_ceiling":0,"max_attempts":1,"retryable_codes":[],"no_fallback":true},
     {"purpose":"guarded_generation","provider":"replay","model":"replay-v1","timeout_ms":30000,"max_input_tokens":4096,"max_output_tokens":2048,"cost_ceiling":0,"max_attempts":1,"retryable_codes":[],"no_fallback":true},
-    {"purpose":"extraction_summary","provider":"replay","model":"replay-v1","timeout_ms":30000,"max_input_tokens":4096,"max_output_tokens":1024,"cost_ceiling":0,"max_attempts":1,"retryable_codes":[],"no_fallback":true}
+    {"purpose":"extraction_summary","provider":"replay","model":"replay-v1","timeout_ms":30000,"max_input_tokens":4096,"max_output_tokens":1024,"cost_ceiling":0,"max_attempts":1,"retryable_codes":[],"no_fallback":true},
+    {"purpose":"generic_generation","provider":"replay","model":"replay-v1","timeout_ms":30000,"max_input_tokens":4096,"max_output_tokens":4096,"cost_ceiling":0,"max_attempts":1,"retryable_codes":[],"no_fallback":true},
+    {"purpose":"conversation_summary","provider":"replay","model":"replay-v1","timeout_ms":30000,"max_input_tokens":4096,"max_output_tokens":4096,"cost_ceiling":0,"max_attempts":1,"retryable_codes":[],"no_fallback":true},
+    {"purpose":"memory_candidate_extraction","provider":"replay","model":"replay-v1","timeout_ms":30000,"max_input_tokens":4096,"max_output_tokens":4096,"cost_ceiling":0,"max_attempts":1,"retryable_codes":[],"no_fallback":true},
+    {"purpose":"memory_repair","provider":"replay","model":"replay-v1","timeout_ms":30000,"max_input_tokens":4096,"max_output_tokens":4096,"cost_ceiling":0,"max_attempts":1,"retryable_codes":[],"no_fallback":true}
   ],
   "policy":{"default":"deny","silent_fallback":false,"provider_calls":0}
 }

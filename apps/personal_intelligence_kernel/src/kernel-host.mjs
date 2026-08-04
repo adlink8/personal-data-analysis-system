@@ -18,7 +18,7 @@ import { getModelRoute } from "./models/routes.mjs";
 export const DEFAULT_KERNEL_HOST = Object.freeze({ host: "127.0.0.1", port: 8790 });
 export const PHASE_48_DECISION_RUN_ID = "piq_f7896e839999ed2eac87ebd4";
 export const RESOURCE_POLICY_VERSION = "pi_resource_policy_v1_exact";
-const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/_-]{0,255}$/;
 const MAX_PROMPT_BYTES = 48 * 1024;
 
 export class KernelHostError extends Error {
@@ -91,6 +91,10 @@ export class KernelHost {
     this.host = host;
     this.port = port;
     this.shutdownTimeoutMs = shutdownTimeoutMs;
+    // Provider bodies are kept only for the lifetime of this process so a
+    // trusted Python adapter can finish its existing parser contract. They
+    // are never written to Task/Session/Event/Candidate stores.
+    this.ephemeralResponses = new Map();
     this.server = createServer((_request, response) => {
       response.statusCode = 404;
       response.end();
@@ -189,7 +193,7 @@ export class KernelHost {
   }
 
   /** Execute one task through the Pi-owned adapter. The raw prompt remains in memory. */
-  async executeTask({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, purpose = "structured_analysis", model, prompt } = {}) {
+  async executeTask({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, purpose = "structured_analysis", model, prompt, include_response = false } = {}) {
     if (!this.taskLedger || !this.sessionStore || !this.providerAdapter) throw safeError("task_runtime_unavailable");
     assertIdentifier(idempotencyKey, "task_identity_invalid");
     if (taskId !== undefined) assertIdentifier(taskId, "task_identity_invalid");
@@ -209,7 +213,15 @@ export class KernelHost {
       if (error instanceof TaskLedgerError) throw safeError(error.code);
       throw safeError("task_enqueue_failed");
     }
-    if (accepted.duplicate) return { duplicate: true, task: accepted.task, session_id: actualSessionId, route: route.purpose, provider_calls: this.providerCalls };
+    if (accepted.duplicate) {
+      const result = { duplicate: true, task: accepted.task, session_id: actualSessionId, route: route.purpose, provider_calls: this.providerCalls };
+      if (include_response) {
+        const cached = this.ephemeralResponses.get(actualTaskId);
+        if (!cached) throw safeError("provider_response_unavailable");
+        result.response = cached;
+      }
+      return result;
+    }
 
     try {
       if (!this.sessionStore.get(actualSessionId)) this.sessionStore.create({ session_id: actualSessionId, trajectory: [] });
@@ -219,10 +231,13 @@ export class KernelHost {
       const startedEvent = this.#appendLifecycle("task_started", { taskId: actualTaskId, idempotencyKey, checksum: promptChecksum, causationId: acceptedEvent.event.event_id });
       const receipt = await this.providerAdapter.generate({ purpose, model: route.model, prompt, task_id: actualTaskId, session_id: actualSessionId, event_id: startedEvent.event.event_id, idempotency_key: idempotencyKey, max_output_tokens: route.max_output_tokens });
       const responseChecksum = receipt.response_checksum;
+      this.ephemeralResponses.set(actualTaskId, receipt.response);
       this.sessionStore.append(actualSessionId, { kind: "model_receipt", task_id: actualTaskId, route_checksum: receipt.route_checksum, response_checksum: responseChecksum, usage_checksum: receipt.usage_checksum, status: receipt.telemetry.status }, { receipt: { kind: "model", task_id: actualTaskId, response_checksum: responseChecksum, route_checksum: receipt.route_checksum, usage_checksum: receipt.usage_checksum } });
       const completedEvent = this.#appendLifecycle("task_completed", { taskId: actualTaskId, idempotencyKey, checksum: responseChecksum, causationId: startedEvent.event.event_id });
       task = this.taskLedger.transition(actualTaskId, "succeeded", { expectedVersion: task.version, owner: "pi_kernel", output_ref: artifactRef(responseChecksum), event_ref: completedEvent.event.event_id });
-      return { duplicate: false, task, session_id: actualSessionId, route: route.purpose, receipt: { response_checksum: responseChecksum, usage_checksum: receipt.usage_checksum, input_tokens: receipt.usage.input_tokens, output_tokens: receipt.usage.output_tokens, provider: receipt.telemetry.provider, model: receipt.telemetry.model, cost: receipt.telemetry.cost, currency: receipt.telemetry.currency }, provider_calls: this.providerCalls };
+      const result = { duplicate: false, task, session_id: actualSessionId, route: route.purpose, receipt: { response_checksum: responseChecksum, usage_checksum: receipt.usage_checksum, input_tokens: receipt.usage.input_tokens, output_tokens: receipt.usage.output_tokens, provider: receipt.telemetry.provider, model: receipt.telemetry.model, cost: receipt.telemetry.cost, currency: receipt.telemetry.currency }, provider_calls: this.providerCalls };
+      if (include_response) result.response = receipt.response;
+      return result;
     } catch (error) {
       const code = error?.code || "task_execution_failed";
       const task = this.taskLedger.get(actualTaskId);
@@ -235,6 +250,22 @@ export class KernelHost {
       if (error instanceof KernelHostError) throw error;
       throw safeError(code);
     }
+  }
+
+  /** Stage only candidate metadata; serving lifecycle remains Python-owned. */
+  stageCandidate({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, candidate_id: candidateId, proposal, evidence_refs: evidenceRefs, model_receipt: modelReceipt } = {}) {
+    assertIdentifier(taskId, "task_identity_invalid");
+    assertIdentifier(sessionId, "task_identity_invalid");
+    assertIdentifier(idempotencyKey, "task_identity_invalid");
+    assertIdentifier(candidateId, "candidate_identity_invalid");
+    if (!proposal || typeof proposal !== "object" || !Array.isArray(evidenceRefs) || !modelReceipt || typeof modelReceipt !== "object") throw safeError("candidate_metadata_invalid");
+    const existing = this.candidateStore.get(candidateId);
+    if (existing) return { duplicate: true, candidate: existing };
+    const candidate = this.candidateStore.add({ candidate_id: candidateId, proposal, evidence_refs: evidenceRefs, model_receipt: modelReceipt, schema_version: "pi_kernel_candidate_v1" });
+    const candidateChecksum = sha256({ candidate_id: candidateId, proposal, evidence_refs: evidenceRefs, model_receipt: modelReceipt });
+    const event = this.#appendLifecycle("candidate_staged", { taskId, idempotencyKey, checksum: candidateChecksum });
+    this.sessionStore.append(sessionId, { kind: "candidate_receipt", task_id: taskId, candidate_id: candidateId, candidate_checksum: candidateChecksum }, { receipt: { kind: "candidate", task_id: taskId, candidate_id: candidateId, candidate_checksum: candidateChecksum } });
+    return { duplicate: false, candidate, event: { event_id: event.event.event_id, canonical_checksum: event.row.canonical_checksum } };
   }
 
   async listen() {
@@ -283,6 +314,7 @@ export class KernelHost {
     try { this.taskLedger?.close(); } catch { /* bounded disposal continues */ }
     try { this.sessionStore?.close(); } catch { /* bounded disposal continues */ }
     try { this.candidateStore?.close(); } catch { /* bounded disposal continues */ }
+    this.ephemeralResponses.clear();
     this.journal.close();
     this.lifecycle = "disposed";
     return { lifecycle: this.lifecycle, timed_out: timedOut };

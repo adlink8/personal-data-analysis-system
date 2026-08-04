@@ -11,6 +11,9 @@ import subprocess
 import time
 import tomllib
 from typing import Any, Callable, Mapping, Protocol
+from urllib.parse import urlparse
+from urllib.request import Request as UrlRequest, urlopen
+from urllib.error import HTTPError, URLError
 
 from .schema import checksum
 
@@ -124,6 +127,154 @@ class ReplayProvider:
                 latency_ms=0, status="completed",
             ),
         )
+
+
+class PiKernelProvider:
+    """Python contract adapter backed by the loopback Pi Kernel task route.
+
+    The Kernel returns the provider payload only to this explicitly
+    capability-authenticated local adapter. The payload is parsed in memory
+    and is never written to Pi stores; all durable receipts remain metadata.
+    """
+
+    _MAX_OUTPUT = {
+        "structured_analysis": 1024,
+        "guarded_generation": 2048,
+        "extraction_summary": 1024,
+        "generic_generation": 4096,
+        "conversation_summary": 4096,
+        "memory_candidate_extraction": 4096,
+        "memory_repair": 4096,
+    }
+
+    def __init__(
+        self,
+        *,
+        purpose: str = "structured_analysis",
+        base_url: str | None = None,
+        capability: str | None = None,
+        timeout_seconds: float = 120.0,
+        transport: Callable[[Mapping[str, Any], float, str], Mapping[str, Any]] | None = None,
+    ) -> None:
+        self.purpose = str(purpose)
+        self.base_url = str(base_url or os.environ.get("PI_KERNEL_URL", "http://127.0.0.1:8790")).rstrip("/")
+        parsed = urlparse(self.base_url)
+        if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+            raise ProviderError("provider_endpoint_invalid")
+        self.capability = capability if capability is not None else os.environ.get("PI_KERNEL_INTERNAL_CAPABILITY", "")
+        self.timeout_seconds = min(max(float(timeout_seconds), 0.1), 120.0)
+        self.transport = transport
+        self.calls = 0
+        self.last_task_id: str | None = None
+        self.last_session_id: str | None = None
+        self.last_receipt: dict[str, Any] | None = None
+
+    def _request(self, body: Mapping[str, Any], timeout: float) -> Mapping[str, Any]:
+        if self.transport is not None:
+            return self.transport(body, timeout, self.capability)
+        if not self.capability:
+            raise ProviderError("provider_internal_capability_missing")
+        payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        request = UrlRequest(
+            f"{self.base_url}/v1/tasks", data=payload, method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Content-Length": str(len(payload)),
+                "X-PI-Internal-Capability": self.capability,
+            },
+        )
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            try:
+                error = json.loads(exc.read().decode("utf-8"))
+            except Exception:
+                error = {}
+            code = str((error.get("error") or {}).get("code") or "provider_transport_error")
+            if code in {"provider_timeout", "provider_transport_error"}:
+                raise ProviderTimeout() from exc
+            raise ProviderError(code) from exc
+        except (TimeoutError, URLError, OSError, json.JSONDecodeError) as exc:
+            error = ProviderTimeout() if isinstance(exc, TimeoutError) else ProviderError("provider_transport_error", retryable=True)
+            raise error from exc
+
+    def generate(self, request: ProviderRequest) -> ProviderResult:
+        if self.purpose not in self._MAX_OUTPUT:
+            raise ProviderError("model_route_unknown")
+        task_id = f"pi_task_py_{checksum({'purpose': self.purpose, 'request_checksum': request.request_checksum})[:24]}"
+        session_id = f"pi_session_py_{checksum({'purpose': self.purpose, 'request_checksum': request.request_checksum})[:24]}"
+        idempotency_key = f"pi-idem-py-{self.purpose}-{request.request_checksum[:40]}"
+        body = {
+            "task_id": task_id,
+            "session_id": session_id,
+            "idempotency_key": idempotency_key,
+            "purpose": self.purpose,
+            "prompt": request.prompt,
+            "include_response": True,
+        }
+        self.calls += 1
+        raw = self._request(body, min(self.timeout_seconds, request.timeout_seconds))
+        if not isinstance(raw, Mapping) or raw.get("ok") is not True:
+            code = str((raw.get("error") or {}).get("code") if isinstance(raw, Mapping) else "provider_response_invalid")
+            raise ProviderError(code or "provider_response_invalid")
+        payload = raw.get("response")
+        receipt = raw.get("receipt") or {}
+        if not isinstance(payload, Mapping) or not isinstance(receipt, Mapping):
+            raise ProviderError("provider_response_invalid")
+        telemetry = ProviderTelemetry(
+            provider=str(receipt.get("provider") or "pi-kernel"),
+            model=str(receipt.get("model") or "unknown"),
+            input_tokens=int(receipt.get("input_tokens") or 0),
+            output_tokens=int(receipt.get("output_tokens") or 0),
+            cost_amount=float(receipt.get("cost") or 0.0),
+            cost_currency=str(receipt.get("currency") or "CNY"),
+            latency_ms=0,
+            status="completed",
+        )
+        self.last_task_id, self.last_session_id = task_id, session_id
+        self.last_receipt = {
+            "task_id": task_id, "session_id": session_id,
+            "request_checksum": request.request_checksum,
+            "response_checksum": str(receipt.get("response_checksum") or checksum(payload)),
+            "usage_checksum": str(receipt.get("usage_checksum") or ""),
+            "route": self.purpose, "provider": telemetry.provider,
+            "model": telemetry.model, "cost": telemetry.cost_amount,
+            "currency": telemetry.cost_currency,
+        }
+        return ProviderResult(response_payload=dict(payload), response_checksum=checksum(payload), telemetry=telemetry)
+
+    def stage_candidate(
+        self, *, candidate_id: str, proposal: Mapping[str, Any], evidence_refs: list[Mapping[str, Any]],
+        candidate_checksum: str, run_checksum: str,
+    ) -> Mapping[str, Any]:
+        if not self.last_receipt or not self.last_task_id or not self.last_session_id:
+            raise ProviderError("provider_receipt_missing")
+        if not self.capability:
+            raise ProviderError("provider_internal_capability_missing")
+        body = {
+            "task_id": self.last_task_id, "session_id": self.last_session_id,
+            "idempotency_key": f"{self.last_receipt['request_checksum']}:candidate",
+            "candidate_id": candidate_id,
+            "proposal": {"kind": "analysis_candidate", "candidate_checksum": candidate_checksum, "run_checksum": run_checksum, **dict(proposal)},
+            "evidence_refs": evidence_refs,
+            "model_receipt": self.last_receipt,
+        }
+        if self.transport is not None:
+            return self.transport(body, self.timeout_seconds, self.capability)
+        payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        request = UrlRequest(
+            f"{self.base_url}/internal/v1/candidates", data=payload, method="POST",
+            headers={"Content-Type": "application/json", "Content-Length": str(len(payload)), "X-PI-Internal-Capability": self.capability},
+        )
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except (HTTPError, URLError, OSError, json.JSONDecodeError) as exc:
+            raise ProviderError("candidate_stage_failed") from exc
+        if not isinstance(result, Mapping) or result.get("ok") is not True:
+            raise ProviderError("candidate_stage_failed")
+        return result
 
 
 Transport = Callable[[Mapping[str, Any], float], Mapping[str, Any]]
@@ -494,5 +645,5 @@ __all__ = [
     "AnalysisProvider", "OpenAICompatibleProvider", "ProviderError", "ProviderRequest",
     "CodexCliProvider", "ProviderResult", "ProviderTelemetry", "ProviderTimeout",
     "codex_cli_preflight", "resolve_codex_command",
-    "ReplayProvider", "LegacyProviderAdapter",
+    "ReplayProvider", "PiKernelProvider", "LegacyProviderAdapter",
 ]

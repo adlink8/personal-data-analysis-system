@@ -15,6 +15,7 @@ export const ALLOWED_ROUTES = Object.freeze([
   "POST /v1/tasks",
   "POST /v1/tasks/:task_id/cancel",
   "POST /v1/tasks/:task_id/resume",
+  "POST /internal/v1/candidates",
   "POST /v1/events",
   "GET /v1/events/stream",
 ]);
@@ -46,6 +47,10 @@ export const SAFE_ERROR_CODES = Object.freeze([
   "provider_credential_missing",
   "provider_transport_missing",
   "provider_response_invalid",
+  "provider_response_unavailable",
+  "internal_capability_invalid",
+  "candidate_identity_invalid",
+  "candidate_metadata_invalid",
   "provider_cost_ceiling_exceeded",
   "provider_timeout",
   "provider_transport_error",
@@ -184,7 +189,16 @@ function attachRequestHandler(host, options) {
       }
       if (route === "POST /v1/tasks") {
         const body = await readBoundedJson(request);
+        const includeResponse = body?.include_response === true;
+        if (includeResponse && !isInternalRequest(request, options)) throw new KernelHostError("internal_capability_invalid");
         const result = await host.executeTask(body);
+        sendJson(response, result.duplicate ? 200 : 201, { ok: true, ...result });
+        return;
+      }
+      if (route === "POST /internal/v1/candidates") {
+        if (!isInternalRequest(request, options)) throw new KernelHostError("internal_capability_invalid");
+        const body = await readBoundedJson(request);
+        const result = host.stageCandidate(body);
         sendJson(response, result.duplicate ? 200 : 201, { ok: true, ...result });
         return;
       }
@@ -229,7 +243,7 @@ function attachRequestHandler(host, options) {
         });
         return;
       }
-      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/events", "/v1/events/stream"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/");
+      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/events", "/v1/events/stream", "/internal/v1/candidates"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/");
       sendSafeError(response, samePath ? 405 : 404, samePath ? "method_not_allowed" : "route_not_found");
     } catch (error) {
       const code = safeCode(error);
@@ -240,6 +254,12 @@ function attachRequestHandler(host, options) {
     }
   });
   return connections;
+}
+
+function isInternalRequest(request, options) {
+  const expected = String(options?.internalCapability ?? process.env.PI_KERNEL_INTERNAL_CAPABILITY ?? "").trim();
+  const supplied = String(request.headers["x-pi-internal-capability"] ?? "").trim();
+  return Boolean(expected) && supplied === expected;
 }
 
 export function createKernelHttpServer(host, options = {}) {
