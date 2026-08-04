@@ -1,4 +1,5 @@
 import { ProviderAdapterError } from "./provider-adapter.mjs";
+import { readProviderConfig } from "./persistent-config.mjs";
 
 export const DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 
@@ -25,7 +26,7 @@ function safeHttpCode(status) {
  */
 export function createDashScopeTransport({
   apiKey = process.env.DASHSCOPE_API_KEY,
-  baseUrl = process.env.PI_PROVIDER_BASE_URL || DEFAULT_DASHSCOPE_BASE_URL,
+  baseUrl = process.env.PI_PROVIDER_BASE_URL || readProviderConfig().baseUrl || DEFAULT_DASHSCOPE_BASE_URL,
   fetchImpl = globalThis.fetch,
 } = {}) {
   const endpoint = completionUrl(baseUrl);

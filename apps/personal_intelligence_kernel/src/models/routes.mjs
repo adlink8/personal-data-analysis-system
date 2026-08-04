@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
+import { readProviderConfig } from "./persistent-config.mjs";
 
 export const MODEL_ROUTE_SCHEMA = "pi_model_routes_v1";
-const REAL_PROVIDER_ENABLED = ["aliyun", "dashscope"].includes(String(process.env.PI_PROVIDER_MODE ?? "").trim().toLowerCase());
-const REAL_MODEL = String(process.env.PI_PROVIDER_MODEL ?? "deepseek-v4-flash-0731").trim() || "deepseek-v4-flash-0731";
-const REAL_COST_CEILING = Number(process.env.PI_PROVIDER_COST_CEILING ?? 0);
+const PERSISTED_CONFIG = readProviderConfig();
+const CONFIGURED_MODE = String(process.env.PI_PROVIDER_MODE ?? PERSISTED_CONFIG.mode ?? "").trim().toLowerCase();
+const REAL_PROVIDER_ENABLED = ["aliyun", "dashscope"].includes(CONFIGURED_MODE);
+const REAL_MODEL = String(process.env.PI_PROVIDER_MODEL ?? PERSISTED_CONFIG.model ?? "deepseek-v4-flash-0731").trim() || "deepseek-v4-flash-0731";
+const REAL_COST_CEILING = Number(process.env.PI_PROVIDER_COST_CEILING ?? PERSISTED_CONFIG.costCeiling ?? 0);
 const costCeiling = Number.isFinite(REAL_COST_CEILING) && REAL_COST_CEILING >= 0 ? REAL_COST_CEILING : 0;
 const provider = REAL_PROVIDER_ENABLED ? "dashscope" : "replay";
 const model = REAL_PROVIDER_ENABLED ? REAL_MODEL : "replay-v1";
