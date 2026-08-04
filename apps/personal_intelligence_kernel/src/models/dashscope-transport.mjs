@@ -55,6 +55,7 @@ export function createDashScopeTransport({
           ],
           temperature: 0.2,
           max_tokens: request.max_output_tokens,
+          enable_thinking: false,
           ...(route?.structured_output === true ? { response_format: { type: "json_object" } } : {}),
         }),
         signal: controller.signal,

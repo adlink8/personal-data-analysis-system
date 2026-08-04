@@ -42,7 +42,9 @@ test("DashScope transport maps compatible chat response to a Pi receipt", async 
   assert.deepEqual(receipt.usage, { input_tokens: 11, output_tokens: 7 });
   assert.equal(receipt.telemetry.provider, "dashscope");
   assert.equal(observed.url, "https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions");
-  assert.equal(JSON.parse(observed.init.body).model, getModelRoute("structured_analysis").model);
+  const requestBody = JSON.parse(observed.init.body);
+  assert.equal(requestBody.model, getModelRoute("structured_analysis").model);
+  assert.equal(requestBody.enable_thinking, false);
   assert.equal(observed.init.headers.authorization, "Bearer sk-test");
 });
 

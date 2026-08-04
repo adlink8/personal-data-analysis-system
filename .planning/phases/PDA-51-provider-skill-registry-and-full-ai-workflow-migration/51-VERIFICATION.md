@@ -9,5 +9,6 @@
 - Skill selection verifies checksum, expiry, owner, tool subset and collision abstention.
 - Entrypoint inventory is tracked and classifies migrated, rollback-only, test-only and deterministic-non-AI paths.
 - Legacy adapter rejects normal mode and is available only through explicit rollback mode.
+- Real DashScope is still opt-in at the Kernel boundary (`providerMode: "aliyun"`); default startup remains replay and does not spend.
 
 The phase proves replay parity and routing controls, not real model quality or cost.

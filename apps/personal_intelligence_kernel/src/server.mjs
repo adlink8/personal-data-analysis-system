@@ -10,6 +10,9 @@ import { streamJournalAsSse, SseTransportError } from "./transport/sse.mjs";
 export const ALLOWED_ROUTES = Object.freeze([
   "GET /health",
   "GET /ready",
+  "GET /v1/tasks",
+  "GET /v1/tasks/:task_id",
+  "POST /v1/tasks",
   "POST /v1/events",
   "GET /v1/events/stream",
 ]);
@@ -24,6 +27,23 @@ export const SAFE_ERROR_CODES = Object.freeze([
   "cursor_invalid",
   "cursor_not_found",
   "journal_unavailable",
+  "task_runtime_unavailable",
+  "task_identity_invalid",
+  "task_prompt_invalid",
+  "model_route_unknown",
+  "task_enqueue_failed",
+  "task_not_found",
+  "task_busy",
+  "stale_version",
+  "illegal_transition",
+  "legacy_provider_rollback_only",
+  "provider_mode_unknown",
+  "provider_credential_missing",
+  "provider_transport_missing",
+  "provider_response_invalid",
+  "provider_cost_ceiling_exceeded",
+  "provider_timeout",
+  "provider_transport_error",
   "host_not_ready",
   "host_bind_failed",
   "non_loopback_bind",
@@ -153,6 +173,23 @@ function attachRequestHandler(host, options) {
         sendJson(response, readiness.ready ? 200 : 503, { ok: readiness.ready, ...readiness });
         return;
       }
+      if (route === "GET /v1/tasks") {
+        sendJson(response, 200, { ok: true, tasks: host.taskLedger.list().map((task) => ({ ...task, input_ref: task.input_ref, output_ref: task.output_ref })) });
+        return;
+      }
+      if (route === "POST /v1/tasks") {
+        const body = await readBoundedJson(request);
+        const result = await host.executeTask(body);
+        sendJson(response, result.duplicate ? 200 : 201, { ok: true, ...result });
+        return;
+      }
+      if (request.method === "GET" && url.pathname.startsWith("/v1/tasks/")) {
+        const taskId = url.pathname.slice("/v1/tasks/".length);
+        const task = host.taskLedger.get(taskId);
+        if (!task) throw new KernelHostError("task_not_found");
+        sendJson(response, 200, { ok: true, task });
+        return;
+      }
       if (route === "POST /v1/events") {
         const event = await readBoundedJson(request);
         const row = host.journal.append(validatePiKernelEvent(event));
@@ -177,7 +214,7 @@ function attachRequestHandler(host, options) {
         });
         return;
       }
-      const samePath = ["/health", "/ready", "/v1/events", "/v1/events/stream"].includes(url.pathname);
+      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/events", "/v1/events/stream"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/");
       sendSafeError(response, samePath ? 405 : 404, samePath ? "method_not_allowed" : "route_not_found");
     } catch (error) {
       const code = safeCode(error);
@@ -258,6 +295,7 @@ export async function runKernelServerCli(argv = process.argv.slice(2), env = pro
     decisionPath: cli.decision_path,
     cwd: cli.cwd,
     agentDir: cli.agent_dir,
+    providerMode: cli.provider_mode ?? env.PI_KERNEL_PROVIDER_MODE,
     shutdownTimeoutMs: numberOption(cli.shutdown_timeout_ms ?? env.PI_KERNEL_SHUTDOWN_TIMEOUT_MS, 1000),
   });
   const address = runtime.server.address();

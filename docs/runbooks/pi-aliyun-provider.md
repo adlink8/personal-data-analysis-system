@@ -34,9 +34,11 @@ $env:DASHSCOPE_API_KEY = "<set-locally-never-commit>"
 ## 调用边界
 
 - transport 使用 `POST {BASE_URL}/chat/completions`，请求使用 `Bearer DASHSCOPE_API_KEY`。
-- `deepseek-v4-flash-0731` 当前不支持原生结构化输出；Pi 对该模型使用“仅返回 JSON 对象”的系统约束并在 receipt 边界校验 JSON。
+- 对 `deepseek-v4-flash-0731`，Pi 请求显式设置 `enable_thinking=false`，避免思考 Token 占满结构化任务的输出预算。
+- 当前配置的阿里云 Workspace 已实测支持 `response_format={"type":"json_object"}`；仍保留“仅返回 JSON 对象”的提示词和 receipt 边界校验，兼容不同地域/部署的能力差异。阿里云不同官方页面对该模型的结构化输出标注存在差异，切换 Workspace 后必须重新实测。
 - 北京地域当前官方原价为输入 1 元/百万 Token、输出 2 元/百万 Token；实际优惠和账单以百炼控制台为准。
 - API 返回的 `choices[0].message.content` 必须是 JSON 对象，才会转换成 Pi receipt。
 - 请求身份绑定 `task_id/session_id/idempotency_key`；`outcome_unknown` 不自动重试。
+- Kernel 真实冒烟必须显式以 `providerMode=aliyun` 启动，并调用 loopback `POST /v1/tasks`；该路由只返回 task/receipt 元数据，原始 Prompt/Completion 不落库。默认启动仍为 replay。
 - 未设置 `PI_PROVIDER_MODE=aliyun` 时，路由保持 `replay/replay-v1`。
 - 真实调用前仍需完成真实 cohort、成本/调用上限、签名浏览器 UAT、shadow/canary 和显式 primary 确认；任何失败只允许降级回 `legacy`。

@@ -17,6 +17,7 @@ Phase 50 adds three independent Pi control stores, a deterministic task ledger, 
 - Gateway rejects unknown operations, undeclared input, missing capability, and missing binding before domain invocation.
 - HTTP safe envelopes do not echo provider, credential, body, path, or raw exception values.
 - `git diff -- ops/runtime/start-agent-stack.ps1` is empty; Provider count remains zero.
+- KernelHost now owns the three control stores and exposes `POST /v1/tasks` plus metadata-only task reads; replay execution creates one task/session/event receipt chain and duplicate idempotency does not call the Provider again.
 
 ## Scope note
 
