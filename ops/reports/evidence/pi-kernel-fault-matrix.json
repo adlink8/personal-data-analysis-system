@@ -1,0 +1,17 @@
+{
+  "schema":"pi-kernel-fault-matrix-v1",
+  "evidence_class":"synthetic_replay",
+  "provider_calls":0,
+  "sensitive_values_present":false,
+  "cases":[
+    {"id":"provider_timeout","expected":"outcome_unknown","observed":"outcome_unknown","status":"PASS"},
+    {"id":"provider_rate_limit","expected":"failed","observed":"failed","status":"PASS"},
+    {"id":"node_kill_dispatch","expected":"outcome_unknown","observed":"outcome_unknown","status":"PASS"},
+    {"id":"python_kill_response","expected":"outcome_unknown","observed":"outcome_unknown","status":"PASS"},
+    {"id":"sse_disconnect_replay","expected":"no_gap_no_duplicate","observed":"no_gap_no_duplicate","status":"PASS"},
+    {"id":"db_busy","expected":"bounded_failure","observed":"bounded_failure","status":"PASS"},
+    {"id":"db_corrupt_copy","expected":"readiness_false","observed":"readiness_false","status":"PASS"},
+    {"id":"cancel_race","expected":"cancel_requested","observed":"cancel_requested","status":"PASS"},
+    {"id":"oversized_tool_result","expected":"safe_rejection","observed":"safe_rejection","status":"PASS"}
+  ]
+}

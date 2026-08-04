@@ -1,0 +1,16 @@
+{
+  "schema": "pi-baseline-preregistration-v1",
+  "version": "53.01.1",
+  "evidence_class": "synthetic_replay",
+  "cohort_id": "pi-phase53-replay-cohort",
+  "model": "replay-v1",
+  "route_purpose": "structured_analysis",
+  "timeout_seconds": 30,
+  "max_output_tokens": 1024,
+  "cost_ceiling": 0,
+  "attempts_per_arm": 1,
+  "authorized_case_ids": ["replay-case-001", "replay-case-002"],
+  "input_checksums": {"replay-case-001": "synthetic-input-001", "replay-case-002": "synthetic-input-002"},
+  "metrics": ["schema", "grounding", "tool_selection", "latency", "usage_cost", "recovery", "human_usefulness"],
+  "preregistration_checksum": "pi53-preregistration-frozen-v1"
+}
