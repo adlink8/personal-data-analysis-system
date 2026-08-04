@@ -1,0 +1,14 @@
+{
+  "schema": "pi-network-allowlist-v1",
+  "version": "48.02.1",
+  "phase": 48,
+  "default": "deny",
+  "hosts": [],
+  "ports": [],
+  "methods": [],
+  "policy": {
+    "provider_calls": 0,
+    "unknown_hosts": "deny",
+    "network": "offline"
+  }
+}
