@@ -110,6 +110,12 @@ from personal_knowledge.services.pi_domain_gateway import (  # noqa: E402
     PI_DOMAIN_CAPABILITY_HEADER,
     PiDomainGateway,
 )
+from personal_knowledge.services.pi_runtime_projection import (  # noqa: E402
+    kernel_status,
+    mutate_task,
+    safe_event,
+    task_list,
+)
 from personal_knowledge.services.agent_contract import compact_envelope  # noqa: E402
 from personal_knowledge.services.ui_projection import (  # noqa: E402
     CockpitProjectionService,
@@ -451,6 +457,14 @@ class Handler(BaseHTTPRequestHandler):
         qs = {k: v[0] for k, v in parse_qs(url.query).items()}
 
         try:
+            if path in {"/api/pi/status", "/api/pi/tasks"}:
+                payload = kernel_status() if path.endswith("/status") else {"schema_version": "pi_cockpit_event_v1", "tasks": task_list(), "observed_at": kernel_status()["observed_at"]}
+                self._send(_ok(payload))
+                return
+            if path == "/api/pi/events":
+                event = safe_event({"event_id": qs.get("event_id"), "task_id": qs.get("task_id"), "state": qs.get("state"), "version": qs.get("version")})
+                self._send(_ok(event))
+                return
             # Cockpit 前端静态托管(用未 rstrip 的 url.path 区分 /app 与 /app/)
             if url.path == "/app" or url.path.startswith("/app/"):
                 if url.path == "/app":
@@ -941,6 +955,16 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
             body = self._read_body()
+
+            if path in {"/api/pi/cancel", "/api/pi/resume"}:
+                decision = self._origin_policy_for_request()
+                if not decision["allowed"]:
+                    body_b, code = _safe_error("origin_not_allowed", 403)
+                    self._send(body_b, code)
+                    return
+                result = mutate_task("cancel" if path.endswith("/cancel") else "resume", body)
+                self._send(_contract(result), 200 if result.get("ok") else 409)
+                return
 
             if path == "/internal/pi-domain/dispatch":
                 # Internal means loopback process ownership plus an injected capability;

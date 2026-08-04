@@ -12,6 +12,7 @@ param(
   [string]$TunnelProxy = '',
   [ValidateRange(1, 65535)][int]$RestPort = 8000,
   [ValidateRange(1, 65535)][int]$McpPort = 8789,
+  [ValidateRange(1, 65535)][int]$KernelPort = 8790,
   [ValidateRange(1, 65535)][int]$TunnelHealthPort = 8081,
   [ValidateRange(1, 10)][int]$MaxRestarts = 3,
   [ValidateRange(2, 300)][int]$StartTimeoutSeconds = 30,
@@ -158,7 +159,7 @@ function StopManagedProcesses {
       Start-Sleep -Milliseconds 500
     }
   }
-  $patterns = @{ rest='personal_knowledge.services.api_server'; mcp='server.mjs'; tunnel='tunnel-client' }
+  $patterns = @{ rest='personal_knowledge.services.api_server'; mcp='server.mjs'; 'pi-kernel'='personal_intelligence_kernel.*server.mjs'; tunnel='tunnel-client' }
   foreach ($service in $saved.services) {
     if ($service.adopted -or -not $service.pid) { continue }
     $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($service.pid)" -ErrorAction SilentlyContinue
@@ -195,7 +196,7 @@ function Invoke-Preflight {
   $failures = [Collections.Generic.List[string]]::new()
   if (-not (Test-Path -LiteralPath $ProjectRoot)) { $failures.Add('project_root_missing') }
   if (-not (Test-Path -LiteralPath $appDir)) { $failures.Add('app_directory_missing') }
-  if (@(@($RestPort, $McpPort, $TunnelHealthPort) | Select-Object -Unique).Count -ne 3) { $failures.Add('ports_must_be_unique') }
+  if (@(@($RestPort, $McpPort, $KernelPort, $TunnelHealthPort) | Select-Object -Unique).Count -ne 4) { $failures.Add('ports_must_be_unique') }
   $python = Get-Executable 'python'
   $node = Get-Executable 'node'
   if (-not $python) { $failures.Add('python_missing') }
@@ -213,13 +214,14 @@ function Invoke-Preflight {
   }
   $restHealth = New-LocalUrl $RestPort '/health'
   $mcpHealth = New-LocalUrl $McpPort '/health'
+  $kernelHealth = New-LocalUrl $KernelPort '/ready'
   # /healthz proves only that the daemon is alive. /readyz proves the control
   # plane and configured MCP channel are both ready to serve requests.
   $tunnelHealth = New-LocalUrl $TunnelHealthPort '/readyz'
   Write-StructuredLog 'INFO' 'config_loaded' 'agent-stack' (([ordered]@{
     project_root = $ProjectRoot; app_dir = $appDir; tunnel_profile = $TunnelProfile
-    services = if ($SkipTunnel) { @('rest','mcp') } else { @('rest','mcp','tunnel') }
-    health_urls = @($restHealth, $mcpHealth, $tunnelHealth)
+    services = if ($SkipTunnel) { @('rest','pi-kernel','mcp') } else { @('rest','pi-kernel','mcp','tunnel') }
+    health_urls = @($restHealth, $kernelHealth, $mcpHealth, $tunnelHealth)
     max_restarts = $MaxRestarts; required_environment = @{ CONTROL_PLANE_API_KEY_set = [bool]$env:CONTROL_PLANE_API_KEY; orchestration_hmac = 'generated_in_memory' }
   } | ConvertTo-Json -Compress))
   foreach ($failure in $failures) { Write-StructuredLog 'ERROR' 'preflight_failed' 'agent-stack' $failure }
@@ -238,8 +240,9 @@ try {
 
   $restHealth = New-LocalUrl $RestPort '/health'
   $mcpHealth = New-LocalUrl $McpPort '/health'
+  $kernelHealth = New-LocalUrl $KernelPort '/ready'
   $tunnelHealth = New-LocalUrl $TunnelHealthPort '/readyz'
-  $healthUrls = @($restHealth, $mcpHealth)
+  $healthUrls = @($restHealth, $kernelHealth, $mcpHealth)
   if (-not $SkipTunnel) { $healthUrls += $tunnelHealth }
   if ($Mode -eq 'Probe') {
     $unhealthy = @($healthUrls | Where-Object { -not (Test-Endpoint $_) })
@@ -261,6 +264,7 @@ try {
 
   $specs = @(
     @{ Key='rest'; FilePath=$preflight.Python; Arguments=@('-m','personal_knowledge.services.api_server','--host',$loopbackHost,'--port',[string]$RestPort); WorkDir=$ProjectRoot; HealthUrl=$restHealth; Port=$RestPort; Environment=@{ PERSONAL_DATA_ORCHESTRATION_SECRET=$orchestrationSecret } },
+    @{ Key='pi-kernel'; FilePath=$preflight.Node; Arguments=@('apps\personal_intelligence_kernel\src\server.mjs','--port',[string]$KernelPort); WorkDir=$ProjectRoot; HealthUrl=$kernelHealth; Port=$KernelPort; Environment=@{ PI_KERNEL_PORT=[string]$KernelPort } },
     @{ Key='mcp'; FilePath=$preflight.Node; Arguments=@('server.mjs'); WorkDir=$appDir; HealthUrl=$mcpHealth; Port=$McpPort; Environment=@{ PORT=[string]$McpPort; PERSONAL_DATA_REST_URL=(New-LocalUrl $RestPort '') } }
   )
   if (-not $SkipTunnel) {
