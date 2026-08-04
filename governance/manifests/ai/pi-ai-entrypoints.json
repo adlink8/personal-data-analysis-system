@@ -1,0 +1,15 @@
+{
+  "schema": "pi-ai-entrypoints-v1",
+  "version": "51.02.1",
+  "phase": 51,
+  "policy": {"normal_mode_controller": "pi_kernel", "legacy_mode": "rollback_only", "comparison_harness": "explicit_only", "provider_calls": 0},
+  "entrypoints": [
+    {"id":"analysis.providers.ReplayProvider","file":"src/personal_knowledge/intelligence/analysis/providers.py","purpose":"structured_analysis","target_route":"structured_analysis","status":"migrated","owner":"personal-intelligence"},
+    {"id":"analysis.providers.OpenAICompatibleProvider","file":"src/personal_knowledge/intelligence/analysis/providers.py","purpose":"structured_analysis","target_route":"structured_analysis","status":"rollback_only","owner":"personal-intelligence"},
+    {"id":"analysis.providers.CodexCliProvider","file":"src/personal_knowledge/intelligence/analysis/providers.py","purpose":"structured_analysis","target_route":"structured_analysis","status":"rollback_only","owner":"personal-intelligence"},
+    {"id":"services.orchestration_service.generation_runner","file":"src/personal_knowledge/services/orchestration_service.py","purpose":"guarded_generation","target_route":"guarded_generation","status":"migrated","owner":"personal-intelligence"},
+    {"id":"application.knowledge.build_knowledge_units_prod","file":"src/personal_knowledge/application/knowledge/build_knowledge_units_prod.py","purpose":"extraction_summary","target_route":"extraction_summary","status":"migrated","owner":"knowledge"},
+    {"id":"evaluation.knowledge.evaluate_knowledge_canary.label_with_llm","file":"src/personal_knowledge/evaluation/knowledge/evaluate_knowledge_canary.py","purpose":"evaluation_only","target_route":"replay","status":"test_only","owner":"evaluation"},
+    {"id":"core.local_embed","file":"src/personal_knowledge/core/local_embed.py","purpose":"deterministic_embedding","target_route":null,"status":"deterministic_non_ai","owner":"retrieval"}
+  ]
+}

@@ -78,6 +78,18 @@ class AnalysisProvider(Protocol):
     def generate(self, request: ProviderRequest) -> ProviderResult: ...
 
 
+class LegacyProviderAdapter:
+    """Compatibility wrapper; normal Pi mode cannot instantiate legacy control."""
+
+    def __init__(self, provider: AnalysisProvider, *, mode: str = "normal") -> None:
+        if mode != "rollback":
+            raise ProviderError("legacy_provider_rollback_only")
+        self.provider = provider
+
+    def generate(self, request: ProviderRequest) -> ProviderResult:
+        return self.provider.generate(request)
+
+
 class ReplayProvider:
     """Deterministic fixture/replay provider using only caller-supplied payloads."""
 
@@ -482,5 +494,5 @@ __all__ = [
     "AnalysisProvider", "OpenAICompatibleProvider", "ProviderError", "ProviderRequest",
     "CodexCliProvider", "ProviderResult", "ProviderTelemetry", "ProviderTimeout",
     "codex_cli_preflight", "resolve_codex_command",
-    "ReplayProvider",
+    "ReplayProvider", "LegacyProviderAdapter",
 ]
