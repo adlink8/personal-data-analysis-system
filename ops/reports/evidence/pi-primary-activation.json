@@ -4,7 +4,8 @@
   "mode":"legacy",
   "primary_activated":false,
   "provider_calls":0,
-  "reason":"phase53_decision_revise_and_explicit_primary_confirmation_missing",
+  "reason":"phase53_decision_revise_baseline_inconclusive_and_readiness_evidence_blocked",
+  "readiness_evidence":"ops/reports/evidence/pi-primary-readiness.json",
   "authority_mutated":false,
   "history_preserved":true
 }
