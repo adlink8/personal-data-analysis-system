@@ -5,7 +5,7 @@
 - Runtime activation ledger and exact downgrade drill are implemented and tested.
 - Fresh mode remains `legacy`.
 - Synthetic shadow/canary/rollback fixtures do not constitute real Provider or user acceptance.
-- Primary was not activated because Phase 53 is `revise` and no explicit primary confirmation was supplied.
+- Primary was not activated because Phase 53 remains `revise` (`INCONCLUSIVE` paired baseline: 1/2 cohort members and invalid frozen response contracts); the new primary readiness validator also rejects incomplete evidence before confirmation.
 - No Provider calls, authority mutations, watermark changes or history deletions occurred.
 
-To continue the real checkpoints, record the frozen provider/model/call/cost authorization, signed browser UAT acceptance, and separate primary/canary confirmations. Automatic behavior may only downgrade to `legacy`.
+To continue the real checkpoints, add a second legitimate frozen cohort member and passing paired receipts, then regenerate the readiness bundle and obtain separate primary/canary confirmations. Automatic behavior may only downgrade to `legacy`.
