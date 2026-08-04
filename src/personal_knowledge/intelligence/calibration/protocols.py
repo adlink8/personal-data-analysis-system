@@ -80,10 +80,23 @@ def freeze_protocol(
 ) -> dict[str, Any]:
     if inspect_schema(db_path).get("schema_state") != "applied": raise CalibrationProtocolError("schema_not_applied")
     members = []
+    seen_case_ids: set[str] = set()
+    seen_source_candidates: set[str] = set()
     for ordinal, item in enumerate(protocol.payload["cohort"]):
+        case_id = str(item["case_id"])
+        if case_id in seen_case_ids:
+            raise CalibrationProtocolError("cohort_case_duplicate", case_id)
+        seen_case_ids.add(case_id)
         detail = get_case(pilot_db_path, item["case_id"])
         if detail["case"]["payload_checksum"] != item["case_checksum"]:
             raise CalibrationProtocolError("cohort_case_checksum_mismatch")
+        source = detail["case"]["payload"].get("source", {})
+        source_candidate_id = str(source.get("candidate_id") or "")
+        if not source_candidate_id:
+            raise CalibrationProtocolError("cohort_source_missing", case_id)
+        if source_candidate_id in seen_source_candidates:
+            raise CalibrationProtocolError("cohort_source_duplicate", source_candidate_id)
+        seen_source_candidates.add(source_candidate_id)
         events = history(pilot_db_path, item["case_id"])
         outcome = next((event for event in events if event["event_type"] == "outcome_observed"), None)
         if outcome is None or outcome["payload_checksum"] != item["outcome_event_checksum"]:
