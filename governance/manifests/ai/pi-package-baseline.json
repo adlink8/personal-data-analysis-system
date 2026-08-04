@@ -1,0 +1,85 @@
+{
+  "schema": "pi-package-baseline-v1",
+  "candidate": {
+    "name": "personal-intelligence-kernel",
+    "version": "0.1.0",
+    "status": "conditional"
+  },
+  "registry": "https://registry.npmjs.org",
+  "node": {
+    "engine": ">=22.19.0"
+  },
+  "packages": [
+    {
+      "name": "@earendil-works/pi-ai",
+      "version": "0.83.0",
+      "resolved": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.83.0.tgz",
+      "integrity": "sha512-m3IZD4g3er0V8TC9+Vpgw/sjTKqcJlkcIBy/JvsgRubuuik3tAVzyugUg4rVrShIkkOT69mEd34NEqKUIsl6JQ==",
+      "license": "MIT",
+      "repository": "https://github.com/earendil-works/pi",
+      "engine": ">=22.19.0",
+      "install_scripts": "ignored"
+    },
+    {
+      "name": "@earendil-works/pi-coding-agent",
+      "version": "0.83.0",
+      "resolved": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-0.83.0.tgz",
+      "integrity": "sha512-uYhF+FsZxogoSX/AxBcUdiY+ZklubwaXyAoEGA2eQwsHcyEAhUYIKh/WLXe/a8+k8eTCmxb+ZN2Zo9mzQtzbWw==",
+      "license": "MIT",
+      "repository": "https://github.com/earendil-works/pi",
+      "engine": ">=22.19.0",
+      "install_scripts": "ignored"
+    },
+    {
+      "name": "@earendil-works/pi-storage-sqlite-node",
+      "version": "0.83.0",
+      "resolved": "https://registry.npmjs.org/@earendil-works/pi-storage-sqlite-node/-/pi-storage-sqlite-node-0.83.0.tgz",
+      "integrity": "sha512-kgoseZj0VGPM2ldwcfyVeEY6QJSGgmiqcPXpKi2FlQFlHjpVEX+VEoWkjUvNl99yTRkCvBoveVqETV5FSI9qQQ==",
+      "license": "MIT",
+      "repository": "https://github.com/earendil-works/pi",
+      "engine": ">=22.19.0",
+      "install_scripts": "ignored"
+    }
+  ],
+  "transitive_pi_packages": {
+    "@earendil-works/pi-agent-core": "0.83.0",
+    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-tui": "0.83.0"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.9",
+    "undici": "8.9.0"
+  },
+  "install_scripts": {
+    "policy": "ignore-scripts",
+    "command": "npm ci --ignore-scripts --registry=https://registry.npmjs.org --prefix apps/personal_intelligence_kernel",
+    "known_ignored_packages": [
+      {
+        "name": "@google/genai",
+        "version": "1.52.0"
+      },
+      {
+        "name": "protobufjs",
+        "version": "7.6.5"
+      }
+    ]
+  },
+  "allowed_statuses": [
+    "candidate",
+    "accepted",
+    "conditional",
+    "rejected"
+  ],
+  "compatibility_precondition": {
+    "package_security_pass_is_not_acceptance": true,
+    "runtime_containment_evidence_required": true,
+    "runtime_containment_plan": "48-02"
+  },
+  "requalification_triggers": [
+    "package.json or package-lock.json changes",
+    "npmjs.org metadata, integrity, license, repository or engine changes",
+    "any npm audit advisory or severity change",
+    "override target or transitive package version changes",
+    "runtime containment evidence expires or regresses"
+  ]
+}
