@@ -257,6 +257,7 @@ const SDK_TYPE_MAP = Object.freeze({
 /** Normalize only known SDK lifecycle metadata; SDK-private objects never escape. */
 export function normalizePiSdkEvent(sdkEvent, context = {}) {
   assertRecord(sdkEvent, "sdk_event");
+  assertNoForbiddenKeys(sdkEvent, "sdk_event");
   const type = SDK_TYPE_MAP[sdkEvent.type];
   if (!type) fail("unknown_sdk_event", "sdk_event.type");
   const { authority, snapshot, correlation_id: correlationId, causation_id: causationId = null, idempotency_key: idempotencyKey, payload_ref: payloadRef = { kind: "none", ref: null, checksum: null }, occurred_at: occurredAt = new Date().toISOString(), source = "pi_kernel" } = context;

@@ -113,5 +113,6 @@ test("SDK events normalize to project-owned metadata only", () => {
   assert.equal(event.type, "tool_started");
   assert.equal(event.payload_ref.kind, "none");
   assert.deepEqual(Object.keys(event), Object.keys(base).concat("event_id").sort((a, b) => ["event_id", ...Object.keys(base)].indexOf(a) - ["event_id", ...Object.keys(base)].indexOf(b)));
-  expectCode(() => normalizePiSdkEvent({ type: "message_update", content: "private" }, { ...base }), "unknown_sdk_event");
+  expectCode(() => normalizePiSdkEvent({ type: "tool_execution_start", content: "private" }, { ...base }), "forbidden_inline_field");
+  expectCode(() => normalizePiSdkEvent({ type: "unsupported_sdk_event" }, { ...base }), "unknown_sdk_event");
 });
