@@ -1,0 +1,24 @@
+{
+  "schema": "pi-provider-real-smoke-receipt-v1",
+  "evidence_class": "real_authorized_smoke",
+  "status": "completed",
+  "provider": "dashscope",
+  "model": "deepseek-v4-flash-0731",
+  "provider_calls": 1,
+  "retry_count": 0,
+  "elapsed_ms": 865,
+  "usage": {
+    "input_tokens": 42,
+    "output_tokens": 46
+  },
+  "cost": 0.000134,
+  "currency": "CNY",
+  "cost_ceiling": 30,
+  "response_keys": ["ok", "message"],
+  "response_checksum": "879da07a544d6d339fcd511953f4701163a8c74df32a77b603894db906c60ab4",
+  "usage_checksum": "6e6cf07d9583037aeac32120effb63865422c3efdf729435dad1cdfc2f048271",
+  "route_checksum": "f808d4a832a8db300ea2c8497bf468be567278feee55cc28009d30669e65f775",
+  "output_body_stored": false,
+  "credentials_stored": false,
+  "notes": "One synthetic prompt through the persisted DPAPI-backed Pi Provider adapter; this is a real smoke receipt, not the paired Phase 53 baseline."
+}

@@ -20,13 +20,19 @@ export function readProviderConfig({ configPath = process.env.PI_PROVIDER_CONFIG
     const baseUrl = String(value.base_url || "").trim();
     const model = String(value.model || "").trim();
     const costCeiling = Number(value.cost_ceiling ?? 0);
-    if (!["replay", "aliyun", "dashscope"].includes(mode) || !model || !Number.isFinite(costCeiling) || costCeiling < 0) return {};
+    const inputPricePerMillion = Number(value.input_price_per_million ?? 1);
+    const outputPricePerMillion = Number(value.output_price_per_million ?? 2);
+    const currency = String(value.currency || "CNY").trim().toUpperCase();
+    if (!["replay", "aliyun", "dashscope"].includes(mode) || !model || !Number.isFinite(costCeiling) || costCeiling < 0 || !Number.isFinite(inputPricePerMillion) || inputPricePerMillion < 0 || !Number.isFinite(outputPricePerMillion) || outputPricePerMillion < 0 || !currency) return {};
     return Object.freeze({
       mode,
       provider: "dashscope",
       baseUrl,
       model,
       costCeiling,
+      inputPricePerMillion,
+      outputPricePerMillion,
+      currency,
       secretPath: absolutePath(value.secret_path, DEFAULT_PROVIDER_SECRET_PATH),
     });
   } catch {
@@ -48,7 +54,7 @@ export function readPersistedDashScopeApiKey({ secretPath } = {}) {
     "try { [Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }",
   ].join("; ");
   try {
-    const value = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    const value = execFileSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", script], {
       input: `${encrypted}\n`,
       encoding: "utf8",
       timeout: 5000,

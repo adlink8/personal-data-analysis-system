@@ -36,6 +36,7 @@ export function createDashScopeTransport({
     if (!request?.prompt) throw new ProviderAdapterError("provider_request_invalid");
 
     const controller = new AbortController();
+    const persisted = readProviderConfig();
     const timeoutMs = Number(route?.timeout_ms ?? 30000);
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let response;
@@ -48,10 +49,13 @@ export function createDashScopeTransport({
         },
         body: JSON.stringify({
           model: request.model,
-          messages: [{ role: "user", content: request.prompt }],
+          messages: [
+            ...(route?.structured_output === false ? [{ role: "system", content: "Return exactly one valid JSON object. Do not use Markdown fences or add commentary." }] : []),
+            { role: "user", content: request.prompt },
+          ],
           temperature: 0.2,
           max_tokens: request.max_output_tokens,
-          response_format: { type: "json_object" },
+          ...(route?.structured_output === true ? { response_format: { type: "json_object" } } : {}),
         }),
         signal: controller.signal,
       });
@@ -74,15 +78,23 @@ export function createDashScopeTransport({
       const content = raw.choices[0].message.content;
       const payload = typeof content === "string" ? JSON.parse(content) : content;
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("payload");
+      const inputTokens = Number(raw.usage?.prompt_tokens ?? 0);
+      const outputTokens = Number(raw.usage?.completion_tokens ?? 0);
+      const inputPrice = Number(route?.input_price_per_million ?? persisted.inputPricePerMillion ?? 0);
+      const outputPrice = Number(route?.output_price_per_million ?? persisted.outputPricePerMillion ?? 0);
+      const cost = raw.cost_amount == null
+        ? (inputTokens * inputPrice + outputTokens * outputPrice) / 1_000_000
+        : Number(raw.cost_amount);
       return {
         payload,
         usage: {
-          input_tokens: Number(raw.usage?.prompt_tokens ?? 0),
-          output_tokens: Number(raw.usage?.completion_tokens ?? 0),
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
         },
         provider: "dashscope",
         model: String(raw.model || request.model),
-        cost: Number(raw.cost_amount ?? 0),
+        cost,
+        currency: String(raw.cost_currency || route?.currency || persisted.currency || "CNY"),
       };
     } catch {
       throw new ProviderAdapterError("provider_response_invalid");

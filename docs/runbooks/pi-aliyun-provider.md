@@ -34,6 +34,8 @@ $env:DASHSCOPE_API_KEY = "<set-locally-never-commit>"
 ## 调用边界
 
 - transport 使用 `POST {BASE_URL}/chat/completions`，请求使用 `Bearer DASHSCOPE_API_KEY`。
+- `deepseek-v4-flash-0731` 当前不支持原生结构化输出；Pi 对该模型使用“仅返回 JSON 对象”的系统约束并在 receipt 边界校验 JSON。
+- 北京地域当前官方原价为输入 1 元/百万 Token、输出 2 元/百万 Token；实际优惠和账单以百炼控制台为准。
 - API 返回的 `choices[0].message.content` 必须是 JSON 对象，才会转换成 Pi receipt。
 - 请求身份绑定 `task_id/session_id/idempotency_key`；`outcome_unknown` 不自动重试。
 - 未设置 `PI_PROVIDER_MODE=aliyun` 时，路由保持 `replay/replay-v1`。

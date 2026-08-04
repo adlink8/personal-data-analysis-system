@@ -4,6 +4,7 @@ import test from "node:test";
 import { createDashScopeTransport } from "../src/models/dashscope-transport.mjs";
 import { ProviderAdapter, ProviderAdapterError } from "../src/models/provider-adapter.mjs";
 import { createConfiguredProviderAdapter } from "../src/models/runtime-provider.mjs";
+import { getModelRoute } from "../src/models/routes.mjs";
 
 const identity = {
   purpose: "structured_analysis",
@@ -41,7 +42,7 @@ test("DashScope transport maps compatible chat response to a Pi receipt", async 
   assert.deepEqual(receipt.usage, { input_tokens: 11, output_tokens: 7 });
   assert.equal(receipt.telemetry.provider, "dashscope");
   assert.equal(observed.url, "https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions");
-  assert.equal(JSON.parse(observed.init.body).model, "replay-v1");
+  assert.equal(JSON.parse(observed.init.body).model, getModelRoute("structured_analysis").model);
   assert.equal(observed.init.headers.authorization, "Bearer sk-test");
 });
 

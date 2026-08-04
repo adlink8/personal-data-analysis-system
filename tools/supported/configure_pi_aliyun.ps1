@@ -9,7 +9,9 @@ param(
   [string]$ProjectRoot = '',
   [string]$BaseUrl = 'https://ws-5z3x3ey9xg0x32ya.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
   [string]$Model = 'deepseek-v4-flash-0731',
-  [ValidateRange(0, 100000)][double]$CostCeiling = 0
+  [ValidateRange(0, 100000)][double]$CostCeiling = 30,
+  [ValidateRange(0, 100000)][double]$InputPricePerMillion = 1,
+  [ValidateRange(0, 100000)][double]$OutputPricePerMillion = 2
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,6 +34,9 @@ $config = [ordered]@{
   base_url = $BaseUrl
   model = $Model
   cost_ceiling = $CostCeiling
+  input_price_per_million = $InputPricePerMillion
+  output_price_per_million = $OutputPricePerMillion
+  currency = 'CNY'
   secret_path = 'var/secrets/dashscope.api.dpapi.txt'
 }
 $config | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $configPath -Encoding utf8

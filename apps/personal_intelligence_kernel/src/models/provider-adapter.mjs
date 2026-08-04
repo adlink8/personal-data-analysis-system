@@ -5,7 +5,7 @@ export class ProviderAdapterError extends Error { constructor(code, message = co
 const checksum = (value) => createHash("sha256").update(JSON.stringify(value, Object.keys(value ?? {}).sort())).digest("hex");
 
 export class ProviderAdapter {
-  constructor({ credentials, transport, replay = false } = {}) { this.credentials = credentials; this.transport = transport; this.replay = replay; this.providerCalls = 0; this.outcomeUnknown = new Set(); }
+  constructor({ credentials, transport, replay = false } = {}) { this.credentials = credentials; this.transport = transport; this.replay = replay; this.providerCalls = 0; this.spentCost = 0; this.outcomeUnknown = new Set(); }
   async generate({ purpose, model, prompt, task_id, session_id, event_id, idempotency_key, max_output_tokens } = {}) {
     const route = getModelRoute(purpose, model);
     if (!prompt || !task_id || !session_id || !idempotency_key) throw new ProviderAdapterError("identity_required");
@@ -20,8 +20,9 @@ export class ProviderAdapter {
     const usage = { input_tokens: Number(response.usage?.input_tokens ?? 0), output_tokens: Number(response.usage?.output_tokens ?? 0) };
     const cost = Number(response.cost ?? 0);
     if (!Number.isFinite(cost) || cost < 0) throw new ProviderAdapterError("provider_cost_invalid");
-    if (route.cost_ceiling > 0 && cost > route.cost_ceiling) throw new ProviderAdapterError("provider_cost_ceiling_exceeded");
-    return Object.freeze({ schema_version: "pi_provider_receipt_v1", task_id, session_id, event_id: event_id ?? null, idempotency_key, route_checksum: route.route_checksum, response: response.payload, response_checksum: checksum(response.payload), usage, usage_checksum: checksum(usage), telemetry: { provider: response.provider ?? route.provider, model: response.model ?? route.model, status: "completed", cost } });
+    if (route.cost_ceiling > 0 && this.spentCost + cost > route.cost_ceiling) throw new ProviderAdapterError("provider_cost_ceiling_exceeded");
+    this.spentCost += cost;
+    return Object.freeze({ schema_version: "pi_provider_receipt_v1", task_id, session_id, event_id: event_id ?? null, idempotency_key, route_checksum: route.route_checksum, response: response.payload, response_checksum: checksum(response.payload), usage, usage_checksum: checksum(usage), telemetry: { provider: response.provider ?? route.provider, model: response.model ?? route.model, status: "completed", cost, currency: response.currency ?? route.currency ?? "CNY" } });
   }
   markOutcomeUnknown(idempotencyKey) { this.outcomeUnknown.add(idempotencyKey); }
   reconcile(idempotencyKey) { this.outcomeUnknown.delete(idempotencyKey); return { idempotency_key: idempotencyKey, reconciled: true }; }
