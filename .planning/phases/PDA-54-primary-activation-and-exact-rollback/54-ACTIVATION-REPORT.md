@@ -9,4 +9,4 @@
 - The metadata-only readiness result is recorded in [`ops/reports/evidence/pi-primary-readiness.json`](../../../ops/reports/evidence/pi-primary-readiness.json); it reports 12 migrated production entrypoints with zero valid receipts for primary.
 - No Provider calls, authority mutations, watermark changes or history deletions occurred.
 
-To continue the real checkpoints, add a second legitimate frozen cohort member and passing paired receipts, then regenerate the readiness bundle and obtain separate primary/canary confirmations. Automatic behavior may only downgrade to `legacy`.
+To continue the real checkpoints, add a second legitimate frozen cohort member from a distinct source candidate and passing paired receipts, then regenerate the readiness bundle and obtain separate primary/canary confirmations. Distinct case IDs from the same source candidate are rejected at protocol freeze. Automatic behavior may only downgrade to `legacy`.
