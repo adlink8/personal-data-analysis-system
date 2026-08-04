@@ -1,0 +1,11 @@
+{
+  "schema": "pi-domain-tools-v1",
+  "version": "50.02.1",
+  "operations": [
+    {"name": "domain.inspect", "kind": "read", "privacy_ceiling": "R1", "required": ["task_id", "idempotency_key", "binding"]},
+    {"name": "domain.candidate", "kind": "read", "privacy_ceiling": "R1", "required": ["task_id", "idempotency_key", "binding"]},
+    {"name": "session.preview", "kind": "guarded_write", "privacy_ceiling": "R1", "required": ["task_id", "idempotency_key", "binding", "session_id", "transition"]},
+    {"name": "session.confirm", "kind": "guarded_write", "privacy_ceiling": "R1", "required": ["task_id", "idempotency_key", "binding", "preview", "confirmed"]}
+  ],
+  "policy": {"default": "deny", "arbitrary_sql": false, "arbitrary_path": false, "arbitrary_callable": false, "provider_calls": 0}
+}
