@@ -459,7 +459,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in {"/api/pi/status", "/api/pi/tasks"}:
                 payload = kernel_status() if path.endswith("/status") else {"schema_version": "pi_cockpit_event_v1", "tasks": task_list(), "observed_at": kernel_status()["observed_at"]}
-                self._send(_ok(payload))
+                # Pi Cockpit schemas validate the metadata projection itself;
+                # do not wrap it in the generic {ok,data} envelope.
+                self._send(_contract(payload))
                 return
             if path == "/api/pi/events":
                 event = safe_event({"event_id": qs.get("event_id"), "task_id": qs.get("task_id"), "state": qs.get("state"), "version": qs.get("version")})

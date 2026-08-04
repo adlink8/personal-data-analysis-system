@@ -88,3 +88,43 @@ test("Kernel task route persists metadata-only task/session receipts and replays
     events.close(); tasks.close(); sessions.close(); candidates.close();
   }
 });
+
+test("Kernel cancel and resume routes enforce versioned metadata-only recovery", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-kernel-recovery-"));
+  const decisionPath = join(dir, "decision.json");
+  await writeFile(decisionPath, JSON.stringify({
+    schema: "pi-package-decision-v1", run_id: PHASE_48_DECISION_RUN_ID,
+    status: "accepted", accepted: true, expiry: "2099-01-01T00:00:00.000Z",
+  }), "utf8");
+  const runtime = await startKernelServer({
+    projectRoot: process.cwd(), decisionPath, databasePath: join(dir, "events.sqlite"), controlDatabaseDirectory: dir,
+    cwd: dir, agentDir: join(dir, "agent"), host: "127.0.0.1", port: 0, providerMode: "replay",
+  });
+  const port = runtime.server.address().port;
+  t.after(async () => { await runtime.stop(100); await rm(dir, { recursive: true, force: true }); });
+
+  runtime.host.taskLedger.enqueue({
+    task_id: "pi_task_cancel_route_001", idempotency_key: "pi-cancel-seed-001",
+    input_ref: { kind: "artifact", ref: "prompt:seed", checksum: "a".repeat(64) },
+  });
+  const cancelled = await requestJson(port, "POST", "/v1/tasks/pi_task_cancel_route_001/cancel", {
+    expected_version: 1, idempotency_key: "pi-cancel-route-001",
+  });
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.json.task.state, "cancel_requested");
+  assert.equal(cancelled.text.includes('"prompt"'), false);
+
+  runtime.host.taskLedger.enqueue({
+    task_id: "pi_task_resume_route_001", idempotency_key: "pi-resume-seed-001",
+    input_ref: { kind: "artifact", ref: "prompt:seed2", checksum: "b".repeat(64) },
+  });
+  let task = runtime.host.taskLedger.claim("pi_task_resume_route_001", { owner: "pi_kernel" });
+  task = runtime.host.taskLedger.transition("pi_task_resume_route_001", "running", { expectedVersion: task.version, owner: "pi_kernel" });
+  runtime.host.taskLedger.markOutcomeUnknown("pi_task_resume_route_001", { expectedVersion: task.version, owner: "pi_kernel", error_code: "provider_timeout" });
+  const resumed = await requestJson(port, "POST", "/v1/tasks/pi_task_resume_route_001/resume", {
+    expected_version: 4, idempotency_key: "pi-resume-route-001", state: "failed", error_code: "operator_reconciled",
+  });
+  assert.equal(resumed.status, 200);
+  assert.equal(resumed.json.task.state, "failed");
+  assert.equal(resumed.text.includes("operator_reconciled"), true);
+});

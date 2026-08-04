@@ -1,0 +1,23 @@
+{
+  "schema": "pi-browser-uat-v1",
+  "status": "PASS_AUTOMATED_PENDING_SIGNOFF",
+  "run_at": "2026-08-04T13:51:27Z",
+  "runtime": "rest_to_loopback_pi_kernel",
+  "route": "/app/system/pi-runtime",
+  "kernel_ready": true,
+  "synthetic_task_projection": "pi_uat_synthetic_001",
+  "viewports": [
+    { "width": 320, "height": 800, "horizontal_overflow": false },
+    { "width": 384, "height": 900, "horizontal_overflow": false },
+    { "width": 768, "height": 900, "horizontal_overflow": false },
+    { "width": 1024, "height": 900, "horizontal_overflow": false },
+    { "width": 1440, "height": 1000, "horizontal_overflow": false }
+  ],
+  "keyboard_focus": true,
+  "reduced_motion_rule_present": true,
+  "privacy_boundary": "PASS_NO_PROMPT_OR_PROVIDER_BODY",
+  "authority_mutations": 0,
+  "real_personal_cohort_accessed": false,
+  "human_acceptance_signed": false,
+  "primary_activated": false
+}

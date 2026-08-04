@@ -119,6 +119,59 @@ export class KernelHost {
     return { lifecycle: this.lifecycle, host: this.host, port: this.port, provider_calls: this.providerCalls, ready: this.isReady() };
   }
 
+  /** Request cancellation without exposing prompt/output data. */
+  cancelTask({ task_id: taskId, expected_version: expectedVersion, idempotency_key: idempotencyKey } = {}) {
+    if (!this.taskLedger) throw safeError("task_runtime_unavailable");
+    assertIdentifier(taskId, "task_identity_invalid");
+    assertIdentifier(idempotencyKey, "task_identity_invalid");
+    const current = this.taskLedger.get(taskId);
+    if (!current) throw safeError("task_not_found");
+    if (Number(expectedVersion) !== Number(current.version)) throw safeError("stale_version");
+    if (!["queued", "claimed", "running"].includes(current.state)) throw safeError("task_not_cancelable");
+    try {
+      const event = this.#appendLifecycle("task_cancel_requested", {
+        taskId,
+        idempotencyKey,
+        checksum: current.input_ref?.checksum ?? sha256(taskId),
+      });
+      const task = this.taskLedger.cancel(taskId, { expectedVersion: current.version, event_ref: event.event.event_id });
+      return { task, provider_calls: this.providerCalls };
+    } catch (error) {
+      if (error instanceof TaskLedgerError) throw safeError(error.code);
+      throw safeError("task_execution_failed");
+    }
+    return { task, provider_calls: this.providerCalls };
+  }
+
+  /** Reconcile outcome_unknown only with an explicit terminal state; never retries implicitly. */
+  reconcileTask({ task_id: taskId, expected_version: expectedVersion, idempotency_key: idempotencyKey, state, output_checksum: outputChecksum, error_code: errorCode } = {}) {
+    if (!this.taskLedger) throw safeError("task_runtime_unavailable");
+    assertIdentifier(taskId, "task_identity_invalid");
+    assertIdentifier(idempotencyKey, "task_identity_invalid");
+    if (!["succeeded", "failed"].includes(state)) throw safeError("task_reconcile_state_required");
+    const current = this.taskLedger.get(taskId);
+    if (!current) throw safeError("task_not_found");
+    if (Number(expectedVersion) !== Number(current.version)) throw safeError("stale_version");
+    if (current.state !== "outcome_unknown") throw safeError("task_not_resumable");
+    try {
+      const event = this.#appendLifecycle(state === "succeeded" ? "task_completed" : "task_failed", {
+        taskId,
+        idempotencyKey,
+        checksum: outputChecksum ?? current.input_ref?.checksum ?? sha256(taskId),
+      });
+      const task = this.taskLedger.transition(taskId, state, {
+        expectedVersion: current.version,
+        output_ref: outputChecksum ? artifactRef(outputChecksum) : undefined,
+        error_code: errorCode,
+        event_ref: event.event.event_id,
+      });
+      return { task, provider_calls: this.providerCalls };
+    } catch (error) {
+      if (error instanceof TaskLedgerError) throw safeError(error.code);
+      throw safeError("task_execution_failed");
+    }
+  }
+
   #appendLifecycle(type, { taskId, idempotencyKey, checksum, causationId = null } = {}) {
     const event = createPiKernelEvent({
       type,

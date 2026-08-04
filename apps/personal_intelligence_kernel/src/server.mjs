@@ -13,6 +13,8 @@ export const ALLOWED_ROUTES = Object.freeze([
   "GET /v1/tasks",
   "GET /v1/tasks/:task_id",
   "POST /v1/tasks",
+  "POST /v1/tasks/:task_id/cancel",
+  "POST /v1/tasks/:task_id/resume",
   "POST /v1/events",
   "GET /v1/events/stream",
 ]);
@@ -34,6 +36,9 @@ export const SAFE_ERROR_CODES = Object.freeze([
   "task_enqueue_failed",
   "task_not_found",
   "task_busy",
+  "task_not_cancelable",
+  "task_not_resumable",
+  "task_reconcile_state_required",
   "stale_version",
   "illegal_transition",
   "legacy_provider_rollback_only",
@@ -181,6 +186,16 @@ function attachRequestHandler(host, options) {
         const body = await readBoundedJson(request);
         const result = await host.executeTask(body);
         sendJson(response, result.duplicate ? 200 : 201, { ok: true, ...result });
+        return;
+      }
+      if (request.method === "POST" && url.pathname.match(/^\/v1\/tasks\/[^/]+\/(cancel|resume)$/)) {
+        const match = url.pathname.match(/^\/v1\/tasks\/([^/]+)\/(cancel|resume)$/);
+        const body = await readBoundedJson(request);
+        const taskId = match[1];
+        if (body.task_id !== undefined && body.task_id !== taskId) throw new KernelHostError("task_identity_invalid");
+        const payload = { ...body, task_id: taskId };
+        const result = match[2] === "cancel" ? host.cancelTask(payload) : host.reconcileTask(payload);
+        sendJson(response, 200, { ok: true, ...result });
         return;
       }
       if (request.method === "GET" && url.pathname.startsWith("/v1/tasks/")) {

@@ -1,16 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Goal
+milestone: v2.0
+milestone_name: Pi Personal Intelligence Kernel
 status: executing
-last_updated: "2026-07-28T00:51:48.310Z"
-last_activity: 2026-07-28 -- Phase 43 planning complete
+last_updated: "2026-08-04T06:54:28.056Z"
+last_activity: 2026-08-04 -- Phase 54 implementation and rollback verification complete; real activation remains gated
 progress:
-  total_phases: 50
-  completed_phases: 35
-  total_plans: 136
-  completed_plans: 116
-  percent: 70
+  total_phases: 55
+  completed_phases: 40
+  total_plans: 150
+  completed_plans: 140
+  percent: 73
 ---
 
 # Project State
@@ -61,17 +61,25 @@ progress:
 
 ## Current Position
 
-Phase: 42
-Plan: 42-03
-Status: Ready to execute
-Last activity: 2026-07-28 -- Phase 43 planning complete
+Phase: 54 — Primary activation and exact rollback
+Plan: 54-02
+Status: Implementation complete; primary activation remains blocked by Phase 53 real-baseline/UAT and explicit activation checkpoints
+Last activity: 2026-08-04 -- Pi Kernel real task-route smoke and automated browser projection UAT passed; paired baseline and signed human UAT remain gated; runtime remains legacy
 
 ## Project Reference
 
 See: `.planning/PROJECT.md` (updated 2026-07-19)
 
 **Core value:** Local, evidence-bound and uncertainty-aware personal decision support.
-**Current focus:** Phase 42 — finish controlled dual-track extraction/evaluation before watermark advancement
+**Current focus:** v2.0 Phase 54 — exact rollback and activation-gate closure
+
+## v2.0 execution snapshot (2026-08-04)
+
+- Phase 48: accepted composite package/runtime containment gate.
+- Phases 49–52: implementation and independent verification complete.
+- Phase 53: deterministic replay/fault-matrix infrastructure, real Pi Kernel smoke and automated browser projection UAT complete; the paired legacy baseline and signed human UAT remain **blocked**.
+- Phase 54: activation ledger, shadow/canary policy, primary-routing guard and exact rollback are verified; primary was **not activated** and current mode remains `legacy`.
+- No user-data cohort run, production primary switch, promotion, watermark change or remote write was performed; the smoke used 3 synthetic inputs and cost 0.00018 CNY, and browser UAT used one synthetic task.
 
 ## Cross-cutting architecture/data governance audit
 
@@ -80,8 +88,9 @@ See: `.planning/PROJECT.md` (updated 2026-07-19)
 - **Corrected product vision and current status:** [`.planning/audits/PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md`](audits/PERSONAL-DECISION-INTELLIGENCE-VISION-STATUS-2026-07-18.md) — final target is decision intelligence based on long-term personal data plus external environment, not a project-status Agent.
 - **Candidate product frontend:** [`UI-SPEC.md`](research/v1.4-decision-cockpit-ui/UI-SPEC.md) — independent decision cockpit for current state, decisions, actions/outcomes, external context, proactive signals, evidence and runtime health; not activated as a milestone.
 - **v1.4 implementation/plan reconciliation:** [`.planning/audits/V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md`](audits/V1.4-IMPLEMENTATION-PLAN-RECONCILIATION-2026-07-22.md) — existing Cockpit and Projection WIP is real but uncommitted; records the CORS, safe-error, evidence, feedback-history and browser-UAT closure work that remains before v1.5 can activate.
-- **Candidate personal knowledge projection:** [`SPEC.md`](future-milestones/v1.5-personal-knowledge-wiki-projection/SPEC.md) — a post-Cockpit, read-only topic Wiki for Project/Goal/Decision pages; distinct from `docs/wiki/`, which remains developer/operator documentation. Not activated as a milestone.
-- **v1.5 Wiki preplanning package:** [`future-milestones/v1.5-personal-knowledge-wiki-projection/README.md`](./future-milestones/v1.5-personal-knowledge-wiki-projection/README.md) — normal GSD requirements, roadmap, phase contexts/research/plans/verification for WIKI-01..04; explicitly `preplanned_not_active` until v1.4 implementation and audit complete.
+- **Personal knowledge projection:** [`SPEC.md`](future-milestones/v1.5-personal-knowledge-wiki-projection/SPEC.md) — the active v1.5 read-only topic Wiki for Project/Goal/Decision pages; distinct from `docs/wiki/`, which remains developer/operator documentation.
+- **v1.5 active execution record:** [`phases/PDA-44-wiki-topic-authority-and-deterministic-read-projection/44-VERIFICATION.md`](phases/PDA-44-wiki-topic-authority-and-deterministic-read-projection/44-VERIFICATION.md), [`phases/PDA-45-topic-directory-and-evidence-backed-pages/45-VERIFICATION.md`](phases/PDA-45-topic-directory-and-evidence-backed-pages/45-VERIFICATION.md), [`phases/PDA-46-materialization-invalidation-and-wiki-first-fallback/46-VERIFICATION.md`](phases/PDA-46-materialization-invalidation-and-wiki-first-fallback/46-VERIFICATION.md), [`phases/PDA-47-p0-hardening-cohort-uat-and-expansion-decision/47-01-VERIFICATION.md`](phases/PDA-47-p0-hardening-cohort-uat-and-expansion-decision/47-01-VERIFICATION.md), [`phases/PDA-47-p0-hardening-cohort-uat-and-expansion-decision/47-UAT-REPORT.md`](phases/PDA-47-p0-hardening-cohort-uat-and-expansion-decision/47-UAT-REPORT.md), [`phases/PDA-47-p0-hardening-cohort-uat-and-expansion-decision/47-EXPANSION-DECISION.md`](phases/PDA-47-p0-hardening-cohort-uat-and-expansion-decision/47-EXPANSION-DECISION.md) — v1.5 P0 implementation and live read-only UAT closed; expansion remains deferred.
+- **v1.5 Wiki source package:** [`future-milestones/v1.5-personal-knowledge-wiki-projection/README.md`](./future-milestones/v1.5-personal-knowledge-wiki-projection/README.md) — original GSD requirements and contexts; active execution is tracked in `.planning/phases/PDA-44..47`.
 - **Authoritative issue inventory:** [`.planning/audits/ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md`](audits/ARCHITECTURE-LAYERING-DATA-GOVERNANCE-AUDIT-2026-07-17.md)
 - **Current expected-target gap:** [`.planning/audits/TARGET-GAP-ANALYSIS-2026-07-18.md`](audits/TARGET-GAP-ANALYSIS-2026-07-18.md) — current authoritative distance analysis for PDI-T0..T4, Phase 24 blockers, External Context, LLM decision analysis and real outcome calibration.
 - **Historical target-gap snapshot:** [`.planning/audits/TARGET-GAP-ANALYSIS-2026-07-17.md`](audits/TARGET-GAP-ANALYSIS-2026-07-17.md) — retained for historical comparison only.
@@ -143,4 +152,5 @@ python -m personal_knowledge.governance.preflight
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- v1.5 P0 is ready for direct user testing at `http://127.0.0.1:8000/app/knowledge`; only the explicitly deferred expansion domains remain out of scope.
+- v2.0 next step is the separately authorized paired legacy/personal-cohort baseline and signed browser UAT; until those checkpoints pass, keep the runtime in `legacy`.
