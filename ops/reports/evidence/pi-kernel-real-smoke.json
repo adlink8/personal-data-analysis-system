@@ -1,0 +1,24 @@
+{
+  "schema": "pi-kernel-real-smoke-v1",
+  "status": "PASS",
+  "evidence_class": "real_provider_synthetic_smoke",
+  "run_at": "2026-08-04T12:59:50.0214457Z",
+  "runtime": "pi_kernel_task_route",
+  "provider": "dashscope",
+  "model": "deepseek-v4-flash-0731",
+  "max_provider_calls": 3,
+  "provider_calls": 3,
+  "cost_ceiling_cny": 30,
+  "total_spent_cost_cny": 0.00018,
+  "cases": [
+    {"purpose": "structured_analysis", "status": "succeeded", "input_tokens": 34, "output_tokens": 13, "cost_cny": 0.00006},
+    {"purpose": "guarded_generation", "status": "succeeded", "input_tokens": 34, "output_tokens": 14, "cost_cny": 0.000062},
+    {"purpose": "extraction_summary", "status": "succeeded", "input_tokens": 34, "output_tokens": 12, "cost_cny": 0.000058}
+  ],
+  "kernel_ready": true,
+  "task_session_event_receipts": true,
+  "raw_bodies_committed": false,
+  "personal_cohort_accessed": false,
+  "authority_mutations": 0,
+  "primary_activated": false
+}
