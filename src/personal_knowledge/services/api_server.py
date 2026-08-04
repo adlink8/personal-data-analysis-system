@@ -33,6 +33,10 @@ GET  /ui/calibration/overview Cockpit 校准总览(逐 protocol verdict 摘要)
 GET  /ui/evidence/resolve  Cockpit 只读证据解析(?subject_type=personal_state|external_fact|decision
                             &stable_id=&snapshot_id=&checksum=,personal_state 另需
                             assertion_kind/subject/domain/scope/predicate)
+GET  /ui/topics             Wiki P0 topic.list 只读目录
+GET  /ui/topic               Wiki P0 topic.get 只读主题投影
+GET  /ui/topic/backlinks     Wiki P0 topic.backlinks 显式关系
+GET  /ui/topic/resolve       Wiki scoped read fallback provenance
 GET  /app[/<path>]          Cockpit 前端静态托管(apps/personal_decision_cockpit/dist,SPA fallback)
 
 GET  接口也可改用 POST(方便前端统一处理),参数走 query string。
@@ -102,14 +106,23 @@ from personal_knowledge.services.decision_intelligence_reads import (  # noqa: E
 from personal_knowledge.services.orchestration_service import (  # noqa: E402
     GuardedOrchestrationInterface,
 )
+from personal_knowledge.services.pi_domain_gateway import (  # noqa: E402
+    PI_DOMAIN_CAPABILITY_HEADER,
+    PiDomainGateway,
+)
 from personal_knowledge.services.agent_contract import compact_envelope  # noqa: E402
 from personal_knowledge.services.ui_projection import (  # noqa: E402
     CockpitProjectionService,
 )
+from personal_knowledge.services.topic_projection import (  # noqa: E402
+    TopicProjectionService,
+)
+from personal_knowledge.wiki.materialization import WikiMaterializer  # noqa: E402
 
 # AI 长期上下文文档路径(给 /profile 用)
 ROOT = _THIS_DIR.parents[1]
 PROFILE_MD = ROOT / "integration" / "analysis" / "ai_context" / "person_profile.md"
+WIKI_DERIVED_STORE = ROOT / "var" / "db" / "personal_wiki_projection.sqlite"
 
 # Personal Decision Cockpit 前端构建产物(SPA, npm run build 生成)
 COCKPIT_DIST = ROOT / "apps" / "personal_decision_cockpit" / "dist"
@@ -365,6 +378,20 @@ def ui_rest_contract(
     return (service or CockpitProjectionService()).invoke(operation, **params)
 
 
+def topic_rest_contract(
+    operation: str, params: dict, *, service: TopicProjectionService | None = None,
+) -> dict:
+    """Thin GET-only adapter over the Wiki topic projection service."""
+    values = {key: value for key, value in params.items() if value not in {None, ""}}
+    if "limit" in values:
+        try:
+            values["limit"] = int(values["limit"])
+        except (TypeError, ValueError):
+            return TopicProjectionService()._envelope_error(operation, "invalid_topic_key", limitations=["limit 无效"])
+    target = service or TopicProjectionService(materializer=WikiMaterializer(WIKI_DERIVED_STORE))
+    return target.invoke(operation, **values)
+
+
 class Handler(BaseHTTPRequestHandler):
     # 静音默认日志(太吵),自己打一行精简的
     def log_message(self, fmt, *args):
@@ -393,16 +420,20 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _read_body(self) -> dict:
-        """读 JSON body,空/非法返回 {}。"""
+        """读 JSON body,空/非法返回 {}。处理编码兼容性。"""
         length = int(self.headers.get("Content-Length", 0) or 0)
         if length == 0:
             return {}
         raw = self.rfile.read(length)
-        try:
-            data = json.loads(raw)
-            return data if isinstance(data, dict) else {}
-        except json.JSONDecodeError:
-            return {}
+        # 优先 UTF-8,回退系统 locale 编码(兼容 Windows GBK 终端)
+        for enc in ("utf-8", "gbk", "gb2312", "gb18030"):
+            try:
+                text = raw.decode(enc)
+                data = json.loads(text)
+                return data if isinstance(data, dict) else {}
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+        return {}
 
     def do_OPTIONS(self):  # CORS 预检
         decision = self._origin_policy_for_request()
@@ -637,6 +668,34 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(_contract(data), 200 if data.get("ok") else 400)
                 return
 
+            topic_routes = {
+                "/ui/topics": "topic.list",
+                "/ui/topic": "topic.get",
+                "/ui/topic/backlinks": "topic.backlinks",
+                "/ui/topic/resolve": "topic.resolve",
+            }
+            if path in topic_routes:
+                operation = topic_routes[path]
+                params = {
+                    "topic_type": qs.get("topic_type"),
+                    "topic_id": qs.get("topic_id"),
+                    "topic_key": qs.get("topic_key"),
+                    "query": qs.get("query"),
+                    "cursor": qs.get("cursor"),
+                    "limit": qs.get("limit", "50"),
+                }
+                if operation != "topic.list":
+                    params.pop("cursor")
+                    if operation != "topic.backlinks":
+                        params.pop("limit")
+                if operation == "topic.resolve":
+                    params = {"topic_key": qs.get("topic_key"), "query": qs.get("query")}
+                data = topic_rest_contract(operation, params)
+                error = data.get("error") if isinstance(data, dict) else None
+                status = 200 if data.get("ok") else 404 if error == "topic_not_found" else 400
+                self._send(_contract(data), status)
+                return
+
             if path in ("/knowledge", "/knowledge/status"):
                 probe = not _truthy(qs.get("no_chroma"))
                 self._send(_ok(backend.get_knowledge_status(probe_chroma=probe)))
@@ -857,6 +916,12 @@ class Handler(BaseHTTPRequestHandler):
         path = url.path.rstrip("/") or "/"
 
         try:
+            if path in {"/ui/topics", "/ui/topic", "/ui/topic/backlinks", "/ui/topic/resolve"}:
+                self._send(
+                    json.dumps({"ok": False, "error": {"code": "method_not_allowed"}}, ensure_ascii=False).encode("utf-8"),
+                    405,
+                )
+                return
             if path in SESSION_WRITE_ROUTES:
                 # Origin gate 必须先于 body 解析与 orchestration 委派(D-36-03):
                 # 不匹配 Origin 时零解析、零委派、零写入。
@@ -876,6 +941,18 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
             body = self._read_body()
+
+            if path == "/internal/pi-domain/dispatch":
+                # Internal means loopback process ownership plus an injected capability;
+                # operation IDs are validated by the gateway and never become imports.
+                operation = body.get("operation")
+                params = body.get("params") if isinstance(body.get("params"), dict) else {}
+                result = PiDomainGateway().invoke(
+                    operation, params,
+                    capability=self.headers.get(PI_DOMAIN_CAPABILITY_HEADER),
+                )
+                self._send(_contract(result), 200 if result.get("ok") else 400)
+                return
 
             if path in SESSION_WRITE_ROUTES:
                 operation = SESSION_WRITE_ROUTES[path]
@@ -940,6 +1017,26 @@ class Handler(BaseHTTPRequestHandler):
             traceback.print_exc()
             body_b, code = _safe_error("internal_error", 500)
             self._send(body_b, code)
+
+    def _wiki_method_not_allowed(self):
+        path = urlparse(self.path).path.rstrip("/") or "/"
+        if path in {"/ui/topics", "/ui/topic", "/ui/topic/backlinks", "/ui/topic/resolve"}:
+            payload = {"ok": False, "error": {"code": "method_not_allowed"}}
+            self._send(json.dumps(payload, ensure_ascii=False).encode("utf-8"), 405)
+            return True
+        return False
+
+    def do_PUT(self):
+        if not self._wiki_method_not_allowed():
+            self._send(*_safe_error("internal_error", 405))
+
+    def do_PATCH(self):
+        if not self._wiki_method_not_allowed():
+            self._send(*_safe_error("internal_error", 405))
+
+    def do_DELETE(self):
+        if not self._wiki_method_not_allowed():
+            self._send(*_safe_error("internal_error", 405))
 
 def main() -> None:
     p = argparse.ArgumentParser(description="个人数据系统 REST API")
