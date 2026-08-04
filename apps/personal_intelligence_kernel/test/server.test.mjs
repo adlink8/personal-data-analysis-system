@@ -87,7 +87,7 @@ async function runningServer(t) {
   return { runtime, port: runtime.server.address().port };
 }
 
-test("server exposes only loopback health/readiness and the four allowlisted routes", async (t) => {
+test("server exposes only loopback health/readiness and the allowlisted routes", async (t) => {
   const { port } = await runningServer(t);
   const health = await requestJson(port, "GET", "/health");
   assert.equal(health.status, 200);
