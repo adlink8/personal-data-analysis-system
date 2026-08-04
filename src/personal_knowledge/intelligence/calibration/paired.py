@@ -108,8 +108,10 @@ def execute_frozen_arm(
         _validate_response_contract(envelope.get("response"), request, arm["blind_label"])
         protocol, _ = _protocol(db_path, arm["protocol_id"])
         expected_model = protocol["common_generation"]["model"]
+        expected_provider = protocol["common_generation"]["provider"]
         receipt = envelope.get("receipt") or {}
-        if receipt.get("model") != expected_model:
+        synthetic_replay = receipt.get("provider") == "replay" and expected_provider == "codex-chatgpt"
+        if receipt.get("model") != expected_model or (receipt.get("provider") != expected_provider and not synthetic_replay):
             raise CalibrationPairError("existing_arm_receipt_parity_mismatch")
         return {"arm_id":arm_id,"response_checksum":envelope["response_checksum"],"receipt":envelope["receipt"],
                 "measurement_id":existing["measurement_id"],"existing":True}
