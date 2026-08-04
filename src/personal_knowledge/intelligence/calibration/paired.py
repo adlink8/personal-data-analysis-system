@@ -28,6 +28,21 @@ def _protocol(db_path: Path | str, protocol_id: str) -> tuple[dict[str, Any], st
     return payload,row["payload_checksum"]
 
 
+def _validate_response_contract(payload: Any, request: Mapping[str, Any], blind_label: str) -> None:
+    if not isinstance(payload, dict) or payload.get("protocol_checksum") != request["protocol_checksum"] or payload.get("blind_label") != blind_label:
+        raise CalibrationPairError("arm_response_lineage_mismatch")
+    required={"protocol_checksum","blind_label","status","recommendation","rationale","limitations","confidence"}
+    if (set(payload)!=required or payload["status"] not in {"candidate","abstain"}
+            or not isinstance(payload["recommendation"],str)
+            or not isinstance(payload["rationale"],list) or not payload["rationale"]
+            or not all(isinstance(item,str) for item in payload["rationale"])
+            or not isinstance(payload["limitations"],list) or not payload["limitations"]
+            or not all(isinstance(item,str) for item in payload["limitations"])
+            or isinstance(payload["confidence"],bool)
+            or not isinstance(payload["confidence"],(int,float)) or not 0<=payload["confidence"]<=1):
+        raise CalibrationPairError("arm_response_schema_invalid")
+
+
 def build_paired_requests(
     db_path: Path | str, protocol_id: str, *, member_id: str,
     external_context: Mapping[str, Any], personal_context: Mapping[str, Any],
@@ -90,6 +105,12 @@ def execute_frozen_arm(
     if existing is not None:
         envelope=json.loads(existing["value_json"])
         if checksum(envelope)!=existing["payload_checksum"]: raise CalibrationPairError("existing_arm_response_checksum_mismatch")
+        _validate_response_contract(envelope.get("response"), request, arm["blind_label"])
+        protocol, _ = _protocol(db_path, arm["protocol_id"])
+        expected_model = protocol["common_generation"]["model"]
+        receipt = envelope.get("receipt") or {}
+        if receipt.get("model") != expected_model:
+            raise CalibrationPairError("existing_arm_receipt_parity_mismatch")
         return {"arm_id":arm_id,"response_checksum":envelope["response_checksum"],"receipt":envelope["receipt"],
                 "measurement_id":existing["measurement_id"],"existing":True}
     prompt = (
@@ -103,15 +124,7 @@ def execute_frozen_arm(
     )
     result=provider.generate(ProviderRequest(prompt,arm["request_checksum"],0,2048,timeout_seconds))
     payload=dict(result.response_payload)
-    if payload.get("protocol_checksum")!=request["protocol_checksum"] or payload.get("blind_label")!=arm["blind_label"]:
-        raise CalibrationPairError("arm_response_lineage_mismatch")
-    required={"protocol_checksum","blind_label","status","recommendation","rationale","limitations","confidence"}
-    if (set(payload)!=required or payload["status"] not in {"candidate","abstain"}
-            or not isinstance(payload["recommendation"],str)
-            or not isinstance(payload["rationale"],list) or not isinstance(payload["limitations"],list)
-            or not payload["limitations"] or isinstance(payload["confidence"],bool)
-            or not isinstance(payload["confidence"],(int,float)) or not 0<=payload["confidence"]<=1):
-        raise CalibrationPairError("arm_response_schema_invalid")
+    _validate_response_contract(payload, request, arm["blind_label"])
     envelope={"response":payload,"response_checksum":result.response_checksum,"receipt":asdict(result.telemetry)}
     measurement_id=stable_id("calm",{"arm_id":arm_id,"metric_name":"provider_response"})
     con=connect_rw(Path(db_path),timeout=30)

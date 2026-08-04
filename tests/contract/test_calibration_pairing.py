@@ -26,7 +26,7 @@ def test_arms_have_exact_parity_except_personal_context(tmp_path: Path) -> None:
         response={"protocol_checksum":protocol.payload_checksum,"blind_label":arms[kind]["blind_label"],
                   "status":"candidate","recommendation":"validate then adopt","rationale":["bounded"],
                   "limitations":["single case"],"confidence":.6}
-        provider=ReplayProvider(response)
+        provider=ReplayProvider(response, model="gpt-5.4")
         receipt=execute_frozen_arm(db,arm_id=ids[kind],provider=provider)
         assert receipt["receipt"]["cost_amount"]==0
         assert execute_frozen_arm(db,arm_id=ids[kind],provider=provider)["existing"]
@@ -57,6 +57,23 @@ def test_replay_provider_cannot_bypass_response_schema(tmp_path: Path) -> None:
     bad={"protocol_checksum":protocol.payload_checksum,"blind_label":"arm_a","status":"candidate"}
     with pytest.raises(CalibrationPairError,match="arm_response_schema_invalid"):
         execute_frozen_arm(db,arm_id=ids["generic"],provider=ReplayProvider(bad))
+
+
+def test_existing_receipt_model_drift_fails_closed(tmp_path: Path) -> None:
+    env, db, protocol = setup_protocol(tmp_path)
+    from personal_knowledge.intelligence.calibration.protocols import freeze_protocol
+    import sqlite3
+
+    freeze_protocol(db, env["pilot"], protocol, write=True)
+    con = sqlite3.connect(db)
+    member = con.execute("SELECT member_id FROM calibration_cohort_members").fetchone()[0]
+    con.close()
+    arms = build_paired_requests(db, protocol.protocol_id, member_id=member, external_context={"x": 1}, personal_context={"y": 2})
+    ids = freeze_arm_assignments(db, protocol.protocol_id, member_id=member, arms=arms, created_at="2026-07-18T13:01:00Z")
+    response = {"protocol_checksum": protocol.payload_checksum, "blind_label": "arm_a", "status": "candidate", "recommendation": "bounded", "rationale": ["evidence"], "limitations": ["fixture"], "confidence": 0.5}
+    execute_frozen_arm(db, arm_id=ids["generic"], provider=ReplayProvider(response, model="wrong-model"))
+    with pytest.raises(CalibrationPairError, match="existing_arm_receipt_parity_mismatch"):
+        execute_frozen_arm(db, arm_id=ids["generic"], provider=ReplayProvider(response, model="gpt-5.4"))
 
 
 def test_real_arm_prompt_freezes_exact_response_contract(tmp_path: Path) -> None:
