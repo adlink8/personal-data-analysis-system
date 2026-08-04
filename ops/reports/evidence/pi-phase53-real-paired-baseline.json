@@ -1,0 +1,65 @@
+{
+  "schema": "pi-phase53-real-paired-baseline-v1",
+  "status": "INCONCLUSIVE",
+  "evidence_class": "real_authorized_paired_baseline",
+  "run_at": "2026-08-04T14:05:57.875Z",
+  "protocol_id": "calp_2dc7078cfc7fec88a75826b0",
+  "protocol_checksum": "2dc7078cfc7fec88a75826b0ceb593bb99d62fdecc8fed96edbdbb22d3ec44e0",
+  "member_id": "calm_0978e9a606257316254bb2ad",
+  "case_id": "ppc_3c81da35094e5260d022f1ef",
+  "case_checksum": "3c81da35094e5260d022f1efa545812b604f48f06080403f6f18e81313bf9957",
+  "provider": "dashscope",
+  "model": "deepseek-v4-flash-0731",
+  "max_provider_calls": 2,
+  "provider_calls": 2,
+  "cost_ceiling_cny": 30,
+  "total_spent_cost_cny": 0.001113,
+  "paired_parity": {
+    "same_frozen_protocol": true,
+    "same_model": true,
+    "same_purpose": true,
+    "one_call_per_arm": true,
+    "silent_retry": false
+  },
+  "arms": {
+    "personalized": {
+      "runtime": "pi_kernel_task_route",
+      "arm_id": "cala_49fce560acbd91a3421e7501",
+      "blind_label": "arm_b",
+      "request_checksum": "d9d94cffd3d0e5d520aacb757b590c64cb66120ee9eb69dc90fdd604c8bfa7c5",
+      "response_checksum": "ca75583456061a56d4537b0c4281747f3f2fec8687a8e88addae19d92771b9ff",
+      "provider": "dashscope",
+      "model": "deepseek-v4-flash-0731",
+      "input_tokens": 419,
+      "output_tokens": 92,
+      "cost_amount": 0.000603,
+      "cost_currency": "CNY",
+      "task_state": "succeeded",
+      "schema_valid": false
+    },
+    "generic": {
+      "runtime": "legacy_compatibility_route",
+      "arm_id": "cala_eec33f90bf2c602f9e46c185",
+      "blind_label": "arm_a",
+      "request_checksum": "85032f95437ea01539c5aa90d3d64bfa71f6c5fb40bd8fa7c880f69061db7db9",
+      "response_checksum": "88a3221de73ab9a7f24deb03d97fa49eeb5ae359c2f56b1b6f9bac80a9661ba8",
+      "provider": "dashscope",
+      "model": "deepseek-v4-flash-0731",
+      "input_tokens": 362,
+      "output_tokens": 74,
+      "cost_amount": 0.00051,
+      "cost_currency": "CNY",
+      "task_state": "direct_completed",
+      "schema_valid": false
+    }
+  },
+  "reasons": [
+    "sample_below_minimum",
+    "arm_response_schema_invalid",
+    "no_retry_after_contract_failure"
+  ],
+  "personal_context_committed": false,
+  "raw_bodies_committed": false,
+  "authority_mutations": 0,
+  "primary_activated": false
+}

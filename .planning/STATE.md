@@ -64,7 +64,7 @@ progress:
 Phase: 54 — Primary activation and exact rollback
 Plan: 54-02
 Status: Implementation complete; primary activation remains blocked by Phase 53 real-baseline/UAT and explicit activation checkpoints
-Last activity: 2026-08-04 -- Pi Kernel real task-route smoke and automated browser projection UAT passed; paired baseline and signed human UAT remain gated; runtime remains legacy
+Last activity: 2026-08-04 -- real paired baseline executed once per arm but returned INCONCLUSIVE on frozen response contract; browser UAT accepted; runtime remains legacy
 
 ## Project Reference
 
@@ -77,9 +77,9 @@ See: `.planning/PROJECT.md` (updated 2026-07-19)
 
 - Phase 48: accepted composite package/runtime containment gate.
 - Phases 49–52: implementation and independent verification complete.
-- Phase 53: deterministic replay/fault-matrix infrastructure, real Pi Kernel smoke and automated browser projection UAT complete; the paired legacy baseline and signed human UAT remain **blocked**.
+- Phase 53: deterministic replay/fault-matrix infrastructure, real Pi Kernel smoke and automated/browser-accepted UAT complete; the paired baseline executed but remains **INCONCLUSIVE** on response-contract and minimum-sample gates.
 - Phase 54: activation ledger, shadow/canary policy, primary-routing guard and exact rollback are verified; primary was **not activated** and current mode remains `legacy`.
-- No user-data cohort run, production primary switch, promotion, watermark change or remote write was performed; the smoke used 3 synthetic inputs and cost 0.00018 CNY, and browser UAT used one synthetic task.
+- One authorized minimum personal cohort was used for a two-arm paired call (0.001113 CNY); raw bodies were not committed. No production primary switch, promotion, watermark change or remote write was performed; runtime remains `legacy`.
 
 ## Cross-cutting architecture/data governance audit
 

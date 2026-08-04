@@ -18,6 +18,7 @@
   "privacy_boundary": "PASS_NO_PROMPT_OR_PROVIDER_BODY",
   "authority_mutations": 0,
   "real_personal_cohort_accessed": false,
-  "human_acceptance_signed": false,
+  "human_acceptance_signed": true,
+  "human_acceptance_basis": "explicit user confirmation in current task",
   "primary_activated": false
 }

@@ -5,8 +5,43 @@
 - ✅ **v1.1 Knowledge Unit Evaluation & Product Hardening** — Phases 01–27, shipped 2026-07-18 ([archive](milestones/v1.1-ROADMAP.md))
 - ✅ **v1.2 External Context & Low-risk Decision Intelligence Pilot** — Phases 28–31, shipped 2026-07-18 ([archive](milestones/v1.2-ROADMAP.md))
 - ✅ **v1.3 Agent Productization** — Phases 32–35, shipped 2026-07-18 ([archive](milestones/v1.3-ROADMAP.md))
-- 🚧 **v1.4 Decision Cockpit UI** — Phases 36–40, requirements defined 2026-07-22
+- ✅ **v1.4 Decision Cockpit UI** — Phases 36–40, UAT accepted 2026-07-28
 - 🚧 **v1.4.1 Data Layer Remediation** — Phases 41–42, initiated 2026-07-26 from data-layer audit
+- 🚧 **v1.5 Personal Knowledge Wiki Projection** — Phases 44–47, activated 2026-07-28
+- 🚧 **v2.0 Pi Personal Intelligence Kernel** — Phases 48–54, roadmap approved 2026-08-04
+
+## v2.0 Goal
+
+将 `@earendil-works/pi` 彻底嵌入为唯一主 AI Runtime，把用户请求、数据 Delta、调度任务、模型调用、Skill/Tool 调度、Session 和流式交互统一到事件驱动闭环。Pi 接管 AI 控制面；Python 确定性核心继续独占事实、证据、水位、evaluation、promotion、active pointer、rollback 和正式生命周期。
+
+## v2.0 Phase Ordering
+
+```text
+48 Package qualification and runtime containment
+→ 49 Kernel host and event lifecycle
+→ 50 Durable task, Domain Tool bridge and session isolation
+→ 51 Provider, Skill registry and full AI workflow migration
+→ 52 Cockpit streaming, supervision and observability
+→ 53 Real baseline, fault injection and UAT
+→ 54 Primary activation and exact rollback
+```
+
+Phase 48 是生产依赖入口的阻断门。High/Critical 供应链风险、ambient discovery 或越权能力未闭合时，后续阶段不得把 Pi 加入产品生产依赖或激活任何真实个人数据路径。
+
+## v1.5 Goal
+
+把 Project、Goal、Decision 的长期上下文做成确定性、只读、snapshot-bound 的 Wiki 投影；保留事实权威、证据、状态、External 与 Decision 的边界，不创建第二个事实库，不把页面内容写回 KU/Chroma。
+
+## v1.5 Phase Ordering
+
+```text
+44 Topic authority and deterministic read projection
+→ 45 Topic directory and evidence-backed pages
+→ 46 Materialization, invalidation and Wiki-first fallback
+→ 47 P0 hardening, cohort UAT and expansion decision
+```
+
+v1.5 的执行输入来自 `future-milestones/v1.5-personal-knowledge-wiki-projection/`；由于 v1.4.1 已占用历史 Phase 41–43，激活后的 Wiki 阶段映射为 44–47，避免阶段编号冲突。
 
 ## v1.4.1 Goal
 
@@ -189,6 +224,86 @@ Plans:
 3. 时效语义：状态类 unit 沿用 supersede 链区分"当前值/历史值"，查询侧可区分，不新增 schema 字段。
 4. 工具输出源知识分级处置：11,008 条源消息被 41 新口径排除的 staging unit 先分级（真知识/噪音）再处置，不一刀切 deprecate；分级报告 + 治理链处置记录 + inspect delta 收敛方案（watermark 推进时机）写进执行笔记。
 
+### Phase 44: Topic Authority and Deterministic Read Projection (v1.5 active)
+
+**Goal:** 为 Project、Goal、Decision 建立只读、deterministic、snapshot-bound 的 Wiki authority/read contract。
+**Requirements:** WIKI-01
+**Plans:** 2/2 implementation plans complete; live Personal authority is read-only `stale` via latest committed run when serving snapshot changed
+
+### Phase 45: Topic Directory and Evidence-backed Pages (v1.5 active)
+
+**Goal:** 提供 P0 topic directory、typed page、显式 evidence drawer 和 truth-category separation，不复制事实库或决策写入。
+**Requirements:** WIKI-02
+**Plans:** 2/2 implementation plans complete; component/build verified
+
+### Phase 46: Materialization, Invalidation and Wiki-first Fallback (v1.5 active)
+
+**Goal:** 用 dedicated metadata-only derived store 支持显式 materialize/rebuild、选择性 stale 与安全 fallback。
+**Requirements:** WIKI-03
+**Plans:** 3/3 implementation plans complete; contract/integration verified
+
+### Phase 47: P0 Hardening, Cohort UAT and Expansion Decision (v1.5 active)
+
+**Goal:** 在去标识化 cohort 和授权真实只读会话上完成日常可用性、隐私、降级和 scope decision 证据。
+**Requirements:** WIKI-04
+**Plans:** 3/3 executed — Phase 47 closed; WIKI-04 P0 authorized read-only UAT passed, expansion deferred
+
+### Phase 48: Pi Package Qualification and Runtime Containment (v2.0)
+
+**Goal:** 形成可进入产品树的精确锁定 Pi 依赖基线，并以可执行负向测试证明 runtime/resource/package 能力默认拒绝、可审计且不接触个人数据 authority。
+**Requirements:** SEC-01, SEC-02, TOOL-02
+**Depends on:** `.planning/spikes/pi-package-qualification` 与 Spike 001；v1.5 P0 authority 和服务保持不变
+**Plans:** 3 plans in 3 waves — executed; composite decision accepted
+
+**Success criteria:**
+
+1. 所有 `@earendil-works/pi-*` 生产候选依赖精确锁定版本、tarball integrity、Node engine、license、dependency tree 和 install-script policy；npmjs.org production audit 无未处置 High/Critical。
+2. Kernel bootstrap 显式构建 allowlisted ResourceLoader/Tool registry；coding built-ins、ambient `.pi`、全局 auth/settings/skills、extension/package 自动发现均不可达。
+3. filesystem、process、network、credential、log 和 package 越权负向测试 fail-closed，且 authority、watermark、active pointer、Candidate 和 Session 指纹不变。
+4. 输出 `accepted | conditional | rejected` 的逐包决议；只有 `accepted` 基线允许 Phase 49 引用为产品依赖。
+
+### Phase 49: Pi Kernel Host and Event Lifecycle (v2.0)
+
+**Goal:** 建立随产品服务受控启停的 Pi Kernel Host 和统一、版本化、可回放的事件生命周期。
+**Requirements:** KERNEL-01, KERNEL-02
+**Depends on:** Phase 48 accepted package baseline
+**Plans:** 2/2 executed; journal, host lifecycle and loopback SSE transport verified
+
+### Phase 50: Durable Task, Domain Tool Bridge and Session Isolation (v2.0)
+
+**Goal:** 将 durable task、typed Python Domain Tool bridge、Session/Candidate staging 和 authority 隔离组合为可恢复的执行底座。
+**Requirements:** KERNEL-03, TOOL-01, DATA-01, DATA-02, SESSION-01
+**Depends on:** Phase 49
+**Plans:** 2/2 executed; task/artifact isolation, typed domain bridge and recovery contracts verified
+
+### Phase 51: Provider, Skill Registry and Full AI Workflow Migration (v2.0)
+
+**Goal:** 统一 Provider/模型预算、受控 Skill registry，并把现有 AI 入口迁移到 Pi Kernel，消除并行主控制面。
+**Requirements:** MODEL-01, MODEL-02, SKILL-01
+**Depends on:** Phase 50
+**Plans:** 2/2 executed; provider routing, legacy rollback adapter, skill registry and entrypoint inventory verified
+
+### Phase 52: Cockpit Streaming, Supervision and Observability (v2.0)
+
+**Goal:** 将安全事件投影、cancel/resume、supervisor、readiness 和无正文 telemetry 接入现有 Cockpit 与本地服务。
+**Requirements:** UI-01, OPS-01
+**Depends on:** Phase 51
+**Plans:** 2/2 executed; cockpit projection, task controls, SSE boundary and supervisor integration verified
+
+### Phase 53: Real Baseline, Fault Injection and UAT (v2.0)
+
+**Goal:** 以相同真实 cohort/模型/预算完成 Pi/legacy 基线、故障注入、隐私与浏览器 UAT，并冻结 staged activation 决策证据。
+**Requirements:** EVAL-01, EVAL-02, ACT-01
+**Depends on:** Phase 52
+**Plans:** 2/2 implementation; replay/fault infrastructure, bounded real Pi Kernel smoke and browser UAT verified; paired baseline executed but remains INCONCLUSIVE on the frozen response contract and minimum-sample gate
+
+### Phase 54: Primary Activation and Exact Rollback (v2.0)
+
+**Goal:** 按 `shadow → canary → primary` 激活 Pi 为唯一主 AI Runtime，完成 exact rollback 演练并把 legacy 降级为受控备用实现。
+**Requirements:** ACT-02
+**Depends on:** Phase 53 acceptance
+**Plans:** 2/2 implementation; activation ledger and exact rollback verified, primary activation remains gated
+
 ## Progress
 
 | Phase | Requirements | Plans Complete | Status |
@@ -201,6 +316,17 @@ Plans:
 | 41 | EXT-01, EXT-02, EXT-03 | 4/4 waves + closure | **Complete 2026-07-27** — assistant 轨全链闭合,active 40,200 向量,doctor OK（见 41-CLOSURE-CHECKLIST） |
 | 42 | DED-01, DED-02 | 2/3 complete | **Partial 2026-07-27** — 42-01 stable-key rebuild and 42-02 ref migration complete; 42-03 doctor/idempotence complete but dual-track strict yield gate failed, so watermark remains intentionally unadvanced |
 | 43 | L2G-01, L2G-02, L2G-03, L2G-04 | 9/9 executed | **Partial 2026-07-28** — 施工完成、测试全绿、doctor OK；224 个治理 proposal 待人工裁定，watermark 按判据未推进（43-WATERMARK-NOTE） |
+| 44 | WIKI-01 | 2/2 implementation | **Implemented / authority stale-aware** — deterministic read contract and REST are present; latest committed Personal run is surfaced as stale when serving snapshot differs |
+| 45 | WIKI-02 | 2/2 implementation | **Implemented / component verified** — directory, typed pages and read-only evidence drawer are wired |
+| 46 | WIKI-03 | 3/3 implementation | **Implemented / contract verified** — metadata-only derived store, selective invalidation and fallback are wired |
+| 47 | WIKI-04 | 3/3 executed | **Closed 2026-07-28** — latest 8000 service passed P0 authorized read-only UAT; expansion domains explicitly DEFER |
+| 48 | SEC-01..02, TOOL-02 | 3/3 executed | **Complete** — same-run package/runtime/privacy/fingerprint gate accepted; Phase 49 unlocked |
+| 49 | KERNEL-01..02 | 2/2 | **Complete 2026-08-04** — durable kernel journal/host lifecycle and loopback SSE transport verified |
+| 50 | KERNEL-03, TOOL-01, DATA-01..02, SESSION-01 | 2/2 | **Complete 2026-08-04** — task/artifact isolation, typed domain bridge and recovery contracts verified |
+| 51 | MODEL-01..02, SKILL-01 | 2/2 | **Complete 2026-08-04** — provider routing, legacy rollback adapter, skill registry and AI-entrypoint inventory verified |
+| 52 | UI-01, OPS-01 | 2/2 | **Complete 2026-08-04** — cockpit projection, task controls, SSE boundary and supervisor integration verified |
+| 53 | EVAL-01..02, ACT-01 | 2/2 implementation | **Revise / blocked 2026-08-04** — real paired arms executed once each, but response-contract and minimum-sample gates are INCONCLUSIVE; browser UAT accepted |
+| 54 | ACT-02 | 2/2 implementation | **Revise / blocked 2026-08-04** — activation ledger and exact rollback pass; primary remains unactivated and runtime remains `legacy` |
 
 ## Requirement Coverage
 
@@ -216,6 +342,19 @@ Plans:
 | DED-01..02 | 42 | 2 |
 | L2G-01..04 | 43 | 4 |
 | **Total v1.4.1** | — | **9/9** |
+| WIKI-01 | 44 | 1 |
+| WIKI-02 | 45 | 1 |
+| WIKI-03 | 46 | 1 |
+| WIKI-04 | 47 | 1 |
+| **Total v1.5** | — | **4/4 accepted for P0 scope; expansion domains deferred by recorded decision** |
+| SEC-01..02, TOOL-02 | 48 | 3 |
+| KERNEL-01..02 | 49 | 2 |
+| KERNEL-03, TOOL-01, DATA-01..02, SESSION-01 | 50 | 5 |
+| MODEL-01..02, SKILL-01 | 51 | 3 |
+| UI-01, OPS-01 | 52 | 2 |
+| EVAL-01..02, ACT-01 | 53 | 3 |
+| ACT-02 | 54 | 1 |
+| **Total v2.0** | — | **19/19 mapped** |
 
 ## Backlog
 
@@ -277,9 +416,9 @@ Phase 17 遗留 UAT 以简化协议关闭并记录。细化见
 **Requirements:** TBD
 **Plans:** 0 plans
 
-## Deferred Next Milestone
+## v1.5 Execution Source
 
-v1.5 候选为 **Personal Knowledge Wiki Projection**。其 `WIKI-01..04` 依赖 v1.4 已验收的 Projection、Evidence、freshness/stale 与安全降级语义；不属于 Phase 36–40，也不应随本里程碑自动激活。完整的、非激活 GSD 预规划包位于 [`future-milestones/v1.5-personal-knowledge-wiki-projection`](./future-milestones/v1.5-personal-knowledge-wiki-projection/README.md)，必须在 v1.4 真实完成和明确授权后才可切换为活跃里程碑。
+v1.5 的详细契约和背景仍保留在 [`future-milestones/v1.5-personal-knowledge-wiki-projection`](./future-milestones/v1.5-personal-knowledge-wiki-projection/README.md)；其 Phase 41–44 已映射为当前活动 Phase 44–47，以避开 v1.4.1 已占用的历史编号。当前 P0 实现与真实服务授权只读 UAT 已完成；扩域保持单独延期。
 
 ---
-*Updated 2026-07-22 after v1.4 requirements confirmation*
+*Updated 2026-08-04 after Phase 54 implementation/rollback verification; real activation remains explicitly gated*
