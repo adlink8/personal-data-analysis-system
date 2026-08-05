@@ -1,0 +1,118 @@
+{
+  "schema": "project-capability-registry-v1",
+  "version": "1.0.0",
+  "checksum": "f9b2679b97d4f8241ee8b6f4b297057d161aebf06b01e7d68565c6c3e3d16359",
+  "operations": [
+    {
+      "id": "knowledge.search", "version": "1.0.0", "checksum": "e832344f51aa249fa23c8256d497fc1bb63508aad1074531b390305961eedd39",
+      "title": "Search knowledge", "description": "Read bounded knowledge search results.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "knowledge", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active",
+      "aliases": [{"name": "search", "version": "1.0.0", "deprecated": true}]
+    },
+    {
+      "id": "knowledge.get", "version": "1.0.0", "checksum": "a8920d0e4021ea3581147a6f53f953a56ad473fbd0be7fb5800552f537485bf0",
+      "title": "Get knowledge record", "description": "Read one knowledge record by stable identifier.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "knowledge", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "retrieval.search", "version": "1.0.0", "checksum": "c36b5ad7f5a132e0764d9314f1738b374ab3553372dc8689858aa14cc12ccb87",
+      "title": "Search retrieval index", "description": "Read bounded semantic or lexical retrieval results.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "retrieval", "side_effect_class": "none", "timeout_ms": 5000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "retrieval.status", "version": "1.0.0", "checksum": "92f8db22b8459983f193f8dc5543e786cf068cde95189ada1d7db3705dff6f38",
+      "title": "Read retrieval status", "description": "Read active collection and retrieval health metadata.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "retrieval", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 8192, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "state.current", "version": "1.0.0", "checksum": "a8704bf36d4e90b6e40f1c7ec776a80b1d44c81a6728455605d021f224a0bfec",
+      "title": "Read current state", "description": "Read typed current personal state metadata.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "state", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "state.changes", "version": "1.0.0", "checksum": "d280004a91d7579fb661ca8ab8ab91ac3287153ab4712a060a885a07fb6f4e6a",
+      "title": "Read state changes", "description": "Read bounded state changes and trend metadata.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "state", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "external.list", "version": "1.0.0", "checksum": "48b417a48c5f9ede2566bc53b25221f06f0ad95302ee3e1afc189bf221954514",
+      "title": "List external context", "description": "Read bounded external context assertions.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "external", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active",
+      "aliases": [{"name": "external_context_list", "version": "1.0.0", "deprecated": true}]
+    },
+    {
+      "id": "external.get", "version": "1.0.0", "checksum": "bb0e629af57549721258c39c882304ef0b0368b87182f6b3d33bc78551024132",
+      "title": "Get external context", "description": "Read one external context assertion by stable identifier.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "external", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "decision.list", "version": "1.0.0", "checksum": "0aa68b6caa63323adf9112ffb1f5c5f2f363c2312e4e577fe4d6dee0724ccd05",
+      "title": "List decisions", "description": "Read bounded decision analysis metadata.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "decision", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "decision.get", "version": "1.0.0", "checksum": "5d238746f3a2f8235aac7870185256bb63d217c3fdea055547895b92e576259c",
+      "title": "Get decision analysis", "description": "Read one decision analysis record by stable identifier.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "decision", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active",
+      "aliases": [{"name": "decision_analysis_get", "version": "1.0.0", "deprecated": true}]
+    },
+    {
+      "id": "action_outcome.list", "version": "1.0.0", "checksum": "306047739ef27decae8bb07d28ce1e39abee0d4ee6855f5231b476bbf9f3811b",
+      "title": "List action outcomes", "description": "Read action and outcome feedback metadata.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "action_outcome", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "evidence.resolve", "version": "1.0.0", "checksum": "0df8da5a0a7220b4f3c1dd26335c4e52944046026bc01c0d159c015ecd8b6913",
+      "title": "Resolve evidence", "description": "Read evidence references and support status without raw bodies.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "evidence", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "wiki.directory", "version": "1.0.0", "checksum": "de37f44c18bb02077f44cb7c67da5554bc03022e21940fe32d9c4aea06ea80f3",
+      "title": "List wiki topics", "description": "Read the deterministic topic directory.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "wiki", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "wiki.page", "version": "1.0.0", "checksum": "9719618323f8d19d5edde2f5624549ba9d550c27d9dc6598ba7ae34d83fda238",
+      "title": "Read wiki page", "description": "Read one evidence-backed topic page.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "wiki", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "data_quality.report", "version": "1.0.0", "checksum": "ee5cceb93c2bd5fa379d215e6ed6aba79bc492935f864cc8b7726a044a48f49b",
+      "title": "Read data quality", "description": "Read data quality and governance health metadata.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "data_quality", "side_effect_class": "none", "timeout_ms": 5000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "data_quality.failed_batches", "version": "1.0.0", "checksum": "652fe13b5783d017b926302b2ad0873ca0a94a0e21df24c0ba5ef8a28f942f4e",
+      "title": "List failed batches", "description": "Read failed ingestion batch metadata for recovery planning.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "data_quality", "side_effect_class": "none", "timeout_ms": 5000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "system.health", "version": "1.0.0", "checksum": "81af4b3220207a0ab95ff40ebc328583a739d788346dc8e01d091b6750ea3a1b",
+      "title": "Read system health", "description": "Read local service and authority health metadata.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "system", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 8192, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "system.runtime", "version": "1.0.0", "checksum": "73b7d73b61840caeaae67301a29b24c2c6c542c2d9f4cfcd25b5275d8cf516af",
+      "title": "Read runtime status", "description": "Read Kernel and application runtime metadata.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "system", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 8192, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    }
+  ]
+}

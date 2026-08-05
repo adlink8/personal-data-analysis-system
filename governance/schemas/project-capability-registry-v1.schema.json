@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "project-capability-registry-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "version", "checksum", "operations"],
+  "properties": {
+    "schema": { "const": "project-capability-registry-v1" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "checksum": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "version", "checksum", "title", "description", "input_schema",
+          "output_schema", "profiles", "privacy_ceiling", "authority_class",
+          "side_effect_class", "timeout_ms", "budget", "idempotency",
+          "confirmation", "receipt_schema", "status"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$" },
+          "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+          "checksum": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "title": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "input_schema": { "type": "string", "minLength": 1 },
+          "output_schema": { "type": "string", "minLength": 1 },
+          "profiles": { "type": "array", "items": { "enum": ["production", "operator", "test"] }, "minItems": 1, "uniqueItems": true },
+          "privacy_ceiling": { "enum": ["R0", "R1", "R2"] },
+          "authority_class": { "enum": ["knowledge", "retrieval", "state", "external", "decision", "action_outcome", "evidence", "wiki", "data_quality", "system"] },
+          "side_effect_class": { "enum": ["none", "candidate", "derived", "canonical", "promotion", "rollback"] },
+          "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000 },
+          "budget": { "type": "object", "additionalProperties": false, "required": ["max_bytes", "provider_calls"], "properties": { "max_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }, "provider_calls": { "const": 0 } } },
+          "idempotency": { "type": "object", "additionalProperties": false, "required": ["required", "scope"], "properties": { "required": { "const": true }, "scope": { "enum": ["task", "session", "operation"] } } },
+          "confirmation": { "type": "object", "additionalProperties": false, "required": ["required"], "properties": { "required": { "const": false } } },
+          "receipt_schema": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["active", "deprecated"] },
+          "aliases": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["name", "version", "deprecated"], "properties": { "name": { "type": "string", "minLength": 1 }, "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }, "deprecated": { "const": true } } }, "uniqueItems": true }
+        }
+      }
+    }
+  }
+}
