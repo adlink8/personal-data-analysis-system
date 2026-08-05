@@ -23,6 +23,8 @@ MUTATION_OPERATIONS = frozenset({
     "ingestion.discover", "ingestion.preview", "ingestion.commit", "ingestion.quarantine",
     "canonical.reconcile", "canonical.deduplicate", "canonical.link",
     "canonical.apply_correction", "canonical.verify",
+    "knowledge.extract_l1", "knowledge.extract_l2", "knowledge.repair_candidates",
+    "knowledge.detect_conflicts", "knowledge.backfill", "index.build", "index.reconcile", "index.evaluate",
 })
 CANONICAL_OPERATIONS = frozenset({
     "canonical.reconcile", "canonical.deduplicate", "canonical.link", "canonical.apply_correction",

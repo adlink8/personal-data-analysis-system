@@ -9,6 +9,8 @@ from personal_knowledge.services.capability_registry import load_registry, opera
 from personal_knowledge.services.orchestration_service import GuardedOrchestrationInterface
 from personal_knowledge.services.warehouse_mutations import MUTATION_OPERATIONS, WarehouseOperationLedger
 from personal_knowledge.services.warehouse_tools import OPERATIONS as WAREHOUSE_READ_OPERATIONS, WarehouseTools
+from personal_knowledge.services.semantic_maintenance_tools import OPERATIONS as SEMANTIC_OPERATIONS, SemanticMaintenanceTools
+from personal_knowledge.services.retrieval_maintenance_tools import OPERATIONS as RETRIEVAL_OPERATIONS, RetrievalMaintenanceTools
 
 PI_DOMAIN_GATEWAY_SCHEMA = "pi_domain_gateway_v1"
 PI_DOMAIN_CAPABILITY_HEADER = "X-PI-Domain-Capability"
@@ -27,6 +29,14 @@ PROJECT_OPERATIONS: dict[str, dict[str, Any]] = {
         "allowed": (
             {"task_id", "idempotency_key", "binding", "authority_id", "limit", "cursor", "start_date", "end_date", "filters", "snapshot_id", "watermark_id"}
             if operation["id"] in WAREHOUSE_READ_OPERATIONS else
+            {"task_id", "idempotency_key", "binding", "source_scope", "snapshot_checksum", "watermark_checksum", "batch_limit", "extractor", "model_receipt", "schema_version", "evidence_refs", "records", "actor", "profile", "now", "preview", "confirmed"}
+            if operation["id"] in SEMANTIC_OPERATIONS else
+            {"task_id", "idempotency_key", "binding", "semantic_snapshot_checksum", "source_ids", "embedding_receipt", "index_schema_version", "actor", "profile", "now", "preview"}
+            if operation["id"] == "index.build" else
+            {"task_id", "idempotency_key", "binding", "generation_id", "expected_ids", "indexed_ids"}
+            if operation["id"] == "index.reconcile" else
+            {"task_id", "idempotency_key", "binding", "generation_id", "policy_id", "policy_checksum", "reconcile"}
+            if operation["id"] == "index.evaluate" else
             {"task_id", "idempotency_key", "binding", "authority_id", "source_checksum", "snapshot_checksum", "watermark_checksum", "count", "actor", "profile", "before_fingerprint", "preview", "confirmed", "now", "crash_at", "operation_id"}
             if operation["id"] in MUTATION_OPERATIONS else
             {"task_id", "idempotency_key", "binding", "query", "record_id", "limit", "cursor", "snapshot_id", "source_id"}
@@ -61,12 +71,16 @@ def _ok(operation: str, data: Any) -> dict[str, Any]:
 class PiDomainGateway:
     def __init__(self, *, service: GuardedOrchestrationInterface | None = None, capability: str | None = None,
                  read_handler=None, warehouse_tools: WarehouseTools | None = None,
-                 warehouse_ledger: WarehouseOperationLedger | None = None) -> None:
+                 warehouse_ledger: WarehouseOperationLedger | None = None,
+                 semantic_tools: SemanticMaintenanceTools | None = None,
+                 retrieval_tools: RetrievalMaintenanceTools | None = None) -> None:
         self.service = service
         self.capability = capability or os.environ.get("PI_DOMAIN_CAPABILITY", DEFAULT_CAPABILITY)
         self.read_handler = read_handler
         self.warehouse_tools = warehouse_tools
         self.warehouse_ledger = warehouse_ledger
+        self.semantic_tools = semantic_tools
+        self.retrieval_tools = retrieval_tools
 
     def _check(self, operation: str, params: Mapping[str, Any], capability: str | None) -> None:
         canonical = canonical_project_operation(operation)
@@ -96,6 +110,14 @@ class PiDomainGateway:
                     canonical, {key: value for key, value in routed.items() if key != "idempotency_key"}
                 )
                 data["capability_checksum"] = spec["checksum"]
+                return _ok(canonical, data)
+            if canonical in SEMANTIC_OPERATIONS or canonical in RETRIEVAL_OPERATIONS:
+                tool = self.semantic_tools if canonical in SEMANTIC_OPERATIONS else self.retrieval_tools
+                if tool is None:
+                    return _ok(canonical, {"status": "authority_unavailable", "execution": "not_run", "capability_checksum": spec["checksum"]})
+                data = tool.invoke(canonical, routed)
+                if isinstance(data, dict):
+                    data["capability_checksum"] = spec["checksum"]
                 return _ok(canonical, data)
             if canonical in MUTATION_OPERATIONS:
                 if self.warehouse_ledger is None:

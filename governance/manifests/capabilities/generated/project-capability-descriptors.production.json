@@ -546,10 +546,138 @@
         "side_effect_class": "none",
         "source_checksum": "a3fe41f436a6eb3e3c27317235d50f130c81f140330dc260107e44876a4b2ae6",
         "timeout_ms": 5000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.extract_l1",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "00ab91fed560b04c14ccf35b85ad078d26d34106297671c2d1ae84b763f6a9b0",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.extract_l2",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "7d2a5712cf3e9efa515c1d39768d66ae5595a2d7592d33a95bd1fa05ba9f1ef7",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.repair_candidates",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "099afe29b014edc4aef1c2ebc15b725d4c3d4960b3adfcad2ff1a16d29cb01cd",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.detect_conflicts",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "849e8212d6230396d36ea49e066e3a55234430a81ff8619cf7e1a2e203b6555d",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.backfill",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "337d911116734f3cb266a705d8c1f3cd4dbb3162e8134ba0468c025974537bcc",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_retrieval_build_input_v1",
+        "name": "index.build",
+        "output_schema": "pi_retrieval_maintenance_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "derived",
+        "source_checksum": "eeec8b56cd292ece7e7ec269e7c08d79e9be95d62ae977968e4ce6f38177b2f6",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 8192,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_retrieval_reconcile_input_v1",
+        "name": "index.reconcile",
+        "output_schema": "pi_retrieval_maintenance_v1",
+        "privacy_ceiling": "R0",
+        "receipt_schema": "pi_tool_receipt_v1",
+        "side_effect_class": "none",
+        "source_checksum": "fcd4b3169489676492f9929613664b62371fcb451bcdc032ebe31dc2131c9b19",
+        "timeout_ms": 30000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 8192,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_retrieval_evaluate_input_v1",
+        "name": "index.evaluate",
+        "output_schema": "pi_retrieval_maintenance_v1",
+        "privacy_ceiling": "R0",
+        "receipt_schema": "pi_tool_receipt_v1",
+        "side_effect_class": "none",
+        "source_checksum": "13f09240fbf2ed851fe310cd11f2c3f4e00ee57ce60f1ad5afbb713a1d7edeb2",
+        "timeout_ms": 120000
       }
     ],
     "profile": "production",
-    "registry_checksum": "bf712a107c23f76021fe640930ff575dba3aff77f097c252dfdade455f3b3657",
+    "registry_checksum": "e7dda4c44e4aec0a938d6ac774f8f2596dabd0ecf07131fb561fc01d2ae5102a",
     "schema": "project-capability-descriptors-v1"
   },
   "pi": {
@@ -1099,14 +1227,142 @@
         "side_effect_class": "none",
         "source_checksum": "a3fe41f436a6eb3e3c27317235d50f130c81f140330dc260107e44876a4b2ae6",
         "timeout_ms": 5000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.extract_l1",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "00ab91fed560b04c14ccf35b85ad078d26d34106297671c2d1ae84b763f6a9b0",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.extract_l2",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "7d2a5712cf3e9efa515c1d39768d66ae5595a2d7592d33a95bd1fa05ba9f1ef7",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.repair_candidates",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "099afe29b014edc4aef1c2ebc15b725d4c3d4960b3adfcad2ff1a16d29cb01cd",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.detect_conflicts",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "849e8212d6230396d36ea49e066e3a55234430a81ff8619cf7e1a2e203b6555d",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.backfill",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "337d911116734f3cb266a705d8c1f3cd4dbb3162e8134ba0468c025974537bcc",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_retrieval_build_input_v1",
+        "name": "index.build",
+        "output_schema": "pi_retrieval_maintenance_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "derived",
+        "source_checksum": "eeec8b56cd292ece7e7ec269e7c08d79e9be95d62ae977968e4ce6f38177b2f6",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 8192,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_retrieval_reconcile_input_v1",
+        "name": "index.reconcile",
+        "output_schema": "pi_retrieval_maintenance_v1",
+        "privacy_ceiling": "R0",
+        "receipt_schema": "pi_tool_receipt_v1",
+        "side_effect_class": "none",
+        "source_checksum": "fcd4b3169489676492f9929613664b62371fcb451bcdc032ebe31dc2131c9b19",
+        "timeout_ms": 30000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 8192,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_retrieval_evaluate_input_v1",
+        "name": "index.evaluate",
+        "output_schema": "pi_retrieval_maintenance_v1",
+        "privacy_ceiling": "R0",
+        "receipt_schema": "pi_tool_receipt_v1",
+        "side_effect_class": "none",
+        "source_checksum": "13f09240fbf2ed851fe310cd11f2c3f4e00ee57ce60f1ad5afbb713a1d7edeb2",
+        "timeout_ms": 120000
       }
     ],
     "profile": "production",
-    "registry_checksum": "bf712a107c23f76021fe640930ff575dba3aff77f097c252dfdade455f3b3657",
+    "registry_checksum": "e7dda4c44e4aec0a938d6ac774f8f2596dabd0ecf07131fb561fc01d2ae5102a",
     "schema": "project-capability-descriptors-v1"
   },
   "profile": "production",
-  "registry_checksum": "bf712a107c23f76021fe640930ff575dba3aff77f097c252dfdade455f3b3657",
+  "registry_checksum": "e7dda4c44e4aec0a938d6ac774f8f2596dabd0ecf07131fb561fc01d2ae5102a",
   "rest": {
     "operations": [
       {
@@ -1654,10 +1910,138 @@
         "side_effect_class": "none",
         "source_checksum": "a3fe41f436a6eb3e3c27317235d50f130c81f140330dc260107e44876a4b2ae6",
         "timeout_ms": 5000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.extract_l1",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "00ab91fed560b04c14ccf35b85ad078d26d34106297671c2d1ae84b763f6a9b0",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.extract_l2",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "7d2a5712cf3e9efa515c1d39768d66ae5595a2d7592d33a95bd1fa05ba9f1ef7",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.repair_candidates",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "099afe29b014edc4aef1c2ebc15b725d4c3d4960b3adfcad2ff1a16d29cb01cd",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.detect_conflicts",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "849e8212d6230396d36ea49e066e3a55234430a81ff8619cf7e1a2e203b6555d",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "knowledge",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_semantic_candidate_input_v1",
+        "name": "knowledge.backfill",
+        "output_schema": "pi_semantic_candidate_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "candidate",
+        "source_checksum": "337d911116734f3cb266a705d8c1f3cd4dbb3162e8134ba0468c025974537bcc",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_retrieval_build_input_v1",
+        "name": "index.build",
+        "output_schema": "pi_retrieval_maintenance_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_data_operation_receipt_v1",
+        "side_effect_class": "derived",
+        "source_checksum": "eeec8b56cd292ece7e7ec269e7c08d79e9be95d62ae977968e4ce6f38177b2f6",
+        "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 8192,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_retrieval_reconcile_input_v1",
+        "name": "index.reconcile",
+        "output_schema": "pi_retrieval_maintenance_v1",
+        "privacy_ceiling": "R0",
+        "receipt_schema": "pi_tool_receipt_v1",
+        "side_effect_class": "none",
+        "source_checksum": "fcd4b3169489676492f9929613664b62371fcb451bcdc032ebe31dc2131c9b19",
+        "timeout_ms": 30000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 8192,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_retrieval_evaluate_input_v1",
+        "name": "index.evaluate",
+        "output_schema": "pi_retrieval_maintenance_v1",
+        "privacy_ceiling": "R0",
+        "receipt_schema": "pi_tool_receipt_v1",
+        "side_effect_class": "none",
+        "source_checksum": "13f09240fbf2ed851fe310cd11f2c3f4e00ee57ce60f1ad5afbb713a1d7edeb2",
+        "timeout_ms": 120000
       }
     ],
     "profile": "production",
-    "registry_checksum": "bf712a107c23f76021fe640930ff575dba3aff77f097c252dfdade455f3b3657",
+    "registry_checksum": "e7dda4c44e4aec0a938d6ac774f8f2596dabd0ecf07131fb561fc01d2ae5102a",
     "schema": "project-capability-descriptors-v1"
   },
   "schema": "project-capability-descriptor-bundle-v1"

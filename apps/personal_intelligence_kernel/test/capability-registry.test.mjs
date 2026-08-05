@@ -5,7 +5,7 @@ import { loadCapabilityRegistry, capabilityByName } from "../src/tools/capabilit
 test("production capability registry loads the approved project surface", () => {
   const registry = loadCapabilityRegistry({ profile: "production" });
   assert.equal(registry.profile, "production");
-  assert.equal(registry.operations.length, 33);
+  assert.equal(registry.operations.length, 41);
   assert.ok(registry.checksum.match(/^[0-9a-f]{64}$/));
   assert.equal(capabilityByName(registry, "search").id, "knowledge.search");
 });

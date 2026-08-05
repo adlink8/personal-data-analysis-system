@@ -1,7 +1,7 @@
 {
   "schema": "project-capability-registry-v1",
   "version": "1.0.0",
-  "checksum": "bf712a107c23f76021fe640930ff575dba3aff77f097c252dfdade455f3b3657",
+  "checksum": "e7dda4c44e4aec0a938d6ac774f8f2596dabd0ecf07131fb561fc01d2ae5102a",
   "operations": [
     {
       "id": "knowledge.search", "version": "1.0.0", "checksum": "e832344f51aa249fa23c8256d497fc1bb63508aad1074531b390305961eedd39",
@@ -202,6 +202,54 @@
       "id": "canonical.verify", "version": "1.0.0", "checksum": "a3fe41f436a6eb3e3c27317235d50f130c81f140330dc260107e44876a4b2ae6",
       "title": "Verify canonical operation", "description": "Read operation fingerprints and canonical invariants after a bounded change.", "input_schema": "pi_data_operation_input_v1", "output_schema": "pi_data_operation_receipt_v1", 
       "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "warehouse", "side_effect_class": "none", "timeout_ms": 5000,
+      "budget": {"max_bytes": 8192, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "knowledge.extract_l1", "version": "1.0.0", "checksum": "00ab91fed560b04c14ccf35b85ad078d26d34106297671c2d1ae84b763f6a9b0",
+      "title": "Extract L1 knowledge candidates", "description": "Stage evidence-bound L1 knowledge candidates without promotion.", "input_schema": "pi_semantic_candidate_input_v1", "output_schema": "pi_semantic_candidate_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "knowledge", "side_effect_class": "candidate", "timeout_ms": 120000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "knowledge.extract_l2", "version": "1.0.0", "checksum": "7d2a5712cf3e9efa515c1d39768d66ae5595a2d7592d33a95bd1fa05ba9f1ef7",
+      "title": "Extract L2 knowledge candidates", "description": "Stage evidence-bound L2 session candidates without promotion.", "input_schema": "pi_semantic_candidate_input_v1", "output_schema": "pi_semantic_candidate_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "knowledge", "side_effect_class": "candidate", "timeout_ms": 120000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "knowledge.repair_candidates", "version": "1.0.0", "checksum": "099afe29b014edc4aef1c2ebc15b725d4c3d4960b3adfcad2ff1a16d29cb01cd",
+      "title": "Repair knowledge candidates", "description": "Stage schema and evidence-bound candidate repairs only.", "input_schema": "pi_semantic_candidate_input_v1", "output_schema": "pi_semantic_candidate_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "knowledge", "side_effect_class": "candidate", "timeout_ms": 120000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "knowledge.detect_conflicts", "version": "1.0.0", "checksum": "849e8212d6230396d36ea49e066e3a55234430a81ff8619cf7e1a2e203b6555d",
+      "title": "Detect knowledge conflicts", "description": "Stage bounded conflict candidates with immutable evidence references.", "input_schema": "pi_semantic_candidate_input_v1", "output_schema": "pi_semantic_candidate_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "knowledge", "side_effect_class": "candidate", "timeout_ms": 120000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "knowledge.backfill", "version": "1.0.0", "checksum": "337d911116734f3cb266a705d8c1f3cd4dbb3162e8134ba0468c025974537bcc",
+      "title": "Backfill knowledge candidates", "description": "Stage bounded evidence-bound backfill candidates without serving changes.", "input_schema": "pi_semantic_candidate_input_v1", "output_schema": "pi_semantic_candidate_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "knowledge", "side_effect_class": "candidate", "timeout_ms": 120000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "index.build", "version": "1.0.0", "checksum": "eeec8b56cd292ece7e7ec269e7c08d79e9be95d62ae977968e4ce6f38177b2f6",
+      "title": "Build isolated retrieval index", "description": "Build a new retrieval generation bound to one semantic snapshot.", "input_schema": "pi_retrieval_build_input_v1", "output_schema": "pi_retrieval_maintenance_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "retrieval", "side_effect_class": "derived", "timeout_ms": 120000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "index.reconcile", "version": "1.0.0", "checksum": "fcd4b3169489676492f9929613664b62371fcb451bcdc032ebe31dc2131c9b19",
+      "title": "Reconcile retrieval generation", "description": "Verify missing, orphan and duplicate counts for an isolated generation.", "input_schema": "pi_retrieval_reconcile_input_v1", "output_schema": "pi_retrieval_maintenance_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "retrieval", "side_effect_class": "none", "timeout_ms": 30000,
+      "budget": {"max_bytes": 8192, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "index.evaluate", "version": "1.0.0", "checksum": "13f09240fbf2ed851fe310cd11f2c3f4e00ee57ce60f1ad5afbb713a1d7edeb2",
+      "title": "Evaluate retrieval generation", "description": "Run a frozen evaluation policy without promotion or active pointer writes.", "input_schema": "pi_retrieval_evaluate_input_v1", "output_schema": "pi_retrieval_maintenance_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "retrieval", "side_effect_class": "none", "timeout_ms": 120000,
       "budget": {"max_bytes": 8192, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
     }
   ]
