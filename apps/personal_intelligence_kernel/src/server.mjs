@@ -130,7 +130,8 @@ function resourceRegistryReady(host) {
       && loader.getThemes().themes?.length === 0
       && loader.getAgentsFiles().agentsFiles?.length === 0;
     const tools = host.session.getAllTools().map((tool) => tool.name).sort();
-    return empty && tools.length === 2 && tools[0] === "domain_candidate" && tools[1] === "domain_inspect";
+    const expected = (host.capabilityRegistry?.operations ?? []).map((operation) => operation.id).sort();
+    return empty && Boolean(host.capabilityRegistry?.checksum) && tools.length === expected.length && tools.every((name, index) => name === expected[index]);
   } catch {
     return false;
   }

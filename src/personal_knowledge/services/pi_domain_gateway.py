@@ -5,6 +5,7 @@ import hmac
 import os
 from typing import Any, Mapping
 
+from personal_knowledge.services.capability_registry import load_registry, operations_for_profile
 from personal_knowledge.services.orchestration_service import GuardedOrchestrationInterface
 
 PI_DOMAIN_GATEWAY_SCHEMA = "pi_domain_gateway_v1"
@@ -17,6 +18,26 @@ OPERATIONS: dict[str, dict[str, Any]] = {
     "session.preview": {"kind": "guarded_write", "allowed": {"session_id", "transition", "payload", "actor_identity_hash", "expected_sequence", "now", "task_id", "idempotency_key", "binding"}, "privacy": "R1"},
     "session.confirm": {"kind": "guarded_write", "allowed": {"preview", "confirmation_token", "confirmed", "idempotency_key", "now", "task_id", "binding"}, "privacy": "R1"},
 }
+
+PROJECT_OPERATIONS: dict[str, dict[str, Any]] = {
+    operation["id"]: {
+        "kind": "read",
+        "allowed": {"task_id", "idempotency_key", "binding", "query", "record_id", "limit", "cursor", "snapshot_id", "source_id"},
+        "privacy": operation["privacy_ceiling"],
+        "checksum": operation["checksum"],
+        "authority": operation["authority_class"],
+    }
+    for operation in operations_for_profile(load_registry(), "production")
+}
+PROJECT_ALIASES = {
+    alias["name"]: operation["id"]
+    for operation in operations_for_profile(load_registry(), "production")
+    for alias in operation.get("aliases", [])
+}
+
+
+def canonical_project_operation(operation: str) -> str:
+    return PROJECT_ALIASES.get(operation, operation)
 
 class PiDomainGatewayError(Exception):
     def __init__(self, code: str, detail: str = "") -> None:
@@ -36,14 +57,15 @@ class PiDomainGateway:
         self.read_handler = read_handler
 
     def _check(self, operation: str, params: Mapping[str, Any], capability: str | None) -> None:
-        spec = OPERATIONS.get(operation)
+        canonical = canonical_project_operation(operation)
+        spec = OPERATIONS.get(canonical) or PROJECT_OPERATIONS.get(canonical)
         if spec is None:
             raise PiDomainGatewayError("unknown_operation")
         if capability is None or not hmac.compare_digest(str(capability), str(self.capability)):
             raise PiDomainGatewayError("capability_invalid")
         if not isinstance(params, Mapping) or set(params) - spec["allowed"]:
             raise PiDomainGatewayError("undeclared_input")
-        if operation.startswith("domain.") and not params.get("task_id"):
+        if canonical.startswith("domain.") and not params.get("task_id"):
             raise PiDomainGatewayError("task_id_required")
         if not params.get("idempotency_key"):
             raise PiDomainGatewayError("idempotency_key_required")
@@ -54,11 +76,12 @@ class PiDomainGateway:
         params = dict(params or {})
         try:
             self._check(operation, params, capability)
-            spec = OPERATIONS[operation]
+            canonical = canonical_project_operation(operation)
+            spec = OPERATIONS.get(canonical) or PROJECT_OPERATIONS[canonical]
             if spec["kind"] == "read":
                 if self.read_handler is not None:
-                    return _ok(operation, self.read_handler(operation, params))
-                return _ok(operation, {"status": "synthetic", "operation": operation, "task_id": params["task_id"], "evidence_refs": params.get("evidence_refs", [])})
+                    return _ok(canonical, self.read_handler(canonical, params))
+                return _ok(canonical, {"status": "synthetic", "operation": canonical, "task_id": params.get("task_id"), "evidence_refs": params.get("evidence_refs", []), "capability_checksum": spec.get("checksum")})
             target = self.service or GuardedOrchestrationInterface()
             # Only the existing guarded interface receives writes; no dynamic callable names enter it.
             routed = {key: value for key, value in params.items() if key not in {"task_id", "binding", "idempotency_key"}}
@@ -73,4 +96,4 @@ class PiDomainGateway:
 def invoke_pi_domain(operation: str, params: Mapping[str, Any] | None = None, *, capability: str | None = None, service=None) -> dict[str, Any]:
     return PiDomainGateway(service=service).invoke(operation, params, capability=capability)
 
-__all__ = ["OPERATIONS", "PI_DOMAIN_GATEWAY_SCHEMA", "PI_DOMAIN_CAPABILITY_HEADER", "PiDomainGateway", "PiDomainGatewayError", "invoke_pi_domain"]
+__all__ = ["OPERATIONS", "PROJECT_OPERATIONS", "PROJECT_ALIASES", "PI_DOMAIN_GATEWAY_SCHEMA", "PI_DOMAIN_CAPABILITY_HEADER", "PiDomainGateway", "PiDomainGatewayError", "canonical_project_operation", "invoke_pi_domain"]

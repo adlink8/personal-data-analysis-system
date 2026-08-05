@@ -8,6 +8,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { capabilityToolNames, loadCapabilityRegistry } from "../tools/capability-registry.mjs";
 
 export const SYNTHETIC_SYSTEM_PROMPT =
   "Phase 48 synthetic containment session. Use only the registered domain tools.";
@@ -16,6 +17,7 @@ export const PHASE_48_TOOL_NAMES = Object.freeze([
   "domain_candidate",
   "domain_inspect",
 ]);
+export const PRODUCTION_SYSTEM_PROMPT = "Pi production Capability Registry tools only; use the declared domain operation and never access ambient resources.";
 
 const SYNTHETIC_MODEL = Object.freeze({
   api: "synthetic-containment",
@@ -45,6 +47,19 @@ function syntheticTool(name, label) {
     execute: async () => ({
       content: [{ type: "text", text: "synthetic" }],
       details: {},
+    }),
+  });
+}
+
+function productionTool(operation) {
+  return defineTool({
+    name: operation.id,
+    label: operation.title,
+    description: operation.description,
+    parameters: Type.Object({}),
+    execute: async () => ({
+      content: [{ type: "text", text: `${operation.id} requires a bound Kernel task invocation.` }],
+      details: { ok: false, error: { code: "capability_binding_required" }, capability: operation.id },
     }),
   });
 }
@@ -109,11 +124,13 @@ function providerFreeRuntime() {
  * settings, session persistence, built-in tools and provider access are all
  * explicit here so SDK defaults cannot widen the capability boundary.
  */
-export async function createContainedSession({ cwd, agentDir } = {}) {
+export async function createContainedSession({ cwd, agentDir, profile = "synthetic" } = {}) {
   const explicitCwd = requireExplicitDirectory(cwd, "cwd");
   const explicitAgentDir = requireExplicitDirectory(agentDir, "agentDir");
   const settingsManager = SettingsManager.inMemory();
   const sessionManager = SessionManager.inMemory(explicitCwd);
+  const registry = profile === "production" ? loadCapabilityRegistry({ profile }) : null;
+  const toolNames = registry ? capabilityToolNames(registry) : [...PHASE_48_TOOL_NAMES];
   const resourceLoader = new DefaultResourceLoader({
     cwd: explicitCwd,
     agentDir: explicitAgentDir,
@@ -123,14 +140,13 @@ export async function createContainedSession({ cwd, agentDir } = {}) {
     noPromptTemplates: true,
     noThemes: true,
     noContextFiles: true,
-    systemPrompt: SYNTHETIC_SYSTEM_PROMPT,
+    systemPrompt: registry ? PRODUCTION_SYSTEM_PROMPT : SYNTHETIC_SYSTEM_PROMPT,
   });
   await resourceLoader.reload();
 
-  const customTools = [
-    syntheticTool("domain_inspect", "Domain inspect"),
-    syntheticTool("domain_candidate", "Domain candidate"),
-  ];
+  const customTools = registry
+    ? registry.operations.map((operation) => productionTool(operation))
+    : [syntheticTool("domain_inspect", "Domain inspect"), syntheticTool("domain_candidate", "Domain candidate")];
   const modelRuntime = providerFreeRuntime();
   const { session, extensionsResult } = await createAgentSession({
     cwd: explicitCwd,
@@ -141,7 +157,7 @@ export async function createContainedSession({ cwd, agentDir } = {}) {
     settingsManager,
     sessionManager,
     noTools: "builtin",
-    tools: [...PHASE_48_TOOL_NAMES],
+    tools: toolNames,
     customTools,
     thinkingLevel: "off",
   });
@@ -153,5 +169,8 @@ export async function createContainedSession({ cwd, agentDir } = {}) {
     sessionManager,
     extensionsResult,
     modelRuntime,
+    profile,
+    registry,
+    toolNames,
   };
 }

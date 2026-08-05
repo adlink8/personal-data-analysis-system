@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +16,28 @@ const PROTOCOL_VERSION = "2025-06-18";
 const MCP_PROFILE = String(process.env.PERSONAL_DATA_MCP_PROFILE || "core").toLowerCase() === "full"
   ? "full"
   : "core";
+
+const PROJECT_CAPABILITY_BUNDLE_PATH = path.resolve(__dirname, "../../governance/manifests/capabilities/generated/project-capability-descriptors.production.json");
+const PROJECT_CAPABILITY_BUNDLE = (() => {
+  try { return JSON.parse(readFileSync(PROJECT_CAPABILITY_BUNDLE_PATH, "utf8")); } catch { return null; }
+})();
+const LEGACY_PROJECT_CAPABILITY_ALIASES = Object.freeze({
+  knowledge_status: "retrieval.status",
+  get_system_stats: "system.health",
+  data_quality_report: "data_quality.report",
+  show_memory_graph: "retrieval.search",
+  fetch: "knowledge.get",
+});
+const PROJECT_CAPABILITY_ALIASES = Object.freeze(Object.fromEntries([
+  ...Object.entries(LEGACY_PROJECT_CAPABILITY_ALIASES),
+  ...((PROJECT_CAPABILITY_BUNDLE?.mcp?.operations || []).flatMap((operation) => (operation.aliases || []).map((alias) => [alias.name, operation.name]))),
+]));
+
+function projectCapabilityForTool(name) {
+  const canonical = PROJECT_CAPABILITY_ALIASES[name] || name;
+  const operation = PROJECT_CAPABILITY_BUNDLE?.mcp?.operations?.find((candidate) => candidate.name === canonical);
+  return operation ? { ...operation, compatibility_alias: name === canonical ? null : name } : null;
+}
 
 const WIDGETS = {
   graph: {
@@ -1864,7 +1886,7 @@ export function createAppServer(options = {}) {
   });
 }
 
-export { callTool, handleRpc, makeRestClient, PROTOCOL_VERSION, toolDescriptors, WIDGETS };
+export { callTool, handleRpc, makeRestClient, PROTOCOL_VERSION, projectCapabilityForTool, PROJECT_CAPABILITY_BUNDLE, toolDescriptors, WIDGETS };
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const server = createAppServer();

@@ -2,6 +2,13 @@
   "mcp": {
     "operations": [
       {
+        "aliases": [
+          {
+            "deprecated": true,
+            "name": "search",
+            "version": "1.0.0"
+          }
+        ],
         "authority_class": "knowledge",
         "budget": {
           "max_bytes": 16384,
@@ -17,6 +24,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "knowledge",
         "budget": {
           "max_bytes": 16384,
@@ -32,6 +40,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "retrieval",
         "budget": {
           "max_bytes": 16384,
@@ -47,6 +56,7 @@
         "timeout_ms": 5000
       },
       {
+        "aliases": [],
         "authority_class": "retrieval",
         "budget": {
           "max_bytes": 8192,
@@ -62,6 +72,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "state",
         "budget": {
           "max_bytes": 16384,
@@ -77,6 +88,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "state",
         "budget": {
           "max_bytes": 16384,
@@ -92,6 +104,13 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [
+          {
+            "deprecated": true,
+            "name": "external_context_list",
+            "version": "1.0.0"
+          }
+        ],
         "authority_class": "external",
         "budget": {
           "max_bytes": 16384,
@@ -107,6 +126,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "external",
         "budget": {
           "max_bytes": 16384,
@@ -122,6 +142,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "decision",
         "budget": {
           "max_bytes": 16384,
@@ -137,6 +158,13 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [
+          {
+            "deprecated": true,
+            "name": "decision_analysis_get",
+            "version": "1.0.0"
+          }
+        ],
         "authority_class": "decision",
         "budget": {
           "max_bytes": 16384,
@@ -152,6 +180,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "action_outcome",
         "budget": {
           "max_bytes": 16384,
@@ -167,6 +196,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "evidence",
         "budget": {
           "max_bytes": 16384,
@@ -182,6 +212,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "wiki",
         "budget": {
           "max_bytes": 16384,
@@ -197,6 +228,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "wiki",
         "budget": {
           "max_bytes": 16384,
@@ -212,6 +244,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "data_quality",
         "budget": {
           "max_bytes": 16384,
@@ -227,6 +260,7 @@
         "timeout_ms": 5000
       },
       {
+        "aliases": [],
         "authority_class": "data_quality",
         "budget": {
           "max_bytes": 16384,
@@ -242,6 +276,7 @@
         "timeout_ms": 5000
       },
       {
+        "aliases": [],
         "authority_class": "system",
         "budget": {
           "max_bytes": 8192,
@@ -257,6 +292,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "system",
         "budget": {
           "max_bytes": 8192,
@@ -279,6 +315,13 @@
   "pi": {
     "operations": [
       {
+        "aliases": [
+          {
+            "deprecated": true,
+            "name": "search",
+            "version": "1.0.0"
+          }
+        ],
         "authority_class": "knowledge",
         "budget": {
           "max_bytes": 16384,
@@ -294,6 +337,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "knowledge",
         "budget": {
           "max_bytes": 16384,
@@ -309,6 +353,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "retrieval",
         "budget": {
           "max_bytes": 16384,
@@ -324,6 +369,7 @@
         "timeout_ms": 5000
       },
       {
+        "aliases": [],
         "authority_class": "retrieval",
         "budget": {
           "max_bytes": 8192,
@@ -339,6 +385,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "state",
         "budget": {
           "max_bytes": 16384,
@@ -354,6 +401,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "state",
         "budget": {
           "max_bytes": 16384,
@@ -369,6 +417,13 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [
+          {
+            "deprecated": true,
+            "name": "external_context_list",
+            "version": "1.0.0"
+          }
+        ],
         "authority_class": "external",
         "budget": {
           "max_bytes": 16384,
@@ -384,6 +439,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "external",
         "budget": {
           "max_bytes": 16384,
@@ -399,6 +455,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "decision",
         "budget": {
           "max_bytes": 16384,
@@ -414,6 +471,13 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [
+          {
+            "deprecated": true,
+            "name": "decision_analysis_get",
+            "version": "1.0.0"
+          }
+        ],
         "authority_class": "decision",
         "budget": {
           "max_bytes": 16384,
@@ -429,6 +493,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "action_outcome",
         "budget": {
           "max_bytes": 16384,
@@ -444,6 +509,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "evidence",
         "budget": {
           "max_bytes": 16384,
@@ -459,6 +525,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "wiki",
         "budget": {
           "max_bytes": 16384,
@@ -474,6 +541,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "wiki",
         "budget": {
           "max_bytes": 16384,
@@ -489,6 +557,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "data_quality",
         "budget": {
           "max_bytes": 16384,
@@ -504,6 +573,7 @@
         "timeout_ms": 5000
       },
       {
+        "aliases": [],
         "authority_class": "data_quality",
         "budget": {
           "max_bytes": 16384,
@@ -519,6 +589,7 @@
         "timeout_ms": 5000
       },
       {
+        "aliases": [],
         "authority_class": "system",
         "budget": {
           "max_bytes": 8192,
@@ -534,6 +605,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "system",
         "budget": {
           "max_bytes": 8192,
@@ -558,6 +630,13 @@
   "rest": {
     "operations": [
       {
+        "aliases": [
+          {
+            "deprecated": true,
+            "name": "search",
+            "version": "1.0.0"
+          }
+        ],
         "authority_class": "knowledge",
         "budget": {
           "max_bytes": 16384,
@@ -573,6 +652,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "knowledge",
         "budget": {
           "max_bytes": 16384,
@@ -588,6 +668,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "retrieval",
         "budget": {
           "max_bytes": 16384,
@@ -603,6 +684,7 @@
         "timeout_ms": 5000
       },
       {
+        "aliases": [],
         "authority_class": "retrieval",
         "budget": {
           "max_bytes": 8192,
@@ -618,6 +700,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "state",
         "budget": {
           "max_bytes": 16384,
@@ -633,6 +716,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "state",
         "budget": {
           "max_bytes": 16384,
@@ -648,6 +732,13 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [
+          {
+            "deprecated": true,
+            "name": "external_context_list",
+            "version": "1.0.0"
+          }
+        ],
         "authority_class": "external",
         "budget": {
           "max_bytes": 16384,
@@ -663,6 +754,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "external",
         "budget": {
           "max_bytes": 16384,
@@ -678,6 +770,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "decision",
         "budget": {
           "max_bytes": 16384,
@@ -693,6 +786,13 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [
+          {
+            "deprecated": true,
+            "name": "decision_analysis_get",
+            "version": "1.0.0"
+          }
+        ],
         "authority_class": "decision",
         "budget": {
           "max_bytes": 16384,
@@ -708,6 +808,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "action_outcome",
         "budget": {
           "max_bytes": 16384,
@@ -723,6 +824,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "evidence",
         "budget": {
           "max_bytes": 16384,
@@ -738,6 +840,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "wiki",
         "budget": {
           "max_bytes": 16384,
@@ -753,6 +856,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "wiki",
         "budget": {
           "max_bytes": 16384,
@@ -768,6 +872,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "data_quality",
         "budget": {
           "max_bytes": 16384,
@@ -783,6 +888,7 @@
         "timeout_ms": 5000
       },
       {
+        "aliases": [],
         "authority_class": "data_quality",
         "budget": {
           "max_bytes": 16384,
@@ -798,6 +904,7 @@
         "timeout_ms": 5000
       },
       {
+        "aliases": [],
         "authority_class": "system",
         "budget": {
           "max_bytes": 8192,
@@ -813,6 +920,7 @@
         "timeout_ms": 3000
       },
       {
+        "aliases": [],
         "authority_class": "system",
         "budget": {
           "max_bytes": 8192,

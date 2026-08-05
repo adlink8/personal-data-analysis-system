@@ -4,8 +4,6 @@ import { dirname, resolve } from "node:path";
 
 import {
   createContainedSession,
-  PHASE_48_TOOL_NAMES,
-  SYNTHETIC_SYSTEM_PROMPT,
 } from "./runtime/resource-policy.mjs";
 import { EventJournal, PI_KERNEL_EVENTS_DB } from "./events/journal.mjs";
 import { createPiKernelEvent, sha256 } from "./events/schema.mjs";
@@ -65,20 +63,20 @@ function assertLoopback(host) {
   if (host !== DEFAULT_KERNEL_HOST.host) throw safeError("non_loopback_bind");
 }
 
-function assertExactResourcePolicy(resourceLoader, session) {
+function assertExactResourcePolicy(resourceLoader, session, { profile, registry, toolNames }) {
   const exactFlags = ["noExtensions", "noSkills", "noPromptTemplates", "noThemes", "noContextFiles"];
   if (!resourceLoader || exactFlags.some((flag) => resourceLoader[flag] !== true)) throw safeError("resource_policy_mismatch");
-  if (resourceLoader.getSystemPrompt() !== SYNTHETIC_SYSTEM_PROMPT) throw safeError("resource_policy_mismatch");
+  if (profile !== "production" || !registry?.checksum || resourceLoader.getSystemPrompt() !== "Pi production Capability Registry tools only; use the declared domain operation and never access ambient resources.") throw safeError("resource_policy_mismatch");
   if (resourceLoader.getExtensions().extensions?.length || resourceLoader.getSkills().skills?.length || resourceLoader.getPrompts().prompts?.length || resourceLoader.getThemes().themes?.length || resourceLoader.getAgentsFiles().agentsFiles?.length) {
     throw safeError("resource_policy_not_empty");
   }
   const tools = session.getAllTools().map((tool) => tool.name).sort();
-  const expected = [...PHASE_48_TOOL_NAMES].sort();
+  const expected = [...toolNames].sort();
   if (tools.length !== expected.length || tools.some((name, index) => name !== expected[index])) throw safeError("tool_registry_mismatch");
 }
 
 export class KernelHost {
-  constructor({ journal, session, resourceLoader, modelRuntime, providerAdapter, taskLedger, sessionStore, candidateStore, decision, host, port, shutdownTimeoutMs }) {
+  constructor({ journal, session, resourceLoader, modelRuntime, providerAdapter, taskLedger, sessionStore, candidateStore, decision, host, port, shutdownTimeoutMs, capabilityRegistry }) {
     this.journal = journal;
     this.session = session;
     this.resourceLoader = resourceLoader;
@@ -91,6 +89,7 @@ export class KernelHost {
     this.host = host;
     this.port = port;
     this.shutdownTimeoutMs = shutdownTimeoutMs;
+    this.capabilityRegistry = capabilityRegistry;
     // Provider bodies are kept only for the lifetime of this process so a
     // trusted Python adapter can finish its existing parser contract. They
     // are never written to Task/Session/Event/Candidate stores.
@@ -114,6 +113,7 @@ export class KernelHost {
       resource_policy: RESOURCE_POLICY_VERSION,
       journal: integrity.ok ? "ok" : "failed",
       provider_calls: this.providerCalls,
+      capability_registry: { checksum: this.capabilityRegistry?.checksum ?? null, profile: this.capabilityRegistry?.profile ?? null, tool_count: this.capabilityRegistry?.operations?.length ?? 0 },
     };
   }
 
@@ -346,8 +346,8 @@ export async function createKernelHost(options = {}) {
   try {
     const cwd = resolve(options.cwd ?? projectRoot);
     const agentDir = resolve(options.agentDir ?? resolve(projectRoot, ".pi-agent-disabled"));
-    const contained = await createContainedSession({ cwd, agentDir });
-    assertExactResourcePolicy(contained.resourceLoader, contained.session);
+    const contained = await createContainedSession({ cwd, agentDir, profile: "production" });
+    assertExactResourcePolicy(contained.resourceLoader, contained.session, contained);
     if (contained.modelRuntime.providerCalls !== 0) throw safeError("provider_call_detected");
     hostInstance = new KernelHost({
       journal,
@@ -362,6 +362,7 @@ export async function createKernelHost(options = {}) {
       host,
       port,
       shutdownTimeoutMs: options.shutdownTimeoutMs ?? 1000,
+      capabilityRegistry: contained.registry,
     });
     if (!hostInstance.isReady()) throw safeError("host_not_ready");
     await hostInstance.listen();
