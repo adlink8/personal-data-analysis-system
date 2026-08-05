@@ -1,7 +1,7 @@
 {
   "schema": "project-capability-registry-v1",
   "version": "1.0.0",
-  "checksum": "e7dda4c44e4aec0a938d6ac774f8f2596dabd0ecf07131fb561fc01d2ae5102a",
+  "checksum": "62019c79626a78708a571c7c4c85101b451e4dce216e870d286d5705122a5e7e",
   "operations": [
     {
       "id": "knowledge.search", "version": "1.0.0", "checksum": "e832344f51aa249fa23c8256d497fc1bb63508aad1074531b390305961eedd39",
@@ -251,6 +251,24 @@
       "title": "Evaluate retrieval generation", "description": "Run a frozen evaluation policy without promotion or active pointer writes.", "input_schema": "pi_retrieval_evaluate_input_v1", "output_schema": "pi_retrieval_maintenance_v1", 
       "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "retrieval", "side_effect_class": "none", "timeout_ms": 120000,
       "budget": {"max_bytes": 8192, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "snapshot.prepare", "version": "1.0.0", "checksum": "f4a35b8c7e329145e2f902a2c31f9a74f82cb0b5a2c5122e35fe807b2cedc665",
+      "title": "Prepare serving snapshot", "description": "Freeze serving manifest, evaluation and pointer fingerprints for review.", "input_schema": "pi_snapshot_release_input_v1", "output_schema": "pi_snapshot_release_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "retrieval", "side_effect_class": "derived", "timeout_ms": 30000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "snapshot.activate", "version": "1.0.0", "checksum": "db1d0028379c6b2ce5834174ee1b866886aec78cc21820045c359ea0715346c7",
+      "title": "Activate serving snapshot", "description": "Atomically activate an exact reviewed snapshot after explicit confirmation.", "input_schema": "pi_snapshot_release_input_v1", "output_schema": "pi_snapshot_release_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "retrieval", "side_effect_class": "promotion", "timeout_ms": 30000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": true}, "receipt_schema": "pi_snapshot_release_v1", "status": "active"
+    },
+    {
+      "id": "snapshot.rollback", "version": "1.0.0", "checksum": "5dbb452a4d869d8772853e381d51582ccfcec47fd1d006f5ac9ca3d5403081c9",
+      "title": "Rollback serving snapshot", "description": "Atomically restore the exact frozen rollback target after confirmation.", "input_schema": "pi_snapshot_release_input_v1", "output_schema": "pi_snapshot_release_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "retrieval", "side_effect_class": "rollback", "timeout_ms": 30000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": true}, "receipt_schema": "pi_snapshot_release_v1", "status": "active"
     }
   ]
 }

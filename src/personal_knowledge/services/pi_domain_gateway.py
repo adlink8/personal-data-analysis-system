@@ -11,6 +11,7 @@ from personal_knowledge.services.warehouse_mutations import MUTATION_OPERATIONS,
 from personal_knowledge.services.warehouse_tools import OPERATIONS as WAREHOUSE_READ_OPERATIONS, WarehouseTools
 from personal_knowledge.services.semantic_maintenance_tools import OPERATIONS as SEMANTIC_OPERATIONS, SemanticMaintenanceTools
 from personal_knowledge.services.retrieval_maintenance_tools import OPERATIONS as RETRIEVAL_OPERATIONS, RetrievalMaintenanceTools
+from personal_knowledge.services.snapshot_release_tools import OPERATIONS as SNAPSHOT_OPERATIONS, SnapshotReleaseTools
 
 PI_DOMAIN_GATEWAY_SCHEMA = "pi_domain_gateway_v1"
 PI_DOMAIN_CAPABILITY_HEADER = "X-PI-Domain-Capability"
@@ -37,6 +38,8 @@ PROJECT_OPERATIONS: dict[str, dict[str, Any]] = {
             if operation["id"] == "index.reconcile" else
             {"task_id", "idempotency_key", "binding", "generation_id", "policy_id", "policy_checksum", "reconcile"}
             if operation["id"] == "index.evaluate" else
+            {"task_id", "idempotency_key", "binding", "action", "snapshot_id", "generation_id", "manifest", "reconcile", "eval_passed", "eval_checksum", "current_pointer", "target_pointer", "protected_fingerprint", "actor", "profile", "now", "preview", "confirmed", "fault"}
+            if operation["id"] in SNAPSHOT_OPERATIONS else
             {"task_id", "idempotency_key", "binding", "authority_id", "source_checksum", "snapshot_checksum", "watermark_checksum", "count", "actor", "profile", "before_fingerprint", "preview", "confirmed", "now", "crash_at", "operation_id"}
             if operation["id"] in MUTATION_OPERATIONS else
             {"task_id", "idempotency_key", "binding", "query", "record_id", "limit", "cursor", "snapshot_id", "source_id"}
@@ -73,7 +76,8 @@ class PiDomainGateway:
                  read_handler=None, warehouse_tools: WarehouseTools | None = None,
                  warehouse_ledger: WarehouseOperationLedger | None = None,
                  semantic_tools: SemanticMaintenanceTools | None = None,
-                 retrieval_tools: RetrievalMaintenanceTools | None = None) -> None:
+                 retrieval_tools: RetrievalMaintenanceTools | None = None,
+                 snapshot_tools: SnapshotReleaseTools | None = None) -> None:
         self.service = service
         self.capability = capability or os.environ.get("PI_DOMAIN_CAPABILITY", DEFAULT_CAPABILITY)
         self.read_handler = read_handler
@@ -81,6 +85,7 @@ class PiDomainGateway:
         self.warehouse_ledger = warehouse_ledger
         self.semantic_tools = semantic_tools
         self.retrieval_tools = retrieval_tools
+        self.snapshot_tools = snapshot_tools
 
     def _check(self, operation: str, params: Mapping[str, Any], capability: str | None) -> None:
         canonical = canonical_project_operation(operation)
@@ -111,8 +116,13 @@ class PiDomainGateway:
                 )
                 data["capability_checksum"] = spec["checksum"]
                 return _ok(canonical, data)
-            if canonical in SEMANTIC_OPERATIONS or canonical in RETRIEVAL_OPERATIONS:
-                tool = self.semantic_tools if canonical in SEMANTIC_OPERATIONS else self.retrieval_tools
+            if canonical in SEMANTIC_OPERATIONS or canonical in RETRIEVAL_OPERATIONS or canonical in SNAPSHOT_OPERATIONS:
+                if canonical in SEMANTIC_OPERATIONS:
+                    tool = self.semantic_tools
+                elif canonical in RETRIEVAL_OPERATIONS:
+                    tool = self.retrieval_tools
+                else:
+                    tool = self.snapshot_tools
                 if tool is None:
                     return _ok(canonical, {"status": "authority_unavailable", "execution": "not_run", "capability_checksum": spec["checksum"]})
                 data = tool.invoke(canonical, routed)

@@ -674,10 +674,58 @@
         "side_effect_class": "none",
         "source_checksum": "13f09240fbf2ed851fe310cd11f2c3f4e00ee57ce60f1ad5afbb713a1d7edeb2",
         "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_snapshot_release_input_v1",
+        "name": "snapshot.prepare",
+        "output_schema": "pi_snapshot_release_v1",
+        "privacy_ceiling": "R0",
+        "receipt_schema": "pi_tool_receipt_v1",
+        "side_effect_class": "derived",
+        "source_checksum": "f4a35b8c7e329145e2f902a2c31f9a74f82cb0b5a2c5122e35fe807b2cedc665",
+        "timeout_ms": 30000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_snapshot_release_input_v1",
+        "name": "snapshot.activate",
+        "output_schema": "pi_snapshot_release_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_snapshot_release_v1",
+        "side_effect_class": "promotion",
+        "source_checksum": "db1d0028379c6b2ce5834174ee1b866886aec78cc21820045c359ea0715346c7",
+        "timeout_ms": 30000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_snapshot_release_input_v1",
+        "name": "snapshot.rollback",
+        "output_schema": "pi_snapshot_release_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_snapshot_release_v1",
+        "side_effect_class": "rollback",
+        "source_checksum": "5dbb452a4d869d8772853e381d51582ccfcec47fd1d006f5ac9ca3d5403081c9",
+        "timeout_ms": 30000
       }
     ],
     "profile": "test",
-    "registry_checksum": "e7dda4c44e4aec0a938d6ac774f8f2596dabd0ecf07131fb561fc01d2ae5102a",
+    "registry_checksum": "62019c79626a78708a571c7c4c85101b451e4dce216e870d286d5705122a5e7e",
     "schema": "project-capability-descriptors-v1"
   },
   "pi": {
@@ -1355,14 +1403,62 @@
         "side_effect_class": "none",
         "source_checksum": "13f09240fbf2ed851fe310cd11f2c3f4e00ee57ce60f1ad5afbb713a1d7edeb2",
         "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_snapshot_release_input_v1",
+        "name": "snapshot.prepare",
+        "output_schema": "pi_snapshot_release_v1",
+        "privacy_ceiling": "R0",
+        "receipt_schema": "pi_tool_receipt_v1",
+        "side_effect_class": "derived",
+        "source_checksum": "f4a35b8c7e329145e2f902a2c31f9a74f82cb0b5a2c5122e35fe807b2cedc665",
+        "timeout_ms": 30000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_snapshot_release_input_v1",
+        "name": "snapshot.activate",
+        "output_schema": "pi_snapshot_release_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_snapshot_release_v1",
+        "side_effect_class": "promotion",
+        "source_checksum": "db1d0028379c6b2ce5834174ee1b866886aec78cc21820045c359ea0715346c7",
+        "timeout_ms": 30000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_snapshot_release_input_v1",
+        "name": "snapshot.rollback",
+        "output_schema": "pi_snapshot_release_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_snapshot_release_v1",
+        "side_effect_class": "rollback",
+        "source_checksum": "5dbb452a4d869d8772853e381d51582ccfcec47fd1d006f5ac9ca3d5403081c9",
+        "timeout_ms": 30000
       }
     ],
     "profile": "test",
-    "registry_checksum": "e7dda4c44e4aec0a938d6ac774f8f2596dabd0ecf07131fb561fc01d2ae5102a",
+    "registry_checksum": "62019c79626a78708a571c7c4c85101b451e4dce216e870d286d5705122a5e7e",
     "schema": "project-capability-descriptors-v1"
   },
   "profile": "test",
-  "registry_checksum": "e7dda4c44e4aec0a938d6ac774f8f2596dabd0ecf07131fb561fc01d2ae5102a",
+  "registry_checksum": "62019c79626a78708a571c7c4c85101b451e4dce216e870d286d5705122a5e7e",
   "rest": {
     "operations": [
       {
@@ -2038,10 +2134,58 @@
         "side_effect_class": "none",
         "source_checksum": "13f09240fbf2ed851fe310cd11f2c3f4e00ee57ce60f1ad5afbb713a1d7edeb2",
         "timeout_ms": 120000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_snapshot_release_input_v1",
+        "name": "snapshot.prepare",
+        "output_schema": "pi_snapshot_release_v1",
+        "privacy_ceiling": "R0",
+        "receipt_schema": "pi_tool_receipt_v1",
+        "side_effect_class": "derived",
+        "source_checksum": "f4a35b8c7e329145e2f902a2c31f9a74f82cb0b5a2c5122e35fe807b2cedc665",
+        "timeout_ms": 30000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_snapshot_release_input_v1",
+        "name": "snapshot.activate",
+        "output_schema": "pi_snapshot_release_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_snapshot_release_v1",
+        "side_effect_class": "promotion",
+        "source_checksum": "db1d0028379c6b2ce5834174ee1b866886aec78cc21820045c359ea0715346c7",
+        "timeout_ms": 30000
+      },
+      {
+        "aliases": [],
+        "authority_class": "retrieval",
+        "budget": {
+          "max_bytes": 16384,
+          "provider_calls": 0
+        },
+        "input_schema": "pi_snapshot_release_input_v1",
+        "name": "snapshot.rollback",
+        "output_schema": "pi_snapshot_release_v1",
+        "privacy_ceiling": "R1",
+        "receipt_schema": "pi_snapshot_release_v1",
+        "side_effect_class": "rollback",
+        "source_checksum": "5dbb452a4d869d8772853e381d51582ccfcec47fd1d006f5ac9ca3d5403081c9",
+        "timeout_ms": 30000
       }
     ],
     "profile": "test",
-    "registry_checksum": "e7dda4c44e4aec0a938d6ac774f8f2596dabd0ecf07131fb561fc01d2ae5102a",
+    "registry_checksum": "62019c79626a78708a571c7c4c85101b451e4dce216e870d286d5705122a5e7e",
     "schema": "project-capability-descriptors-v1"
   },
   "schema": "project-capability-descriptor-bundle-v1"

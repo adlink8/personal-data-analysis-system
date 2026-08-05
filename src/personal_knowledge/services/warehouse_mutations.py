@@ -25,10 +25,12 @@ MUTATION_OPERATIONS = frozenset({
     "canonical.apply_correction", "canonical.verify",
     "knowledge.extract_l1", "knowledge.extract_l2", "knowledge.repair_candidates",
     "knowledge.detect_conflicts", "knowledge.backfill", "index.build", "index.reconcile", "index.evaluate",
+    "snapshot.prepare", "snapshot.activate", "snapshot.rollback",
 })
 CANONICAL_OPERATIONS = frozenset({
     "canonical.reconcile", "canonical.deduplicate", "canonical.link", "canonical.apply_correction",
 })
+CONFIRMATION_OPERATIONS = CANONICAL_OPERATIONS | frozenset({"snapshot.activate", "snapshot.rollback"})
 PROFILES = frozenset({"production", "operator", "test"})
 
 
@@ -208,7 +210,10 @@ class WarehouseOperationLedger:
                 raise WarehouseMutationError("idempotency_conflict")
             return previous
         plan_value = dict(plan or {})
-        allowed_plan = {"mode", "count", "candidate_ids", "reason", "compensation_of", "raw_immutable", "append_only"}
+        allowed_plan = {
+            "mode", "count", "candidate_ids", "reason", "compensation_of", "raw_immutable", "append_only",
+            "target_pointer", "current_pointer", "manifest_checksum", "eval_checksum", "protected_fingerprint",
+        }
         if set(plan_value) - allowed_plan:
             raise WarehouseMutationError("undeclared_plan")
         if plan_value.get("candidate_ids") is not None:
@@ -242,7 +247,7 @@ class WarehouseOperationLedger:
             "plan_checksum": plan_checksum,
             "count": count,
             "before_fingerprint": before,
-            "confirmation_required": operation in CANONICAL_OPERATIONS,
+            "confirmation_required": operation in CONFIRMATION_OPERATIONS,
             "expires_at": expires_at,
             "status": "previewed",
         }
@@ -315,7 +320,7 @@ class WarehouseOperationLedger:
         timestamp = _timestamp(now)
         if _expired(row["expires_at"], timestamp):
             raise WarehouseMutationError("preview_stale")
-        if row["capability_id"] in CANONICAL_OPERATIONS and confirmed is not True:
+        if row["capability_id"] in CONFIRMATION_OPERATIONS and confirmed is not True:
             raise WarehouseMutationError("explicit_confirmation_required")
         if snapshot_checksum is not None and snapshot_checksum != row["snapshot_checksum"]:
             raise WarehouseMutationError("snapshot_binding_mismatch")
@@ -432,6 +437,9 @@ class WarehouseOperationLedger:
             "compensation_of": row["compensation_of"] or None,
         }
 
+    def get_preview(self, operation_id: str) -> dict[str, Any]:
+        return self._preview_from_row(self._row(_safe_token(operation_id, "operation_id")))
+
     def invoke(self, operation: str, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
         params = dict(params or {})
         if operation == "canonical.verify":
@@ -463,7 +471,7 @@ class WarehouseOperationLedger:
 WarehouseMutationService = WarehouseOperationLedger
 
 __all__ = [
-    "CANONICAL_OPERATIONS", "InMemoryWarehouseStore", "MUTATION_OPERATIONS", "PREVIEW_SCHEMA",
+    "CANONICAL_OPERATIONS", "CONFIRMATION_OPERATIONS", "InMemoryWarehouseStore", "MUTATION_OPERATIONS", "PREVIEW_SCHEMA",
     "RECEIPT_SCHEMA", "SCHEMA_VERSION", "WarehouseMutationError", "WarehouseMutationService",
     "WarehouseOperationLedger",
 ]
