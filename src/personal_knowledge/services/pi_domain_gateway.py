@@ -121,6 +121,7 @@ class PiDomainGateway:
                 "missing_parameter", "explicit_confirmation_required", "confirmation_expired", "preview_checksum_mismatch",
                 "invalid_request", "provider_outcome_unknown", "preview_stale", "snapshot_binding_mismatch",
                 "watermark_binding_mismatch", "idempotency_conflict", "idempotency_mismatch", "warehouse_authority_unavailable",
+                "preview_required", "fingerprint_binding_mismatch",
             }
             return _error(operation, code if code in safe_codes else "domain_unavailable")
 
