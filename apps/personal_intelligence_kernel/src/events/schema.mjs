@@ -48,6 +48,17 @@ export const PI_KERNEL_EVENT_TYPES = Object.freeze([
   "cancelled",
   "failed",
   "candidate_created",
+  "operation_created",
+  "operation_running",
+  "operation_cancel_requested",
+  "operation_cancelled",
+  "operation_succeeded",
+  "operation_failed",
+  "operation_outcome_unknown",
+  "operation_reconciling",
+  "operation_resumable",
+  "operation_compensated",
+  "operation_manual_review",
 ]);
 
 export const PI_KERNEL_PRIVACY_CLASSES = Object.freeze(["R1", "R2"]);
