@@ -1,0 +1,15 @@
+{
+  "schema": "pi-ui-local-startup-outcome-v1",
+  "status": "PASS",
+  "service": "pi-ui",
+  "runtime": "local_vite",
+  "port": 5177,
+  "http_status": 200,
+  "process_started": true,
+  "process_stopped": true,
+  "provider_calls": 0,
+  "cost_cny": 0,
+  "authority_mutations": 0,
+  "raw_bodies_committed": false,
+  "observed_at": "2026-08-05T00:04:47Z"
+}
