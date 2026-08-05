@@ -7,6 +7,8 @@ from typing import Any, Mapping
 
 from personal_knowledge.services.capability_registry import load_registry, operations_for_profile
 from personal_knowledge.services.orchestration_service import GuardedOrchestrationInterface
+from personal_knowledge.services.warehouse_mutations import MUTATION_OPERATIONS, WarehouseOperationLedger
+from personal_knowledge.services.warehouse_tools import OPERATIONS as WAREHOUSE_READ_OPERATIONS, WarehouseTools
 
 PI_DOMAIN_GATEWAY_SCHEMA = "pi_domain_gateway_v1"
 PI_DOMAIN_CAPABILITY_HEADER = "X-PI-Domain-Capability"
@@ -21,8 +23,14 @@ OPERATIONS: dict[str, dict[str, Any]] = {
 
 PROJECT_OPERATIONS: dict[str, dict[str, Any]] = {
     operation["id"]: {
-        "kind": "read",
-        "allowed": {"task_id", "idempotency_key", "binding", "query", "record_id", "limit", "cursor", "snapshot_id", "source_id"},
+        "kind": "read" if operation["side_effect_class"] == "none" else "guarded_write",
+        "allowed": (
+            {"task_id", "idempotency_key", "binding", "authority_id", "limit", "cursor", "start_date", "end_date", "filters", "snapshot_id", "watermark_id"}
+            if operation["id"] in WAREHOUSE_READ_OPERATIONS else
+            {"task_id", "idempotency_key", "binding", "authority_id", "source_checksum", "snapshot_checksum", "watermark_checksum", "count", "actor", "profile", "before_fingerprint", "preview", "confirmed", "now", "crash_at", "operation_id"}
+            if operation["id"] in MUTATION_OPERATIONS else
+            {"task_id", "idempotency_key", "binding", "query", "record_id", "limit", "cursor", "snapshot_id", "source_id"}
+        ),
         "privacy": operation["privacy_ceiling"],
         "checksum": operation["checksum"],
         "authority": operation["authority_class"],
@@ -51,10 +59,14 @@ def _ok(operation: str, data: Any) -> dict[str, Any]:
     return {"schema_version": PI_DOMAIN_GATEWAY_SCHEMA, "operation": operation, "ok": True, "status": "success", "data": data}
 
 class PiDomainGateway:
-    def __init__(self, *, service: GuardedOrchestrationInterface | None = None, capability: str | None = None, read_handler=None) -> None:
+    def __init__(self, *, service: GuardedOrchestrationInterface | None = None, capability: str | None = None,
+                 read_handler=None, warehouse_tools: WarehouseTools | None = None,
+                 warehouse_ledger: WarehouseOperationLedger | None = None) -> None:
         self.service = service
         self.capability = capability or os.environ.get("PI_DOMAIN_CAPABILITY", DEFAULT_CAPABILITY)
         self.read_handler = read_handler
+        self.warehouse_tools = warehouse_tools
+        self.warehouse_ledger = warehouse_ledger
 
     def _check(self, operation: str, params: Mapping[str, Any], capability: str | None) -> None:
         canonical = canonical_project_operation(operation)
@@ -78,6 +90,20 @@ class PiDomainGateway:
             self._check(operation, params, capability)
             canonical = canonical_project_operation(operation)
             spec = OPERATIONS.get(canonical) or PROJECT_OPERATIONS[canonical]
+            routed = {key: value for key, value in params.items() if key not in {"task_id", "binding"}}
+            if canonical in WAREHOUSE_READ_OPERATIONS:
+                data = (self.warehouse_tools or WarehouseTools()).invoke(
+                    canonical, {key: value for key, value in routed.items() if key != "idempotency_key"}
+                )
+                data["capability_checksum"] = spec["checksum"]
+                return _ok(canonical, data)
+            if canonical in MUTATION_OPERATIONS:
+                if self.warehouse_ledger is None:
+                    return _ok(canonical, {"status": "authority_unavailable", "execution": "not_run", "capability_checksum": spec["checksum"]})
+                data = self.warehouse_ledger.invoke(canonical, routed)
+                if isinstance(data, dict):
+                    data["capability_checksum"] = spec["checksum"]
+                return _ok(canonical, data)
             if spec["kind"] == "read":
                 if self.read_handler is not None:
                     return _ok(canonical, self.read_handler(canonical, params))
@@ -91,7 +117,12 @@ class PiDomainGateway:
             return _error(operation, exc.code)
         except Exception as exc:  # transport-safe envelope; detail stays local
             code = str(getattr(exc, "code", "") or "domain_unavailable").split(":", 1)[0]
-            return _error(operation, code if code in {"missing_parameter", "explicit_confirmation_required", "confirmation_expired", "preview_checksum_mismatch", "invalid_request"} else "domain_unavailable")
+            safe_codes = {
+                "missing_parameter", "explicit_confirmation_required", "confirmation_expired", "preview_checksum_mismatch",
+                "invalid_request", "provider_outcome_unknown", "preview_stale", "snapshot_binding_mismatch",
+                "watermark_binding_mismatch", "idempotency_conflict", "idempotency_mismatch", "warehouse_authority_unavailable",
+            }
+            return _error(operation, code if code in safe_codes else "domain_unavailable")
 
 def invoke_pi_domain(operation: str, params: Mapping[str, Any] | None = None, *, capability: str | None = None, service=None) -> dict[str, Any]:
     return PiDomainGateway(service=service).invoke(operation, params, capability=capability)

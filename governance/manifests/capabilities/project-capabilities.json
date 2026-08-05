@@ -1,7 +1,7 @@
 {
   "schema": "project-capability-registry-v1",
   "version": "1.0.0",
-  "checksum": "f9b2679b97d4f8241ee8b6f4b297057d161aebf06b01e7d68565c6c3e3d16359",
+  "checksum": "bf712a107c23f76021fe640930ff575dba3aff77f097c252dfdade455f3b3657",
   "operations": [
     {
       "id": "knowledge.search", "version": "1.0.0", "checksum": "e832344f51aa249fa23c8256d497fc1bb63508aad1074531b390305961eedd39",
@@ -113,6 +113,96 @@
       "title": "Read runtime status", "description": "Read Kernel and application runtime metadata.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
       "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "system", "side_effect_class": "none", "timeout_ms": 3000,
       "budget": {"max_bytes": 8192, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "warehouse.inspect", "version": "1.0.0", "checksum": "270ee08dd8e4927d06c46bdd83b0d65d63cbeea8df2567cc1fc659ba6b74f91f",
+      "title": "Inspect warehouse", "description": "Read bounded warehouse counts and authority metadata.", "input_schema": "pi_warehouse_read_input_v1", "output_schema": "pi_warehouse_read_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "warehouse", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "warehouse.lineage", "version": "1.0.0", "checksum": "c3ac0b02efdfaa2087d74ad8452ccab58cf0e8972df25e98e2583b802090a140",
+      "title": "Read warehouse lineage", "description": "Read fixed-adapter lineage and snapshot metadata.", "input_schema": "pi_warehouse_read_input_v1", "output_schema": "pi_warehouse_read_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "warehouse", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "warehouse.quality", "version": "1.0.0", "checksum": "fb81cef646feb1176711568abf2b4a903777b2fbe350426cac1d1d34b67f49cd",
+      "title": "Read warehouse quality", "description": "Read bounded quality checks and anomaly counts.", "input_schema": "pi_warehouse_read_input_v1", "output_schema": "pi_warehouse_read_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "warehouse", "side_effect_class": "none", "timeout_ms": 5000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "warehouse.freshness", "version": "1.0.0", "checksum": "98fa3caceb726bd7346ce66121c3b3074b270783109067125552f945745c620d",
+      "title": "Read warehouse freshness", "description": "Read bounded freshness and watermark metadata.", "input_schema": "pi_warehouse_read_input_v1", "output_schema": "pi_warehouse_read_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "warehouse", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 8192, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "warehouse.integrity", "version": "1.0.0", "checksum": "06e6d5de917e4d3e101cfc0a2584dda07a365959ae990094df81167a7b46acf4",
+      "title": "Read warehouse integrity", "description": "Read bounded authority fingerprint and integrity metadata.", "input_schema": "pi_warehouse_read_input_v1", "output_schema": "pi_warehouse_read_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "warehouse", "side_effect_class": "none", "timeout_ms": 5000,
+      "budget": {"max_bytes": 8192, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "warehouse.failed_batches", "version": "1.0.0", "checksum": "6a404a08cda570cdcea74a929a0fa5d3f13ea9d74e464185c988cc7600b0b49b",
+      "title": "List warehouse failed batches", "description": "Read bounded failed batch metadata for recovery planning.", "input_schema": "pi_warehouse_read_input_v1", "output_schema": "pi_warehouse_read_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "warehouse", "side_effect_class": "none", "timeout_ms": 5000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "ingestion.discover", "version": "1.0.0", "checksum": "92da64e1133d2695a4e8f5b7b165ce9531bf4a64e924ef5eec5d2e55c56b1837",
+      "title": "Discover ingestion source", "description": "Create bounded source discovery metadata without reading arbitrary paths.", "input_schema": "pi_data_operation_input_v1", "output_schema": "pi_data_operation_receipt_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "warehouse", "side_effect_class": "candidate", "timeout_ms": 5000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "ingestion.preview", "version": "1.0.0", "checksum": "50fe99b2f9258e7cb93af4c7c8510ebb55e600f6f19bbb5aa40df66e2f61bd08",
+      "title": "Preview ingestion", "description": "Build an exact bounded ingestion preview bound to a source snapshot and watermark.", "input_schema": "pi_data_operation_input_v1", "output_schema": "pi_data_operation_receipt_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "warehouse", "side_effect_class": "candidate", "timeout_ms": 5000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "ingestion.commit", "version": "1.0.0", "checksum": "25fc3a538b343f51e3addc2bb26acc16f53e54b373c69abb60b61859d1eb39c0",
+      "title": "Commit ingestion", "description": "Commit an exact, idempotent candidate ingestion without changing raw history.", "input_schema": "pi_data_operation_input_v1", "output_schema": "pi_data_operation_receipt_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "warehouse", "side_effect_class": "candidate", "timeout_ms": 10000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "ingestion.quarantine", "version": "1.0.0", "checksum": "3fe732f6f2748bb3c0f064974db77acd403fc8644d2de210ec6150f93fbf9ed6",
+      "title": "Quarantine ingestion", "description": "Move a bounded candidate batch into a quarantine state by metadata receipt.", "input_schema": "pi_data_operation_input_v1", "output_schema": "pi_data_operation_receipt_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "warehouse", "side_effect_class": "candidate", "timeout_ms": 5000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "canonical.reconcile", "version": "1.0.0", "checksum": "a4f8dba6fd4aad1fb76368397fe06b251d7193f7956bef5b6ac837822dd8f682",
+      "title": "Reconcile canonical facts", "description": "Prepare or apply append-only canonical reconciliation with exact confirmation.", "input_schema": "pi_data_operation_input_v1", "output_schema": "pi_data_operation_receipt_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "warehouse", "side_effect_class": "canonical", "timeout_ms": 10000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": true}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "canonical.deduplicate", "version": "1.0.0", "checksum": "3ad35c227b55f3c250b69bda2568e4bb8674ca5bdc41e877446147f194b3cfd7",
+      "title": "Deduplicate canonical facts", "description": "Append a canonical deduplication decision without overwriting history.", "input_schema": "pi_data_operation_input_v1", "output_schema": "pi_data_operation_receipt_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "warehouse", "side_effect_class": "canonical", "timeout_ms": 10000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": true}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "canonical.link", "version": "1.0.0", "checksum": "a84dc516ca6146e8952f793577fc22eb9a70db7d26d56d0a69f92df8a31c585d",
+      "title": "Link canonical facts", "description": "Append an explicit canonical link decision with exact confirmation.", "input_schema": "pi_data_operation_input_v1", "output_schema": "pi_data_operation_receipt_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "warehouse", "side_effect_class": "canonical", "timeout_ms": 10000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": true}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "canonical.apply_correction", "version": "1.0.0", "checksum": "6877707db215e24dcaa2a16819cd8acf632bbe2f49c02baf483683f3a64f1507",
+      "title": "Apply canonical correction", "description": "Append a compensating canonical correction linked to immutable history.", "input_schema": "pi_data_operation_input_v1", "output_schema": "pi_data_operation_receipt_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "warehouse", "side_effect_class": "canonical", "timeout_ms": 10000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": true}, "receipt_schema": "pi_data_operation_receipt_v1", "status": "active"
+    },
+    {
+      "id": "canonical.verify", "version": "1.0.0", "checksum": "a3fe41f436a6eb3e3c27317235d50f130c81f140330dc260107e44876a4b2ae6",
+      "title": "Verify canonical operation", "description": "Read operation fingerprints and canonical invariants after a bounded change.", "input_schema": "pi_data_operation_input_v1", "output_schema": "pi_data_operation_receipt_v1", 
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R0", "authority_class": "warehouse", "side_effect_class": "none", "timeout_ms": 5000,
+      "budget": {"max_bytes": 8192, "provider_calls": 0}, "idempotency": {"required": true, "scope": "operation"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
     }
   ]
 }

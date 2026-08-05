@@ -11,7 +11,7 @@ DEFAULT_REGISTRY_PATH = ROOT / "governance" / "manifests" / "capabilities" / "pr
 SCHEMA = "project-capability-registry-v1"
 PROFILES = frozenset({"production", "operator", "test"})
 PRIVACY = frozenset({"R0", "R1", "R2"})
-AUTHORITIES = frozenset({"knowledge", "retrieval", "state", "external", "decision", "action_outcome", "evidence", "wiki", "data_quality", "system"})
+AUTHORITIES = frozenset({"knowledge", "retrieval", "state", "external", "decision", "action_outcome", "evidence", "wiki", "data_quality", "system", "warehouse"})
 SIDE_EFFECTS = frozenset({"none", "candidate", "derived", "canonical", "promotion", "rollback"})
 
 
@@ -74,7 +74,7 @@ def validate_registry(registry: Mapping[str, Any]) -> dict[str, Any]:
         idem = op.get("idempotency")
         _require(isinstance(idem, Mapping) and idem.get("required") is True and idem.get("scope") in {"task", "session", "operation"}, "idempotency_invalid", identifier)
         confirmation = op.get("confirmation")
-        _require(isinstance(confirmation, Mapping) and confirmation.get("required") is False, "confirmation_invalid", identifier)
+        _require(isinstance(confirmation, Mapping) and isinstance(confirmation.get("required"), bool), "confirmation_invalid", identifier)
         _require(op.get("status") in {"active", "deprecated"}, "status_invalid", identifier)
         _require(op.get("checksum") == operation_checksum(op), "operation_checksum_drift", identifier)
         if op["side_effect_class"] == "none":
@@ -105,7 +105,7 @@ def operations_for_profile(registry: Mapping[str, Any], profile: str = "producti
 
 def descriptor_snapshot(registry: Mapping[str, Any], profile: str = "production") -> dict[str, Any]:
     selected = operations_for_profile(registry, profile)
-    descriptors = [{"name": operation["id"], "input_schema": operation["input_schema"], "output_schema": operation["output_schema"], "authority_class": operation["authority_class"], "privacy_ceiling": operation["privacy_ceiling"], "side_effect_class": operation["side_effect_class"], "timeout_ms": operation["timeout_ms"], "budget": operation["budget"], "receipt_schema": operation["receipt_schema"], "source_checksum": operation["checksum"]} for operation in selected]
+    descriptors = [{"name": operation["id"], "input_schema": operation["input_schema"], "output_schema": operation["output_schema"], "authority_class": operation["authority_class"], "privacy_ceiling": operation["privacy_ceiling"], "side_effect_class": operation["side_effect_class"], "timeout_ms": operation["timeout_ms"], "budget": operation["budget"], "receipt_schema": operation["receipt_schema"], "source_checksum": operation["checksum"], "aliases": operation.get("aliases", [])} for operation in selected]
     return {"schema": "project-capability-descriptors-v1", "profile": profile, "registry_checksum": registry_checksum(registry), "operations": descriptors}
 
 

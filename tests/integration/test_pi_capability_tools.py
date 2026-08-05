@@ -9,7 +9,14 @@ from personal_knowledge.services.pi_domain_gateway import (
 
 
 def _params(operation: str) -> dict[str, object]:
-    return {"task_id": "pi_task_capability_test", "idempotency_key": f"idem:{operation}", "binding": "binding:capability-test"}
+    params: dict[str, object] = {
+        "task_id": "pi_task_capability_test",
+        "idempotency_key": f"idem:{operation}",
+        "binding": "binding:capability-test",
+    }
+    if operation.startswith("warehouse."):
+        params["authority_id"] = "knowledge"
+    return params
 
 
 def test_gateway_and_registry_expose_the_same_production_operations() -> None:
