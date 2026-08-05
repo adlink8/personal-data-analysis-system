@@ -8,6 +8,7 @@ const state = { envelope: SYSTEM_STATUS_ENVELOPE as any };
 vi.mock('../api/hooks', () => ({
   useSystemStatus: () => ({ isPending: false, isError: false, data: state.envelope }),
   usePiOperations: () => ({ isPending: false, isError: false, data: { schema_version: 'pi_operation_projection_v1', ok: true, state: 'ready', operations: [], observed_at: '2026-08-05T00:00:00Z', recovery_action: 'none' } }),
+  usePiOperationMutation: () => ({ isPending: false, mutate: vi.fn() }),
 }));
 
 describe('SystemPage（/system）', () => {

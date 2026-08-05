@@ -42,6 +42,7 @@ const queryOk = (data: unknown): QueryState => ({
 const defaultHooksState = (): Record<string, QueryState> => ({
   overview: queryOk(OVERVIEW_ENVELOPE),
   systemStatus: queryOk(SYSTEM_STATUS_ENVELOPE),
+  piOperations: queryOk({ schema_version: 'pi_operation_projection_v1', ok: true, state: 'ready', operations: [], observed_at: '2026-08-05T00:00:00Z', recovery_action: 'none' }),
   personalState: queryOk(PERSONAL_STATE_ENVELOPE),
   externalDelta: queryOk(EXTERNAL_DELTA_ENVELOPE),
   decisionQueue: queryOk(DECISION_QUEUE_ENVELOPE),
@@ -49,6 +50,28 @@ const defaultHooksState = (): Record<string, QueryState> => ({
   actionsRecent: queryOk(ACTIONS_RECENT_ENVELOPE),
   proactiveSummary: queryOk(PROACTIVE_SUMMARY_ENVELOPE),
   calibrationOverview: queryOk(CALIBRATION_OVERVIEW_ENVELOPE),
+  wikiTopicList: queryOk({
+    schema_version: 'personal_wiki_projection_v1', operation: 'topic.list', ok: true,
+    generated_at: '2026-07-28T00:00:00Z', snapshot_bindings: {}, freshness: { state: 'fresh' },
+    authorities: {}, partial: false, limitations: [], projection_checksum: 'wiki-list', status: 'fresh',
+    data: { items: [{ topic_id: 'topic_goal', topic_type: 'goal', canonical_key: 'goal:work:personal:ship', display_label: 'goal:ship', authority: 'ok', snapshot_id: 'ps', freshness: 'fresh' }], total_available: 1, limit: 50, next_cursor: null },
+  }),
+  wikiTopic: queryOk({
+    schema_version: 'personal_wiki_projection_v1', operation: 'topic.get', ok: true,
+    generated_at: '2026-07-28T00:00:00Z', snapshot_bindings: { personal: 'ps' }, freshness: { state: 'fresh' },
+    authorities: { personal: 'ok' }, partial: false, limitations: [], projection_checksum: 'wiki-get', status: 'fresh',
+    data: { topic: { topic_id: 'topic_goal', topic_type: 'goal', canonical_key: 'goal:work:personal:ship', display_label: 'goal:ship' }, claims: { current: [], observations: [], inferences: [], recommendations: [], historical: [], conflicts: [], external: [], decision_feedback: [] }, evidence_refs: [] },
+  }),
+  wikiTopicBacklinks: queryOk({
+    schema_version: 'personal_wiki_projection_v1', operation: 'topic.backlinks', ok: true,
+    snapshot_bindings: {}, freshness: { state: 'fresh' }, authorities: {}, partial: false, limitations: [], projection_checksum: 'wiki-links', status: 'fresh',
+    data: { topic: { topic_id: 'topic_goal', topic_type: 'goal', canonical_key: 'goal:work:personal:ship' }, links: [] },
+  }),
+  wikiTopicResolve: queryOk({
+    schema_version: 'personal_wiki_projection_v1', operation: 'topic.resolve', ok: true,
+    snapshot_bindings: {}, freshness: { state: 'fresh' }, authorities: {}, partial: false, limitations: [], projection_checksum: 'wiki-resolve', status: 'fresh',
+    data: { selected_source: 'fresh_wiki', attempted_sources: ['wiki'], fallback_reason: null, source: {}, topic: { topic_id: 'topic_goal', topic_type: 'goal', canonical_key: 'goal:work:personal:ship' } },
+  }),
 });
 
 let hooksState = defaultHooksState();
@@ -56,6 +79,8 @@ let hooksState = defaultHooksState();
 vi.mock('../api/hooks', () => ({
   useOverview: () => hooksState.overview,
   useSystemStatus: () => hooksState.systemStatus,
+  usePiOperations: () => hooksState.piOperations,
+  usePiOperationMutation: () => ({ isPending: false, mutate: vi.fn() }),
   usePersonalState: () => hooksState.personalState,
   useExternalDelta: () => hooksState.externalDelta,
   useDecisionQueue: () => hooksState.decisionQueue,
@@ -63,6 +88,10 @@ vi.mock('../api/hooks', () => ({
   useActionsRecent: () => hooksState.actionsRecent,
   useProactiveSummary: () => hooksState.proactiveSummary,
   useCalibrationOverview: () => hooksState.calibrationOverview,
+  useWikiTopicList: () => hooksState.wikiTopicList,
+  useWikiTopic: () => hooksState.wikiTopic,
+  useWikiTopicBacklinks: () => hooksState.wikiTopicBacklinks,
+  useWikiTopicResolve: () => hooksState.wikiTopicResolve,
   // 按需触发的直读 hooks：冒烟场景不展开，返回静止态
   useProactiveCandidateExplain: () => ({ isPending: false, isError: false, data: undefined }),
   useProactiveControlStatus: () => ({ isPending: false, isError: false, data: undefined }),
@@ -88,6 +117,8 @@ const ROUTES: ReadonlyArray<{ path: string; heading: string; markerText?: string
   { path: '/external', heading: '外部环境', markerText: '外部事实不会自动成为个人事实。' },
   { path: '/proactive', heading: '主动提醒', markerText: '需要现在处理' },
   { path: '/evidence', heading: '证据中心', markerText: '数据浏览器' },
+  { path: '/knowledge', heading: '知识与证据', markerText: 'P0 主题目录' },
+  { path: '/knowledge/goal/topic_goal', heading: 'goal:ship', markerText: '当前上下文' },
   { path: '/system', heading: '系统状态', markerText: '运行概览' },
   { path: '/sessions/new', heading: '新建决策会话', markerText: '定义决策问题' },
 ];
