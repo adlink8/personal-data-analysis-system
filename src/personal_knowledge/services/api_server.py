@@ -117,6 +117,11 @@ from personal_knowledge.services.pi_runtime_projection import (  # noqa: E402
     safe_event,
     task_list,
 )
+from personal_knowledge.services.pi_operation_projection import (  # noqa: E402
+    mutate_operation,
+    operation_get,
+    operation_list,
+)
 from personal_knowledge.services.agent_contract import compact_envelope  # noqa: E402
 from personal_knowledge.services.ui_projection import (  # noqa: E402
     CockpitProjectionService,
@@ -536,6 +541,13 @@ class Handler(BaseHTTPRequestHandler):
                 # Pi Cockpit schemas validate the metadata projection itself;
                 # do not wrap it in the generic {ok,data} envelope.
                 self._send(_contract(payload))
+                return
+            if path == "/api/pi/operations":
+                self._send(_contract(operation_list()))
+                return
+            if path.startswith("/api/pi/operations/"):
+                operation_id = path.rsplit("/", 1)[-1]
+                self._send(_contract(operation_get(operation_id)), 200)
                 return
             if path == "/api/pi/events":
                 if qs.get("stream", "").lower() in {"1", "true", "yes"}:
@@ -1042,6 +1054,21 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(body_b, code)
                     return
                 result = mutate_task("cancel" if path.endswith("/cancel") else "resume", body)
+                self._send(_contract(result), 200 if result.get("ok") else 409)
+                return
+
+            if path.startswith("/api/pi/operations/"):
+                decision = self._origin_policy_for_request()
+                if not decision["allowed"]:
+                    body_b, code = _safe_error("origin_not_allowed", 403)
+                    self._send(body_b, code)
+                    return
+                parts = path.split("/")
+                if len(parts) != 6 or parts[-1] not in {"cancel", "resume", "reconcile"}:
+                    self._send(_contract({"ok": False, "error": {"code": "operation_route_invalid"}}), 400)
+                    return
+                payload = {**body, "operation_id": body.get("operation_id") or parts[-2]}
+                result = mutate_operation(parts[-1], payload)
                 self._send(_contract(result), 200 if result.get("ok") else 409)
                 return
 

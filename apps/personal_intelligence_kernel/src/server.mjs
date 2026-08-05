@@ -188,6 +188,17 @@ function attachRequestHandler(host, options) {
         sendJson(response, 200, { ok: true, tasks: host.taskLedger.list().map((task) => ({ ...task, input_ref: task.input_ref, output_ref: task.output_ref })) });
         return;
       }
+      if (route === "GET /v1/operations") {
+        sendJson(response, 200, { ok: true, operations: host.operationList() });
+        return;
+      }
+      if (request.method === "GET" && url.pathname.startsWith("/v1/operations/")) {
+        const operationId = url.pathname.slice("/v1/operations/".length);
+        const operation = host.operationGet(operationId);
+        if (!operation) throw new KernelHostError("operation_not_found");
+        sendJson(response, 200, { ok: true, operation });
+        return;
+      }
       if (route === "POST /v1/tasks") {
         const body = await readBoundedJson(request);
         const includeResponse = body?.include_response === true;
@@ -211,6 +222,15 @@ function attachRequestHandler(host, options) {
         const payload = { ...body, task_id: taskId };
         const result = match[2] === "cancel" ? host.cancelTask(payload) : host.reconcileTask(payload);
         sendJson(response, 200, { ok: true, ...result });
+        return;
+      }
+      if (request.method === "POST" && url.pathname.match(/^\/v1\/operations\/[^/]+\/(cancel|resume|reconcile)$/)) {
+        const match = url.pathname.match(/^\/v1\/operations\/([^/]+)\/(cancel|resume|reconcile)$/);
+        const body = await readBoundedJson(request);
+        if (body.operation_id !== undefined && body.operation_id !== match[1]) throw new KernelHostError("operation_identity_invalid");
+        const payload = { ...body, operation_id: match[1] };
+        const result = match[2] === "cancel" ? host.operationCancel(payload) : match[2] === "resume" ? host.operationResume(payload) : host.operationReconcile(payload);
+        sendJson(response, 200, result);
         return;
       }
       if (request.method === "GET" && url.pathname.startsWith("/v1/tasks/")) {
@@ -244,7 +264,7 @@ function attachRequestHandler(host, options) {
         });
         return;
       }
-      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/events", "/v1/events/stream", "/internal/v1/candidates"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/");
+      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/");
       sendSafeError(response, samePath ? 405 : 404, samePath ? "method_not_allowed" : "route_not_found");
     } catch (error) {
       const code = safeCode(error);

@@ -21,6 +21,8 @@ import {
   piRuntimeStatusSchema,
   piRuntimeTasksSchema,
   piRuntimeMutationSchema,
+  piOperationsSchema,
+  piOperationMutationSchema,
 } from './schemas';
 
 // 只读投影的通用节奏：30s 内不算 stale，失败只重试 1 次，每分钟后台刷新一次。
@@ -268,5 +270,16 @@ export function usePiRuntimeMutation(action: 'cancel' | 'resume') {
   return useMutation({
     mutationFn: (payload: { task_id: string; expected_version: number; idempotency_key: string; state?: 'failed'; error_code?: string }) =>
       apiPost(`/api/pi/${action}`, payload, piRuntimeMutationSchema),
+  });
+}
+
+export function usePiOperations() {
+  return useQuery({ queryKey: ['pi', 'operations'], queryFn: () => apiGet('/api/pi/operations', piOperationsSchema), ...PROJECTION_QUERY_OPTIONS });
+}
+
+export function usePiOperationMutation(action: 'cancel' | 'resume' | 'reconcile') {
+  return useMutation({
+    mutationFn: (payload: { operation_id: string; expected_version: number; idempotency_key: string; receipt_refs?: unknown[]; fingerprint_refs?: unknown[]; receipt_status?: string }) =>
+      apiPost(`/api/pi/operations/${payload.operation_id}/${action}`, payload, piOperationMutationSchema),
   });
 }

@@ -43,6 +43,6 @@ Control events use the existing metadata-only event ledger schema.
 
 ## Self-Check: PASSED
 
-- Implementation commit: pending (recorded after batch commit)
+- Implementation commit: 7dbac16
 - Blind outcome-unknown retry: 0.
 - Duplicate/stale state mutations: 0 accepted.

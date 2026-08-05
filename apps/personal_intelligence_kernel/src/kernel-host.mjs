@@ -12,6 +12,7 @@ import { SessionStore, PI_KERNEL_SESSIONS_DB } from "./sessions/store.mjs";
 import { CandidateStore, PI_KERNEL_CANDIDATES_DB } from "./candidates/store.mjs";
 import { createConfiguredProviderAdapter } from "./models/runtime-provider.mjs";
 import { getModelRoute } from "./models/routes.mjs";
+import { createRuntimeControl } from "./control/runtime-control.mjs";
 
 export const DEFAULT_KERNEL_HOST = Object.freeze({ host: "127.0.0.1", port: 8790 });
 export const PHASE_48_DECISION_RUN_ID = "piq_f7896e839999ed2eac87ebd4";
@@ -76,7 +77,7 @@ function assertExactResourcePolicy(resourceLoader, session, { profile, registry,
 }
 
 export class KernelHost {
-  constructor({ journal, session, resourceLoader, modelRuntime, providerAdapter, taskLedger, sessionStore, candidateStore, decision, host, port, shutdownTimeoutMs, capabilityRegistry }) {
+  constructor({ journal, session, resourceLoader, modelRuntime, providerAdapter, taskLedger, sessionStore, candidateStore, decision, host, port, shutdownTimeoutMs, capabilityRegistry, runtimeControl }) {
     this.journal = journal;
     this.session = session;
     this.resourceLoader = resourceLoader;
@@ -90,6 +91,7 @@ export class KernelHost {
     this.port = port;
     this.shutdownTimeoutMs = shutdownTimeoutMs;
     this.capabilityRegistry = capabilityRegistry;
+    this.runtimeControl = runtimeControl ?? createRuntimeControl();
     // Provider bodies are kept only for the lifetime of this process so a
     // trusted Python adapter can finish its existing parser contract. They
     // are never written to Task/Session/Event/Candidate stores.
@@ -122,6 +124,12 @@ export class KernelHost {
   status() {
     return { lifecycle: this.lifecycle, host: this.host, port: this.port, provider_calls: this.providerCalls, ready: this.isReady() };
   }
+
+  operationList() { return this.runtimeControl.list(); }
+  operationGet(operationId) { return this.runtimeControl.get(operationId); }
+  operationCancel(payload) { return this.runtimeControl.cancel(payload); }
+  operationResume(payload) { return this.runtimeControl.resume(payload); }
+  operationReconcile(payload) { return this.runtimeControl.reconcile(payload); }
 
   /** Request cancellation without exposing prompt/output data. */
   cancelTask({ task_id: taskId, expected_version: expectedVersion, idempotency_key: idempotencyKey } = {}) {
@@ -223,11 +231,18 @@ export class KernelHost {
       return result;
     }
 
+    this.runtimeControl.register({
+      operation_id: `op:task:${actualTaskId}`, operation_kind: "kernel_task", task_id: actualTaskId, session_id: actualSessionId,
+      correlation_id: actualTaskId, idempotency_key: idempotencyKey, authority_class: "authority:kernel", side_effect_class: "mutation",
+      snapshot_id: "snapshot:kernel", budget: { timeout_ms: route.timeout_ms }, reason: "task_accepted",
+    });
+
     try {
       if (!this.sessionStore.get(actualSessionId)) this.sessionStore.create({ session_id: actualSessionId, trajectory: [] });
       const acceptedEvent = this.#appendLifecycle("task_accepted", { taskId: actualTaskId, idempotencyKey, checksum: promptChecksum });
       let task = this.taskLedger.claim(actualTaskId, { owner: "pi_kernel", leaseMs: route.timeout_ms + 5000 });
       task = this.taskLedger.transition(actualTaskId, "running", { expectedVersion: task.version, owner: "pi_kernel", event_ref: acceptedEvent.event.event_id });
+      this.runtimeControl.resume({ operation_id: `op:task:${actualTaskId}`, expected_version: 0, idempotency_key: `${idempotencyKey}:running` });
       const startedEvent = this.#appendLifecycle("task_started", { taskId: actualTaskId, idempotencyKey, checksum: promptChecksum, causationId: acceptedEvent.event.event_id });
       const receipt = await this.providerAdapter.generate({ purpose, model: route.model, prompt, task_id: actualTaskId, session_id: actualSessionId, event_id: startedEvent.event.event_id, idempotency_key: idempotencyKey, max_output_tokens: route.max_output_tokens });
       const responseChecksum = receipt.response_checksum;
@@ -235,6 +250,7 @@ export class KernelHost {
       this.sessionStore.append(actualSessionId, { kind: "model_receipt", task_id: actualTaskId, route_checksum: receipt.route_checksum, response_checksum: responseChecksum, usage_checksum: receipt.usage_checksum, status: receipt.telemetry.status }, { receipt: { kind: "model", task_id: actualTaskId, response_checksum: responseChecksum, route_checksum: receipt.route_checksum, usage_checksum: receipt.usage_checksum } });
       const completedEvent = this.#appendLifecycle("task_completed", { taskId: actualTaskId, idempotencyKey, checksum: responseChecksum, causationId: startedEvent.event.event_id });
       task = this.taskLedger.transition(actualTaskId, "succeeded", { expectedVersion: task.version, owner: "pi_kernel", output_ref: artifactRef(responseChecksum), event_ref: completedEvent.event.event_id });
+      this.runtimeControl._transition({ operationId: `op:task:${actualTaskId}`, expectedVersion: 1, idempotencyKey: `${idempotencyKey}:succeeded`, nextState: "succeeded", reason: "task_completed", receiptRefs: [{ ref: `provider:${responseChecksum.slice(0, 32)}`, checksum: responseChecksum }] });
       const result = { duplicate: false, task, session_id: actualSessionId, route: route.purpose, receipt: { response_checksum: responseChecksum, usage_checksum: receipt.usage_checksum, input_tokens: receipt.usage.input_tokens, output_tokens: receipt.usage.output_tokens, provider: receipt.telemetry.provider, model: receipt.telemetry.model, cost: receipt.telemetry.cost, currency: receipt.telemetry.currency }, provider_calls: this.providerCalls };
       if (include_response) result.response = receipt.response;
       return result;
@@ -245,6 +261,7 @@ export class KernelHost {
         const unknown = ["provider_timeout", "provider_transport_error"].includes(code);
         const next = unknown ? "outcome_unknown" : "failed";
         try { this.taskLedger.transition(actualTaskId, next, { expectedVersion: task.version, owner: "pi_kernel", error_code: code }); } catch { /* retain safe terminal evidence */ }
+        try { this.runtimeControl._transition({ operationId: `op:task:${actualTaskId}`, expectedVersion: 1, idempotencyKey: `${idempotencyKey}:${next}`, nextState: unknown ? "outcome_unknown" : "failed", reason: code }); } catch { /* retain task truth if operation journal is unavailable */ }
         try { this.#appendLifecycle(unknown ? "error" : "task_failed", { taskId: actualTaskId, idempotencyKey, checksum: promptChecksum }); } catch { /* preserve safe error */ }
       }
       if (error instanceof KernelHostError) throw error;
@@ -363,6 +380,7 @@ export async function createKernelHost(options = {}) {
       port,
       shutdownTimeoutMs: options.shutdownTimeoutMs ?? 1000,
       capabilityRegistry: contained.registry,
+      runtimeControl: options.runtimeControl,
     });
     if (!hostInstance.isReady()) throw safeError("host_not_ready");
     await hostInstance.listen();

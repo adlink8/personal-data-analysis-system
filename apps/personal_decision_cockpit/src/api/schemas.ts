@@ -180,6 +180,26 @@ export const piRuntimeMutationSchema = z.object({
 export type PiRuntimeStatus = z.infer<typeof piRuntimeStatusSchema>;
 export type PiRuntimeTasks = z.infer<typeof piRuntimeTasksSchema>;
 
+/* ---------------- unified Kernel operations (Phase 59) ---------------- */
+const piOperationRefSchema = z.object({ ref: z.string(), checksum: z.string() }).passthrough();
+const piOperationBudgetSchema = z.object({
+  token_limit: z.number(), cost_limit: z.number(), timeout_ms: z.number(), token_used: z.number(), cost_used: z.number(),
+}).passthrough();
+export const piOperationSchema = z.object({
+  schema_version: z.literal('pi_operation_projection_v1'), operation_id: z.string(), operation_kind: z.enum(['kernel_task', 'kernel_session', 'kernel_skill', 'domain_tool', 'provider', 'authority_transaction']),
+  task_id: z.string(), session_id: z.string(), correlation_id: z.string(), authority_class: z.string(), side_effect_class: z.enum(['none', 'idempotent', 'mutation']), snapshot_id: z.string(),
+  state: z.enum(['queued', 'running', 'cancel_requested', 'cancelled', 'succeeded', 'failed', 'outcome_unknown', 'reconciling', 'resumable', 'compensated', 'manual_review']),
+  version: z.number(), attempt: z.number(), budget: piOperationBudgetSchema, receipt_refs: z.array(piOperationRefSchema), fingerprint_refs: z.array(piOperationRefSchema), allowed_actions: z.array(z.string()), reason: z.string(), created_at: z.string(), updated_at: z.string(),
+}).passthrough();
+export const piOperationsSchema = z.object({
+  schema_version: z.literal('pi_operation_projection_v1'), ok: z.boolean(), state: z.enum(['ready', 'degraded', 'offline']), operations: z.array(piOperationSchema), observed_at: z.string(), recovery_action: z.string(),
+}).passthrough();
+export const piOperationMutationSchema = z.object({
+  schema_version: z.literal('pi_operation_projection_v1'), ok: z.boolean(), operation: piOperationSchema.optional(), action: z.string().optional(), retry_allowed: z.boolean().optional(), reconciled_before_retry: z.boolean().optional(), error: z.object({ code: z.string() }).optional(),
+}).passthrough();
+export type PiOperation = z.infer<typeof piOperationSchema>;
+export type PiOperations = z.infer<typeof piOperationsSchema>;
+
 /* ---------------- system.status.get ---------------- */
 
 const PortSchema = z

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { ApiError } from '../../api/client';
-import { useSystemStatus } from '../../api/hooks';
-import type { SystemStatusEnvelope } from '../../api/schemas';
+import { usePiOperationMutation, usePiOperations, useSystemStatus } from '../../api/hooks';
+import type { PiOperations, SystemStatusEnvelope } from '../../api/schemas';
 import { shortId } from '../../components/authority/SnapshotChip';
 import { StatePanel } from '../../components/feedback/StatePanel';
 import { IconAlertTriangle } from '../../components/icons';
@@ -154,8 +154,40 @@ function DeveloperSection({ envelope }: { envelope: SystemStatusEnvelope }) {
   );
 }
 
+function OperationStatus({ data }: { data: PiOperations }) {
+  const cancel = usePiOperationMutation('cancel');
+  const resume = usePiOperationMutation('resume');
+  const reconcile = usePiOperationMutation('reconcile');
+  const operations = data.operations;
+  const mutate = (action: 'cancel' | 'resume' | 'reconcile', operation: PiOperations['operations'][number]) => {
+    const mutation = action === 'cancel' ? cancel : action === 'resume' ? resume : reconcile;
+    mutation.mutate({ operation_id: operation.operation_id, expected_version: operation.version, idempotency_key: `cockpit:${action}:${operation.operation_id}:${operation.version}`, ...(action === 'reconcile' ? { receipt_refs: [], fingerprint_refs: [] } : {}) });
+  };
+  return (
+    <section className="card" aria-labelledby="pi-operation-title">
+      <h2 id="pi-operation-title" className="font-semibold">Kernel 操作控制面</h2>
+      <p className="mt-1 text-sm text-muted">只显示 Task、Session、Skill、Tool、Provider 与 Authority transaction 的元数据；控制意图仍由 Kernel 校验版本和幂等键。</p>
+      {data.state !== 'ready' ? <p className="mt-2 text-sm text-uncertainty">Kernel 当前不可用：{data.recovery_action}</p> : null}
+      {operations.length === 0 ? <p className="mt-3 text-sm text-muted">暂无可投影操作。</p> : (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[48rem] text-left text-sm">
+            <thead><tr className="border-b border-line text-xs text-muted"><th className="py-1.5 pr-3">操作</th><th className="py-1.5 pr-3">平面</th><th className="py-1.5 pr-3">状态</th><th className="py-1.5 pr-3">版本</th><th className="py-1.5">受控动作</th></tr></thead>
+            <tbody>{operations.map((operation) => (
+              <tr key={operation.operation_id} className="border-b border-line last:border-0">
+                <td className="py-1.5 pr-3 font-mono text-xs">{shortId(operation.operation_id)}</td><td className="py-1.5 pr-3">{operation.operation_kind}</td><td className="py-1.5 pr-3">{operation.state}</td><td className="py-1.5 pr-3">{operation.version}</td>
+                <td className="py-1.5"><div className="flex gap-2">{operation.allowed_actions.filter((action): action is 'cancel' | 'resume' | 'reconcile' => action === 'cancel' || action === 'resume' || action === 'reconcile').map((action) => <button key={action} type="button" className="rounded border border-line px-2 py-1 text-xs" onClick={() => mutate(action, operation)} disabled={cancel.isPending || resume.isPending || reconcile.isPending}>{action}</button>)}</div></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function SystemPage() {
   const query = useSystemStatus();
+  const operations = usePiOperations();
 
   if (query.isPending) {
     return (
@@ -207,6 +239,7 @@ export function SystemPage() {
       <SystemHealthStrip data={envelope.data} />
       <UserSection envelope={envelope} />
       <DeveloperSection envelope={envelope} />
+      {!operations.isPending && !operations.isError && operations.data ? <OperationStatus data={operations.data} /> : null}
     </div>
   );
 }
