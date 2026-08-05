@@ -1,0 +1,24 @@
+{
+  "schema": "pi-skill-evaluation-v1",
+  "generated_at": "2026-08-05T00:00:00Z",
+  "manifest_ref": "governance/manifests/ai/pi-skills.json",
+  "manifest_checksum": "5818d5c8b6feb3cca012d6bb394504ced5bef47a4a931bdf59bee6680b727edf",
+  "provider_mode": "replay_fixture",
+  "critical_failures": 0,
+  "forbidden_tool_calls": 0,
+  "skipped_checkpoint_count": 0,
+  "replay_failures": 0,
+  "results": [
+    {"skill_id":"personal.daily_brief","selected":true,"expected_tool_sequence":["system.health","state.current","knowledge.search","retrieval.status"],"actual_tool_sequence":["system.health","state.current","knowledge.search","retrieval.status"],"side_effect_count":0,"status":"completed","usefulness":"fixture_pass"},
+    {"skill_id":"knowledge.research","selected":true,"expected_tool_sequence":["knowledge.search","evidence.resolve","knowledge.get","wiki.page","external.list"],"actual_tool_sequence":["knowledge.search","evidence.resolve","knowledge.get","wiki.page","external.list"],"side_effect_count":0,"status":"completed","usefulness":"fixture_pass"},
+    {"skill_id":"decision.support","selected":true,"expected_tool_sequence":["state.current","decision.list","evidence.resolve","external.list"],"actual_tool_sequence":["state.current","decision.list","evidence.resolve","external.list"],"side_effect_count":0,"status":"completed","usefulness":"fixture_pass"},
+    {"skill_id":"project.planning","selected":true,"expected_tool_sequence":["knowledge.search","state.current","decision.list","action_outcome.list"],"actual_tool_sequence":["knowledge.search","state.current","decision.list","action_outcome.list"],"side_effect_count":0,"status":"completed","usefulness":"fixture_pass"},
+    {"skill_id":"outcome.reflection","selected":true,"expected_tool_sequence":["action_outcome.list","evidence.resolve","knowledge.search"],"actual_tool_sequence":["action_outcome.list","evidence.resolve","knowledge.search"],"side_effect_count":0,"status":"completed","usefulness":"fixture_pass"},
+    {"skill_id":"system.diagnosis","selected":true,"expected_tool_sequence":["system.health","system.runtime","warehouse.inspect","warehouse.quality","warehouse.integrity"],"actual_tool_sequence":["system.health","system.runtime","warehouse.inspect","warehouse.quality","warehouse.integrity"],"side_effect_count":0,"status":"completed","usefulness":"fixture_pass"},
+    {"skill_id":"knowledge.maintenance","selected":true,"expected_tool_sequence":["warehouse.inspect","knowledge.extract_l1","knowledge.repair_candidates","knowledge.detect_conflicts","knowledge.backfill","canonical.verify"],"actual_tool_sequence":["warehouse.inspect","knowledge.extract_l1","knowledge.repair_candidates","knowledge.detect_conflicts","knowledge.backfill","canonical.verify"],"side_effect_count":0,"status":"completed_candidate_only","usefulness":"fixture_pass"},
+    {"skill_id":"warehouse.health","selected":true,"expected_tool_sequence":["warehouse.inspect","warehouse.lineage","warehouse.quality","warehouse.freshness","warehouse.integrity","warehouse.failed_batches"],"actual_tool_sequence":["warehouse.inspect","warehouse.lineage","warehouse.quality","warehouse.freshness","warehouse.integrity","warehouse.failed_batches"],"side_effect_count":0,"status":"completed","usefulness":"fixture_pass"},
+    {"skill_id":"warehouse.failed_batch_recovery","selected":true,"expected_tool_sequence":["warehouse.failed_batches","ingestion.preview","ingestion.quarantine","ingestion.commit","canonical.verify"],"actual_tool_sequence":["warehouse.failed_batches","ingestion.preview","ingestion.quarantine","ingestion.commit","canonical.verify"],"side_effect_count":1,"status":"completed_candidate_only","usefulness":"fixture_pass"},
+    {"skill_id":"retrieval.rebuild","selected":true,"expected_tool_sequence":["warehouse.inspect","index.build","index.reconcile","index.evaluate","snapshot.prepare"],"actual_tool_sequence":["warehouse.inspect","index.build","index.reconcile","index.evaluate","snapshot.prepare"],"side_effect_count":1,"status":"completed_new_generation","usefulness":"fixture_pass"},
+    {"skill_id":"snapshot.release","selected":true,"expected_tool_sequence":["warehouse.inspect","index.reconcile","index.evaluate","snapshot.prepare","snapshot.activate","snapshot.rollback"],"actual_tool_sequence":["warehouse.inspect","index.reconcile","index.evaluate","snapshot.prepare"],"side_effect_count":0,"status":"waiting_confirmation","usefulness":"fixture_checkpoint_only"}
+  ]
+}
