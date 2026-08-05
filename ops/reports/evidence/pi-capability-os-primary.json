@@ -1,0 +1,15 @@
+{"schema":"pi-primary-activation-v1",
+  "status":"blocked",
+  "mode":"legacy",
+  "primary_activated":false,
+  "provider_calls":0,
+  "reason":"phase53_decision_revise_baseline_inconclusive_and_readiness_evidence_blocked",
+  "readiness_evidence":"ops/reports/evidence/pi-primary-readiness.json",
+  "uat_evidence":"ops/reports/evidence/pi-capability-os-uat.json",
+  "uat_status":"PASS_DETERMINISTIC_BLOCKED_REAL",
+  "authority_mutated":false,
+  "history_preserved":true,
+  "automatic_action":"downgrade_only",
+  "real_primary_confirmation":false,
+  "rollback_verified_synthetic":true
+}
