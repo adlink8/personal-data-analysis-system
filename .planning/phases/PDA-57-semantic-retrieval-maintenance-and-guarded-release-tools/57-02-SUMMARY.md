@@ -63,6 +63,6 @@ remains closed; Phase 60 must carry this result into final activation review.
 
 ## Self-Check: PASSED
 
-- Implementation commit: pending
+- Implementation commit: d168abd
 - Temporary active pointer restored exactly after rollback.
 - Phase 57 complete; ready for Phase 58.

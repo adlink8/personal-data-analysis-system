@@ -59,6 +59,6 @@ recovery semantics are proven without performing a live data mutation.
 
 ## Self-Check: PASSED
 
-- Implementation commit: pending
+- Implementation commit: 372e279
 - Raw fingerprint remains byte-identical in integration and recovery tests.
 - Ready for Phase 57.

@@ -8,11 +8,11 @@
 - ✅ **v1.4 Decision Cockpit UI** — Phases 36–40, UAT accepted 2026-07-28
 - 🚧 **v1.4.1 Data Layer Remediation** — Phases 41–42, initiated 2026-07-26 from data-layer audit
 - 🚧 **v1.5 Personal Knowledge Wiki Projection** — Phases 44–47, activated 2026-07-28
-- 🚧 **v2.0 Pi Personal Intelligence Kernel** — Phases 48–54, roadmap approved 2026-08-04
+- 🚧 **v2.0 Pi Personal Intelligence Capability OS** — Phases 48–60, base roadmap approved 2026-08-04; capability/data/Skill scope expanded 2026-08-05
 
 ## v2.0 Goal
 
-将 `@earendil-works/pi` 彻底嵌入为唯一主 AI Runtime，把用户请求、数据 Delta、调度任务、模型调用、Skill/Tool 调度、Session 和流式交互统一到事件驱动闭环。Pi 接管 AI 控制面；Python 确定性核心继续独占事实、证据、水位、evaluation、promotion、active pointer、rollback 和正式生命周期。
+将 `@earendil-works/pi` 彻底嵌入为唯一主 AI Runtime，把现有项目能力工具化、稳定业务流程 Skill 化，并让 Pi 通过受控 Domain Tools 执行底仓维护；用户请求、数据 Delta、调度任务、模型调用、Skill/Tool 调度、Session 和流式交互统一进入事件驱动闭环。Pi 接管 AI 控制面与数据流程编排；Python 确定性核心继续独占事实、事务、一致性、证据、水位、evaluation、promotion、active pointer、rollback 和正式生命周期规则。
 
 ## v2.0 Phase Ordering
 
@@ -24,6 +24,12 @@
 → 52 Cockpit streaming, supervision and observability
 → 53 Real baseline, fault injection and UAT
 → 54 Primary activation and exact rollback
+→ 55 Unified capability registry and project tool surface
+→ 56 Controlled warehouse inspection, ingestion and canonical operations
+→ 57 Semantic/retrieval maintenance and guarded release tools
+→ 58 Project workflow Skills library
+→ 59 Kernel control plane and runtime observability
+→ 60 Whole-system UAT and final primary activation
 ```
 
 Phase 48 是生产依赖入口的阻断门。High/Critical 供应链风险、ambient discovery 或越权能力未闭合时，后续阶段不得把 Pi 加入产品生产依赖或激活任何真实个人数据路径。
@@ -304,6 +310,48 @@ Plans:
 **Depends on:** Phase 53 acceptance
 **Plans:** 2/2 implementation; activation ledger and exact rollback verified, primary activation remains gated
 
+### Phase 55: Unified Capability Registry and Project Tool Surface (v2.0)
+
+**Goal:** 建立 REST、MCP 与 Pi SDK Kernel 共用的 Project Capability Registry，并把现有项目只读能力收敛为稳定、namespaced、profile-aware 的 Domain Tools。
+**Requirements:** CAP-01, CAP-02, PTOOL-01
+**Depends on:** Phase 51 registry/provider baseline；复用现有 REST/MCP/Service，不改变 authority
+**Plans:** 2/2 implemented — registry, descriptors and unified read Tool surface verified
+
+### Phase 56: Controlled Warehouse Inspection, Ingestion and Canonical Operations (v2.0)
+
+**Goal:** 让 Pi 在无任意 SQL/路径/破坏性权限的前提下，检查底仓并执行可预览、幂等、可补偿的 source ingestion 与 canonical 维护。
+**Requirements:** WARE-01, WARE-02, SEC-03
+**Depends on:** Phase 55
+**Plans:** 2/2 implemented — bounded warehouse reads, ingestion ledger and canonical compensation verified
+
+### Phase 57: Semantic/Retrieval Maintenance and Guarded Release Tools (v2.0)
+
+**Goal:** 将 L1/L2 抽取、repair/backfill、索引构建、reconcile、evaluation、snapshot activate/rollback 组合成受控数据平面，并统一正式写 Tool 的事务协议。
+**Requirements:** WARE-03, WARE-04, PTOOL-02
+**Depends on:** Phase 56；现有 KU/retrieval/promotion authority
+**Plans:** 2/2 implemented — semantic/retrieval maintenance and guarded snapshot release verified
+
+### Phase 58: Project Workflow Skills Library (v2.0)
+
+**Goal:** 把项目稳定业务流程注册为版本化、可审计、可评测的 Pi Skills，以有限 Tool 白名单执行个人智能与数据维护工作流。
+**Requirements:** PSKILL-01, PSKILL-02, PSKILL-03
+**Depends on:** Phase 55–57
+**Plans:** 2/2 implemented — 11 bounded personal/data Skills, checkpoints and recovery evaluation verified
+
+### Phase 59: Kernel Control Plane and Runtime Observability (v2.0)
+
+**Goal:** 收口 Pi SDK Kernel 的 Task/Session/Skill/Tool/Provider/authority transaction 控制面，提供统一状态投影、cancel/resume/reconcile 与无正文诊断，同时确保不存在第二套 Agent 或平级协调器。
+**Requirements:** OPS-02
+**Depends on:** Phase 58；Phase 49–52 runtime/observability baseline
+**Plans:** 2/2 implemented — single Kernel operation control, recovery and metadata-only Cockpit projection verified
+
+### Phase 60: Whole-system UAT and Final Primary Activation (v2.0)
+
+**Goal:** 对 Tool、Skill、底仓事务、Kernel 控制面、故障/补偿和隐私完成全系统验收；在 Phase 53 accepted baseline 与用户授权成立后重新执行 shadow → canary → primary。
+**Requirements:** EVAL-03, ACT-03
+**Depends on:** Phase 53 accepted decision；Phase 55–59 verified；显式用户激活授权
+**Plans:** 2/2 implemented — deterministic UAT and synthetic rollback verified; real paired baseline/primary remain manual checkpoints
+
 ## Progress
 
 | Phase | Requirements | Plans Complete | Status |
@@ -327,6 +375,12 @@ Plans:
 | 52 | UI-01, OPS-01 | 2/2 | **Complete 2026-08-04** — cockpit projection, task controls, SSE boundary and supervisor integration verified |
 | 53 | EVAL-01..02, ACT-01 | 2/2 implementation | **Revise / blocked 2026-08-04** — real paired arms executed once each, but response-contract and minimum-sample gates are INCONCLUSIVE; browser UAT accepted |
 | 54 | ACT-02 | 2/2 implementation | **Revise / blocked 2026-08-04** — activation ledger and exact rollback pass; primary remains unactivated and runtime remains `legacy` |
+| 55 | CAP-01..02, PTOOL-01 | 2/2 | **Verified 2026-08-05** — shared registry and read Tool surface |
+| 56 | WARE-01..02, SEC-03 | 2/2 | **Verified 2026-08-05** — controlled ingestion/canonical data plane |
+| 57 | WARE-03..04, PTOOL-02 | 2/2 | **Verified 2026-08-05** — derived maintenance and guarded release |
+| 58 | PSKILL-01..03 | 2/2 | **Verified 2026-08-05** — project workflow Skill library |
+| 59 | OPS-02 | 2/2 | **Verified 2026-08-05** — Kernel control plane and runtime observability |
+| 60 | EVAL-03, ACT-03 | 2/2 | **UAT verified / activation blocked 2026-08-05** — real paired baseline remains revise; runtime remains legacy |
 
 ## Requirement Coverage
 
@@ -354,7 +408,13 @@ Plans:
 | UI-01, OPS-01 | 52 | 2 |
 | EVAL-01..02, ACT-01 | 53 | 3 |
 | ACT-02 | 54 | 1 |
-| **Total v2.0** | — | **19/19 mapped** |
+| CAP-01..02, PTOOL-01 | 55 | 3 |
+| WARE-01..02, SEC-03 | 56 | 3 |
+| WARE-03..04, PTOOL-02 | 57 | 3 |
+| PSKILL-01..03 | 58 | 3 |
+| OPS-02 | 59 | 1 |
+| EVAL-03, ACT-03 | 60 | 2 |
+| **Total v2.0** | — | **34/34 mapped** |
 
 ## Backlog
 
@@ -421,4 +481,4 @@ Phase 17 遗留 UAT 以简化协议关闭并记录。细化见
 v1.5 的详细契约和背景仍保留在 [`future-milestones/v1.5-personal-knowledge-wiki-projection`](./future-milestones/v1.5-personal-knowledge-wiki-projection/README.md)；其 Phase 41–44 已映射为当前活动 Phase 44–47，以避开 v1.4.1 已占用的历史编号。当前 P0 实现与真实服务授权只读 UAT 已完成；扩域保持单独延期。
 
 ---
-*Updated 2026-08-04 after Phase 54 implementation/rollback verification; real activation remains explicitly gated*
+*Updated 2026-08-05 after consolidating the Capability OS on the Pi SDK Kernel and removing the Local Pi Agent; real activation remains explicitly gated*

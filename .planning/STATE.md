@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Pi Personal Intelligence Kernel
 status: executing
-last_updated: "2026-08-04T06:54:28.056Z"
-last_activity: 2026-08-04 -- Phase 54 implementation and rollback verification complete; real activation remains gated
+last_updated: "2026-08-05T17:00:00.000Z"
+last_activity: 2026-08-05 -- Phase 60 deterministic UAT complete; real primary remains blocked
 progress:
-  total_phases: 55
+  total_phases: 67
   completed_phases: 40
-  total_plans: 150
-  completed_plans: 140
-  percent: 73
+  total_plans: 174
+  completed_plans: 137
+  percent: 60
 ---
 
 # Project State
@@ -61,10 +61,10 @@ progress:
 
 ## Current Position
 
-Phase: 54 — Primary activation and exact rollback
-Plan: 54-02
-Status: Implementation complete; primary activation remains blocked by Phase 53 real-baseline/UAT and explicit activation checkpoints
-Last activity: 2026-08-04 -- real paired baseline executed once per arm but returned INCONCLUSIVE on frozen response contract; browser UAT accepted; runtime remains legacy
+Phase: 60 — Whole-system UAT and final primary activation
+Plan: 60-02
+Status: Deterministic UAT complete; real paired baseline and primary activation remain blocked
+Last activity: 2026-08-05 -- 16/16 Capability OS UAT cases passed; fresh mode remains legacy
 
 ## Project Reference
 
@@ -79,6 +79,8 @@ See: `.planning/PROJECT.md` (updated 2026-07-19)
 - Phases 49–52: implementation and independent verification complete.
 - Phase 53: deterministic replay/fault-matrix infrastructure, real Pi Kernel smoke and automated/browser-accepted UAT complete; the paired baseline executed but remains **INCONCLUSIVE** on response-contract and minimum-sample gates.
 - Phase 54: activation ledger, shadow/canary policy, primary-routing guard and exact rollback are verified; primary was **not activated** and current mode remains `legacy`.
+- Phases 55–59: capability registry, bounded warehouse/derived maintenance, 11 project Skills and the single Kernel operation control plane are implemented, tested and committed in batches.
+- Phase 60: deterministic Capability OS UAT is 16/16 with zero-tolerance counters at 0; browser contract and synthetic downgrade pass. Real paired baseline remains `INCONCLUSIVE`, so primary/canary are not authorized and fresh mode remains `legacy`.
 - One authorized minimum personal cohort was used for a two-arm paired call (0.001113 CNY); raw bodies were not committed. No production primary switch, promotion, watermark change or remote write was performed; runtime remains `legacy`.
 - Runtime migration follow-up: normal guarded generation and knowledge extraction now use `PiKernelProvider` over the loopback Kernel task route; explicit legacy Vertex execution requires `PI_KERNEL_LEGACY_MODE=1`.
 - The remaining application LLM facade is now Pi-backed as well: conversation summaries, memory extraction/repair, graph relation judging and other generic generation calls use purpose-specific Pi routes; direct OpenAI construction is rollback-only. Evaluation and provider-probe scripts remain explicitly classified as test-only.

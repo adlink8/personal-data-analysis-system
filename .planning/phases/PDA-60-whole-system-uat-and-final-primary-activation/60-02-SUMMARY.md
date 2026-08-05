@@ -28,6 +28,6 @@ blocked-but-honest completion rather than fabricating the missing authority.
 
 ## Self-Check: PASSED
 
-- Implementation commit: pending (recorded after batch commit)
+- Implementation commit: f47663e
 - Primary activation: not performed.
 - Automatic upgrade: not allowed.

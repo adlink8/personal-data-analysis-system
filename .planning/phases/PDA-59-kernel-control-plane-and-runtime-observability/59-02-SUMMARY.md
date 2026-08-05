@@ -53,7 +53,7 @@ second runtime or authority.
 
 ## Self-Check: PASSED
 
-- Implementation commit: pending (recorded after batch commit)
+- Implementation commit: 20ee4ae
 - Direct UI-to-provider/authority calls: 0.
 - Projection body/credential/path leakage: 0.
 - Local Pi/second coordinator dependency: 0.
