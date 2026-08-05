@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pi-project-skill-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "version", "purpose", "input_schema", "output_schema", "profile", "privacy_ceiling", "allowed_tools", "instruction_checksum", "steps", "max_steps", "max_rounds", "token_budget", "cost_budget", "timeout_ms", "stops", "recovery", "owner", "expires_at", "status", "checksum"],
+  "properties": {
+    "schema": { "const": "pi-project-skill-v1" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,127}$" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "purpose": { "type": "string", "minLength": 1 },
+    "input_schema": { "type": "string", "minLength": 1 },
+    "output_schema": { "type": "string", "minLength": 1 },
+    "profile": { "enum": ["production", "operator", "test"] },
+    "privacy_ceiling": { "enum": ["R0", "R1", "R2"] },
+    "allowed_tools": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+    "instruction_checksum": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "steps": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["id", "tool", "requires_confirmation", "receipt_required"], "properties": { "id": { "type": "string" }, "tool": { "type": "string" }, "requires_confirmation": { "type": "boolean" }, "receipt_required": { "const": true } } } },
+    "max_steps": { "type": "integer", "minimum": 1, "maximum": 64 },
+    "max_rounds": { "type": "integer", "minimum": 1, "maximum": 16 },
+    "token_budget": { "type": "integer", "minimum": 1 },
+    "cost_budget": { "type": "integer", "minimum": 0 },
+    "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000 },
+    "stops": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "recovery": { "type": "object", "additionalProperties": true },
+    "owner": { "type": "string", "minLength": 1 },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["active", "deprecated"] },
+    "checksum": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
