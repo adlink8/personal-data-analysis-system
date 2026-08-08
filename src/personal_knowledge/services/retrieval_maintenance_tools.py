@@ -88,7 +88,10 @@ class RetrievalMaintenanceTools:
             except WarehouseMutationError as exc:
                 raise RetrievalMaintenanceError(exc.code) from exc
         if operation == "index.reconcile":
-            allowed = {"generation_id", "expected_ids", "indexed_ids"}
+            # The Pi gateway carries the task-scoped idempotency key on every
+            # tool call; reconciliation itself is read-only and does not use
+            # the key for generation state.
+            allowed = {"generation_id", "expected_ids", "indexed_ids", "idempotency_key"}
             if set(params) - allowed:
                 raise RetrievalMaintenanceError("undeclared_input")
             generation = _token(params.get("generation_id"), "generation_id")

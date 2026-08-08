@@ -13,7 +13,7 @@ const MOBILE_ITEMS = [
 const MORE_ITEMS = [
   { to: '/state', zh: '个人状态' },
   { to: '/external', zh: '外部环境' },
-  { to: '/evidence', zh: '证据中心' },
+  { to: '/knowledge', zh: '知识与证据' },
   { to: '/system', zh: '系统状态' },
 ] as const;
 

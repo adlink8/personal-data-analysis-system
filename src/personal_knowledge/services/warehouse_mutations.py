@@ -122,10 +122,116 @@ class InMemoryWarehouseStore:
         return "applied"
 
 
+class SqliteWarehouseStore:
+    """Small durable store used by isolated Pi end-to-end runs.
+
+    The production warehouse adapter remains an explicit dependency of the
+    ledger.  This adapter is deliberately limited to append-only test events;
+    it gives the cross-process Pi bridge a real SQLite observation point
+    without granting it arbitrary SQL or filesystem access.
+    """
+
+    def __init__(self, database_path: str | Path) -> None:
+        self.database_path = Path(database_path)
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS pi_test_warehouse_markers (
+                    operation_id TEXT PRIMARY KEY
+                );
+                CREATE TABLE IF NOT EXISTS pi_test_warehouse_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operation_id TEXT NOT NULL UNIQUE,
+                    capability_id TEXT NOT NULL,
+                    count INTEGER NOT NULL,
+                    compensation_of TEXT,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def _event_rows(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT operation_id, capability_id, count, compensation_of "
+                "FROM pi_test_warehouse_events ORDER BY event_id"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    @property
+    def markers(self) -> set[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT operation_id FROM pi_test_warehouse_markers"
+            ).fetchall()
+        return {str(row[0]) for row in rows}
+
+    @property
+    def raw_fingerprint(self) -> str:
+        return _digest([])
+
+    @property
+    def candidate_events(self) -> list[dict[str, Any]]:
+        return [row for row in self._event_rows() if not str(row["capability_id"]).startswith("canonical.")]
+
+    @property
+    def canonical_events(self) -> list[dict[str, Any]]:
+        return [
+            row for row in self._event_rows()
+            if str(row["capability_id"]).startswith("canonical.")
+            and row["capability_id"] != "canonical.apply_correction"
+        ]
+
+    @property
+    def compensation_events(self) -> list[dict[str, Any]]:
+        return [row for row in self._event_rows() if row["capability_id"] == "canonical.apply_correction"]
+
+    @property
+    def watermark(self) -> str:
+        return "watermark:sqlite-test:0"
+
+    @property
+    def fingerprint(self) -> str:
+        return _digest({
+            "raw": [],
+            "candidate": self.candidate_events,
+            "canonical": self.canonical_events,
+            "compensation": self.compensation_events,
+            "watermark": self.watermark,
+        })
+
+    def apply(self, *, operation_id: str, capability_id: str, count: int,
+              compensation_of: str | None = None) -> str:
+        created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        with self._connect() as connection:
+            existing = connection.execute(
+                "SELECT 1 FROM pi_test_warehouse_markers WHERE operation_id=?",
+                (operation_id,),
+            ).fetchone()
+            if existing:
+                return "already_applied"
+            connection.execute(
+                "INSERT INTO pi_test_warehouse_markers(operation_id) VALUES(?)",
+                (operation_id,),
+            )
+            connection.execute(
+                "INSERT INTO pi_test_warehouse_events(operation_id, capability_id, count, compensation_of, created_at) "
+                "VALUES(?,?,?,?,?)",
+                (operation_id, capability_id, count, compensation_of, created_at),
+            )
+        return "applied"
+
+
 class WarehouseOperationLedger:
     """SQLite metadata ledger with exact-preview and outcome reconciliation."""
 
-    def __init__(self, ledger_path: str | Path, *, store: InMemoryWarehouseStore | None = None) -> None:
+    def __init__(self, ledger_path: str | Path, *, store: InMemoryWarehouseStore | SqliteWarehouseStore | None = None) -> None:
         self.ledger_path = Path(ledger_path)
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
         self.store = store or InMemoryWarehouseStore()
@@ -471,7 +577,7 @@ class WarehouseOperationLedger:
 WarehouseMutationService = WarehouseOperationLedger
 
 __all__ = [
-    "CANONICAL_OPERATIONS", "CONFIRMATION_OPERATIONS", "InMemoryWarehouseStore", "MUTATION_OPERATIONS", "PREVIEW_SCHEMA",
+    "CANONICAL_OPERATIONS", "CONFIRMATION_OPERATIONS", "InMemoryWarehouseStore", "SqliteWarehouseStore", "MUTATION_OPERATIONS", "PREVIEW_SCHEMA",
     "RECEIPT_SCHEMA", "SCHEMA_VERSION", "WarehouseMutationError", "WarehouseMutationService",
     "WarehouseOperationLedger",
 ]

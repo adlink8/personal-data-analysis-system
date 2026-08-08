@@ -51,16 +51,24 @@ function syntheticTool(name, label) {
   });
 }
 
-function productionTool(operation) {
+function productionTool(operation, invokeTool) {
   return defineTool({
     name: operation.id,
     label: operation.title,
     description: operation.description,
-    parameters: Type.Object({}),
-    execute: async () => ({
-      content: [{ type: "text", text: `${operation.id} requires a bound Kernel task invocation.` }],
-      details: { ok: false, error: { code: "capability_binding_required" }, capability: operation.id },
-    }),
+    parameters: Type.Record(Type.String(), Type.Unknown()),
+    execute: async (_toolCallId, params) => {
+      if (typeof invokeTool !== "function") return {
+        content: [{ type: "text", text: `${operation.id} requires a bound Kernel task invocation.` }],
+        details: { ok: false, error: { code: "capability_binding_required" }, capability: operation.id },
+      };
+      try {
+        const result = await invokeTool(operation.id, params);
+        return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+      } catch (error) {
+        return { content: [{ type: "text", text: `${operation.id} failed.` }], details: { ok: false, error: { code: error?.code ?? "domain_unavailable" }, capability: operation.id } };
+      }
+    },
   });
 }
 
@@ -124,7 +132,7 @@ function providerFreeRuntime() {
  * settings, session persistence, built-in tools and provider access are all
  * explicit here so SDK defaults cannot widen the capability boundary.
  */
-export async function createContainedSession({ cwd, agentDir, profile = "synthetic" } = {}) {
+export async function createContainedSession({ cwd, agentDir, profile = "synthetic", invokeTool } = {}) {
   const explicitCwd = requireExplicitDirectory(cwd, "cwd");
   const explicitAgentDir = requireExplicitDirectory(agentDir, "agentDir");
   const settingsManager = SettingsManager.inMemory();
@@ -145,7 +153,7 @@ export async function createContainedSession({ cwd, agentDir, profile = "synthet
   await resourceLoader.reload();
 
   const customTools = registry
-    ? registry.operations.map((operation) => productionTool(operation))
+    ? registry.operations.map((operation) => productionTool(operation, invokeTool))
     : [syntheticTool("domain_inspect", "Domain inspect"), syntheticTool("domain_candidate", "Domain candidate")];
   const modelRuntime = providerFreeRuntime();
   const { session, extensionsResult } = await createAgentSession({

@@ -10,6 +10,9 @@ import { DecisionWorkspacePage } from '../pages/decisions/DecisionWorkspacePage'
 import { SessionPage } from '../pages/sessions/SessionPage';
 import { ActionsPage } from '../pages/actions/ActionsPage';
 import { ProactivePage } from '../pages/proactive/ProactivePage';
+import { KnowledgeDirectoryPage } from '../pages/knowledge/KnowledgeDirectoryPage';
+import { TopicPage } from '../pages/knowledge/TopicPage';
+import { PiRuntimePage } from '../pages/system/PiRuntimePage';
 
 // 8 条路由对应 spec §6.1 八项主导航；state/external/decisions/actions/proactive 已接真实页面
 // （Phase 37/38/39），decisions 含列表 + 工作区 + 会话推进（写流程）；无占位页剩余。
@@ -29,7 +32,10 @@ export const appRoutes = [
       { path: 'external', element: <ExternalContextPage /> },
       { path: 'proactive', element: <ProactivePage /> },
       { path: 'evidence', element: <EvidencePage /> },
+      { path: 'knowledge', element: <KnowledgeDirectoryPage /> },
+      { path: 'knowledge/:topicType/:topicId', element: <TopicPage /> },
       { path: 'system', element: <SystemPage /> },
+      { path: 'system/pi-runtime', element: <PiRuntimePage /> },
     ],
   },
 ];

@@ -12,6 +12,7 @@ export const ALLOWED_ROUTES = Object.freeze([
   "GET /ready",
   "GET /v1/tasks",
   "GET /v1/tasks/:task_id",
+  "GET /v1/skills",
   "POST /v1/tasks",
   "POST /v1/tasks/:task_id/cancel",
   "POST /v1/tasks/:task_id/resume",
@@ -54,6 +55,16 @@ export const SAFE_ERROR_CODES = Object.freeze([
   "provider_cost_ceiling_exceeded",
   "provider_timeout",
   "provider_transport_error",
+  "skill_runtime_unavailable",
+  "skill_identity_invalid",
+  "skill_input_invalid",
+  "skill_not_found",
+  "skill_response_unavailable",
+  "skill_registry_unavailable",
+  "skill_tool_escalation",
+  "binding_required",
+  "domain_unavailable",
+  "timeout",
   "host_not_ready",
   "host_bind_failed",
   "non_loopback_bind",
@@ -188,6 +199,10 @@ function attachRequestHandler(host, options) {
         sendJson(response, 200, { ok: true, tasks: host.taskLedger.list().map((task) => ({ ...task, input_ref: task.input_ref, output_ref: task.output_ref })) });
         return;
       }
+      if (route === "GET /v1/skills") {
+        sendJson(response, 200, { ok: true, skills: host.skillList() });
+        return;
+      }
       if (route === "GET /v1/operations") {
         sendJson(response, 200, { ok: true, operations: host.operationList() });
         return;
@@ -264,7 +279,7 @@ function attachRequestHandler(host, options) {
         });
         return;
       }
-      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/");
+      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/skills", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/");
       sendSafeError(response, samePath ? 405 : 404, samePath ? "method_not_allowed" : "route_not_found");
     } catch (error) {
       const code = safeCode(error);

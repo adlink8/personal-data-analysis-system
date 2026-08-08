@@ -110,6 +110,13 @@ from personal_knowledge.services.pi_domain_gateway import (  # noqa: E402
     PI_DOMAIN_CAPABILITY_HEADER,
     PiDomainGateway,
 )
+from personal_knowledge.services.warehouse_mutations import (  # noqa: E402
+    SqliteWarehouseStore,
+    WarehouseOperationLedger,
+)
+from personal_knowledge.services.semantic_maintenance_tools import SemanticMaintenanceTools  # noqa: E402
+from personal_knowledge.services.retrieval_maintenance_tools import RetrievalMaintenanceTools  # noqa: E402
+from personal_knowledge.services.snapshot_release_tools import SnapshotAuthorityFixture, SnapshotReleaseTools  # noqa: E402
 from personal_knowledge.services.pi_runtime_projection import (  # noqa: E402
     kernel_status,
     mutate_task,
@@ -135,6 +142,30 @@ from personal_knowledge.wiki.materialization import WikiMaterializer  # noqa: E4
 ROOT = _THIS_DIR.parents[1]
 PROFILE_MD = ROOT / "integration" / "analysis" / "ai_context" / "person_profile.md"
 WIKI_DERIVED_STORE = ROOT / "var" / "db" / "personal_wiki_projection.sqlite"
+
+
+def _build_pi_domain_gateway() -> PiDomainGateway:
+    """Build one process-owned domain gateway.
+
+    The test ledger is opt-in and isolated by an explicit environment path.
+    Normal API startup keeps the existing no-authority behaviour for project
+    mutations; end-to-end tests can inject a real SQLite observation point
+    without touching the production warehouse.
+    """
+    ledger_path = str(os.environ.get("PI_DOMAIN_TEST_LEDGER_PATH") or "").strip()
+    if ledger_path:
+        store = SqliteWarehouseStore(ledger_path)
+        ledger = WarehouseOperationLedger(ledger_path, store=store)
+        return PiDomainGateway(
+            warehouse_ledger=ledger,
+            semantic_tools=SemanticMaintenanceTools(ledger),
+            retrieval_tools=RetrievalMaintenanceTools(ledger),
+            snapshot_tools=SnapshotReleaseTools(ledger, authority=SnapshotAuthorityFixture()),
+        )
+    return PiDomainGateway()
+
+
+PI_DOMAIN_GATEWAY = _build_pi_domain_gateway()
 
 # Personal Decision Cockpit 前端构建产物(SPA, npm run build 生成)
 COCKPIT_DIST = ROOT / "apps" / "personal_decision_cockpit" / "dist"
@@ -1077,7 +1108,7 @@ class Handler(BaseHTTPRequestHandler):
                 # operation IDs are validated by the gateway and never become imports.
                 operation = body.get("operation")
                 params = body.get("params") if isinstance(body.get("params"), dict) else {}
-                result = PiDomainGateway().invoke(
+                result = PI_DOMAIN_GATEWAY.invoke(
                     operation, params,
                     capability=self.headers.get(PI_DOMAIN_CAPABILITY_HEADER),
                 )

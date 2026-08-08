@@ -10,7 +10,7 @@ export const NAV_ITEMS: ReadonlyArray<{ to: string; zh: string; en: string; end?
   { to: '/actions', zh: '行动与结果', en: 'Actions & Outcomes' },
   { to: '/external', zh: '外部环境', en: 'External Context' },
   { to: '/proactive', zh: '主动提醒', en: 'Proactive Inbox' },
-  { to: '/evidence', zh: '证据中心', en: 'Evidence' },
+  { to: '/knowledge', zh: '知识与证据', en: 'Knowledge & Evidence' },
   { to: '/system', zh: '系统状态', en: 'System' },
 ];
 

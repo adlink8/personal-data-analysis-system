@@ -83,6 +83,10 @@ __pycache__/
 .venv/
 venv/
 
+# Node dependencies (never commit)
+node_modules/
+apps/**/node_modules/
+
 # Local agent/tooling workdirs and runtime logs (not source)
 .ai-bridge/
 .workbuddy/

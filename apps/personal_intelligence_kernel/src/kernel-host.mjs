@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
@@ -13,6 +14,9 @@ import { CandidateStore, PI_KERNEL_CANDIDATES_DB } from "./candidates/store.mjs"
 import { createConfiguredProviderAdapter } from "./models/runtime-provider.mjs";
 import { getModelRoute } from "./models/routes.mjs";
 import { createRuntimeControl } from "./control/runtime-control.mjs";
+import { createProjectDomainBridge } from "./tools/domain-bridge.mjs";
+import { SkillEngine } from "./skills/engine.mjs";
+import { SkillRegistry } from "./skills/registry.mjs";
 
 export const DEFAULT_KERNEL_HOST = Object.freeze({ host: "127.0.0.1", port: 8790 });
 export const PHASE_48_DECISION_RUN_ID = "piq_f7896e839999ed2eac87ebd4";
@@ -77,7 +81,7 @@ function assertExactResourcePolicy(resourceLoader, session, { profile, registry,
 }
 
 export class KernelHost {
-  constructor({ journal, session, resourceLoader, modelRuntime, providerAdapter, taskLedger, sessionStore, candidateStore, decision, host, port, shutdownTimeoutMs, capabilityRegistry, runtimeControl }) {
+  constructor({ journal, session, resourceLoader, modelRuntime, providerAdapter, taskLedger, sessionStore, candidateStore, decision, host, port, shutdownTimeoutMs, capabilityRegistry, runtimeControl, skillRegistry, skillEngine, domainBridge }) {
     this.journal = journal;
     this.session = session;
     this.resourceLoader = resourceLoader;
@@ -92,6 +96,9 @@ export class KernelHost {
     this.shutdownTimeoutMs = shutdownTimeoutMs;
     this.capabilityRegistry = capabilityRegistry;
     this.runtimeControl = runtimeControl ?? createRuntimeControl();
+    this.skillRegistry = skillRegistry;
+    this.skillEngine = skillEngine ?? (skillRegistry ? new SkillEngine({ registry: skillRegistry }) : null);
+    this.domainBridge = domainBridge;
     // Provider bodies are kept only for the lifetime of this process so a
     // trusted Python adapter can finish its existing parser contract. They
     // are never written to Task/Session/Event/Candidate stores.
@@ -130,6 +137,13 @@ export class KernelHost {
   operationCancel(payload) { return this.runtimeControl.cancel(payload); }
   operationResume(payload) { return this.runtimeControl.resume(payload); }
   operationReconcile(payload) { return this.runtimeControl.reconcile(payload); }
+  skillList() {
+    return (this.skillRegistry?.manifests ?? []).map((skill) => ({
+      id: skill.id, version: skill.version, purpose: skill.purpose, checksum: skill.checksum,
+      steps: skill.steps.map((step) => ({ id: step.id, tool: step.tool, requires_confirmation: step.requires_confirmation })),
+      max_steps: skill.max_steps, max_rounds: skill.max_rounds, status: skill.status,
+    }));
+  }
 
   /** Request cancellation without exposing prompt/output data. */
   cancelTask({ task_id: taskId, expected_version: expectedVersion, idempotency_key: idempotencyKey } = {}) {
@@ -200,8 +214,147 @@ export class KernelHost {
     return { event, row: this.journal.append(event) };
   }
 
+  /** Execute a declared Skill through the bound Python domain authority. */
+  async executeSkillTask({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, skill_id: skillId, skill_input: skillInput = {}, confirmed = false, include_response = false, model_prompt: modelPrompt, model } = {}) {
+    if (!this.taskLedger || !this.sessionStore || !this.skillRegistry || !this.skillEngine || !this.domainBridge) throw safeError("skill_runtime_unavailable");
+    assertIdentifier(idempotencyKey, "task_identity_invalid");
+    if (taskId !== undefined) assertIdentifier(taskId, "task_identity_invalid");
+    if (sessionId !== undefined) assertIdentifier(sessionId, "task_identity_invalid");
+    assertIdentifier(skillId, "skill_identity_invalid");
+    if (!skillInput || typeof skillInput !== "object" || Array.isArray(skillInput)) throw safeError("skill_input_invalid");
+    if (modelPrompt !== undefined && (typeof modelPrompt !== "string" || !modelPrompt.trim() || Buffer.byteLength(modelPrompt, "utf8") > MAX_PROMPT_BYTES)) throw safeError("task_prompt_invalid");
+    const skill = this.skillRegistry.manifests.find((item) => item.id === skillId);
+    if (!skill) throw safeError("skill_not_found");
+
+    const actualTaskId = taskId ?? `pi_task_${sha256(idempotencyKey).slice(0, 24)}`;
+    const actualSessionId = sessionId ?? `pi_session_${sha256(`${idempotencyKey}:session`).slice(0, 24)}`;
+    const inputChecksum = sha256({ skill_id: skill.id, skill_input: skillInput });
+    const inputRef = { kind: "artifact", ref: `skill-input:${inputChecksum.slice(0, 32)}`, checksum: inputChecksum };
+    let accepted;
+    try {
+      accepted = this.taskLedger.enqueue({ task_id: actualTaskId, idempotency_key: idempotencyKey, input_ref: inputRef });
+    } catch (error) {
+      if (error instanceof TaskLedgerError) throw safeError(error.code);
+      throw safeError("task_enqueue_failed");
+    }
+    if (accepted.duplicate) {
+      const result = { duplicate: true, task: accepted.task, session_id: actualSessionId, route: "skill", skill_id: skill.id, provider_calls: this.providerCalls };
+      if (include_response) {
+        const cached = this.ephemeralResponses.get(actualTaskId);
+        if (!cached) throw safeError("skill_response_unavailable");
+        result.response = cached;
+      }
+      return result;
+    }
+
+    this.runtimeControl.register({
+      operation_id: `op:task:${actualTaskId}`, operation_kind: "kernel_skill", task_id: actualTaskId, session_id: actualSessionId,
+      correlation_id: actualTaskId, idempotency_key: idempotencyKey, authority_class: "authority:kernel", side_effect_class: "mutation",
+      snapshot_id: "snapshot:kernel", budget: { timeout_ms: skill.timeout_ms }, reason: "skill_accepted",
+    });
+
+    try {
+      if (!this.sessionStore.get(actualSessionId)) this.sessionStore.create({ session_id: actualSessionId, trajectory: [] });
+      const acceptedEvent = this.#appendLifecycle("task_accepted", { taskId: actualTaskId, idempotencyKey, checksum: inputChecksum });
+      let task = this.taskLedger.claim(actualTaskId, { owner: "pi_kernel", leaseMs: skill.timeout_ms + 5000 });
+      task = this.taskLedger.transition(actualTaskId, "running", { expectedVersion: task.version, owner: "pi_kernel", event_ref: acceptedEvent.event.event_id });
+      this.runtimeControl.resume({ operation_id: `op:task:${actualTaskId}`, expected_version: 0, idempotency_key: `${idempotencyKey}:running` });
+      const startedEvent = this.#appendLifecycle("task_started", { taskId: actualTaskId, idempotencyKey, checksum: inputChecksum, causationId: acceptedEvent.event.event_id });
+      let modelReceipt;
+      if (modelPrompt !== undefined) {
+        const receipt = await this.providerAdapter.generate({
+          purpose: "generic_generation", model, prompt: modelPrompt, task_id: actualTaskId, session_id: actualSessionId,
+          event_id: startedEvent.event.event_id, idempotency_key: `${idempotencyKey}:planner`, max_output_tokens: 256,
+        });
+        modelReceipt = {
+          response_checksum: receipt.response_checksum, usage_checksum: receipt.usage_checksum,
+          provider: receipt.telemetry.provider, model: receipt.telemetry.model,
+          input_tokens: receipt.usage.input_tokens, output_tokens: receipt.usage.output_tokens,
+        };
+      }
+      const executionContext = { preview: null, operation_id: null };
+      const stepInputs = skillInput.step_inputs && typeof skillInput.step_inputs === "object" && !Array.isArray(skillInput.step_inputs)
+        ? skillInput.step_inputs : {};
+      const skillResult = await this.skillEngine.run({
+        skill, task_id: actualTaskId, session_id: actualSessionId, idempotency_key: idempotencyKey,
+        input: skillInput, confirmed: confirmed === true,
+        executor: async ({ step, correlation_id: correlationId, idempotency_key: stepIdempotencyKey }) => {
+          const configured = stepInputs[step.id];
+          const params = configured && typeof configured === "object" && !Array.isArray(configured) ? { ...configured } : {};
+          params.task_id = actualTaskId;
+          params.idempotency_key = stepIdempotencyKey;
+          params.binding = "pi_kernel_skill";
+          if (executionContext.preview && ["ingestion.quarantine", "ingestion.commit", "snapshot.activate", "snapshot.rollback"].includes(step.tool)) {
+            params.preview = executionContext.preview;
+            params.idempotency_key = executionContext.preview.idempotency_key;
+          }
+          if (executionContext.operation_id && step.tool === "canonical.verify") params.operation_id = executionContext.operation_id;
+          if (executionContext.generation_id && ["index.reconcile", "index.evaluate", "snapshot.prepare"].includes(step.tool) && params.generation_id === undefined) params.generation_id = executionContext.generation_id;
+          const toolInputChecksum = sha256({ operation: step.tool, task_id: actualTaskId, correlation_id: correlationId });
+          this.#appendLifecycle("tool_started", { taskId: actualTaskId, idempotencyKey: stepIdempotencyKey, checksum: toolInputChecksum, causationId: startedEvent.event.event_id });
+          try {
+            const result = await this.domainBridge.invoke(step.tool, params);
+            const data = result?.data ?? result;
+            const candidatePreview = data?.preview_checksum ? data : data?.preview;
+            if (candidatePreview?.preview_checksum) {
+              const { capability_checksum: _capabilityChecksum, ...preview } = candidatePreview;
+              executionContext.preview = preview;
+            }
+          if (data?.operation_id) executionContext.operation_id = data.operation_id;
+            if (data?.generation_id) executionContext.generation_id = data.generation_id;
+            const resultChecksum = sha256(data);
+            this.#appendLifecycle("tool_completed", { taskId: actualTaskId, idempotencyKey: stepIdempotencyKey, checksum: resultChecksum, causationId: startedEvent.event.event_id });
+            return { receipt: { tool: step.tool, status: result.status ?? "success", data } };
+          } catch (error) {
+            this.#appendLifecycle("tool_failed", { taskId: actualTaskId, idempotencyKey: stepIdempotencyKey, checksum: sha256(error?.code ?? "domain_unavailable"), causationId: startedEvent.event.event_id });
+            throw error;
+          }
+        },
+      });
+      const report = {
+        schema: "pi_skill_report_v1", skill_id: skill.id, skill_checksum: skill.checksum, state: skillResult.state,
+        task_id: actualTaskId, session_id: actualSessionId,
+        steps: skillResult.steps.map((step) => ({ step_id: step.step_id, tool: step.tool, status: step.status, receipt: step.receipt ?? null, error_code: step.error_code ?? null })),
+        checkpoint: skillResult.checkpoint ?? null, error_code: skillResult.error_code ?? null,
+        ...(modelReceipt ? { model_receipt: modelReceipt } : {}),
+      };
+      const reportChecksum = sha256(report);
+      this.ephemeralResponses.set(actualTaskId, report);
+      this.sessionStore.append(actualSessionId, { kind: "skill_receipt", task_id: actualTaskId, skill_id: skill.id, report_checksum: reportChecksum, state: skillResult.state }, { receipt: { kind: "skill", task_id: actualTaskId, skill_id: skill.id, report_checksum: reportChecksum } });
+      if (skillResult.state === "completed") {
+        const completedEvent = this.#appendLifecycle("task_completed", { taskId: actualTaskId, idempotencyKey, checksum: reportChecksum, causationId: startedEvent.event.event_id });
+        task = this.taskLedger.transition(actualTaskId, "succeeded", { expectedVersion: task.version, owner: "pi_kernel", output_ref: artifactRef(reportChecksum), event_ref: completedEvent.event.event_id });
+        this.runtimeControl._transition({ operationId: `op:task:${actualTaskId}`, expectedVersion: 1, idempotencyKey: `${idempotencyKey}:succeeded`, nextState: "succeeded", reason: "skill_completed", receiptRefs: [{ ref: `skill:${reportChecksum.slice(0, 32)}`, checksum: reportChecksum }] });
+      } else if (skillResult.state === "outcome_unknown") {
+        const errorEvent = this.#appendLifecycle("error", { taskId: actualTaskId, idempotencyKey, checksum: reportChecksum, causationId: startedEvent.event.event_id });
+        task = this.taskLedger.transition(actualTaskId, "outcome_unknown", { expectedVersion: task.version, owner: "pi_kernel", error_code: "outcome_unknown", event_ref: errorEvent.event.event_id });
+      } else if (skillResult.state === "failed") {
+        const failedEvent = this.#appendLifecycle("task_failed", { taskId: actualTaskId, idempotencyKey, checksum: reportChecksum, causationId: startedEvent.event.event_id });
+        task = this.taskLedger.transition(actualTaskId, "failed", { expectedVersion: task.version, owner: "pi_kernel", error_code: skillResult.error_code ?? "skill_failed", event_ref: failedEvent.event.event_id });
+      }
+      const result = {
+        duplicate: false, task, session_id: actualSessionId, route: "skill", skill_id: skill.id,
+        skill_state: skillResult.state, skill_steps: report.steps.map(({ step_id, tool, status, error_code }) => ({ step_id, tool, status, error_code })),
+        receipt: { report_checksum: reportChecksum, completed_steps: report.steps.filter((step) => step.status === "committed").length, total_steps: report.steps.length },
+        provider_calls: this.providerCalls,
+      };
+      if (include_response) result.response = report;
+      return result;
+    } catch (error) {
+      const code = error?.code || "skill_execution_failed";
+      const task = this.taskLedger.get(actualTaskId);
+      if (task && !["succeeded", "failed", "outcome_unknown"].includes(task.state)) {
+        const next = code === "outcome_unknown" ? "outcome_unknown" : "failed";
+        try { this.taskLedger.transition(actualTaskId, next, { expectedVersion: task.version, owner: "pi_kernel", error_code: code }); } catch { /* preserve terminal evidence when possible */ }
+      }
+      if (error instanceof KernelHostError) throw error;
+      throw safeError(code);
+    }
+  }
+
   /** Execute one task through the Pi-owned adapter. The raw prompt remains in memory. */
-  async executeTask({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, purpose = "structured_analysis", model, prompt, include_response = false } = {}) {
+  async executeTask({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, purpose = "structured_analysis", model, prompt, model_prompt: modelPrompt, skill_id: skillId, skill_input: skillInput, confirmed = false, include_response = false } = {}) {
+    if (skillId) return this.executeSkillTask({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, skill_id: skillId, skill_input: skillInput, confirmed, include_response, model_prompt: modelPrompt, model });
     if (!this.taskLedger || !this.sessionStore || !this.providerAdapter) throw safeError("task_runtime_unavailable");
     assertIdentifier(idempotencyKey, "task_identity_invalid");
     if (taskId !== undefined) assertIdentifier(taskId, "task_identity_invalid");
@@ -359,13 +512,32 @@ export async function createKernelHost(options = {}) {
     mode: options.providerMode ?? process.env.PI_KERNEL_PROVIDER_MODE ?? "replay",
     fetchImpl: options.fetchImpl,
   });
+  let domainBridge = options.domainBridge;
   let hostInstance;
   try {
     const cwd = resolve(options.cwd ?? projectRoot);
     const agentDir = resolve(options.agentDir ?? resolve(projectRoot, ".pi-agent-disabled"));
-    const contained = await createContainedSession({ cwd, agentDir, profile: "production" });
+    const contained = await createContainedSession({
+      cwd, agentDir, profile: "production",
+      invokeTool: (operation, params) => domainBridge?.invoke(operation, params),
+    });
     assertExactResourcePolicy(contained.resourceLoader, contained.session, contained);
     if (contained.modelRuntime.providerCalls !== 0) throw safeError("provider_call_detected");
+    const skillManifestPath = options.skillManifestPath
+      ?? (existsSync(resolve(projectRoot, "governance/manifests/ai/pi-skills.json"))
+        ? resolve(projectRoot, "governance/manifests/ai/pi-skills.json")
+        : resolve(projectRoot, "..", "..", "governance/manifests/ai/pi-skills.json"));
+    const skillRegistry = await SkillRegistry.fromFile(
+      skillManifestPath,
+      { allowedTools: contained.registry.operations.map((operation) => operation.id), profile: "production" },
+    );
+    if (skillRegistry.load().length === 0) throw safeError("skill_registry_unavailable");
+    domainBridge ??= createProjectDomainBridge({
+      host: process.env.PI_DOMAIN_HOST ?? "127.0.0.1",
+      port: Number(process.env.PI_DOMAIN_PORT ?? 8000),
+      capability: process.env.PI_DOMAIN_CAPABILITY,
+      operations: contained.registry.operations.map((operation) => operation.id),
+    });
     hostInstance = new KernelHost({
       journal,
       session: contained.session,
@@ -381,6 +553,9 @@ export async function createKernelHost(options = {}) {
       shutdownTimeoutMs: options.shutdownTimeoutMs ?? 1000,
       capabilityRegistry: contained.registry,
       runtimeControl: options.runtimeControl,
+      skillRegistry,
+      skillEngine: new SkillEngine({ registry: skillRegistry }),
+      domainBridge,
     });
     if (!hostInstance.isReady()) throw safeError("host_not_ready");
     await hostInstance.listen();

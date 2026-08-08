@@ -29,9 +29,25 @@ v1.4 前端产品契约：[`UI-SPEC.md`](research/v1.4-decision-cockpit-ui/UI-SP
 
 LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执行权限。
 
-## Current Milestone: v1.4 Decision Cockpit UI — Requirements Defined
+## Current Milestone: v2.0 Pi Personal Intelligence Capability OS — Scope Expanded 2026-08-05
 
-**Goal:** 把已验证的 Personal State、External、Decision、Action/Outcome、Proactive、Evidence 与 Guarded Orchestration 变成可每日使用、可追溯且不突破用户主权的本地 Web 驾驶舱。
+**Goal:** 将 `@earendil-works/pi` 彻底嵌入为唯一主 AI Runtime，并把项目已有能力统一注册为 Domain Tools、把稳定业务流程沉淀为 Skills，使用户请求、数据 Delta、调度任务、底仓维护、模型调用、Skill/Tool 调度、Session 和流式交互进入统一事件驱动闭环；legacy Agent 只保留为有界回滚路径。
+
+Pi 接管 AI 控制面并可通过显式、参数化、事务化的 Domain Tools 操作底仓流程，但不接管事实权威。Python 确定性核心继续独占 canonical facts、evidence、watermark、evaluation、promotion、active pointer、rollback 和正式生命周期规则。Pi 不得直连 authority store、执行任意 SQL/路径/callable 或绕过 gate；所有生成物先进入隔离的 Session/Candidate staging，正式写入必须经过 plan → dry-run → exact preview → confirm/policy → execute → verify → receipt/rollback。
+
+同一份 Project Capability Registry 是 REST、MCP 与 Pi SDK Kernel 的能力 SSOT。Pi SDK Kernel 是唯一 AI 协调内核，并使用 deny-by-default 的 production profile；不接入本机 Pi Agent，不建立第二套 Agent、RPC operator 或平级控制面。
+
+当前 `@earendil-works/pi-*` 官方版本为 `0.83.0`，本机 Node 版本满足 `>=22.19.0`。隔离 Spike 已验证核心协议可行，但依赖审计仍有 2 High + 1 Moderate，真实 Provider/legacy baseline、浏览器 UAT 和 feature-flag rollback 尚未闭合；这些项目是 v2.0 首阶段的阻断条件，不得被“彻底嵌入”目标绕过。
+
+正式研究与证据基线见 [`.planning/spikes/pi-embedded-personal-kernel`](spikes/pi-embedded-personal-kernel/README.md)、[`.planning/spikes/pi-package-qualification`](spikes/pi-package-qualification/README.md) 和 [`.planning/spikes/pi-frontier-controls`](spikes/pi-frontier-controls/README.md)。
+
+## Previous Milestone: v1.5 Personal Knowledge Wiki Projection — P0 Accepted
+
+v1.5 Wiki 的 Phase 44–47 已完成 P0 只读实现和授权真实浏览器 UAT；扩域决策保持 DEFER。Wiki 继续作为 canonical/KU/Personal State/External/Decision authority 的确定性投影，不创建新的事实 SSOT，不把页面内容写回 KU、Chroma 或检索索引。
+
+## Previous Milestone: v1.4 Decision Cockpit UI — User UAT Accepted
+
+**Goal:** 把已验证的 Personal State、External、Decision、Action/Outcome、Proactive、Evidence 与 Guarded Orchestration 变成可每日使用、可追溯且不突破用户主权的本地 Web 驾驶舱。Phase 40 UAT 已由用户确认通过；详细证据见 `phases/PDA-40-product-hardening-and-live-uat/40-UAT.md`。
 
 **Target features:**
 
@@ -55,9 +71,9 @@ LLM 输出是 Recommendation Candidate，不是个人事实、最终决策或执
 
 **Previous:** v1.2 shipped 2026-07-18（Phases 28–31），完成 External Authority、真实 `gpt-5.4` 决策链和诚实 `INCONCLUSIVE` 校准。见 [v1.2 audit](milestones/v1.2-MILESTONE-AUDIT.md)。
 
-## Deferred Next Direction
+## Historical v1.5 Direction
 
-**Personal Knowledge Wiki Projection** 仅作为 v1.5 候选，依赖 Cockpit 的 Projection、Evidence 和 stale 语义完成正式验收。规格见 [`SPEC.md`](future-milestones/v1.5-personal-knowledge-wiki-projection/SPEC.md)。它不新建个人事实 SSOT，也不会从本轮规划自动激活。learning/career 低风险扩域和达到预注册样本量后的 calibration cohort 同样后置。
+**Personal Knowledge Wiki Projection** 已在 v1.5 完成 P0 只读实现与授权 UAT。规格见 [`SPEC.md`](future-milestones/v1.5-personal-knowledge-wiki-projection/SPEC.md)；learning/career 扩域和更大 calibration cohort 仍按 v1.5 expansion decision 后置，不并入 v2.0 Kernel 改造。
 
 ## Current Reality — 2026-07-19
 

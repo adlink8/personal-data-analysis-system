@@ -171,7 +171,9 @@ v1.4.1 (Ph 41-43) 数据治理修补 — 3 phases 🚧
   └─ 43 L2 重定义（跨轮状态 + 增量去重） ⏳ 部分完成
 
 v1.5 (预规划)  Personal Knowledge Wiki — 未激活
-  └─ 等 v1.4 正式完结后激活
+  ├─ 原设计：确定性投影（已暂停，见 notes）
+  └─ 重新设计方案：[12-wiki-redesign-proposal.md](12-wiki-redesign-proposal.md)
+      └─ 核心改动：LLM 驱动的全源摘要缓存层，接入检索层
 ```
 
 ---

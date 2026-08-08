@@ -38,3 +38,38 @@ export function createDomainBridge({ host = "127.0.0.1", port = 8000, capability
 }
 
 export const createPiDomainBridge = createDomainBridge;
+
+/**
+ * Bind the production capability names to the loopback Python authority.
+ * Operation-specific input validation remains owned by the Python registry;
+ * this bridge only enforces the task binding that every Pi tool call needs.
+ */
+export function createProjectDomainBridge({ host = "127.0.0.1", port = 8000, capability = process.env.PI_DOMAIN_CAPABILITY ?? "pi-domain-local-capability-v1", timeoutMs = 3000, operations = [], transport } = {}) {
+  const allowed = new Set(operations);
+  const call = transport ?? (({ path, body }) => new Promise((resolve, reject) => {
+    const req = request({ host, port, method: "POST", path, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "X-PI-Domain-Capability": capability } }, (res) => {
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => {
+        try { resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) }); }
+        catch { reject(new DomainBridgeError("invalid_response")); }
+      });
+    });
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new DomainBridgeError("timeout")); });
+    req.on("error", reject);
+    req.end(body);
+  }));
+  return Object.freeze({
+    async invoke(operation, input = {}) {
+      if (!allowed.has(operation)) throw new DomainBridgeError("skill_tool_escalation");
+      if (!input || typeof input !== "object" || Array.isArray(input)) throw new DomainBridgeError("invalid_input");
+      if (!input.task_id || !input.idempotency_key || !input.binding) throw new DomainBridgeError("binding_required");
+      const result = await call({ path: "/internal/pi-domain/dispatch", body: JSON.stringify({ operation, params: input }) });
+      if (!result?.body || result.body.ok !== true) throw new DomainBridgeError(result?.body?.error?.code ?? "domain_unavailable");
+      return result.body;
+    },
+    tools() { return [...allowed]; },
+  });
+}
+
+export const createPiProjectDomainBridge = createProjectDomainBridge;

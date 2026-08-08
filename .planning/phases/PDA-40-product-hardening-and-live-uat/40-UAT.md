@@ -1,5 +1,5 @@
 ---
-status: partial
+status: passed
 phase: 40-product-hardening-and-live-uat
 source: [40-VERIFICATION.md, docs/live-uat.md, docs/browser-e2e-dependency-review.md]
 started: 2026-07-27
@@ -22,7 +22,9 @@ updated: 2026-07-28
 - `GET http://127.0.0.1:8000/app/` returned HTTP 200 and served the built Cockpit shell.
 - This is a read-only availability check only. It does not prove browser viewport/accessibility/privacy behavior or guarded write/replay acceptance.
 
-## Human checkpoint — pending
+## Human checkpoint — user accepted 2026-07-28
+
+用户在正式激活 v1.5 前明确确认：“v1.4 UAT通过了”。该确认作为本次人工验收结论记录；自动化和 runtime evidence 仍保留如下，未伪造浏览器工具输出。
 
 The following must be inspected on the production same-origin `/app/` by the user or an explicitly authorized operator. Component/contract tests do not close these items:
 
@@ -34,13 +36,13 @@ The following must be inspected on the production same-origin `/app/` by the use
 
 ## Current verdict
 
-`blocked` pending the human checkpoint. No release or Phase 40 completion claim is made. If a live authority write is required instead of a disposable fixture, obtain separate authorization immediately before that one write and retain the append-only evidence; do not reset or delete any event.
+`passed_by_user_confirmation`. No production authority write was performed as part of this acceptance. If a live authority write is required later instead of a disposable fixture, obtain separate authorization immediately before that one write and retain the append-only evidence; do not reset or delete any event.
 
 ## Summary
 
 total: 5
-passed: 0
+passed: 5
 issues: 0
-pending: 5
+pending: 0
 skipped: 0
 blocked: 0
