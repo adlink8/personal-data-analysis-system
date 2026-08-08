@@ -38,6 +38,7 @@ from personal_knowledge.retrieval.google_assertions import get_google_structure_
 from personal_knowledge.retrieval.merge_cluster import _merge_layer_ready, _dedup_event_ids  # noqa: E402
 from personal_knowledge.retrieval.serving import ServingSnapshotResolver, member_version  # noqa: E402
 from personal_knowledge.retrieval.relevance import annotate_candidate_support  # noqa: E402
+from personal_knowledge.retrieval.layers.base import SearchState  # noqa: E402
 
 def search_semantic(
     query: str,
@@ -469,6 +470,122 @@ def get_knowledge_status(*, probe_chroma: bool = True) -> dict:
     return out
 
 
+# --- Fallback layer orchestration (OC-4 split) --------------------------------
+# Layer names in response-telemetry order. knowledge_unit is the primary layer;
+# the rest form the fallback chain built by fallback_policy (legacy vs layered).
+_LAYER_NAMES = (
+    "knowledge_unit",
+    "canonical_messages",
+    "conversation_turns",
+    "non_dialogue_raw",
+    "legacy_pad",
+    "legacy_personal_events",
+)
+
+# Serving-snapshot member role per versionable layer (response telemetry.version).
+_LAYER_ROLES = {
+    "knowledge_unit": "knowledge_retrieval",
+    "canonical_messages": "canonical_message",
+    "conversation_turns": "turn_retrieval",
+    "non_dialogue_raw": "google_normalized",
+}
+
+
+def _append_unique(query: str, item: dict, state: SearchState) -> bool:
+    """Dedup + evidence-gate a fallback candidate and append when accepted."""
+    decision = annotate_candidate_support(
+        query,
+        item,
+        resolve=lambda ref: state.resolve_support_ref(item, ref),
+    )
+    if decision.state == "unsupported":
+        return False
+    uid = str(item.get("unit_id") or item.get("event_id") or "")
+    if uid and uid in state.seen_ids:
+        return False
+    if uid:
+        state.seen_ids.add(uid)
+    state.fallback_results.append(item)
+    return True
+
+
+def _run_fallback_chain(query: str, state: SearchState, layers: list[dict[str, Any]]) -> None:
+    """Execute the policy fallback chain with shared quota/dedup/telemetry.
+
+    Layer order, per-layer fetch-ahead quotas and skip conditions (snapshot
+    role gating, unbound-only layers, legacy-pad opt-out) live in
+    fallback_policy. Each layer reports attempted/hits/latency on its shared
+    telemetry dict; collection/chroma errors are soft-skipped per layer.
+    """
+    from personal_knowledge.retrieval import fallback_policy as _fp  # noqa: E402
+
+    _fp.mark_snapshot_skipped_layers(
+        state.policy, {x["name"]: x for x in layers},
+        snapshot_enforced=state.snapshot_enforced,
+    )
+    chain = _fp.build_fallback_chain(
+        state.policy, {x["name"]: x for x in layers}, snapshot_enforced=state.snapshot_enforced,
+    )
+    for layer in chain:
+        name = layer.layer_name
+        if state.remaining() <= 0:
+            break
+        reason = _fp.layer_skip_reason(name, state)
+        if reason is not None:
+            layer.telemetry["skipped_reason"] = reason
+            continue
+        if _fp.layer_is_gated(name, pad_allowed=state.pad_allowed):
+            continue
+        layer.telemetry["attempted"] = True
+        t_layer = time.perf_counter()
+        n_before = len(state.fallback_results)
+        try:
+            hits = layer.retrieve(query, state)
+            for item in hits:
+                _append_unique(query, item, state)
+                if state.remaining() <= 0:
+                    break
+        except Exception:
+            # collection missing / chroma error — soft skip per layer
+            pass
+        finally:
+            layer.telemetry["hits"] = max(0, len(state.fallback_results) - n_before)
+            layer.telemetry["latency_ms"] = round((time.perf_counter() - t_layer) * 1000, 2)
+
+
+def _apply_evidence_resolution(merged: list[dict], serving: Any) -> None:
+    """Attach typed evidence resolution to each merged result (include_evidence)."""
+    from personal_knowledge.retrieval.evidence import EvidenceResolver  # noqa: E402
+
+    resolver = EvidenceResolver(
+        unified_db=_C.UNIFIED_DB,
+        conversation_db=_C.AGENT_CONVERSATIONS_DB,
+        google_db=_C.GOOGLE_DB,
+    )
+    for item in merged:
+        ref = str(item.get("source_message_ref") or item.get("unit_id") or item.get("event_id") or "")
+        if not ref:
+            continue
+        if item.get("retrieval_unit") == "dialogue" and ref.startswith("cm|"):
+            artifact_type = "canonical_message"
+            role = "canonical_message"
+        elif str(item.get("source") or "").lower() == "google" or ref.startswith("g|"):
+            artifact_type = "google_signal"
+            role = "google_normalized"
+        elif item.get("retrieval_unit") == "dialogue":
+            artifact_type = "turn"
+            role = "turn_retrieval"
+        else:
+            artifact_type = "knowledge_unit"
+            role = "canonical_knowledge"
+        item["evidence"] = resolver.resolve(
+            ref,
+            artifact_type=artifact_type,
+            include_content=True,
+            source_version=member_version(serving.member(role)),
+        )
+
+
 def search_knowledge_units(
     query: str,
     top_k: int = 5,
@@ -518,12 +635,7 @@ def search_knowledge_units(
     pad_allowed = _resolve_allow_legacy_pad(allow_legacy_pad)
     t0 = time.perf_counter()
     layers: list[dict[str, Any]] = [
-        _empty_layer_telemetry("knowledge_unit"),
-        _empty_layer_telemetry("canonical_messages"),
-        _empty_layer_telemetry("conversation_turns"),
-        _empty_layer_telemetry("non_dialogue_raw"),
-        _empty_layer_telemetry("legacy_pad"),
-        _empty_layer_telemetry("legacy_personal_events"),
+        _empty_layer_telemetry(name) for name in _LAYER_NAMES
     ]
     layer_by_name = {x["name"]: x for x in layers}
     pointer = _C.DB_DIR / "knowledge_index_active.txt"
@@ -539,17 +651,8 @@ def search_knowledge_units(
         and resolved_active
         and resolved_active == snapshot_collection
     )
-    role_by_layer = {
-        "knowledge_unit": "knowledge_retrieval",
-        "canonical_messages": "canonical_message",
-        "conversation_turns": "turn_retrieval",
-        "non_dialogue_raw": "google_normalized",
-    }
-    for layer_name, role in role_by_layer.items():
+    for layer_name, role in _LAYER_ROLES.items():
         layer_by_name[layer_name]["version"] = member_version(serving.member(role))
-
-    def _role_allowed(role: str) -> bool:
-        return not snapshot_enforced or serving.member(role) is not None
 
     def _pack(
         *,
@@ -596,9 +699,6 @@ def search_knowledge_units(
             reason=f"vector infra unavailable: {e}",
         )
 
-    route = "knowledge"
-    versions: dict = {}
-
     # 解析 knowledge collection
     if collection_override:
         ku_collection = collection_override
@@ -634,259 +734,48 @@ def search_knowledge_units(
             artifact_type = "knowledge_unit"
         return support_resolver.resolve(ref, artifact_type=artifact_type, include_content=True)
 
+    state = SearchState(
+        top_k=top_k,
+        source=source,
+        include_evidence=include_evidence,
+        policy=policy,
+        pad_allowed=pad_allowed,
+        snapshot_enforced=snapshot_enforced,
+        serving=serving,
+    )
+    state.ku_collection = ku_collection
+    state.embedding = embedding
+    state.client = client
+    state.resolve_support_ref = _resolve_support_ref
+
     # --- Phase 1: 知识层检索（top-KU_SLOTS） ---
-    ku_results: list[dict] = []
     if ku_collection:
         layer = layer_by_name["knowledge_unit"]
         layer["attempted"] = True
         t_layer = time.perf_counter()
         try:
-            cols = client.list_collections()
-            col_names = {c if isinstance(c, str) else c.get("name", "") for c in cols}
-            if ku_collection in col_names:
-                ku_coll = client.get_or_create_collection(ku_collection)
-                ku_fetch = max(top_k, _KU_SLOTS)
-                kr = ku_coll.query(
-                    query_embeddings=[embedding], n_results=ku_fetch,
-                    include=["metadatas", "documents", "distances"],
-                )
-                ku_ids = kr.get("ids", [[]])[0] if kr.get("ids") else []
-                ku_docs = kr.get("documents", [[]])[0] if kr.get("documents") else []
-                ku_dists = kr.get("distances", [[]])[0] if kr.get("distances") else []
-                ku_metas = kr.get("metadatas", [[]])[0] if kr.get("metadatas") else []
-                for uid, doc, dist, meta in zip(ku_ids, ku_docs, ku_dists, ku_metas):
-                    lc = meta.get("lifecycle", "current") if isinstance(meta, dict) else "current"
-                    if lc not in ("current",):
-                        continue
-                    item = {
-                        "unit_id": uid,
-                        "subject": meta.get("subject", "") if isinstance(meta, dict) else "",
-                        "answer": doc[:300] if doc else "",
-                        "score": round(1 - dist, 4) if isinstance(dist, (int, float)) else 0,
-                        "lifecycle": lc,
-                        "confidence": meta.get("confidence", 0) if isinstance(meta, dict) else 0,
-                        "source_message_ref": meta.get("source_message_ref", "") if isinstance(meta, dict) else "",
-                        "collection": ku_collection,
-                        "retrieval_unit": "knowledge_unit",
-                        "rank_reason": "knowledge unit semantic match",
-                    }
-                    if include_evidence:
-                        item["evidence_quote"] = ""
-                    decision = annotate_candidate_support(
-                        query,
-                        item,
-                        resolve=lambda ref: _resolve_support_ref(item, ref),
-                    )
-                    if decision.state == "unsupported":
-                        layer["abstained"] = int(layer.get("abstained") or 0) + 1
-                        continue
-                    ku_results.append(item)
-                    if len(ku_results) >= _KU_SLOTS:
-                        break
-
-                # 读版本信息
-                import sqlite3 as _sql  # noqa: E402
-                try:
-                    con = _sql.connect(f"file:{_C.UNIFIED_DB.as_posix()}?mode=ro", uri=True)
-                    row = con.execute(
-                        "SELECT version_id, build_id, canonical_build_id, unit_count, status "
-                        "FROM knowledge_index_versions WHERE collection_name=? ORDER BY created_at DESC LIMIT 1",
-                        (ku_collection,),
-                    ).fetchone()
-                    if row:
-                        versions = {
-                            "index_version": row[0], "build_id": row[1],
-                            "canonical_build_id": row[2], "unit_count": row[3], "status": row[4],
-                        }
-                    con.close()
-                except Exception:
-                    pass
-            else:
-                route = "fallback_raw"
+            from personal_knowledge.retrieval.layers.knowledge_unit import KnowledgeUnitLayer  # noqa: E402
+            ku_results = KnowledgeUnitLayer(layer).retrieve(query, state)
+            state.ku_results = ku_results
+            for item in ku_results:
+                uid = str(item.get("unit_id") or "")
+                if uid:
+                    state.seen_ids.add(uid)
+            route = state.route
         except ChromaError:
             route = "fallback_raw"
         finally:
-            layer["hits"] = len(ku_results)
+            layer["hits"] = len(state.ku_results)
             layer["latency_ms"] = round((time.perf_counter() - t_layer) * 1000, 2)
     else:
         route = "fallback_raw"
 
-    seen_ids: set[str] = {
-        str(x.get("unit_id") or "") for x in ku_results if x.get("unit_id")
-    }
-    fallback_results: list[dict] = []
-
-    def _remaining() -> int:
-        return top_k - len(ku_results) - len(fallback_results)
-
-    def _append_unique(item: dict) -> bool:
-        decision = annotate_candidate_support(
-            query,
-            item,
-            resolve=lambda ref: _resolve_support_ref(item, ref),
-        )
-        if decision.state == "unsupported":
-            return False
-        uid = str(item.get("unit_id") or item.get("event_id") or "")
-        if uid and uid in seen_ids:
-            return False
-        if uid:
-            seen_ids.add(uid)
-        fallback_results.append(item)
-        return True
-
-    if policy == "legacy" and not snapshot_enforced:
-        # --- Legacy Phase 2: raw personal_events 检索（补剩余 slot，全源） ---
-        raw_target = _remaining()
-        layer = layer_by_name["legacy_personal_events"]
-        if raw_target > 0:
-            layer["attempted"] = True
-            t_layer = time.perf_counter()
-            n_before = len(fallback_results)
-            try:
-                raw_fetch = raw_target + 4
-                raw_events = _semantic_search(query, top_k=raw_fetch, source=source)
-                for ev in raw_events:
-                    item = _raw_event_item(
-                        ev,
-                        retrieval_unit="event",
-                        collection="personal_events",
-                        rank_reason="raw event semantic match",
-                    )
-                    if _append_unique(item) and len(fallback_results) >= raw_target:
-                        break
-                if len(fallback_results) > raw_target:
-                    del fallback_results[raw_target:]
-            except Exception:
-                pass
-            finally:
-                layer["hits"] = max(0, len(fallback_results) - n_before)
-                layer["latency_ms"] = round((time.perf_counter() - t_layer) * 1000, 2)
-    else:
-        if policy == "legacy" and snapshot_enforced:
-            layer_by_name["legacy_personal_events"]["skipped_reason"] = "not_bound_to_serving_snapshot"
-        # --- Layered Phase 2a: message-level dialogue (canonical_messages) ---
-        need = _remaining()
-        layer = layer_by_name["canonical_messages"]
-        if need > 0 and not _role_allowed("canonical_message"):
-            layer["skipped_reason"] = "snapshot_member_missing:canonical_message"
-        if need > 0 and _role_allowed("canonical_message"):
-            layer["attempted"] = True
-            t_layer = time.perf_counter()
-            n_before = len(fallback_results)
-            try:
-                msg_hits = _search_dialogue_canonical_messages(query, top_k=need + 4)
-                for item in msg_hits:
-                    _append_unique(item)
-                    if _remaining() <= 0:
-                        break
-            except Exception:
-                pass
-            finally:
-                layer["hits"] = max(0, len(fallback_results) - n_before)
-                layer["latency_ms"] = round((time.perf_counter() - t_layer) * 1000, 2)
-
-        # --- Layered Phase 2b: dialogue_fallback via conversation_turns ---
-        need = _remaining()
-        layer = layer_by_name["conversation_turns"]
-        if need > 0 and not _role_allowed("turn_retrieval"):
-            layer["skipped_reason"] = "snapshot_member_missing:turn_retrieval"
-        if need > 0 and _role_allowed("turn_retrieval"):
-            layer["attempted"] = True
-            t_layer = time.perf_counter()
-            n_before = len(fallback_results)
-            try:
-                from personal_knowledge.retrieval.search_vectors import search_conversation_turns as _search_turns  # noqa: E402
-
-                turns = _search_turns(query, top_k=need + 4, source=source)
-                for ev in turns:
-                    item = _raw_event_item(
-                        ev,
-                        retrieval_unit="dialogue",
-                        collection=CONVERSATION_TURNS_COLLECTION,
-                        rank_reason="dialogue_fallback conversation_turns",
-                    )
-                    item["collection"] = CONVERSATION_TURNS_COLLECTION
-                    item["retrieval_unit"] = "dialogue"
-                    item["evidence_ref"] = str(item.get("event_id") or "")
-                    _append_unique(item)
-                    if _remaining() <= 0:
-                        break
-            except Exception:
-                # collection missing / chroma error — soft skip
-                pass
-            finally:
-                layer["hits"] = max(0, len(fallback_results) - n_before)
-                layer["latency_ms"] = round((time.perf_counter() - t_layer) * 1000, 2)
-
-        # --- Layered Phase 3: non_dialogue_raw (prefer Google personal_events) ---
-        need = _remaining()
-        layer = layer_by_name["non_dialogue_raw"]
-        if need > 0 and not _role_allowed("google_normalized"):
-            layer["skipped_reason"] = "snapshot_member_missing:google_normalized"
-        if need > 0 and _role_allowed("google_normalized"):
-            layer["attempted"] = True
-            t_layer = time.perf_counter()
-            n_before = len(fallback_results)
-            raw_source = source if source else _NON_DIALOGUE_PREFERRED_SOURCE
-            try:
-                raw_events = _search_personal_events_filtered(
-                    query, top_k=need + 4, source=raw_source,
-                )
-                for ev in raw_events:
-                    if not source and (ev.get("source") or "") != _NON_DIALOGUE_PREFERRED_SOURCE:
-                        continue
-                    item = _raw_event_item(
-                        ev,
-                        retrieval_unit="event",
-                        collection="personal_events",
-                        rank_reason="non_dialogue_raw personal_events",
-                    )
-                    if str(item.get("source") or "").lower() == "google":
-                        item["evidence_ref"] = str(item.get("event_id") or "")
-                    _append_unique(item)
-                    if _remaining() <= 0:
-                        break
-            except Exception:
-                pass
-            finally:
-                layer["hits"] = max(0, len(fallback_results) - n_before)
-                layer["latency_ms"] = round((time.perf_counter() - t_layer) * 1000, 2)
-
-        # --- Layered Phase 4: optional legacy pad (non-Google personal_events) ---
-        need = _remaining()
-        layer = layer_by_name["legacy_pad"]
-        if need > 0 and pad_allowed and snapshot_enforced:
-            layer["skipped_reason"] = "not_bound_to_serving_snapshot"
-        if need > 0 and pad_allowed and not snapshot_enforced:
-            layer["attempted"] = True
-            t_layer = time.perf_counter()
-            n_before = len(fallback_results)
-            try:
-                pad_events = _search_personal_events_filtered(
-                    query, top_k=need + 8, source=source,
-                )
-                for ev in pad_events:
-                    src = ev.get("source") or ""
-                    if not source and src == _NON_DIALOGUE_PREFERRED_SOURCE:
-                        continue
-                    item = _raw_event_item(
-                        ev,
-                        retrieval_unit="event",
-                        collection="personal_events",
-                        rank_reason="legacy_pad",
-                    )
-                    _append_unique(item)
-                    if _remaining() <= 0:
-                        break
-            except Exception:
-                pass
-            finally:
-                layer["hits"] = max(0, len(fallback_results) - n_before)
-                layer["latency_ms"] = round((time.perf_counter() - t_layer) * 1000, 2)
+    # --- Phase 2: fallback 补洞（层顺序/配额/跳过条件集中在 fallback_policy） ---
+    _run_fallback_chain(query, state, layers)
 
     # --- 合并 + 排名 ---
-    merged = ku_results + fallback_results
+    merged = state.ku_results + state.fallback_results
+    versions = state.versions
     if not merged:
         return _pack(
             route="abstain",
@@ -897,39 +786,12 @@ def search_knowledge_units(
         )
 
     # 去 raw fallback 的 reason（有结果就标 knowledge route）
-    if route == "fallback_raw" and ku_results:
+    if route == "fallback_raw" and state.ku_results:
         route = "knowledge"
 
     # 编号
     if include_evidence:
-        from personal_knowledge.retrieval.evidence import EvidenceResolver  # noqa: E402
-        resolver = EvidenceResolver(
-            unified_db=_C.UNIFIED_DB,
-            conversation_db=_C.AGENT_CONVERSATIONS_DB,
-            google_db=_C.GOOGLE_DB,
-        )
-        for item in merged:
-            ref = str(item.get("source_message_ref") or item.get("unit_id") or item.get("event_id") or "")
-            if not ref:
-                continue
-            if item.get("retrieval_unit") == "dialogue" and ref.startswith("cm|"):
-                artifact_type = "canonical_message"
-                role = "canonical_message"
-            elif str(item.get("source") or "").lower() == "google" or ref.startswith("g|"):
-                artifact_type = "google_signal"
-                role = "google_normalized"
-            elif item.get("retrieval_unit") == "dialogue":
-                artifact_type = "turn"
-                role = "turn_retrieval"
-            else:
-                artifact_type = "knowledge_unit"
-                role = "canonical_knowledge"
-            item["evidence"] = resolver.resolve(
-                ref,
-                artifact_type=artifact_type,
-                include_content=True,
-                source_version=member_version(serving.member(role)),
-            )
+        _apply_evidence_resolution(merged, serving)
 
     for i, item in enumerate(merged, 1):
         item["rank"] = i
@@ -940,6 +802,7 @@ def search_knowledge_units(
         versions=versions,
         ku_collection=ku_collection or "personal_events",
     )
+
 
 
 

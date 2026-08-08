@@ -34,6 +34,10 @@ from personal_knowledge.retrieval._constants import (  # noqa: E402
 from personal_knowledge.retrieval._db_utils import (  # noqa: E402
     _bounded_int, _split_csv, _normalize_event_fields, _event_from_clause, _event_filter_sql, _memory_layer_ready, _table_exists, _parse_metadata, _parse_json_list, _memory_row_to_dict,
 )
+# Canonical graph query module (domains.graph.query_graph facade is slated for removal 2026-08-13).
+from personal_knowledge.application.graph.query_graph import (  # noqa: E402
+    find_node_by_subject, load_graph, table_exists,
+)
 
 def _find_memory_ids_by_subject(con: sqlite3.Connection, subject: str) -> list[str]:
     """按 subject 精确优先、再模糊匹配记忆对象。"""
@@ -635,9 +639,7 @@ def _bounded_memory_graph_ids(G: Any, subject: Optional[str], hops: int) -> tupl
     """Return node ids for whole graph or a subject-scoped weak-neighbor slice."""
     if not subject:
         return set(G.nodes), None
-    import personal_knowledge.domains.graph.query_graph as query_graph
-
-    start = query_graph.find_node_by_subject(G, subject)
+    start = find_node_by_subject(G, subject)
     if start is None:
         return set(), None
     selected = {start}
@@ -704,9 +706,7 @@ def get_memory_graph_contract(
     hops = max(0, min(int(hops), 4))
     con = sqlite3.connect(_C.UNIFIED_DB)
     try:
-        import personal_knowledge.domains.graph.query_graph as query_graph
-
-        G, _, warnings = query_graph.load_graph(con, include_llm_relations=include_llm)
+        G, _, warnings = load_graph(con, include_llm_relations=include_llm)
         selected_ids, start_id = _bounded_memory_graph_ids(G, subject, hops)
         # Sort neighbors alphabetically, but always keep seed node first
         # so subject-scoped queries always include the queried subject
@@ -799,12 +799,10 @@ def get_memory_relation_review_contract(
     con = sqlite3.connect(_C.UNIFIED_DB)
     con.row_factory = sqlite3.Row
     try:
-        import personal_knowledge.domains.graph.query_graph as query_graph
-
         missing = [
             name
             for name in ("memory_relation_candidates", "memory_relation_judgments")
-            if not query_graph.table_exists(con, name)
+            if not table_exists(con, name)
         ]
         if missing:
             return {

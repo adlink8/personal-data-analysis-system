@@ -137,6 +137,26 @@ from personal_knowledge.services.topic_projection import (  # noqa: E402
     TopicProjectionService,
 )
 from personal_knowledge.wiki.materialization import WikiMaterializer  # noqa: E402
+from personal_knowledge.services.http_contracts import (  # noqa: E402,F401 re-export: 外部仍从 api_server 导入
+    agent_read_rest_contract,
+    decision_rest_contract,
+    intelligence_rest_contract,
+    orchestration_rest_contract,
+    proactive_rest_contract,
+    topic_rest_contract,
+    ui_rest_contract,
+)
+from personal_knowledge.services.http import meta_handlers  # noqa: E402
+from personal_knowledge.services.http.handlers import (  # noqa: E402
+    agent as agent_handlers,
+    data as data_handlers,
+    decision as decision_handlers,
+    intelligence as intelligence_handlers,
+    orchestration as orchestration_handlers,
+    proactive as proactive_handlers,
+    topic as topic_handlers,
+    ui as ui_handlers,
+)
 
 # AI 长期上下文文档路径(给 /profile 用)
 ROOT = _THIS_DIR.parents[1]
@@ -419,95 +439,6 @@ def _data_filters(qs: dict) -> dict:
     }
 
 
-def intelligence_rest_contract(
-    operation: str,
-    params: dict,
-    *,
-    db_path: Path | None = None,
-    resolver=None,
-) -> dict:
-    """Thin REST adapter over the shared intelligence service."""
-    values = {key: value for key, value in params.items() if value not in {None, ""}}
-    if "limit" in values:
-        try:
-            values["limit"] = int(values["limit"])
-        except (TypeError, ValueError):
-            return IntelligenceService._error(operation, "invalid_limit", str(values["limit"]))
-    return IntelligenceService(db_path or UNIFIED_DB, resolver=resolver).invoke(
-        operation, **values
-    )
-
-
-def decision_rest_contract(
-    operation: str,
-    params: dict,
-    *,
-    db_path: Path | None = None,
-) -> dict:
-    """Thin read-only REST adapter over the shared decision service."""
-    values = {key: value for key, value in params.items() if value not in {None, ""}}
-    if "limit" in values:
-        try:
-            values["limit"] = int(values["limit"])
-        except (TypeError, ValueError):
-            return DecisionFeedbackService._error(
-                operation, "invalid_limit", str(values["limit"])
-            )
-    return DecisionFeedbackService(db_path or UNIFIED_DB).invoke(operation, **values)
-
-
-def proactive_rest_contract(operation: str, params: dict, *, db_path: Path | None = None) -> dict:
-    """Thin read-only REST adapter over proactive intelligence."""
-    values = {key: value for key, value in params.items() if value not in {None, ""}}
-    if "limit" in values:
-        try:
-            values["limit"] = int(values["limit"])
-        except (TypeError, ValueError):
-            return ProactiveIntelligenceService._error(operation, "invalid_limit", str(values["limit"]))
-    return ProactiveIntelligenceService(db_path or UNIFIED_DB).invoke(operation, **values)
-
-
-def agent_read_rest_contract(
-    operation: str, params: dict, *, service: DecisionIntelligenceReadService | None = None,
-) -> dict:
-    """Thin REST adapter for Phase 28-31 read authorities."""
-    values = {key: value for key, value in params.items() if value not in {None, ""}}
-    return compact_envelope((service or DecisionIntelligenceReadService()).invoke(operation, **values))
-
-
-def orchestration_rest_contract(
-    operation: str, params: dict, *, service: GuardedOrchestrationInterface | None = None,
-) -> dict:
-    """Thin REST adapter over the shared guarded orchestration contract."""
-    try:
-        target = service or GuardedOrchestrationInterface()
-    except Exception as exc:
-        code = str(getattr(exc, "code", "") or str(exc) or "service_unavailable").split(":", 1)[0]
-        return compact_envelope(GuardedOrchestrationInterface._envelope(operation, ok=False, code=code))
-    return compact_envelope(target.invoke(operation, **params))
-
-
-def ui_rest_contract(
-    operation: str, params: dict, *, service: CockpitProjectionService | None = None,
-) -> dict:
-    """Thin read-only REST adapter over the cockpit UI projection."""
-    return (service or CockpitProjectionService()).invoke(operation, **params)
-
-
-def topic_rest_contract(
-    operation: str, params: dict, *, service: TopicProjectionService | None = None,
-) -> dict:
-    """Thin GET-only adapter over the Wiki topic projection service."""
-    values = {key: value for key, value in params.items() if value not in {None, ""}}
-    if "limit" in values:
-        try:
-            values["limit"] = int(values["limit"])
-        except (TypeError, ValueError):
-            return TopicProjectionService()._envelope_error(operation, "invalid_topic_key", limitations=["limit 无效"])
-    target = service or TopicProjectionService(materializer=WikiMaterializer(WIKI_DERIVED_STORE))
-    return target.invoke(operation, **values)
-
-
 class Handler(BaseHTTPRequestHandler):
     # 静音默认日志(太吵),自己打一行精简的
     def log_message(self, fmt, *args):
@@ -565,473 +496,78 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         path = url.path.rstrip("/") or "/"
         qs = {k: v[0] for k, v in parse_qs(url.query).items()}
+        ctx = {"url": url, "path": path, "qs": qs}
 
         try:
-            if path in {"/api/pi/status", "/api/pi/tasks"}:
-                payload = kernel_status() if path.endswith("/status") else {"schema_version": "pi_cockpit_event_v1", "tasks": task_list(), "observed_at": kernel_status()["observed_at"]}
-                # Pi Cockpit schemas validate the metadata projection itself;
-                # do not wrap it in the generic {ok,data} envelope.
-                self._send(_contract(payload))
-                return
-            if path == "/api/pi/operations":
-                self._send(_contract(operation_list()))
-                return
-            if path.startswith("/api/pi/operations/"):
-                operation_id = path.rsplit("/", 1)[-1]
-                self._send(_contract(operation_get(operation_id)), 200)
-                return
-            if path == "/api/pi/events":
-                if qs.get("stream", "").lower() in {"1", "true", "yes"}:
-                    _stream_pi_events(self)
-                    return
-                event = safe_event({"event_id": qs.get("event_id"), "task_id": qs.get("task_id"), "state": qs.get("state"), "version": qs.get("version")})
-                self._send(_ok(event))
+            # /api/pi/* —— Pi 内核/操作投影(或chestration 域)
+            if (path in {"/api/pi/status", "/api/pi/tasks", "/api/pi/operations"}
+                    or path.startswith("/api/pi/operations/")
+                    or path == "/api/pi/events"):
+                orchestration_handlers.handle_get(self, ctx)
                 return
             # Cockpit 前端静态托管(用未 rstrip 的 url.path 区分 /app 与 /app/)
             if url.path == "/app" or url.path.startswith("/app/"):
-                if url.path == "/app":
-                    self.send_response(301)
-                    self.send_header("Location", "/app/")
-                    self.send_header("Content-Length", "0")
-                    self.end_headers()
-                    return
-                asset = _resolve_cockpit_asset(url.path)
-                if asset is not None:
-                    ctype = _COCKPIT_ASSET_TYPES.get(
-                        asset.suffix.lower(), "application/octet-stream"
-                    )
-                    self._send(asset.read_bytes(), 200, ctype)
-                    return
-                if not COCKPIT_DIST.is_dir():
-                    body, code = _safe_error("cockpit_not_built", 404)
-                    self._send(body, code)
-                    return
-                # 资源不存在或路径遍历越界(_resolve_cockpit_asset 已拒绝)统一走安全错误,
-                # 不回显原始请求路径
-                body, code = _safe_error("cockpit_asset_not_found", 404)
-                self._send(body, code)
+                meta_handlers.serve_cockpit_static(self, ctx)
                 return
-
             if path == "/health":
-                ku = backend.get_knowledge_status(probe_chroma=False)
-                self._send(
-                    _ok(
-                        {
-                            "status": "ok",
-                            "knowledge": {
-                                "available": ku.get("available"),
-                                "active_collection": ku.get("active_collection"),
-                                "unit_count": ku.get("unit_count") or ku.get("db_unit_count"),
-                            },
-                        }
-                    )
-                )
+                meta_handlers.handle_health(self, ctx)
                 return
-
             if path == "/stats":
-                self._send(_ok(backend.stats()))
+                meta_handlers.handle_stats(self, ctx)
                 return
-
-            # 999.5 单人评审台(gold 三键核对 + judge 校准打分),localhost only。
-            # 页面数据服务端即时装配自 private_evals,不进任何 authority 面。
+            # 999.5 单人评审台(ui 域)
             if path == "/ui/review":
-                from personal_knowledge.services.eval_review import build_review_page
-                try:
-                    page = build_review_page().encode("utf-8")
-                except Exception:
-                    # 页面装配触及私有评审素材;异常详情只留本地 stderr,
-                    # 公开响应固定安全 code/message,不回显路径/traceback
-                    traceback.print_exc()
-                    b, c = _safe_error("review_console_error", 500)
-                    self._send(b, c)
-                    return
-                # 页面含私有评审数据:禁止任何浏览器/中间缓存(no-store)。
-                # _send 不支持附加 header,这里手动下发,避免改动共享方法。
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(page)))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                self.wfile.write(page)
+                ui_handlers.handle(self, ctx)
                 return
-
-            intelligence_routes = {
-                "/intelligence/state/current": "state.current",
-                "/intelligence/state/history": "state.history",
-                "/intelligence/changes/recent": "changes.recent",
-                "/intelligence/state/explain": "state.explain",
-            }
-            if path in intelligence_routes:
-                params = {
-                    "snapshot_id": qs.get("snapshot_id"),
-                    "run_id": qs.get("run_id"),
-                    "as_of": qs.get("as_of"),
-                }
-                if path.endswith("/current") or path.endswith("/history") or path.endswith("/recent"):
-                    params["limit"] = qs.get("limit", "50")
-                if path.endswith("/recent"):
-                    params["window_start"] = qs.get("window_start")
-                if path.endswith("/explain"):
-                    params.update({
-                        "assertion_kind": qs.get("assertion_kind"),
-                        "subject": qs.get("subject"),
-                        "domain": qs.get("domain"),
-                        "scope": qs.get("scope"),
-                        "predicate": qs.get("predicate"),
-                    })
-                data = intelligence_rest_contract(intelligence_routes[path], params)
-                self._send(_contract(data), 200 if data.get("ok") else 400)
+            if path in {
+                "/intelligence/state/current", "/intelligence/state/history",
+                "/intelligence/changes/recent", "/intelligence/state/explain",
+            }:
+                intelligence_handlers.handle(self, ctx)
                 return
-
-            decision_routes = {
-                "/decision/recommendations": "recommendations.list",
-                "/decision/recommendation": "recommendations.get",
-                "/decision/recommendation/history": "recommendations.history",
-                "/decision/recommendation/outcomes": "recommendations.outcomes",
-                "/decision/recommendation/effectiveness": "recommendations.effectiveness",
-            }
-            if path in decision_routes:
-                params = {
-                    "recommendation_id": qs.get("recommendation_id"),
-                    "domain": qs.get("domain"),
-                    "limit": qs.get("limit", "50"),
-                }
-                if path == "/decision/recommendation":
-                    params.pop("limit")
-                    params.pop("domain")
-                elif path != "/decision/recommendations":
-                    params.pop("domain")
-                data = decision_rest_contract(decision_routes[path], params)
-                self._send(_contract(data), 200 if data.get("ok") else 400)
+            if path in {
+                "/decision/recommendations", "/decision/recommendation",
+                "/decision/recommendation/history", "/decision/recommendation/outcomes",
+                "/decision/recommendation/effectiveness",
+            }:
+                decision_handlers.handle(self, ctx)
                 return
-
-            proactive_routes = {
-                "/proactive/inbox": "inbox.list",
-                "/proactive/digest": "digest.get",
-                "/proactive/candidate": "candidates.get",
-                "/proactive/candidate/explain": "candidates.explain",
-                "/proactive/controls/status": "controls.status",
-                "/proactive/metrics": "metrics.get",
-            }
-            if path in proactive_routes:
-                params = {"candidate_id": qs.get("candidate_id"), "domain": qs.get("domain"), "limit": qs.get("limit", "50"), "as_of": qs.get("as_of")}
-                if path in {"/proactive/candidate", "/proactive/candidate/explain"}:
-                    params = {"candidate_id": qs.get("candidate_id")}
-                elif path == "/proactive/controls/status":
-                    params = {"candidate_id": qs.get("candidate_id"), "as_of": qs.get("as_of")}
-                elif path == "/proactive/metrics":
-                    params = {}
-                data = proactive_rest_contract(proactive_routes[path], params)
-                self._send(_contract(data), 200 if data.get("ok") else 400)
+            if path in {
+                "/proactive/inbox", "/proactive/digest", "/proactive/candidate",
+                "/proactive/candidate/explain", "/proactive/controls/status",
+                "/proactive/metrics",
+            }:
+                proactive_handlers.handle(self, ctx)
                 return
-
-            agent_routes = {
-                "/agent/external": "external.list",
-                "/agent/external/item": "external.get",
-                "/agent/external/explain": "external.explain",
-                "/agent/analysis": "analysis.list",
-                "/agent/analysis/item": "analysis.get",
-                "/agent/analysis/explain": "analysis.explain",
-                "/agent/pilot": "pilot.list",
-                "/agent/pilot/item": "pilot.get",
-                "/agent/pilot/explain": "pilot.explain",
-                "/agent/calibration": "calibration.list",
-                "/agent/calibration/item": "calibration.get",
-                "/agent/calibration/explain": "calibration.explain",
-            }
-            if path in agent_routes:
-                operation = agent_routes[path]
-                params = {"limit": qs.get("limit", "50")}
-                if operation.startswith("external.") and operation != "external.list":
-                    params = {"resource_type": qs.get("resource_type"), "resource_id": qs.get("resource_id")}
-                elif operation.startswith("analysis.") and operation != "analysis.list":
-                    params = {"run_id": qs.get("run_id")}
-                elif operation.startswith("pilot.") and operation != "pilot.list":
-                    params = {"case_id": qs.get("case_id"), "as_of": qs.get("as_of")}
-                    if operation == "pilot.get":
-                        params.pop("as_of")
-                elif operation.startswith("calibration.") and operation != "calibration.list":
-                    params = {"protocol_id": qs.get("protocol_id")}
-                data = agent_read_rest_contract(operation, params)
-                self._send(_contract(data), 200 if data.get("ok") else 400)
+            if path in {
+                "/agent/external", "/agent/external/item", "/agent/external/explain",
+                "/agent/analysis", "/agent/analysis/item", "/agent/analysis/explain",
+                "/agent/pilot", "/agent/pilot/item", "/agent/pilot/explain",
+                "/agent/calibration", "/agent/calibration/item", "/agent/calibration/explain",
+                "/agent/session/resume", "/agent/session/explain",
+            }:
+                agent_handlers.handle(self, ctx)
                 return
-
-            session_read_routes = {
-                "/agent/session/resume": "session.resume",
-                "/agent/session/explain": "session.explain",
-            }
-            if path in session_read_routes:
-                data = orchestration_rest_contract(
-                    session_read_routes[path], {"session_id": qs.get("session_id"), "now": qs.get("now")},
-                )
-                self._send(_contract(data), 200 if data.get("ok") else 400)
+            if path in {
+                "/ui/overview", "/ui/system/status", "/ui/personal-state",
+                "/ui/external/delta", "/ui/decision-queue", "/ui/decision/workspace",
+                "/ui/actions/recent", "/ui/proactive/summary", "/ui/calibration/overview",
+                "/ui/evidence/resolve",
+            }:
+                ui_handlers.handle(self, ctx)
                 return
-
-            ui_routes = {
-                "/ui/overview": "overview.get",
-                "/ui/system/status": "system.status.get",
-                "/ui/personal-state": "personal_state.get",
-                "/ui/external/delta": "external_delta.get",
-                "/ui/decision-queue": "decision_queue.get",
-                "/ui/decision/workspace": "decision_workspace.get",
-                "/ui/actions/recent": "actions_recent.get",
-                "/ui/proactive/summary": "proactive_summary.get",
-                "/ui/calibration/overview": "calibration_overview.get",
-                "/ui/evidence/resolve": "evidence_resolve.get",
-            }
-            if path in ui_routes:
-                params = {}
-                if path == "/ui/decision/workspace":
-                    params = {"recommendation_id": qs.get("recommendation_id")}
-                elif path == "/ui/actions/recent":
-                    # 游标分页透传:cursor 不透明,limit 可选;GET-only,无副作用
-                    params = {"cursor": qs.get("cursor"), "limit": qs.get("limit")}
-                elif path == "/ui/evidence/resolve":
-                    # 只读证据解析(Phase 37:EVID-01);GET-only,无对应 POST 路由,
-                    # 参数原样透传给 evidence_resolve.get 做结构校验,不在此层猜测/补全
-                    params = {
-                        "subject_type": qs.get("subject_type"),
-                        "stable_id": qs.get("stable_id"),
-                        "snapshot_id": qs.get("snapshot_id"),
-                        "checksum": qs.get("checksum"),
-                        "assertion_kind": qs.get("assertion_kind"),
-                        "subject": qs.get("subject"),
-                        "domain": qs.get("domain"),
-                        "scope": qs.get("scope"),
-                        "predicate": qs.get("predicate"),
-                    }
-                data = ui_rest_contract(ui_routes[path], params)
-                self._send(_contract(data), 200 if data.get("ok") else 400)
+            if path in {"/ui/topics", "/ui/topic", "/ui/topic/backlinks", "/ui/topic/resolve"}:
+                topic_handlers.handle(self, ctx)
                 return
-
-            topic_routes = {
-                "/ui/topics": "topic.list",
-                "/ui/topic": "topic.get",
-                "/ui/topic/backlinks": "topic.backlinks",
-                "/ui/topic/resolve": "topic.resolve",
-            }
-            if path in topic_routes:
-                operation = topic_routes[path]
-                params = {
-                    "topic_type": qs.get("topic_type"),
-                    "topic_id": qs.get("topic_id"),
-                    "topic_key": qs.get("topic_key"),
-                    "query": qs.get("query"),
-                    "cursor": qs.get("cursor"),
-                    "limit": qs.get("limit", "50"),
-                }
-                if operation != "topic.list":
-                    params.pop("cursor")
-                    if operation != "topic.backlinks":
-                        params.pop("limit")
-                if operation == "topic.resolve":
-                    params = {"topic_key": qs.get("topic_key"), "query": qs.get("query")}
-                data = topic_rest_contract(operation, params)
-                error = data.get("error") if isinstance(data, dict) else None
-                status = 200 if data.get("ok") else 404 if error == "topic_not_found" else 400
-                self._send(_contract(data), status)
-                return
-
             if path in ("/knowledge", "/knowledge/status"):
-                probe = not _truthy(qs.get("no_chroma"))
-                self._send(_ok(backend.get_knowledge_status(probe_chroma=probe)))
+                meta_handlers.handle_knowledge_status(self, ctx)
                 return
-
-            if path == "/google/assertions":
-                data = backend.list_google_light_assertions(
-                    assertion_type=qs.get("type") or qs.get("assertion_type"),
-                    limit=int(qs.get("limit", 50)),
-                    offset=int(qs.get("offset", 0)),
-                )
-                self._send(_ok(data))
-                return
-
-            if path.startswith("/google/assertions/"):
-                # IDs contain '|' (e.g. gla|interest_topic|…); must unquote %7C
-                aid = unquote(path[len("/google/assertions/") :].strip("/"))
-                if not aid:
-                    body, code = _err("assertion_id required", 400)
-                    self._send(body, code)
-                    return
-                item = backend.get_google_light_assertion(aid)
-                if item is None:
-                    body, code = _err(f"assertion not found: {aid}", 404)
-                    self._send(body, code)
-                    return
-                self._send(_ok(item))
-                return
-
-            if path == "/categories":
-                rows = backend.list_categories(qs.get("source"))
-                self._send(_ok(rows))
-                return
-
-            if path == "/data/events":
-                data = backend.list_events_contract(
-                    **_data_filters(qs),
-                    fields=qs.get("fields"),
-                    limit=int(qs.get("limit", backend.DEFAULT_DATA_LIMIT)),
-                    offset=int(qs.get("offset", 0)),
-                    order=qs.get("order", "desc"),
-                )
-                self._send(_contract(data))
-                return
-
-            if path == "/data/memories":
-                data = backend.list_memories_contract(
-                    memory_type=qs.get("type") or qs.get("memory_type"),
-                    memory_subtype=qs.get("subtype") or qs.get("memory_subtype"),
-                    subject=qs.get("subject") or qs.get("subject_like"),
-                    limit=int(qs.get("limit", backend.DEFAULT_DATA_LIMIT)),
-                    offset=int(qs.get("offset", 0)),
-                )
-                self._send(_contract(data))
-                return
-
-            if path == "/data/relations":
-                data = backend.list_relations_contract(
-                    relation=qs.get("relation") or qs.get("relation_type"),
-                    from_memory_id=qs.get("from_memory_id"),
-                    to_memory_id=qs.get("to_memory_id"),
-                    subject=qs.get("subject"),
-                    status=qs.get("status"),
-                    limit=int(qs.get("limit", backend.DEFAULT_DATA_LIMIT)),
-                    offset=int(qs.get("offset", 0)),
-                )
-                self._send(_contract(data))
-                return
-
-            if path == "/data/aggregate":
-                data = backend.aggregate_contract(
-                    group_by=qs.get("group_by", "source"),
-                    **_data_filters(qs),
-                    limit=int(qs.get("limit", backend.DEFAULT_DATA_LIMIT)),
-                )
-                self._send(_contract(data))
-                return
-
-            if path == "/data/timeline":
-                filters = _data_filters(qs)
-                if qs.get("subject") and not filters.get("keyword"):
-                    filters["keyword"] = qs.get("subject")
-                data = backend.timeline_contract(
-                    interval=qs.get("interval") or qs.get("bucket") or "month",
-                    **filters,
-                    limit=int(qs.get("limit", backend.DEFAULT_DATA_LIMIT)),
-                )
-                self._send(_contract(data))
-                return
-
-            if path == "/data/export":
-                filters = _data_filters(qs)
-                if qs.get("query") and not filters.get("keyword"):
-                    filters["keyword"] = qs.get("query")
-                data = backend.export_events_contract(
-                    export_format=qs.get("format", "jsonl"),
-                    **filters,
-                    fields=qs.get("fields"),
-                    limit=int(qs.get("limit", backend.MAX_EXPORT_LIMIT)),
-                    offset=int(qs.get("offset", 0)),
-                    order=qs.get("order", "desc"),
-                )
-                self._send(_contract(data))
-                return
-
-            if path == "/data/quality":
-                self._send(_contract(backend.data_quality_report_contract()))
-                return
-
-            if path.startswith("/data/event/"):
-                event_id = unquote(path[len("/data/event/"):])
-                if not event_id:
-                    body, code = _err("缺少 event_id", 400)
-                    self._send(body, code)
-                    return
-                data = backend.get_event_by_id_contract(event_id, fields=qs.get("fields"))
-                self._send(_contract(data), 200 if data.get("found") else 404)
-                return
-
-            if path.startswith("/data/memory/"):
-                memory_id = unquote(path[len("/data/memory/"):])
-                if not memory_id:
-                    body, code = _err("缺少 memory_id", 400)
-                    self._send(body, code)
-                    return
-                # default true; accept false/0/no/off
-                include_evidence = True
-                if "include_evidence" in qs:
-                    include_evidence = _truthy(qs.get("include_evidence"))
-                data = backend.get_memory_by_id_contract(
-                    memory_id, include_evidence=include_evidence
-                )
-                self._send(_contract(data), 200 if data.get("found") else 404)
-                return
-
-            if path == "/memory":
-                rows = backend.get_memory_profile(
-                    memory_type=qs.get("type"),
-                    limit=int(qs.get("limit", 200)),
-                )
-                self._send(_ok(rows))
-                return
-
-            if path == "/memory/graph":
-                data = backend.get_memory_graph_contract(
-                    subject=qs.get("subject"),
-                    hops=int(qs.get("hops", 1)),
-                    include_llm=_truthy(qs.get("include_llm")),
-                    limit=int(qs.get("limit", backend.DEFAULT_MEMORY_GRAPH_LIMIT)),
-                )
-                self._send(_contract(data))
-                return
-
-            if path == "/memory/relation-review":
-                data = backend.get_memory_relation_review_contract(
-                    limit=int(qs.get("limit", backend.DEFAULT_RELATION_REVIEW_LIMIT)),
-                    status=qs.get("status"),
-                )
-                self._send(_contract(data))
-                return
-
-            if path.startswith("/memory/"):
-                subject = unquote(path[len("/memory/"):])
-                if not subject:
-                    body, code = _err("缺少 memory subject", 400)
-                    self._send(body, code)
-                    return
-                data = backend.get_memory_by_subject(subject)
-                if data is None:
-                    body, code = _err(f"未找到 memory subject={subject}", 404)
-                    self._send(body, code)
-                    return
-                if qs.get("neighbors"):
-                    data["neighbors"] = backend.get_memory_neighbors(
-                        subject, int(qs.get("neighbors", 2))
-                    )
-                self._send(_ok(data))
-                return
-
-            if path == "/profile":
-                if not PROFILE_MD.exists():
-                    body, code = _err("AI 上下文文档未生成,请先跑 build_context_doc.py", 404)
-                    self._send(body, code)
-                    return
-                text = PROFILE_MD.read_text(encoding="utf-8")
-                self._send(_ok({"profile": text, "path": str(PROFILE_MD)}))
-                return
-
-            if path.startswith("/event/"):
-                event_id = path[len("/event/"):]
-                if not event_id:
-                    body, code = _err("缺少 event_id", 400)
-                    self._send(body, code)
-                    return
-                data = backend.get_event_detail(event_id)
-                if data is None:
-                    body, code = _err(f"未找到 event_id={event_id}", 404)
-                    self._send(body, code)
-                else:
-                    self._send(_ok(data))
+            if (path.startswith("/google/assertions")
+                    or path == "/categories"
+                    or path.startswith("/data/")
+                    or path == "/memory" or path.startswith("/memory/")
+                    or path == "/profile" or path.startswith("/event/")):
+                data_handlers.handle_get(self, ctx)
                 return
 
             body, code = _err(f"未知路径: {path}", 404)
@@ -1045,7 +581,6 @@ class Handler(BaseHTTPRequestHandler):
             traceback.print_exc()
             body, code = _safe_error("internal_error", 500)
             self._send(body, code)
-
     # --- POST 路由 ---------------------------------------------------------
     def do_POST(self):
         url = urlparse(self.path)
@@ -1077,97 +612,23 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
             body = self._read_body()
+            ctx = {"url": url, "path": path, "qs": {}, "body": body}
 
-            if path in {"/api/pi/cancel", "/api/pi/resume"}:
-                decision = self._origin_policy_for_request()
-                if not decision["allowed"]:
-                    body_b, code = _safe_error("origin_not_allowed", 403)
-                    self._send(body_b, code)
-                    return
-                result = mutate_task("cancel" if path.endswith("/cancel") else "resume", body)
-                self._send(_contract(result), 200 if result.get("ok") else 409)
+            # /api/pi/* 与 /internal/pi-domain/dispatch 与 /agent/session/* 写路由(orchestration 域)
+            if (path in {"/api/pi/cancel", "/api/pi/resume"}
+                    or path.startswith("/api/pi/operations/")
+                    or path == "/internal/pi-domain/dispatch"
+                    or path in SESSION_WRITE_ROUTES):
+                orchestration_handlers.handle_post(self, ctx)
                 return
-
-            if path.startswith("/api/pi/operations/"):
-                decision = self._origin_policy_for_request()
-                if not decision["allowed"]:
-                    body_b, code = _safe_error("origin_not_allowed", 403)
-                    self._send(body_b, code)
-                    return
-                parts = path.split("/")
-                if len(parts) != 6 or parts[-1] not in {"cancel", "resume", "reconcile"}:
-                    self._send(_contract({"ok": False, "error": {"code": "operation_route_invalid"}}), 400)
-                    return
-                payload = {**body, "operation_id": body.get("operation_id") or parts[-2]}
-                result = mutate_operation(parts[-1], payload)
-                self._send(_contract(result), 200 if result.get("ok") else 409)
-                return
-
-            if path == "/internal/pi-domain/dispatch":
-                # Internal means loopback process ownership plus an injected capability;
-                # operation IDs are validated by the gateway and never become imports.
-                operation = body.get("operation")
-                params = body.get("params") if isinstance(body.get("params"), dict) else {}
-                result = PI_DOMAIN_GATEWAY.invoke(
-                    operation, params,
-                    capability=self.headers.get(PI_DOMAIN_CAPABILITY_HEADER),
-                )
-                self._send(_contract(result), 200 if result.get("ok") else 400)
-                return
-
-            if path in SESSION_WRITE_ROUTES:
-                operation = SESSION_WRITE_ROUTES[path]
-                expected = path.rsplit("/", 1)[-1].replace("-", "_")
-                if operation == "session.execute" and path != "/agent/session/execute":
-                    preview = body.get("preview") or {}
-                    if preview.get("operation") != expected:
-                        data = compact_envelope(GuardedOrchestrationInterface._envelope(
-                            operation, ok=False, code="route_operation_mismatch",
-                        ))
-                    else:
-                        data = orchestration_rest_contract(operation, body)
-                else:
-                    data = orchestration_rest_contract(operation, body)
-                self._send(_contract(data), 200 if data.get("ok") else 400)
-                return
-
-            # 999.5 评审 labels 保存:只写 private_evals 下带时间戳的新文件,
-            # 不触碰 SSOT/eval registry;非法判定值直接 400。
             if path == "/ui/review/labels":
-                from personal_knowledge.services.eval_review import save_review_labels
-                try:
-                    self._send(_ok(save_review_labels(body)))
-                except ValueError as exc:
-                    b, c = _err(str(exc), 400)
-                    self._send(b, c)
+                ui_handlers.handle_review_labels(self, ctx)
                 return
-
             if path == "/search/semantic":
-                query = body.get("query", "").strip()
-                if not query:
-                    b, c = _err("缺少 query 参数")
-                    self._send(b, c)
-                    return
-                # knowledge-first + raw fallback；可选 collection_override 仅用于 canary/评测
-                result = backend.search_knowledge_units(
-                    query=query,
-                    top_k=int(body.get("top_k", 5)),
-                    source=body.get("source"),
-                    include_evidence=bool(body.get("include_evidence", False)),
-                    collection_override=(body.get("collection") or body.get("collection_override") or None),
-                )
-                self._send(_ok(result))
+                data_handlers.handle_search_semantic(self, ctx)
                 return
-
             if path == "/search/query":
-                results = backend.query_events(
-                    source=body.get("source"),
-                    month=body.get("month"),
-                    category=body.get("category"),
-                    keyword=body.get("keyword"),
-                    limit=int(body.get("limit", 50)),
-                )
-                self._send(_ok(results))
+                data_handlers.handle_search_query(self, ctx)
                 return
 
             body_b, code = _err(f"未知路径: {path}", 404)
@@ -1178,7 +639,6 @@ class Handler(BaseHTTPRequestHandler):
             traceback.print_exc()
             body_b, code = _safe_error("internal_error", 500)
             self._send(body_b, code)
-
     def _wiki_method_not_allowed(self):
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path in {"/ui/topics", "/ui/topic", "/ui/topic/backlinks", "/ui/topic/resolve"}:
