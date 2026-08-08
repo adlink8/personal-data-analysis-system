@@ -9,7 +9,7 @@ from pathlib import Path
 
 from personal_knowledge.intelligence.proactive.service import ProactiveIntelligenceService  # noqa: E402
 from personal_knowledge.core.project_paths import UNIFIED_DB  # noqa: E402
-from personal_knowledge.mcp.handlers._format import _json_contract  # noqa: E402
+from personal_knowledge.mcp_tools.handlers._format import _json_contract  # noqa: E402
 
 TOOL_NAMES = frozenset({
     "proactive_inbox",

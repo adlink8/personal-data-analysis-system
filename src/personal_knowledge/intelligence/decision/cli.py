@@ -10,9 +10,9 @@ import sqlite3
 import tempfile
 from typing import Any, Callable, Mapping
 
-from personal_knowledge.application.knowledge.lifecycle_events import ensure_lifecycle_schema
-from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+from personal_knowledge.core.lifecycle import ensure_lifecycle_schema
 from personal_knowledge.core.project_paths import KNOWLEDGE_ACTIVE_POINTER, UNIFIED_DB
+from personal_knowledge.core.schema_ddl import SCHEMA_SQL
 from personal_knowledge.intelligence.cli import (
     _FINGERPRINT_GROUPS,
     _phase24_dependency_status,

@@ -362,9 +362,7 @@ def _llm_label_one(
     import urllib.error
     import urllib.request
 
-    from personal_knowledge.application.knowledge.build_knowledge_units_prod import (
-        TokenProvider,
-    )
+    from personal_knowledge.core.providers import TokenProvider
     from personal_knowledge.core.runtime_config import (
         vertex_config,
         vertex_generate_content_url,

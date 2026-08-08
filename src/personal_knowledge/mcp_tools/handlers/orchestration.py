@@ -9,7 +9,7 @@ from personal_knowledge.services.orchestration_service import (  # noqa: E402
     GuardedOrchestrationInterface,
 )
 from personal_knowledge.services.agent_contract import compact_envelope  # noqa: E402
-from personal_knowledge.mcp.handlers._format import _json_contract  # noqa: E402
+from personal_knowledge.mcp_tools.handlers._format import _json_contract  # noqa: E402
 
 TOOL_NAMES = frozenset({
     "agent_session_prepare",

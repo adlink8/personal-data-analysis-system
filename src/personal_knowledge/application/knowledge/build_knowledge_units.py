@@ -50,7 +50,7 @@ from personal_knowledge.core.runtime_config import (  # noqa: E402
     vertex_generation_config,
 )
 from personal_knowledge.application.knowledge.knowledge_unit_pipeline import RunManifest, StagingPublisher  # noqa: E402
-from personal_knowledge.intelligence.analysis.providers import (  # noqa: E402
+from personal_knowledge.core.providers import (  # noqa: E402
     PiKernelProvider, ProviderError, ProviderRequest, ProviderTimeout,
 )
 

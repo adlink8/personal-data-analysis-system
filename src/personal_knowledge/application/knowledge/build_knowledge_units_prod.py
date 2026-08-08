@@ -43,6 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from personal_knowledge.core.sqlite import connect_rw
+from personal_knowledge.core.providers import TokenProvider  # noqa: F401  (canonical home; OC-10)
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,7 +56,6 @@ _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 from personal_knowledge.core.project_paths import UNIFIED_DB, AGENT_CONVERSATIONS_DB  # noqa: E402
 from personal_knowledge.core.runtime_config import (  # noqa: E402
-    gcloud_access_token,
     vertex_config,
     vertex_generate_content_url,
     vertex_generation_config,
@@ -81,7 +81,7 @@ from personal_knowledge.application.knowledge.injection_context import (
     validate_duplicate_of,
 )
 from personal_knowledge.application.knowledge.state_subjects import load_state_subjects, match_state_subject
-from personal_knowledge.intelligence.analysis.providers import (  # noqa: E402
+from personal_knowledge.core.providers import (  # noqa: E402
     PiKernelProvider, ProviderError, ProviderRequest, ProviderTimeout,
 )
 
@@ -221,31 +221,6 @@ def put_cached_response(con: sqlite3.Connection, cache_key: str, model: str,
 
 
 # === LLM 调用（分类 retry + token refresh）===
-
-class TokenProvider:
-    """run-scoped gcloud token provider（线程安全）。"""
-
-    def __init__(self) -> None:
-        self._token: str | None = None
-        self._expires: float = 0
-        self._lock = threading.Lock()
-
-    def get(self) -> str:
-        with self._lock:
-            if self._token and time.time() < self._expires:
-                return self._token
-            self._token = self._fetch()
-            self._expires = time.time() + 3000  # 50 min
-            return self._token
-
-    def refresh(self) -> str:
-        with self._lock:
-            self._token = None
-        return self.get()
-
-    @staticmethod
-    def _fetch() -> str:
-        return gcloud_access_token(_VERTEX)
 
 
 class RequestRateLimiter:

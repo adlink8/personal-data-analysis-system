@@ -8,22 +8,19 @@
 顶层 _format / _json_contract / _event_contract_args 由 _format 提供，
 services/mcp_server.py 会原样 re-export 以兼容旧 import 名。
 
-注意：父包 personal_knowledge/mcp/ 刻意不带 __init__.py，作为 namespace
-子包存在。原因：仓库内多个模块会 `sys.path.insert(0, src/personal_knowledge)`
-做脚本路径 bootstrap；若 mcp/ 是常规包，顶层 `import mcp` 会命中它从而遮蔽
-真正的 MCP SDK（site-packages/mcp），导致 `from mcp.server import Server`
-报 ModuleNotFoundError。namespace 子包在 sys.path 优先命中时只是 namespace
-portion，site-packages 里的常规包 mcp 仍会胜出，保证 SDK 导入不被破坏。
+注意：父包 personal_knowledge/mcp_tools/ 是常规包（带 __init__.py）。
+业务包名 mcp_tools 与第三方 MCP SDK（site-packages/mcp）无同名冲突，
+顶层 `import mcp` 始终命中 SDK，不再依赖 namespace 子包规避遮蔽。
 """
 
 from __future__ import annotations
 
-import personal_knowledge.mcp.handlers.agent as agent
-import personal_knowledge.mcp.handlers.data as data
-import personal_knowledge.mcp.handlers.decision as decision
-import personal_knowledge.mcp.handlers.intelligence as intelligence
-import personal_knowledge.mcp.handlers.orchestration as orchestration
-import personal_knowledge.mcp.handlers.proactive as proactive
+import personal_knowledge.mcp_tools.handlers.agent as agent
+import personal_knowledge.mcp_tools.handlers.data as data
+import personal_knowledge.mcp_tools.handlers.decision as decision
+import personal_knowledge.mcp_tools.handlers.intelligence as intelligence
+import personal_knowledge.mcp_tools.handlers.orchestration as orchestration
+import personal_knowledge.mcp_tools.handlers.proactive as proactive
 
 # 统一分派表：工具名 -> 处理函数
 HANDLERS = {

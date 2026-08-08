@@ -12,7 +12,7 @@ import json
 
 import personal_knowledge.retrieval.unified_search as backend  # noqa: E402
 
-from personal_knowledge.mcp.handlers._format import (  # noqa: E402
+from personal_knowledge.mcp_tools.handlers._format import (  # noqa: E402
     _event_contract_args,
     _format_categories,
     _format_detail,

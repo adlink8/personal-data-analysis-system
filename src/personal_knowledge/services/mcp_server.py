@@ -73,20 +73,20 @@ os.environ.setdefault("PERSONAL_DATA_EMBED_DEVICE", "cpu")
 import mcp.types as types  # noqa: E402
 
 from personal_knowledge.core.privacy_guard import guard_mcp_payload  # noqa: E402
-from personal_knowledge.mcp.tool_definitions import (  # noqa: E402
+from personal_knowledge.mcp_tools.tool_definitions import (  # noqa: E402
     CORE_TOOL_NAMES,
     FULL_ONLY_TOOL_NAMES,
     ALL_TOOLS,
     active_tools,
     _mcp_profile,
 )
-from personal_knowledge.mcp.handlers import render_tool  # noqa: E402
-from personal_knowledge.mcp.handlers.agent import agent_read_tool_contract  # noqa: E402
-from personal_knowledge.mcp.handlers.decision import decision_tool_contract  # noqa: E402
-from personal_knowledge.mcp.handlers.intelligence import intelligence_tool_contract  # noqa: E402
-from personal_knowledge.mcp.handlers.orchestration import orchestration_tool_contract  # noqa: E402
-from personal_knowledge.mcp.handlers.proactive import proactive_tool_contract  # noqa: E402
-from personal_knowledge.mcp.handlers._format import (  # noqa: E402
+from personal_knowledge.mcp_tools.handlers import render_tool  # noqa: E402
+from personal_knowledge.mcp_tools.handlers.agent import agent_read_tool_contract  # noqa: E402
+from personal_knowledge.mcp_tools.handlers.decision import decision_tool_contract  # noqa: E402
+from personal_knowledge.mcp_tools.handlers.intelligence import intelligence_tool_contract  # noqa: E402
+from personal_knowledge.mcp_tools.handlers.orchestration import orchestration_tool_contract  # noqa: E402
+from personal_knowledge.mcp_tools.handlers.proactive import proactive_tool_contract  # noqa: E402
+from personal_knowledge.mcp_tools.handlers._format import (  # noqa: E402
     _event_contract_args,
     _format_categories,
     _format_detail,

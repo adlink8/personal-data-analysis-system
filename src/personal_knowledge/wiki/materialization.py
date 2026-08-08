@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from personal_knowledge.services.topic_projection import TopicKey, opaque_topic_id
+from personal_knowledge.wiki.topic_key import TopicKey, opaque_topic_id
 from personal_knowledge.wiki.derived_store import (
     ProjectionDependency,
     ProjectionVersion,

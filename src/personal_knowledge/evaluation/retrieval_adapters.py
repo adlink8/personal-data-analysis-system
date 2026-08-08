@@ -18,7 +18,7 @@ if str(_SCRIPTS) not in sys.path:
 from personal_knowledge.evaluation.eval_contracts import EvalCase, EvalTarget  # noqa: E402
 from personal_knowledge.evaluation.knowledge_eval_metrics import RankedHit  # noqa: E402
 from personal_knowledge.retrieval.relevance import annotate_candidate_support  # noqa: E402
-from personal_knowledge.application.serving.snapshots import (  # noqa: E402
+from personal_knowledge.core.serving_reads import (  # noqa: E402
     get_active_snapshot,
     get_snapshot,
     manifest_hash,

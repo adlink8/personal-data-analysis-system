@@ -10,7 +10,7 @@ import sqlite3
 from typing import Any, Iterable, Mapping
 
 from personal_knowledge.core.project_paths import EXTERNAL_CONTEXT_DB, UNIFIED_DB
-from personal_knowledge.intelligence.decision.context_binding import (
+from .binding import (
     DecisionContextBinding,
     DecisionContextBindingError,
     create_decision_context_binding,

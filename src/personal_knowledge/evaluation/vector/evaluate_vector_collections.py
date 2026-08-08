@@ -22,7 +22,7 @@ import sqlite3
 from collections import Counter
 from pathlib import Path
 
-from personal_knowledge.application.conversation import build_conversation_vector_store as turns_mod
+from personal_knowledge.core.conversation_turn_units import load_turn_units as turns_mod
 from personal_knowledge.retrieval import build_vector_store as personal_mod
 from personal_knowledge.core.chroma_client import ChromaClient, ChromaError
 

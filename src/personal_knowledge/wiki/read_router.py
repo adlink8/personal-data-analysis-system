@@ -8,9 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 
-from personal_knowledge.services.topic_projection import (
+from personal_knowledge.wiki.topic_key import (
     TopicProjectionError,
-    TopicProjectionService,
     WIKI_REASON_CODES,
     make_wiki_envelope,
     parse_topic_key,
@@ -34,7 +33,7 @@ class WikiReadRouter:
     def __init__(
         self,
         *,
-        topic_service: TopicProjectionService,
+        topic_service: Any,
         structured_reader: Callable[..., Any] | None = None,
         ku_reader: Callable[..., Any] | None = None,
         evidence_reader: Callable[..., Any] | None = None,

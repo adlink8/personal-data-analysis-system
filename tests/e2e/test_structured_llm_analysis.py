@@ -284,7 +284,7 @@ def test_codex_command_resolver_prefers_newest_direct_runtime() -> None:
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(Path, "is_dir", lambda self: True)
         patch.setattr(Path, "glob", lambda self, pattern: iter((Path("C:/direct/codex.exe"),)))
-        patch.setattr("personal_knowledge.intelligence.analysis.providers.shutil.which",
+        patch.setattr("personal_knowledge.core.providers.shutil.which",
                       lambda name: "C:/npm/codex.CMD")
         command, version = resolve_codex_command(runner=runner)
     assert Path(str(command)) == Path("C:/direct/codex.exe") and version == "0.144.5"

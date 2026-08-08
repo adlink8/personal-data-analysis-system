@@ -211,7 +211,7 @@ def _fingerprints(db_path: Path, pointer_path: Path) -> dict[str, Any]:
 
 
 def _phase24_dependency_status(db_path: Path) -> dict[str, Any]:
-    from personal_knowledge.application.knowledge.lifecycle_events import lifecycle_status
+    from personal_knowledge.core.lifecycle import lifecycle_status
     from personal_knowledge.evaluation.review_packets import status as review_status
 
     checkpoints = [_checkpoint_status(path) for path in _PHASE24_CHECKPOINTS]

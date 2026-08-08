@@ -373,8 +373,15 @@ def _check_eval_gate(
     eval_summary: Path | None,
     eval_gate: Path | None,
     require: bool,
+    gate_runner: Callable[[dict, dict, str, str], dict] | None = None,
 ) -> dict:
-    """Fail-closed: without PASS gate + matching candidate, refuse promote when required."""
+    """Fail-closed: without PASS gate + matching candidate, refuse promote when required.
+
+    ``gate_runner`` is a dependency-injected callback
+    ``(summary, policy, candidate_collection, candidate_checksum) -> gate_doc``.
+    When omitted, the CLI default lazily imports the evaluation gate module
+    (product direction: application -> evaluation).
+    """
     if not require and eval_summary is None and eval_gate is None:
         return {"ok": True, "skipped": True}
 
@@ -397,23 +404,31 @@ def _check_eval_gate(
         if not gate_doc:
             # run gate inline fail-closed
             try:
-                from personal_knowledge.evaluation.gate_knowledge_candidate import evaluate_gate, load_policy
-                from personal_knowledge.core.project_paths import ROOT
+                if gate_runner is None:
+                    from personal_knowledge.evaluation.gate_knowledge_candidate import evaluate_gate, load_policy
+                    from personal_knowledge.core.project_paths import ROOT
 
-                policy_path = (
-                    ROOT
-                    / "assets"
-                    / "evals"
-                    / "knowledge_units"
-                    / "eval_policy_v1.yaml"
-                )
-                policy = load_policy(policy_path) if policy_path.exists() else {"version": "v1"}
-                gate_doc = evaluate_gate(
-                    summary,
-                    policy,
-                    candidate_collection=collection,
-                    candidate_checksum=summary.get("candidate_checksum") or "",
-                )
+                    policy_path = (
+                        ROOT
+                        / "assets"
+                        / "evals"
+                        / "knowledge_units"
+                        / "eval_policy_v1.yaml"
+                    )
+                    policy = load_policy(policy_path) if policy_path.exists() else {"version": "v1"}
+                    gate_doc = evaluate_gate(
+                        summary,
+                        policy,
+                        candidate_collection=collection,
+                        candidate_checksum=summary.get("candidate_checksum") or "",
+                    )
+                else:
+                    gate_doc = gate_runner(
+                        summary,
+                        None,
+                        collection,
+                        summary.get("candidate_checksum") or "",
+                    )
             except Exception as e:
                 return {"ok": False, "error": f"eval gate failed to load: {e}"}
     else:
@@ -435,7 +450,11 @@ def _check_eval_gate(
     return {"ok": True, "gate": gate_doc}
 
 
-def promote_main(argv: list[str] | None = None) -> int:
+def promote_main(
+    argv: list[str] | None = None,
+    *,
+    gate_runner: Callable[[dict, dict, str, str], dict] | None = None,
+) -> int:
     p = argparse.ArgumentParser(description="Phase 14 Wave 4.2 / 17-04: promote knowledge index")
     p.add_argument("--promote", metavar="COLLECTION", help="promote collection 为 active")
     p.add_argument("--list", action="store_true", help="列出所有 index version")
@@ -480,6 +499,7 @@ def promote_main(argv: list[str] | None = None) -> int:
             eval_summary=args.eval_summary,
             eval_gate=args.eval_gate,
             require=require,
+            gate_runner=gate_runner,
         )
         if not gate_check.get("ok"):
             print(f"[error] promote refused: {gate_check.get('error')}", file=sys.stderr)

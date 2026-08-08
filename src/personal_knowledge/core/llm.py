@@ -11,11 +11,11 @@ import sys
 import time
 from types import SimpleNamespace
 
-from personal_knowledge.intelligence.analysis.providers import (
+from personal_knowledge.core.providers import (
     PiKernelProvider,
     ProviderRequest,
+    checksum,
 )
-from personal_knowledge.intelligence.analysis.schema import checksum
 
 MAX_RETRY = 4  # 429/网络错误最大重试次数
 
