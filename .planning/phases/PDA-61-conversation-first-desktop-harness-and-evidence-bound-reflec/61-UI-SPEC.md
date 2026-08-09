@@ -1,10 +1,11 @@
 ---
 phase: 61
 slug: conversation-first-desktop-harness-and-evidence-bound-reflection-loop
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-08-09
+approved: 2026-08-09
 ---
 
 # Phase 61 — UI Design Contract
@@ -72,7 +73,7 @@ Declared values (all multiples of 4):
 | 2xl | 48px | 首屏/主区块顶部留白 |
 | 3xl | 64px | 仅用于空态或大区段的垂直呼吸区 |
 
-Exceptions: 232px 固定展开侧栏；344px 证据检查器；结果/上下文抽屉宽度最大 390px；图标按钮和所有可点击的紧凑控件最小命中区域 36×36px。桌面主布局在 >=1024px 使用双栏；901–1023px 保留侧栏、按需抽屉覆盖主区；<=900px 隐藏常驻检查器；<=640px 将导航变为可打开抽屉，绝不让 composer 或关键确认被遮挡。
+Exceptions: 232px 固定展开侧栏；344px 证据检查器；结果/上下文抽屉宽度最大 392px；图标按钮和所有可点击的紧凑控件最小命中区域 36×36px。桌面主布局在 >=1024px 使用双栏；901–1023px 保留侧栏、按需抽屉覆盖主区；<=900px 隐藏常驻检查器；<=640px 将导航变为可打开抽屉，绝不让 composer 或关键确认被遮挡。
 
 ---
 
@@ -135,16 +136,18 @@ Accent reserved for: composer 的“发送消息”、确认后提交的“接�
 ### Reflection Candidate and personal-model projection
 
 - 确定性 conversation-delta 产生 Candidate 后，在关联对话中插入行内 `待审核候选` 卡。卡必须显示：推断状态、置信度、时间范围、项目/情境、支持证据数、冲突数、来源 event/receipt，以及 `AI 生成的候选，尚未成为事实`。
-- 卡片固定动作顺序：`查看证据`、`编辑`、`接受候选`、`忽略`。`查看证据` 打开右侧抽屉并并列显示支持与冲突证据；来源缺失时明确显示“不能用推断补全”。
-- `编辑` 打开 modal/drawer，保留只读的 `AI 原稿` 与可编辑审核版本并存。提交按钮为 `接受审核版本`；保存前展示将进入现有 Candidate/canonical path 的内容摘要、证据数量和 projection 影响。
-- `接受候选` 与 `接受审核版本` 都必须经过明确确认 modal：标题 `接受候选？`，正文 `这会把审核版本送入现有受控 Candidate/canonical 流程，并更新派生个人模型投影；不会把 AI 原稿直接写成事实。` 按钮 `确认接受` / `返回修改`。成功后卡片变为 `已送交受控流程`，显示 receipt 和 projection version；不声称已完成 promotion。
-- `忽略` 记录 feedback 且不删除 Evidence、Candidate 或审计 history；toast 为 `已忽略候选；原始证据和审核记录仍可追溯。`，提供本会话内 `撤销`。`延后`（深层收件箱中可用）保持来源批次、风险和排序。
+- 卡片固定动作顺序：`查看候选证据`、`编辑候选`、`接受候选`、`忽略候选`。`查看候选证据` 打开右侧抽屉并并列显示支持与冲突证据；来源缺失时明确显示“不能用推断补全”。
+- `编辑候选` 打开 modal/drawer，保留只读的 `AI 原稿` 与可编辑审核版本并存。提交按钮为 `接受审核版本`；保存前展示将进入现有 Candidate/canonical path 的内容摘要、证据数量和 projection 影响。
+- `接受候选` 与 `接受审核版本` 都必须经过明确确认 modal：标题 `接受候选？`，正文 `这会把审核版本送入现有受控 Candidate/canonical 流程，并更新派生个人模型投影；不会把 AI 原稿直接写成事实。` 按钮 `确认接受候选` / `返回候选修改`。成功后卡片变为 `已送交受控流程`，显示 receipt 和 projection version；不声称已完成 promotion。
+- `忽略候选` 记录 feedback 且不删除 Evidence、Candidate 或审计 history；toast 为 `已忽略候选；原始证据和审核记录仍可追溯。`，提供本会话内 `撤销忽略候选`。`延后候选`（深层收件箱中可用）保持来源批次、风险和排序。
 - 高影响或存在冲突的 Candidate 禁止批量接受。必须逐项打开冲突处理 modal，选项固定为：`保留旧结论`、`用新结论取代`、`按情境共存`、`暂不判断`，每项附后果说明。
 - 后续会话引用 Projection 时，在答案旁显示 `派生个人模型` 标签、version、置信度、有效时间、freshness、支持/冲突 evidence 数和“可被纠正”入口；不得称作个人事实或稳定人格标签。
 
 ### Proactive and deep views
 
-- 只渲染确定性触发的事项，并以 `静默 badge → 行内卡 → 抽屉 → 需要确认才 modal` 的层级升级。不得改变用户手动消息的顺序，也不得自动打开 modal。
+- 只渲染确定性触发的事项，并以 `静默 badge → 行内卡 → 抽屉 → 需要确认才 modal` 的层级升级。`静默 badge` 位于对话线程中被静默的主动事项原本应出现的锚点，并显示 `静默至 {HH:MM}`；它不改变用户手动消息的顺序，也不得自动打开 modal。
+- 从左侧底部 `系统` 入口打开 `主动提醒` 设置 drawer；command palette 同时提供 `管理主动提醒`。该 drawer 固定暴露两类粒度控制：逐类启用/停用（`同步`、`简报`、`反思候选`）与逐项目/全局范围选择；每类控制旁显示当前状态和作用范围。`静默时段` 使用开始/结束时间控件，并在保存后将当前状态回显为 `静默至 {HH:MM}`。
+- 同一 evidence cluster 只生成一张主动行内卡。卡片 metadata 显示 `已合并 {N} 条同簇证据`；`查看合并证据` 在右侧抽屉中列出每条已合并 evidence 的来源、时间和 receipt，并保留支持/冲突关系。抽屉不得将去重隐藏为单一、无来源的结论。
 - 收件箱按来源批次（sync、简报、问答等）分组；当前批次优先，高影响与冲突保留显眼文字标识，历史低优先级积压不与其混排。
 - 探索使用一个输入框；问题形式自动标为 `证据型问答`，否则为 `关键词检索`。默认范围是当前项目；切到全局前显示 scope 变化。模型离线时关键词检索仍可用，证据型问答明确暂停。
 
@@ -160,7 +163,7 @@ Accent reserved for: composer 的“发送消息”、确认后提交的“接�
 | Stale / backlog | 顶栏和相关答案都显示两段 freshness、最后同步时间与 backlog；不可用“已就绪”掩盖 stale |
 | SQLite rejected | 行内 `查询未执行` card，原因和可恢复建议；不显示敏感语句内容 |
 | Candidate empty | `当前没有待审核候选。` + `新的确定性事件产生候选后，会连同证据和时间范围出现在这里。` |
-| Error | `操作未完成：{safe summary}。没有发生未授权变更。` + `重试` 或 `查看系统状态` |
+| Error | `操作未完成：{safe summary}。没有发生未授权变更。` + `重试操作` 或 `查看系统状态` |
 
 - 所有交互以键盘可达，Tab 顺序与视觉顺序一致；提供跳到对话主区的 skip link。`Esc` 依次关闭 command palette、drawer、modal，且焦点回到触发控件。
 - 可见 focus ring 固定为 2px `#E8E8E8`、2px offset；hover/focus 动画仅变色/透明度/阴影，150–200ms，不改变布局。
