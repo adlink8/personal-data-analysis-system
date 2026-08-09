@@ -140,7 +140,7 @@ Accent reserved for: composer 的“发送消息”、确认后提交的“接�
 - `编辑候选` 打开 modal/drawer，保留只读的 `AI 原稿` 与可编辑审核版本并存。提交按钮为 `接受审核版本`；保存前展示将进入现有 Candidate/canonical path 的内容摘要、证据数量和 projection 影响。
 - `接受候选` 与 `接受审核版本` 都必须经过明确确认 modal：标题 `接受候选？`，正文 `这会把审核版本送入现有受控 Candidate/canonical 流程，并更新派生个人模型投影；不会把 AI 原稿直接写成事实。` 按钮 `确认接受候选` / `返回候选修改`。成功后卡片变为 `已送交受控流程`，显示 receipt 和 projection version；不声称已完成 promotion。
 - `忽略候选` 记录 feedback 且不删除 Evidence、Candidate 或审计 history；toast 为 `已忽略候选；原始证据和审核记录仍可追溯。`，提供本会话内 `撤销忽略候选`。`延后候选`（深层收件箱中可用）保持来源批次、风险和排序。
-- 高影响或存在冲突的 Candidate 禁止批量接受。必须逐项打开冲突处理 modal，选项固定为：`保留旧结论`、`用新结论取代`、`按情境共存`、`暂不判断`，每项附后果说明。
+- 高影响或存在冲突的 Candidate 禁止批量接受。必须逐项打开具焦点圈定的冲突处理 modal，选项严格固定为：`keep_existing`（`保留旧结论`，后果：保持既有受控结论不变，仅保留本次审核与证据）、`replace_existing`（`用新结论取代`，后果：仅经受控审核路径将审核版本作为后续派生投影的候选，不直接写成事实）、`coexist_by_context`（`按情境共存`，后果：保留两个有来源的情境化结论，不宣称单一通用结论）、`defer_judgment`（`暂不判断`，后果：不更新派生投影，保留证据与审核反馈待后续处理）。未知或缺失值必须拒绝；Esc 关闭 modal 并把焦点还给触发控件。
 - 后续会话引用 Projection 时，在答案旁显示 `派生个人模型` 标签、version、置信度、有效时间、freshness、支持/冲突 evidence 数和“可被纠正”入口；不得称作个人事实或稳定人格标签。
 
 ### Proactive and deep views
