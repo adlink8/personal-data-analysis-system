@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "src/main.mjs",
   "description": "Pi local desktop shell (Electron) — approved dependency only; renderer/UI wiring deferred to later 61 waves.",
   "scripts": {
     "start": "electron .",

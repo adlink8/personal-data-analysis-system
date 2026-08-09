@@ -6,7 +6,7 @@
 //   A. Pure schema/normalizer/guard tests against ../src/desktop-api-schema.mjs
 //      (Task 1 deliverable) — these PASS in this task.
 //   B. Main/preload wiring contract tests against ../src/main.mjs and
-//      ../src/preload.mjs (implemented in Task 3). While those modules are
+//      ../src/preload.cjs (implemented in Task 3). While those modules are
 //      absent the lazy import below records the load error and every contract
 //      assertion FAILS (RED) with a message pointing at the missing Task 3
 //      implementation — the plan's `done` criterion is "tests fail for missing
@@ -31,6 +31,7 @@ import {
   parseDesktopInput,
   validateChannel,
   containsForbiddenFields,
+  digest,
   toSafeEnvelope,
   toSafeError,
   ROUTE_PROVIDER_UNAVAILABLE,
@@ -66,7 +67,7 @@ try {
 let preloadModule = null;
 let preloadLoadError = null;
 try {
-  preloadModule = await import("../src/preload.mjs");
+  preloadModule = await import("../src/preload.cjs");
 } catch (error) {
   preloadLoadError = error;
 }
@@ -74,7 +75,7 @@ try {
 const mainMissing = () =>
   `main.mjs is not implemented yet (Task 3 must create apps/personal_intelligence_desktop/src/main.mjs). Load error: ${mainLoadError?.message ?? "module loaded"}`;
 const preloadMissing = () =>
-  `preload.mjs is not implemented yet (Task 3 must create apps/personal_intelligence_desktop/src/preload.mjs). Load error: ${preloadLoadError?.message ?? "module loaded"}`;
+  `preload.cjs is not implemented yet (Task 3 must create apps/personal_intelligence_desktop/src/preload.cjs). Load error: ${preloadLoadError?.message ?? "module loaded"}`;
 
 // Fake sender/event and ipc fixtures (no Electron required).
 function mockEvent(senderUrl) {
@@ -398,15 +399,15 @@ test("A13: secure window config guard demands nodeIntegration false, contextIsol
   assert.equal(SECURE_WINDOW_CONFIG.nodeIntegration, false);
   assert.equal(SECURE_WINDOW_CONFIG.contextIsolation, true);
   assert.equal(SECURE_WINDOW_CONFIG.sandbox, true);
-  const config = assertSecureWindowConfig({ ...SECURE_WINDOW_CONFIG, preload: "/C:/App/personal_intelligence_desktop/src/preload.mjs" });
-  assert.ok(config.preload.endsWith("preload.mjs"));
+  const config = assertSecureWindowConfig({ ...SECURE_WINDOW_CONFIG, preload: "/C:/App/personal_intelligence_desktop/src/preload.cjs" });
+  assert.ok(config.preload.endsWith("preload.cjs"));
   assert.throws(() => assertSecureWindowConfig({ ...SECURE_WINDOW_CONFIG, nodeIntegration: true }), (e) => e.code === "node_integration_must_be_false");
   assert.throws(() => assertSecureWindowConfig({ ...SECURE_WINDOW_CONFIG, contextIsolation: false }), (e) => e.code === "context_isolation_must_be_true");
   assert.throws(() => assertSecureWindowConfig({ ...SECURE_WINDOW_CONFIG, sandbox: false }), (e) => e.code === "sandbox_must_be_true");
   assert.throws(() => assertSecureWindowConfig({ ...SECURE_WINDOW_CONFIG, webSecurity: false }), (e) => e.code === "web_security_must_be_enabled");
   assert.throws(() => assertSecureWindowConfig({ ...SECURE_WINDOW_CONFIG, allowRunningInsecureContent: true }), (e) => e.code === "insecure_content_forbidden");
   assert.throws(() => assertSecureWindowConfig({ ...SECURE_WINDOW_CONFIG, webviewTag: true }), (e) => e.code === "webview_tag_forbidden");
-  assert.throws(() => assertSecureWindowConfig({ ...SECURE_WINDOW_CONFIG, preload: "https://evil.example/preload.mjs" }), (e) => e.code === "preload_must_be_local");
+  assert.throws(() => assertSecureWindowConfig({ ...SECURE_WINDOW_CONFIG, preload: "https://evil.example/preload.cjs" }), (e) => e.code === "preload_must_be_local");
 });
 
 test("A14: restrictive local CSP contract", () => {
@@ -483,7 +484,7 @@ test("B1: main.mjs provides a hardened BrowserWindow config", () => {
   assert.equal(config.nodeIntegration, false);
   assert.equal(config.contextIsolation, true);
   assert.equal(config.sandbox, true);
-  assert.ok(config.preload.endsWith("preload.mjs"), "preload must point only at the local preload.mjs");
+  assert.ok(config.preload.endsWith("preload.cjs"), "preload must point only at the local preload.cjs");
 });
 
 test("B2: main.mjs enforces a restrictive local CSP", () => {
@@ -575,9 +576,9 @@ test("B7: main.mjs validates intent schema and returns ROUTE_PROVIDER_UNAVAILABL
   assert.equal(malformed.data, null);
 });
 
-test("B8: preload.mjs exposes only the named bridge methods and no raw IPC", () => {
+test("B8: preload.cjs exposes only the named bridge methods and no raw IPC", () => {
   assert.ok(preloadModule, preloadMissing());
-  assert.equal(typeof preloadModule.buildBridge, "function", "preload.mjs must export buildBridge(ipcRenderer)");
+  assert.equal(typeof preloadModule.buildBridge, "function", "preload.cjs must export buildBridge(ipcRenderer)");
   const ipcRenderer = mockIpcRenderer();
   const bridge = preloadModule.buildBridge(ipcRenderer);
   assertBridgeShape(bridge);
@@ -605,13 +606,17 @@ test("B9: preload bridge methods parse through the schema and invoke only fixed 
 });
 
 // ===========================================================================
-// C. Three navigation/session actions (Plan 61-11 Task 1 RED contract).
-//    The desktop maps listProjectScopes -> conversation.project_scopes.list,
-//    selectProjectScope -> conversation.project_scope.select, and
-//    newConversation -> conversation.session.create. Before Plan 61-11 Task 3
-//    binds real providers these channels keep the truthful
-//    ROUTE_PROVIDER_UNAVAILABLE envelope with empty data (never a fabricated
-//    scope/session), and unknown/foreign/stale inputs fail closed.
+// C. Three navigation/session actions (Plan 61-11 Task 1 RED contract, evolved
+//    by Task 3 GREEN). The desktop maps listProjectScopes ->
+//    conversation.project_scopes.list, selectProjectScope ->
+//    conversation.project_scope.select, and newConversation ->
+//    conversation.session.create. Task 3 binds these to the unexported
+//    localhost-only route map: every channel dispatches to exactly its fixed
+//    provider, stays loopback-only, and never lets a renderer field select an
+//    endpoint/provider. Unknown/foreign/stale inputs fail closed before any
+//    provider work, and an unavailable provider is truthful (never a
+//    fabricated scope/session, never the pre-binding ROUTE_PROVIDER_UNAVAILABLE
+//    sentinel, which remains pinned by B7 for the null seam).
 // ===========================================================================
 
 test("C1: three navigation/session actions map to fixed intents and fixed preload channels", () => {
@@ -679,27 +684,44 @@ test("C2: unknown/foreign/stale scope inputs are rejected or stay truthful", () 
   }
 });
 
-test("C3: navigation/session channels stay ROUTE_PROVIDER_UNAVAILABLE with empty data until providers bind", async () => {
+test("C3: three navigation/session channels dispatch to exactly the fixed providers after binding", async () => {
   assert.ok(mainModule, mainMissing());
+  const dispatched = [];
+  // Recording transport: proves each channel reaches exactly its declared
+  // fixed provider route and never a renderer-selected endpoint/provider.
+  const transport = async (request) => {
+    dispatched.push(request);
+    return { status: 200, body: { ok: true, status: "success", data: { ok: true } } };
+  };
   const ipcMain = mockIpcMain();
-  mainModule.installIpcHandlers({ ipcMain, routeProvider: null });
+  const routeProvider = mainModule.createRouteProvider({ transport });
+  mainModule.installIpcHandlers({ ipcMain, routeProvider });
   const cases = [
-    ["harness:project-scopes", {}],
-    ["harness:select-project-scope", { projectScopeId: "project_scope_alpha" }],
-    ["harness:new-conversation", { projectScopeId: "project_scope_alpha" }],
+    ["harness:project-scopes", {}, "conversation.project_scopes.list"],
+    ["harness:select-project-scope", { projectScopeId: "project_scope_alpha" }, "conversation.project_scope.select"],
+    ["harness:new-conversation", { projectScopeId: "project_scope_alpha" }, "conversation.session.create"],
   ];
   for (const [channel, payload] of cases) {
     const handler = ipcMain.handlers.get(channel);
     assert.equal(typeof handler, "function", `${channel} must be registered`);
     const response = await handler(mockEvent(LOCAL_RENDERER_URL), payload);
-    assert.equal(response.ok, false, `${channel} must not fabricate a scope/session before providers bind`);
-    assert.equal(response.status, "route_provider_unavailable");
-    assert.equal(response.error.code, "ROUTE_PROVIDER_UNAVAILABLE");
-    assert.equal(response.data, null, `${channel} must carry no empty-session/scope claim`);
-    assert.ok(!JSON.stringify(response).includes("canonical"), `${channel} must never claim canonical history`);
+    assert.equal(response.ok, true, `${channel} must reach its bound provider`);
   }
-  // Malformed/foreign scope input on these channels is denied before any
-  // provider work (no ROUTE_PROVIDER_UNAVAILABLE masking for schema errors).
+  assert.deepEqual(
+    dispatched.map((request) => request.provider),
+    ["conversation.project_scopes.list", "conversation.project_scope.select", "conversation.session.create"],
+    "each channel must dispatch to exactly its declared fixed provider",
+  );
+  // Every route stays localhost-only and carries no-store; no renderer field
+  // can influence the URL (endpoint/provider overrides are schema-denied and
+  // never reach the transport).
+  for (const request of dispatched) {
+    assert.ok(request.url.startsWith("http://127.0.0.1:"), `route must stay localhost-only: ${request.url}`);
+    assert.equal(request.headers["Cache-Control"], "no-store");
+    assert.ok(!JSON.stringify(request.body).includes("endpoint"), "no endpoint override may reach the transport");
+  }
+  // Malformed/foreign scope input is denied before any provider work.
+  const before = dispatched.length;
   const malformed = await ipcMain.handlers.get("harness:select-project-scope")(
     mockEvent(LOCAL_RENDERER_URL),
     { projectScopeId: "SELECT * FROM agent_conversations" },
@@ -708,6 +730,75 @@ test("C3: navigation/session channels stay ROUTE_PROVIDER_UNAVAILABLE with empty
   assert.equal(malformed.status, "denied");
   assert.ok(malformed.error && typeof malformed.error.code === "string");
   assert.equal(malformed.data, null);
+  assert.equal(dispatched.length, before, "malformed scope must never reach a provider");
+  // Unavailable provider is truthful: no fabricated scope/session and never the
+  // pre-binding ROUTE_PROVIDER_UNAVAILABLE sentinel.
+  const failingIpc = mockIpcMain();
+  const failingProvider = mainModule.createRouteProvider({
+    transport: async () => { throw Object.assign(new Error("ECONNREFUSED"), { code: "provider_transport_error" }); },
+  });
+  mainModule.installIpcHandlers({ ipcMain: failingIpc, routeProvider: failingProvider });
+  const unavailable = await failingIpc.handlers.get("harness:new-conversation")(
+    mockEvent(LOCAL_RENDERER_URL),
+    { projectScopeId: "project_scope_alpha" },
+  );
+  assert.equal(unavailable.ok, false, "unavailable provider must not fabricate success");
+  assert.notEqual(unavailable.status, "route_provider_unavailable", "bound provider no longer uses the pre-binding sentinel");
+  assert.equal(unavailable.data, null, "no empty-session claim when the provider is unreachable");
+  assert.ok(!JSON.stringify(unavailable).includes("canonical"), "must never claim canonical history");
+});
+
+test("C4: main normalizes statement_display only when the receipt checksum binding verifies", async () => {
+  assert.ok(mainModule, mainMissing());
+  // The exact approved Phase 61 evidence descriptor; checksum binds query ID,
+  // version, sorted parameter-name set and the display string (same canonical
+  // digest used by the renderer view-model and the Python authority).
+  const QUERY_ID = "conversation.evidence_messages.v1";
+  const VERSION = "1.0.0";
+  const NAMES = ["session_id", "after", "limit"];
+  const DISPLAY = "conversation.evidence_messages.v1(session_id, after, limit)";
+  const makeReceipt = (statement_display, query_checksum) => ({
+    receipt_id: "evidence:0123456789abcdef",
+    database_id: "pi_evidence",
+    source: "canonical",
+    query_id: QUERY_ID,
+    descriptor_version: VERSION,
+    statement_display,
+    parameter_names: [...NAMES],
+    query_checksum,
+    row_count: 2,
+    status: "success",
+    freshness: { source: "canonical", latest_message_timestamp: "2026-08-09T00:00:00.000Z" },
+  });
+  const goodChecksum = digest({
+    query_id: QUERY_ID,
+    version: VERSION,
+    parameter_names: [...NAMES].sort(),
+    statement_display: DISPLAY,
+  });
+
+  const ipcMain = mockIpcMain();
+  const transport = async () => ({ status: 200, body: { ok: true, status: "success", data: { receipts: [makeReceipt(DISPLAY, goodChecksum)] } } });
+  mainModule.installIpcHandlers({ ipcMain, routeProvider: mainModule.createRouteProvider({ transport }) });
+  const okResponse = await ipcMain.handlers.get("harness:conversation-turn")(
+    mockEvent(LOCAL_RENDERER_URL),
+    { conversationId: "conversation_001", text: "Show evidence" },
+  );
+  assert.equal(okResponse.ok, true);
+  assert.equal(okResponse.data.receipts[0].statement_display, DISPLAY, "verified binding keeps the server-derived display");
+
+  // Tampered display with an unchanged checksum must drop the display (never a
+  // raw/physical SQL surface crosses the bridge).
+  const tamperIpc = mockIpcMain();
+  const tamperTransport = async () => ({ status: 200, body: { ok: true, status: "success", data: { receipts: [makeReceipt("SELECT * FROM agent_conversations", goodChecksum)] } } });
+  mainModule.installIpcHandlers({ ipcMain: tamperIpc, routeProvider: mainModule.createRouteProvider({ transport: tamperTransport }) });
+  const tamperedResponse = await tamperIpc.handlers.get("harness:conversation-turn")(
+    mockEvent(LOCAL_RENDERER_URL),
+    { conversationId: "conversation_001", text: "Show evidence" },
+  );
+  assert.equal(tamperedResponse.ok, true);
+  assert.equal(tamperedResponse.data.receipts[0].statement_display, null, "unverified statement_display must not cross the bridge");
+  assert.ok(!JSON.stringify(tamperedResponse).includes("SELECT *"), "raw SQL must never reach the renderer view model");
 });
 
 // Keep the boundary honest: no test here may depend on a live Electron window

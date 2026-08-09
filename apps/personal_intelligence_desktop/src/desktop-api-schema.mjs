@@ -56,6 +56,28 @@ export const CHANNELS = Object.freeze({
 export const ALLOWED_CHANNELS = Object.freeze(Object.keys(CHANNELS));
 export const INTENTS = Object.freeze(Object.values(CHANNELS));
 
+// Fixed provider route identity (Plan 61-11 Task 3): each desktop intent maps
+// to exactly one canonical provider name. The renderer can never select a
+// provider, endpoint or path; this map is the single source of truth that the
+// main-process route map and the preload bridge both bind to.
+export const PROVIDER_ROUTES = Object.freeze({
+  "last-conversation": "conversation.thread.last",
+  "recent-list": "conversation.thread.recent",
+  "conversation-select": "conversation.thread.select",
+  "conversation-new": "conversation.session.create",
+  "project-scope-list": "conversation.project_scopes.list",
+  "project-scope-select": "conversation.project_scope.select",
+  turn: "conversation.turn",
+  cancel: "conversation.cancel",
+  resume: "conversation.resume",
+  reconcile: "conversation.reconcile",
+  review: "candidate.review",
+  "proactive-read": "proactive.state.get",
+  "proactive-controls": "proactive.controls.update",
+  "proactive-dismiss": "proactive.dismiss",
+  "proactive-undo": "proactive.dismiss.undo",
+});
+
 // The only bridge methods preload may expose (one per channel, camelCase).
 export const BRIDGE_METHODS = Object.freeze([
   "getLastConversation",
@@ -528,6 +550,58 @@ export function canonicalJson(value) {
 
 export function digest(value) {
   return createHash("sha256").update(canonicalJson(value)).digest("hex");
+}
+
+// ---------------------------------------------------------------------------
+// Evidence receipt statement_display binding (Plan 61-11 Task 3).
+//
+// `statement_display` is the only display text a controlled-query receipt may
+// carry, and only when the checksum binds the query ID, descriptor version,
+// sorted parameter-name set and the display string itself. The main process
+// re-verifies the binding before any receipt display crosses the bridge; a
+// mismatch drops the display so raw SQL/physical material can never be
+// normalized into a renderer-visible field.
+// ---------------------------------------------------------------------------
+export function verifyEvidenceReceiptBinding(receipt) {
+  if (receipt === null || typeof receipt !== "object" || Array.isArray(receipt)) return false;
+  const version = typeof receipt.version === "string" ? receipt.version : receipt.descriptor_version;
+  if (
+    typeof receipt.query_id !== "string" || typeof version !== "string"
+    || !Array.isArray(receipt.parameter_names)
+    || receipt.parameter_names.some((name) => typeof name !== "string")
+    || typeof receipt.statement_display !== "string"
+    || typeof receipt.query_checksum !== "string"
+  ) {
+    return false;
+  }
+  const expected = digest({
+    query_id: receipt.query_id,
+    version,
+    parameter_names: [...receipt.parameter_names].sort(),
+    statement_display: receipt.statement_display,
+  });
+  return expected === receipt.query_checksum;
+}
+
+/**
+ * Normalize a provider response so every evidence receipt exposes
+ * `statement_display` only when its checksum binding verifies. Returns a deep
+ * safe copy; unverifiable receipts keep their identity fields but drop the
+ * display (never a raw SQL/physical surface).
+ */
+export function normalizeEvidenceReceipts(value) {
+  if (Array.isArray(value)) return value.map(normalizeEvidenceReceipts);
+  if (value === null || typeof value !== "object") return value;
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "statement_display") {
+      // Fail closed: display text only crosses when the receipt binding verifies.
+      out[key] = verifyEvidenceReceiptBinding(value) ? child : null;
+      continue;
+    }
+    out[key] = normalizeEvidenceReceipts(child);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
