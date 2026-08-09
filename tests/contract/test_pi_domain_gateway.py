@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from personal_knowledge.services.pi_domain_gateway import (
@@ -172,3 +174,98 @@ def test_gateway_routes_evidence_success_with_capability_checksum(tmp_path):
     assert data["rows"][0]["message_id"] == "g-1"
     # safe envelope never exposes physical schema or bodies
     assert "canonical_messages" not in str(result).lower()
+
+
+# ---------------------------------------------------------------------------
+# Plan 61-08 Task 1 RED contract: fixed `candidate.review` gateway provider
+# (HARNESS-06 / T-61-REVIEW-01 / T-61-REVIEW-02 / T-61-LEAK-04)
+#
+# The gateway registers exactly one guarded `candidate.review` provider whose
+# allowed field set matches the review request shape
+# {candidate_id, action, expected_version, edited_payload?, edited_payload_checksum?,
+#  explicit_confirmation?, confirmation_token?, conflict_disposition?, feedback_id?,
+#  task_id, binding, idempotency_key} (capability is a loopback header). Private
+# fields, batch/override inputs and wrong capability/binding/idempotency fail
+# closed before any review work.
+# ---------------------------------------------------------------------------
+
+CANDIDATE_REVIEW_OPERATION = "candidate.review"
+
+CANDIDATE_REVIEW_ALLOWED = {
+    "candidate_id", "action", "expected_version", "edited_payload",
+    "edited_payload_checksum", "explicit_confirmation", "confirmation_token",
+    "conflict_disposition", "feedback_id", "task_id", "binding", "idempotency_key",
+}
+
+CANDIDATE_REVIEW_PRIVATE = {
+    "body", "content", "prompt", "completion", "credential", "secret", "sql",
+    "statement", "token", "password", "path",
+}
+
+
+def _candidate_review_params(**overrides) -> dict:
+    params = {
+        "candidate_id": "cand_review_001",
+        "action": "accept",
+        "expected_version": 1,
+        "explicit_confirmation": True,
+        "confirmation_token": "confirm-token-001",
+        "task_id": "t",
+        "idempotency_key": "i",
+        "binding": "b",
+    }
+    params.update(overrides)
+    return params
+
+
+def test_gateway_registers_candidate_review_as_guarded_write():
+    assert CANDIDATE_REVIEW_OPERATION in OPERATIONS, (
+        "RED: PiDomainGateway must register candidate.review (expected for 61-08 Task 1 RED)"
+    )
+    spec = OPERATIONS[CANDIDATE_REVIEW_OPERATION]
+    assert spec["kind"] == "guarded_write", "candidate review is a guarded write, never a read or a raw dispatch"
+    missing = sorted(CANDIDATE_REVIEW_ALLOWED - set(spec["allowed"]))
+    assert not missing, f"RED: candidate.review provider must accept the review shape: missing {missing}"
+    assert not (set(spec["allowed"]) & CANDIDATE_REVIEW_PRIVATE), (
+        "candidate.review must never accept private payload fields"
+    )
+
+
+def test_gateway_candidate_review_fails_closed_on_capability_binding_and_idempotency():
+    if CANDIDATE_REVIEW_OPERATION not in OPERATIONS:
+        pytest.fail(
+            "RED: PiDomainGateway must register candidate.review before capability "
+            "gating can be enforced (expected for 61-08 Task 1 RED)",
+            pytrace=False,
+        )
+    gateway = PiDomainGateway(capability="cap")
+    base = _candidate_review_params()
+    denied = gateway.invoke(CANDIDATE_REVIEW_OPERATION, base, capability="wrong")
+    assert denied["ok"] is False and denied["error"]["code"] == "capability_invalid"
+    no_binding = gateway.invoke(CANDIDATE_REVIEW_OPERATION, {**base, "binding": None}, capability="cap")
+    assert no_binding["error"]["code"] == "binding_required"
+    no_idem = gateway.invoke(CANDIDATE_REVIEW_OPERATION, {**base, "idempotency_key": ""}, capability="cap")
+    assert no_idem["error"]["code"] == "idempotency_key_required"
+
+
+def test_gateway_candidate_review_rejects_undeclared_batch_override_and_private_fields():
+    if CANDIDATE_REVIEW_OPERATION not in OPERATIONS:
+        pytest.fail(
+            "RED: PiDomainGateway must register candidate.review before undeclared "
+            "input gating can be enforced (expected for 61-08 Task 1 RED)",
+            pytrace=False,
+        )
+    gateway = PiDomainGateway(capability="cap")
+    for label, extra in [
+        ("batch accept", {"batch": True}),
+        ("batch candidate ids", {"candidate_ids": ["cand_a", "cand_b"]}),
+        ("provider override", {"provider": "model.wake"}),
+        ("operation override", {"operation": "canonical.promote"}),
+        ("authority override", {"authority": "canonical.promote"}),
+        ("private prompt", {"prompt": "PRIVATE_PROMPT_SENTINEL"}),
+        ("private secret", {"secret": "PRIVATE_SECRET_SENTINEL"}),
+        ("raw path", {"path": "/etc/passwd"}),
+    ]:
+        result = gateway.invoke(CANDIDATE_REVIEW_OPERATION, {**_candidate_review_params(), **extra}, capability="cap")
+        assert result["ok"] is False, f"{label} must fail closed"
+        assert result["error"]["code"] == "undeclared_input", f"{label} must be undeclared_input"

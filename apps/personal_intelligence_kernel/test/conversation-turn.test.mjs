@@ -700,3 +700,168 @@ test("conversation.session.create validates approved scope and creates only empt
     sessions.close(); candidates.close(); tasks.close(); events.close();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Plan 61-08 Task 1 RED contract: fixed Candidate review route
+// (`POST /v1/candidates/review` -> `candidate.review` Gateway binding).
+//
+// The Kernel owns one fixed review route. It validates the exact review request
+// shape, dispatches ONLY `candidate.review` to the bound Gateway bridge (never
+// an arbitrary endpoint/path/provider), and returns a metadata-only receipt
+// envelope. Private/override fields, batch inputs and alternate paths are
+// rejected before dispatch. The user-owned providerMode behavior regression
+// above is untouched by this contract.
+//
+// This test is RED today: the route does not exist (404 route_not_found), so
+// every route expectation below fails pointing at the missing Plan 61-08
+// Task 2 dispatch, never at a syntax error.
+// ---------------------------------------------------------------------------
+
+const CANDIDATE_REVIEW_ROUTE = "/v1/candidates/review";
+
+function sha256Hex(value) {
+  return createHash("sha256").update(String(value)).digest("hex");
+}
+
+function candidateReviewBody(overrides = {}) {
+  return {
+    candidate_id: "cand_review_001",
+    action: "accept",
+    expected_version: 1,
+    explicit_confirmation: true,
+    confirmation_token: "confirm-token-001",
+    task_id: "pi_task_review_001",
+    idempotency_key: "pi-idem-review-001",
+    binding: "pi_kernel_candidate_review",
+    ...overrides,
+  };
+}
+
+/** Gateway double: records every dispatch and mirrors the Python gateway guard. */
+function createReviewBridge(records) {
+  return {
+    async invoke(operation, params) {
+      records.push({ operation, params });
+      if (operation !== "candidate.review") {
+        return { ok: false, status: "error", error: { code: "unknown_operation" } };
+      }
+      const privateField = Object.keys(params || {}).find((key) => /^(?:body|content|prompt|completion|credential|secret|provider|operation|authority|path|sql|batch|candidate_ids)$/i.test(key));
+      if (privateField) {
+        return { ok: false, status: "error", error: { code: "undeclared_input" } };
+      }
+      return {
+        ok: true, status: "success",
+        data: {
+          status: "reviewed",
+          candidate_id: params.candidate_id,
+          candidate_checksum: sha256Hex(params.candidate_id),
+          action: params.action,
+          version: 2,
+          feedback_id: "feedback_review_001",
+          receipt: {
+            receipt_id: "review_receipt_001",
+            receipt_checksum: sha256Hex(`${params.candidate_id}:review`),
+            feedback_id: "feedback_review_001",
+            candidate_id: params.candidate_id,
+            candidate_checksum: sha256Hex(params.candidate_id),
+            metadata_only: true,
+          },
+        },
+      };
+    },
+  };
+}
+
+async function startCandidateReviewServer(t) {
+  const dir = await mkdtemp(join(tmpdir(), "pi-candidate-review-"));
+  const decisionPath = join(dir, "decision.json");
+  await writeFile(decisionPath, JSON.stringify({
+    schema: "pi-package-decision-v1", run_id: PHASE_48_DECISION_RUN_ID,
+    status: "accepted", accepted: true, expiry: "2099-01-01T00:00:00.000Z",
+  }), "utf8");
+  const bridgeCalls = [];
+  const runtime = await startKernelServer({
+    projectRoot: process.cwd(), decisionPath, databasePath: join(dir, "events.sqlite"), controlDatabaseDirectory: dir,
+    cwd: dir, agentDir: join(dir, "agent"), host: "127.0.0.1", port: 0, providerMode: "replay",
+    domainBridge: createReviewBridge(bridgeCalls),
+  });
+  const port = runtime.server.address().port;
+  t.after(async () => { await runtime.stop(100); await rm(dir, { recursive: true, force: true }); });
+  return { port, bridgeCalls };
+}
+
+test("fixed POST /v1/candidates/review maps only to candidate.review through the KernelHost->Gateway binding", async (t) => {
+  const { port, bridgeCalls } = await startCandidateReviewServer(t);
+  const body = candidateReviewBody();
+  const response = await requestJson(port, "POST", CANDIDATE_REVIEW_ROUTE, body);
+  assert.notEqual(response.status, 404, "RED: POST /v1/candidates/review must exist (expected for 61-08 Task 1)");
+  assert.ok([200, 201].includes(response.status), "a safe review success must be a 2xx envelope");
+  assert.equal(response.json.ok, true);
+  const payload = response.json.data ?? response.json;
+  assert.equal(payload.status, "reviewed");
+  assert.equal(payload.candidate_id, body.candidate_id);
+  assert.equal(payload.receipt.feedback_id, "feedback_review_001", "the receipt binds the append-only feedback id");
+  assertNoPrivateLeak(response.json, "candidate review response");
+
+  // The route reaches the bound Gateway bridge exactly once and never another
+  // endpoint/provider: this is a KernelHost/server -> Gateway binding, not a
+  // direct Candidate helper.
+  assert.equal(bridgeCalls.length, 1, "the route must dispatch exactly once to the bound Gateway bridge");
+  assert.equal(bridgeCalls[0].operation, "candidate.review", "the fixed route maps ONLY to candidate.review");
+  assert.equal(bridgeCalls[0].params.candidate_id, body.candidate_id);
+  assert.equal(bridgeCalls[0].params.action, body.action);
+  assert.equal(bridgeCalls[0].params.expected_version, 1);
+  assert.equal(bridgeCalls[0].params.idempotency_key, body.idempotency_key);
+  assert.equal(bridgeCalls[0].params.binding, body.binding);
+  assert.equal(/promot|rollback|watermark|active_pointer/.test(JSON.stringify(response.json)), false,
+    "the review envelope must never claim canonical/promotion authority mutation");
+});
+
+test("candidate review has exactly one fixed route; method/path/provider/private input fail closed", async (t) => {
+  const { port, bridgeCalls } = await startCandidateReviewServer(t);
+  const body = candidateReviewBody();
+
+  // The fixed route is POST-only.
+  const get = await requestJson(port, "GET", CANDIDATE_REVIEW_ROUTE);
+  assert.equal(get.status, 405, "RED: POST /v1/candidates/review must exist and reject other methods (got 404/405)");
+  assert.equal(get.json.error.code, "method_not_allowed");
+
+  // Alternate paths must not exist (one fixed route, no endpoint override).
+  for (const path of ["/v1/candidates/review/extra", "/v1/candidates/accept", "/v1/candidates/ignore", "/v1/review-candidates", "/v1/candidates"]) {
+    const alt = await requestJson(port, "POST", path, body);
+    assert.equal(alt.status, 404, `${path} must be route_not_found`);
+    assert.equal(alt.json.error.code, "route_not_found");
+  }
+
+  // Private/override fields reject before Gateway dispatch (no provider override).
+  const before = bridgeCalls.length;
+  for (const [label, extra] of [
+    ["private prompt", { prompt: SENTINELS.prompt }],
+    ["private secret", { secret: SENTINELS.secret }],
+    ["provider override", { provider: "model.wake" }],
+    ["operation override", { operation: "canonical.promote" }],
+    ["batch accept", { batch: true }],
+  ]) {
+    const rejected = await requestJson(port, "POST", CANDIDATE_REVIEW_ROUTE, { ...body, ...extra });
+    assert.equal(rejected.status, 400, `${label} must be rejected by the fixed route (got ${rejected.status})`);
+    assert.equal(rejected.json.ok, false);
+    assertNoPrivateLeak(rejected.json, `${label} rejection`);
+    assert.equal(rejected.text.includes(SENTINELS.prompt), false, `${label} must never leak request text`);
+  }
+  assert.equal(bridgeCalls.length, before, "private/override fields must never reach the Gateway bridge");
+});
+
+test("candidate review route rejects missing and malformed request bodies safely", async (t) => {
+  const { port, bridgeCalls } = await startCandidateReviewServer(t);
+
+  const noBody = await requestJson(port, "POST", CANDIDATE_REVIEW_ROUTE);
+  assert.equal(noBody.status, 400, "RED: POST /v1/candidates/review must exist and reject missing bodies (got 404/400)");
+  assert.equal(noBody.json.ok, false);
+  assertNoPrivateLeak(noBody.json, "missing body rejection");
+
+  const incomplete = await requestJson(port, "POST", CANDIDATE_REVIEW_ROUTE, { action: "accept" });
+  assert.equal(incomplete.status, 400, "an incomplete review request must fail closed");
+  assert.equal(incomplete.json.ok, false);
+
+  assert.equal(bridgeCalls.length, 0, "a malformed review must never reach the Gateway bridge");
+});
