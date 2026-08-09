@@ -228,14 +228,23 @@ def _make_service(
     )
 
 
-def _walk_private(node, path, errors):
+def _walk_private(node, path, errors, *, check_display_markers=True):
     if node is None:
         return
     if isinstance(node, dict):
         for key, value in node.items():
             if any(fragment in key.lower() for fragment in FORBIDDEN_KEYS):
                 errors.append(f"forbidden key {key!r} at {path}")
-            _walk_private(value, f"{path}.{key}", errors)
+            # display_text is the one field whose value legitimately holds
+            # normalized display text inside the selected-thread view. Skip the
+            # DISPLAY_MARKERS check for that value only; forbidden-key and
+            # sentinel checks below still apply everywhere.
+            _walk_private(
+                value,
+                f"{path}.{key}",
+                errors,
+                check_display_markers=key != "display_text",
+            )
     elif isinstance(node, list):
         for index, value in enumerate(node):
             _walk_private(value, f"{path}[{index}]", errors)
@@ -243,9 +252,10 @@ def _walk_private(node, path, errors):
         for name, sentinel in SENTINELS.items():
             if sentinel in node:
                 errors.append(f"sentinel {name!r} leaked at {path}")
-        for marker in DISPLAY_MARKERS:
-            if marker in node:
-                errors.append(f"display text marker leaked at {path}: {marker!r}")
+        if check_display_markers:
+            for marker in DISPLAY_MARKERS:
+                if marker in node:
+                    errors.append(f"display text marker leaked at {path}: {marker!r}")
 
 
 def _assert_no_private(value, label: str) -> None:

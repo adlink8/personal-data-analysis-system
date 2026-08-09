@@ -160,6 +160,7 @@ def _project(source_facts: dict, canonical_facts: dict) -> object:
     canonical_backlog = 3 if canonical_facts["status"] == "backlog_pending" else 0
     return project_freshness(
         source_probe=source_probe,
+        canonical_probe=canonical_probe,
         source_watermark=source_watermark,
         source_backlog=source_backlog,
         canonical_watermark=canonical_watermark,
@@ -248,15 +249,15 @@ def test_scalar_current_is_forbidden_when_any_leg_lacks_proof():
     combos = [
         ({"status": "stale"}, {"status": "current"}),
         ({"status": "current"}, {"status": "stale"}),
-        ({"status": "unknown"}, {"status": "current"}),
-        ({"status": "current"}, {"status": "unknown"}),
+        ({"status": "unknown", "probe_ok": False}, {"status": "current"}),
+        ({"status": "current"}, {"status": "unknown", "probe_ok": False}),
         ({"status": "missing_watermark"}, {"status": "current"}),
         ({"status": "current"}, {"status": "missing_watermark"}),
         ({"status": "backlog_pending"}, {"status": "current"}),
         ({"status": "current"}, {"status": "backlog_pending"}),
-        ({"status": "unknown"}, {"status": "stale"}),
+        ({"status": "unknown", "probe_ok": False}, {"status": "stale"}),
         ({"status": "stale"}, {"status": "backlog_pending"}),
-        ({"status": "missing_watermark"}, {"status": "unknown"}),
+        ({"status": "missing_watermark"}, {"status": "unknown", "probe_ok": False}),
     ]
     for source_facts, canonical_facts in combos:
         dual = _project(source_facts, canonical_facts)
@@ -287,7 +288,7 @@ def test_stale_leg_has_own_status_and_limitation():
 
 def test_unknown_leg_has_own_status_and_limitation():
     """A failed source probe yields an unknown leg, never current."""
-    dual = _project({"status": "unknown"}, {"status": "current"})
+    dual = _project({"status": "unknown", "probe_ok": False}, {"status": "current"})
     source_leg = _leg(dual, "source_to_agentsview")
     assert source_leg.status == "unknown"
     assert "unknown" in source_leg.limitation.lower(), "unknown limitation must name the unknown state"
@@ -318,7 +319,7 @@ def test_all_four_states_are_distinct_statuses():
     """stale/unknown/missing_watermark/backlog_pending are four distinct statuses."""
     states = {
         _project({"status": "current"}, {"status": "stale"}).overall_status,
-        _project({"status": "unknown"}, {"status": "current"}).overall_status,
+        _project({"status": "unknown", "probe_ok": False}, {"status": "current"}).overall_status,
         _project({"status": "missing_watermark"}, {"status": "current"}).overall_status,
         _project({"status": "current"}, {"status": "backlog_pending"}).overall_status,
     }
@@ -337,7 +338,7 @@ def test_freshness_is_metadata_only_no_sentinels_or_forbidden_keys():
 
 def test_probe_failure_is_not_an_exception_but_an_unknown_leg():
     """A broken source probe must surface as a safe unknown leg, not a crash."""
-    dual = _project({"status": "unknown"}, {"status": "current"})
+    dual = _project({"status": "unknown", "probe_ok": False}, {"status": "current"})
     assert dual.overall_status == "unknown"
     _assert_metadata_only(dual.to_dict())
 
@@ -347,7 +348,7 @@ def test_limitation_is_a_string_for_every_state():
     for source_facts, canonical_facts in [
         ({"status": "current"}, {"status": "current"}),
         ({"status": "current"}, {"status": "stale"}),
-        ({"status": "unknown"}, {"status": "current"}),
+        ({"status": "unknown", "probe_ok": False}, {"status": "current"}),
         ({"status": "current"}, {"status": "missing_watermark"}),
         ({"status": "current"}, {"status": "backlog_pending"}),
     ]:
