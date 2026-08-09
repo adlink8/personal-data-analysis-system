@@ -439,7 +439,7 @@ FTS5 虚表 + 同步触发器（保留 LIKE 滑窗片段路给 code-literal 长�
 启动预热 embedding 模型与 Chroma 连接，消除 p95 冷启动尾部（实测 2,082ms vs
 稳态 25–150ms）。
 **Requirements:** TBD
-**Plans:** 0 plans
+**Plans:** 12 plans
 
 ### Phase 999.3: 治理与架构例外收口 (BACKLOG)
 
@@ -485,7 +485,7 @@ v1.5 的详细契约和背景仍保留在 [`future-milestones/v1.5-personal-know
 **Goal:** Deliver a local conversation-first desktop Walking Skeleton that uses the real Pi Agent tool loop, existing governed Skills/Tools, bounded read-only SQLite evidence access, and one end-to-end evidence-to-Candidate-to-personal-model reflection path.
 **Requirements**: HARNESS-01, HARNESS-02, HARNESS-03, HARNESS-04, HARNESS-05, HARNESS-06, HARNESS-07, HARNESS-08
 **Depends on:** Phases 55, 58, and 59; Phase 60 primary activation is not required
-**Plans:** 0 plans
+**Plans:** 12 plans
 
 Plans:
 - [ ] 61-01-PLAN.md — Electron package qualification and blocking approval record
@@ -496,9 +496,10 @@ Plans:
 - [ ] 61-06-PLAN.md — post-commit canonical event publisher and durable dispatcher
 - [ ] 61-07-PLAN.md — evidence-bound reflection Candidate and deterministic proactive adapter
 - [ ] 61-08-PLAN.md — guarded Candidate review fixed route
-- [ ] 61-09-PLAN.md — versioned projection, next-turn injection and proactive routes
-- [ ] 61-10-PLAN.md — conversation-first renderer, bridge binding and command palette
-- [ ] 61-11-PLAN.md — regression aggregation and six-step Electron UAT
+- [ ] 61-09-PLAN.md — versioned projection and governed next-turn injection
+- [ ] 61-10-PLAN.md — fixed deterministic proactive control/read/dismiss/undo routes
+- [ ] 61-11-PLAN.md — conversation-first renderer, provider bridge binding and controlled-query display
+- [ ] 61-12-PLAN.md — regression aggregation and six-step Electron UAT
 
 ---
 *Updated 2026-08-05 after consolidating the Capability OS on the Pi SDK Kernel and removing the Local Pi Agent; real activation remains explicitly gated*
