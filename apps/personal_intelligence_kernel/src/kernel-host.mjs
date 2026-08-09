@@ -28,6 +28,18 @@ export const RESOURCE_POLICY_VERSION = "pi_resource_policy_v1_exact";
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/_-]{0,255}$/;
 const MAX_PROMPT_BYTES = 48 * 1024;
 
+// Plan 61-08: the fixed candidate.review route accepts exactly the review
+// request shape (capability is the loopback transport header). Private payload
+// fields, provider/operation/authority overrides, batch inputs and alternate
+// paths fail before Gateway dispatch so no endpoint/path/provider bypass is
+// possible (T-61-REVIEW-02).
+const CANDIDATE_REVIEW_ACTIONS = new Set(["accept", "edit", "ignore", "undo"]);
+const CANDIDATE_REVIEW_ALLOWED_FIELDS = new Set([
+  "candidate_id", "action", "expected_version", "edited_payload",
+  "edited_payload_checksum", "explicit_confirmation", "confirmation_token",
+  "conflict_disposition", "feedback_id", "task_id", "binding", "idempotency_key",
+]);
+
 export class KernelHostError extends Error {
   constructor(code, message = code) {
     super(message);
@@ -603,6 +615,30 @@ export class KernelHost {
       if (error instanceof SessionServiceError) throw safeError(error.code);
       throw error;
     }
+  }
+
+  /**
+   * Fixed `candidate.review` binding (Plan 61-08 / HARNESS-06): field-level
+   * validate the exact review request shape, then dispatch ONLY
+   * `candidate.review` to the bound Gateway bridge. Private/override/batch
+   * fields are rejected before dispatch so the bridge is never reached with
+   * an endpoint/path/provider override; the returned envelope is metadata-only
+   * and never journals a canonical/promotion/rollback claim.
+   */
+  async reviewCandidate(payload = {}) {
+    if (!this.domainBridge) throw safeError("domain_unavailable");
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw safeError("review_request_invalid");
+    for (const key of Object.keys(payload)) {
+      if (!CANDIDATE_REVIEW_ALLOWED_FIELDS.has(key)) throw safeError("undeclared_input");
+    }
+    if (typeof payload.candidate_id !== "string" || !payload.candidate_id) throw safeError("review_request_invalid");
+    if (!CANDIDATE_REVIEW_ACTIONS.has(payload.action)) throw safeError("action_unknown");
+    if (!Number.isInteger(payload.expected_version) || payload.expected_version < 1) throw safeError("review_request_invalid");
+    if (typeof payload.idempotency_key !== "string" || !payload.idempotency_key) throw safeError("idempotency_key_required");
+    if (payload.binding === null || payload.binding === undefined || (typeof payload.binding !== "string" && typeof payload.binding !== "object")) throw safeError("binding_required");
+    const result = await this.domainBridge.invoke("candidate.review", payload);
+    if (result?.ok !== true) throw safeError(result?.error?.code ?? "domain_unavailable");
+    return { ok: true, ...(result.data ?? result) };
   }
 
   async listen() {

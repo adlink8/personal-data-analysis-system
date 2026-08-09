@@ -67,6 +67,18 @@ REFLECTION_STAGE_OPERATION = "conversation.reflection.stage"
 # Default metadata-only reflection ledger used by the gateway-provider path.
 DEFAULT_REFLECTION_DB = ROOT / "var" / "db" / "conversation_reflection.sqlite"
 
+# Plan 61-08: the fixed guarded Candidate review provider (HARNESS-06). The
+# exact request shape is {candidate_id, action, expected_version,
+# edited_payload?, edited_payload_checksum?, explicit_confirmation?,
+# confirmation_token?, conflict_disposition?, feedback_id?, task_id, binding,
+# idempotency_key}; ``capability`` is the loopback header and never a declared
+# parameter. Private payload fields, batch inputs and provider/operation/
+# authority overrides can never enter this map.
+CANDIDATE_REVIEW_OPERATION = "candidate.review"
+
+# Default metadata-only review ledger used by the gateway-provider path.
+DEFAULT_CANDIDATE_REVIEW_DB = ROOT / "var" / "db" / "candidate_review.sqlite"
+
 OPERATIONS: dict[str, dict[str, Any]] = {
     "domain.inspect": {"kind": "read", "allowed": {"task_id", "idempotency_key", "binding"}, "privacy": "R1"},
     "domain.candidate": {"kind": "read", "allowed": {"task_id", "idempotency_key", "binding", "evidence_refs", "proposal"}, "privacy": "R1"},
@@ -78,6 +90,16 @@ OPERATIONS: dict[str, dict[str, Any]] = {
             "event_id", "canonical_checksum", "watermark", "source", "snapshot",
             "freshness", "rule_version", "scope", "publication_version", "occurred_at",
             "task_id", "idempotency_key", "binding",
+        },
+        "privacy": "R2",
+    },
+    CANDIDATE_REVIEW_OPERATION: {
+        "kind": "guarded_write",
+        "allowed": {
+            "candidate_id", "action", "expected_version", "edited_payload",
+            "edited_payload_checksum", "explicit_confirmation", "confirmation_token",
+            "conflict_disposition", "feedback_id", "task_id", "idempotency_key",
+            "binding",
         },
         "privacy": "R2",
     },
@@ -149,7 +171,8 @@ class PiDomainGateway:
                  retrieval_tools: RetrievalMaintenanceTools | None = None,
                  snapshot_tools: SnapshotReleaseTools | None = None,
                  evidence_tool: EvidenceSqliteTool | None = None,
-                 reflection_adapter=None, reflection_db: Path | str | None = None) -> None:
+                 reflection_adapter=None, reflection_db: Path | str | None = None,
+                 review_adapter=None, review_db: Path | str | None = None) -> None:
         self.service = service
         self.capability = capability or os.environ.get("PI_DOMAIN_CAPABILITY", DEFAULT_CAPABILITY)
         self.read_handler = read_handler
@@ -161,6 +184,8 @@ class PiDomainGateway:
         self.evidence_tool = evidence_tool
         self.reflection_adapter = reflection_adapter
         self.reflection_db = reflection_db
+        self.review_adapter = review_adapter
+        self.review_db = review_db
 
     def _check(self, operation: str, params: Mapping[str, Any], capability: str | None) -> None:
         canonical = canonical_project_operation(operation)
@@ -243,6 +268,24 @@ class PiDomainGateway:
                 if isinstance(data, dict):
                     data["capability_checksum"] = spec.get("checksum")
                 return _ok(canonical, data)
+            if canonical == CANDIDATE_REVIEW_OPERATION:
+                # Explicit guarded review provider only: the adapter validates
+                # candidate/version/action/edit-checksum/confirmation/token/
+                # conflict-disposition/idempotency and returns one safe no-store
+                # review state. Never a promotion/rollback/canonical route and
+                # never a dynamic callable name.
+                from personal_knowledge.application.conversation.harness_candidate_review import (
+                    DEFAULT_CANDIDATE_REVIEW_DB,
+                    HarnessCandidateReviewAdapter,
+                )
+                adapter = self.review_adapter
+                if adapter is None:
+                    db = self.review_db or DEFAULT_CANDIDATE_REVIEW_DB
+                    adapter = HarnessCandidateReviewAdapter(db_path=db)
+                data = adapter.review(**dict(params))
+                if isinstance(data, dict):
+                    data["capability_checksum"] = spec.get("checksum")
+                return _ok(canonical, data)
             if spec["kind"] == "read":
                 if self.read_handler is not None:
                     return _ok(canonical, self.read_handler(canonical, params))
@@ -272,4 +315,4 @@ class PiDomainGateway:
 def invoke_pi_domain(operation: str, params: Mapping[str, Any] | None = None, *, capability: str | None = None, service=None) -> dict[str, Any]:
     return PiDomainGateway(service=service).invoke(operation, params, capability=capability)
 
-__all__ = ["OPERATIONS", "PROJECT_OPERATIONS", "PROJECT_ALIASES", "PI_DOMAIN_GATEWAY_SCHEMA", "PI_DOMAIN_CAPABILITY_HEADER", "PiDomainGateway", "PiDomainGatewayError", "canonical_project_operation", "invoke_pi_domain"]
+__all__ = ["OPERATIONS", "PROJECT_OPERATIONS", "PROJECT_ALIASES", "PI_DOMAIN_GATEWAY_SCHEMA", "PI_DOMAIN_CAPABILITY_HEADER", "CANDIDATE_REVIEW_OPERATION", "PiDomainGateway", "PiDomainGatewayError", "canonical_project_operation", "invoke_pi_domain"]

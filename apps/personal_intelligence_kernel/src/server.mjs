@@ -25,6 +25,7 @@ export const ALLOWED_ROUTES = Object.freeze([
   "POST /v1/conversations/cancel",
   "POST /v1/conversations/resume",
   "POST /v1/conversations/reconcile",
+  "POST /v1/candidates/review",
 ]);
 export const MAX_EVENT_BODY_BYTES = 64 * 1024;
 export const SAFE_ERROR_CODES = Object.freeze([
@@ -85,6 +86,10 @@ export const SAFE_ERROR_CODES = Object.freeze([
   "non_loopback_bind",
   "invalid_port",
   "internal_error",
+  "undeclared_input",
+  "idempotency_key_required",
+  "action_unknown",
+  "review_request_invalid",
 ]);
 
 function safeCode(error, fallback = "internal_error") {
@@ -348,6 +353,15 @@ function attachRequestHandler(host, options) {
         sendJson(response, 200, { ok: true, ...result });
         return;
       }
+      if (route === "POST /v1/candidates/review") {
+        // Plan 61-08: one fixed review route mapped ONLY to candidate.review.
+        // Field-level validation in KernelHost.reviewCandidate rejects private/
+        // override/batch inputs before the bound Gateway bridge is dispatched.
+        const body = await readBoundedJson(request);
+        const result = await host.reviewCandidate(body);
+        sendJson(response, 200, { ok: true, ...result });
+        return;
+      }
       if (request.method === "GET" && url.pathname.startsWith("/v1/tasks/")) {
         const taskId = url.pathname.slice("/v1/tasks/".length);
         const task = host.taskLedger.get(taskId);
@@ -397,7 +411,7 @@ function attachRequestHandler(host, options) {
         });
         return;
       }
-      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/skills", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates", "/internal/v1/conversation-deltas", "/v1/conversations/turn", "/v1/conversations/session", "/v1/conversations/cancel", "/v1/conversations/resume", "/v1/conversations/reconcile"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/") || url.pathname.startsWith("/v1/conversations/");
+      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/skills", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates", "/internal/v1/conversation-deltas", "/v1/conversations/turn", "/v1/conversations/session", "/v1/conversations/cancel", "/v1/conversations/resume", "/v1/conversations/reconcile", "/v1/candidates/review"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/") || url.pathname.startsWith("/v1/conversations/");
       sendSafeError(response, samePath ? 405 : 404, samePath ? "method_not_allowed" : "route_not_found");
     } catch (error) {
       const code = safeCode(error);
