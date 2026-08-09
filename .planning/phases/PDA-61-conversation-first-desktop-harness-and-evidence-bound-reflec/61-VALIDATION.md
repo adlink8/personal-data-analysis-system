@@ -44,9 +44,9 @@ created: 2026-08-09
 | HARNESS-02 | T61-AGENT-01 | One `session.prompt()` turn leases only Skill tools, observes Tool receipts, and settles without a second outer loop | Kernel integration | `node --test apps/personal_intelligence_kernel/test/conversation-turn.test.mjs` | ❌ W0 | ⬜ pending |
 | HARNESS-03 | T61-SQL-01 | Approved descriptor queries succeed; mutation, scope escape, unsafe PRAGMA, ATTACH, extension, multi-statement, and excessive output fail closed with invariant fingerprints | Python unit/integration | `python -m pytest -q tests/unit/test_evidence_sqlite_tool.py tests/integration/test_evidence_sqlite_tool.py` | ❌ W0 | ⬜ pending |
 | HARNESS-04 | T61-FRESH-01 | Both source-to-AgentView and AgentView-to-canonical freshness/backlog are returned; stale/unknown is never labelled current | Python contract | `python -m pytest -q tests/contract/test_harness_freshness.py` | ❌ W0 | ⬜ pending |
-| HARNESS-05 | T61-REFLECT-01 | Same canonical delta and rule version deduplicate; Candidate retains evidence, conflict, time, confidence, and receipt | Python integration | `python -m pytest -q tests/integration/test_harness_reflection.py` | ❌ W0 | ⬜ pending |
-| HARNESS-06 | T61-REVIEW-01 | Accept/edit/ignore validate version and confirmation; no direct authority mutation; feedback is append-only | Python contract + desktop UAT | `python -m pytest -q tests/contract/test_harness_candidate_review.py` | ❌ W0 | ⬜ pending |
-| HARNESS-07 | T61-PROJ-01 | Accepted content becomes a versioned derived projection with provenance, freshness, confidence, time and conflict; generated draft never becomes fact | Python unit/integration | `python -m pytest -q tests/unit/test_personal_state_projection.py tests/integration/test_harness_projection.py` | ⚠ partial/W0 | ⬜ pending |
+| HARNESS-05 | T61-REFLECT-01 | The real committed canonical sync/close path publishes `conversation.delta.committed`; durable EventJournal cursor/replay reaches one evidence-bound Candidate and never a direct handler | Kernel + Python integration | `node --test apps/personal_intelligence_kernel/test/conversation-delta-reflection.test.mjs && python -m pytest -q tests/integration/test_harness_reflection.py` | ❌ W0 | ⬜ pending |
+| HARNESS-06 | T61-REVIEW-01 | Fixed `candidate.review` validates version/action/edit checksum/confirmation/binding/idempotency; no direct authority mutation; feedback is append-only | Kernel/Python contract + desktop UAT | `node --test apps/personal_intelligence_kernel/test/conversation-turn.test.mjs && python -m pytest -q tests/contract/test_harness_candidate_review.py tests/contract/test_pi_domain_gateway.py` | ❌ W0 | ⬜ pending |
+| HARNESS-07 | T61-PROJ-01 | Fixed `personal.model_projection.get` returns only approved derived versions; a later `conversation.turn` injects only current compatible projection provenance/freshness/confidence/time/conflict, never a draft/ignored Candidate | Kernel/Python unit/integration | `node --test apps/personal_intelligence_kernel/test/conversation-turn.test.mjs && python -m pytest -q tests/unit/test_personal_state_projection.py tests/integration/test_harness_projection.py` | ⚠ partial/W0 | ⬜ pending |
 | HARNESS-08 | T61-PRIV-01 | No raw IPC/endpoint escape, secret/body leakage, false cancel/reconcile success, or unauthorized authority change | Node/Python integration + desktop UAT | `node --test apps/personal_intelligence_desktop/test/*.test.mjs` and `python -m pytest -q tests/integration/test_pi_kernel_events.py` | ⚠ partial/W0 | ⬜ pending |
 
 *Plan/task IDs will be bound to these requirement rows after PLAN.md generation.*
@@ -56,11 +56,14 @@ created: 2026-08-09
 ## Required Negative and Invariant Tests
 
 - Assert a real conversation route calls `AgentSession.prompt()` and observes Tool-call/result plus final settled/idle state; a provider-only or fixed `SkillEngine.run()` path must fail the acceptance test.
+- Assert the canonical event test enters via the real post-commit sync/close publisher, not `harness_reflection` directly; a dry-run, missing/changed committed checksum/watermark, failed subscriber dispatch or divergent replay cannot advance the reflection cursor or create a Candidate.
 - Refuse every Tool proposal outside the active Skill lease before bridge dispatch and again at the Python gateway; the default Conversation profile exposes no mutation, promotion, activation, or rollback Tool.
 - Fingerprint every authority database and active pointer before and after SQLite read, rejection, timeout, cancel, ignored Candidate, and failed confirmation. Only the intended append-only Candidate/feedback/projection stores may change after confirmed acceptance.
 - Use sentinel secrets and raw-body fixtures to scan main/preload/renderer responses, logs, receipts, Task/Session/Event storage, and screenshots for body, prompt, completion, credential, token, and secret leakage.
 - Assert Electron `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`, restrictive CSP, denied navigation/new-window, sender validation, and no raw `ipcRenderer` export.
 - Preserve the user's existing non-default provider-mode behavior in `apps/personal_intelligence_kernel/src/kernel-host.mjs` with a regression test before changing the conversation path.
+- Assert `candidate.review` and `personal.model_projection.get` have fixed Kernel→Gateway→Python provider bindings; reject endpoint override, stale version, edit checksum mismatch, missing confirmation/binding/idempotency/capability, draft/ignored Candidate selection, stale/foreign projection context and private-field leakage. Assert the next real turn receives only an approved projection through the governed context builder.
+- Assert Ctrl/Cmd+K opens only `receipt.open` and `proactive.manage`; unknown command/payload is rejected, Esc closes the palette before drawers/modals, and focus returns to its trigger.
 
 ---
 
@@ -72,6 +75,7 @@ created: 2026-08-09
 - [ ] `tests/integration/test_evidence_sqlite_tool.py` — read-only SQLite, limits, timeout, negative statements, and authority fingerprint cases.
 - [ ] `tests/contract/test_harness_freshness.py` — two-hop AgentView/canonical freshness contract.
 - [ ] `tests/integration/test_harness_reflection.py` — deterministic delta trigger, evidence binding, deduplication, and Candidate schema.
+- [ ] `apps/personal_intelligence_kernel/test/conversation-delta-reflection.test.mjs` — actual committed publisher, durable EventJournal replay/cursor, failed-dispatch retry and no direct-handler shortcut.
 - [ ] `tests/contract/test_harness_candidate_review.py` — accept/edit/ignore, version/confirmation, receipts, and append-only feedback.
 - [ ] `tests/integration/test_harness_projection.py` — accepted Candidate to versioned projection and next-turn retrieval.
 - [ ] Redacted deterministic fixture package and desktop UAT record template; fixtures must not use live `data/` or `var/` personal bodies.
@@ -92,10 +96,10 @@ created: 2026-08-09
 ## Desktop UAT Sequence
 
 1. Start approved non-production fixture/replay dependencies and open the Electron app; confirm last-conversation restore or declared empty state without a browser.
-2. Submit the fixed historical/project prompt; observe one read-only Skill, collapsed Tool row, evidence-bound answer, and expandable receipt with no raw trace/body.
+2. Submit the fixed historical/project prompt; observe one read-only Skill, collapsed Tool row, evidence-bound answer, and expandable receipt with no raw trace/body. Open Ctrl/Cmd+K and verify it offers only `receipt.open` and `proactive.manage`; verify Esc returns focus to the invoking control.
 3. Open the SQLite evidence card; verify database identity, checksum, both freshness legs, limits/truncation, and safe empty/rejected copy; prove fingerprint stability.
-4. Emit the same canonical conversation-delta fixture twice; verify exactly one inline Candidate with evidence, conflict, time, confidence, and receipt.
-5. Exercise edit then explicit accept, and ignore then undo; verify accepted content appears only as a versioned derived projection in the next turn.
+4. Enter through the committed canonical sync/close fixture publisher and replay the same `conversation.delta.committed` event twice; verify exactly one inline Candidate with event/checksum/watermark evidence, conflict, time, confidence, and receipt.
+5. Exercise edit then explicit accept, and ignore then undo through the fixed review bridge; verify accepted content appears only as a versioned derived projection in the next turn through `personal.model_projection.get`, while a draft/ignored Candidate never enters context.
 6. Exercise cancel and `outcome_unknown` reconciliation; verify neither is presented as success and no unauthorized write is claimed.
 
 ---
