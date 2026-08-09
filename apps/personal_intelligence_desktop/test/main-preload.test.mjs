@@ -604,5 +604,111 @@ test("B9: preload bridge methods parse through the schema and invoke only fixed 
   assert.equal(ipcRenderer.calls.length, before, "no IPC may fire for malformed input");
 });
 
+// ===========================================================================
+// C. Three navigation/session actions (Plan 61-11 Task 1 RED contract).
+//    The desktop maps listProjectScopes -> conversation.project_scopes.list,
+//    selectProjectScope -> conversation.project_scope.select, and
+//    newConversation -> conversation.session.create. Before Plan 61-11 Task 3
+//    binds real providers these channels keep the truthful
+//    ROUTE_PROVIDER_UNAVAILABLE envelope with empty data (never a fabricated
+//    scope/session), and unknown/foreign/stale inputs fail closed.
+// ===========================================================================
+
+test("C1: three navigation/session actions map to fixed intents and fixed preload channels", () => {
+  assert.equal(CHANNELS["harness:project-scopes"], "project-scope-list");
+  assert.equal(CHANNELS["harness:select-project-scope"], "project-scope-select");
+  assert.equal(CHANNELS["harness:new-conversation"], "conversation-new");
+  // The provider intents are the exact named Plan 61-05 contracts.
+  const projectScopeListIntent = INTENTS.includes("project-scope-list");
+  const projectScopeSelectIntent = INTENTS.includes("project-scope-select");
+  const conversationNewIntent = INTENTS.includes("conversation-new");
+  assert.ok(projectScopeListIntent && projectScopeSelectIntent && conversationNewIntent);
+
+  assert.ok(preloadModule, preloadMissing());
+  const ipcRenderer = mockIpcRenderer();
+  const bridge = preloadModule.buildBridge(ipcRenderer);
+  bridge.listProjectScopes();
+  bridge.selectProjectScope({ projectScopeId: "project_scope_alpha" });
+  bridge.newConversation({ projectScopeId: "project_scope_alpha" });
+  assert.deepEqual(ipcRenderer.calls.map((call) => call.channel), [
+    "harness:project-scopes",
+    "harness:select-project-scope",
+    "harness:new-conversation",
+  ]);
+  // The parsed values carry the fixed named intent, never a generic channel.
+  const [list, select, create] = ipcRenderer.calls.map((call) => call.value);
+  assert.equal(list.schema, DESKTOP_API_SCHEMA);
+  assert.equal(list.intent, "project-scope-list");
+  assert.equal(select.intent, "project-scope-select");
+  assert.equal(select.projectScopeId, "project_scope_alpha");
+  assert.equal(create.intent, "conversation-new");
+  assert.equal(create.projectScopeId, "project_scope_alpha");
+  assert.equal(create.conversationId, undefined, "new conversation must not carry a canonical conversationId");
+});
+
+test("C2: unknown/foreign/stale scope inputs are rejected or stay truthful", () => {
+  // Unknown scope namespace is invalid at the schema boundary.
+  assert.throws(
+    () => parseDesktopInput("harness:select-project-scope", { projectScopeId: "not-a-scope" }),
+    (e) => e.code === "invalid_id",
+  );
+  assert.throws(
+    () => parseDesktopInput("harness:new-conversation", { projectScopeId: "https://evil.example/scope" }),
+    (e) => e.code === "invalid_id",
+  );
+  // Foreign scope = syntactically valid but not owned by the current scope.
+  assert.throws(
+    () => assertScopedId("project_scope_999", "project-scope", { allowlist: new Set(["project_scope_alpha"]) }),
+    (e) => e.code === "foreign_id",
+  );
+  assert.doesNotThrow(() => assertScopedId("project_scope_alpha", "project-scope", { allowlist: new Set(["project_scope_alpha"]) }));
+  // Endpoint/path/secret overrides in scope/session actions are rejected.
+  for (const [channel, payload] of [
+    ["harness:select-project-scope", { projectScopeId: "project_scope_alpha", endpoint: "http://127.0.0.1:1/x" }],
+    ["harness:new-conversation", { projectScopeId: "project_scope_alpha", url: "https://evil.example" }],
+    ["harness:project-scopes", { provider: "attacker" }],
+  ]) {
+    assert.throws(() => parseDesktopInput(channel, payload), (e) => e.code === "unknown_key");
+  }
+  // A stale/denied scope envelope can never normalize to success.
+  for (const status of ["stale", "denied", "route_provider_unavailable", "outcome_unknown"]) {
+    const envelope = toSafeEnvelope({ ok: false, status, error: { code: status } });
+    assert.equal(envelope.ok, false, `${status} must never normalize to success`);
+    assert.equal(envelope.status, status);
+    assert.equal(envelope.data, null, `no data may ride a ${status} scope envelope`);
+  }
+});
+
+test("C3: navigation/session channels stay ROUTE_PROVIDER_UNAVAILABLE with empty data until providers bind", async () => {
+  assert.ok(mainModule, mainMissing());
+  const ipcMain = mockIpcMain();
+  mainModule.installIpcHandlers({ ipcMain, routeProvider: null });
+  const cases = [
+    ["harness:project-scopes", {}],
+    ["harness:select-project-scope", { projectScopeId: "project_scope_alpha" }],
+    ["harness:new-conversation", { projectScopeId: "project_scope_alpha" }],
+  ];
+  for (const [channel, payload] of cases) {
+    const handler = ipcMain.handlers.get(channel);
+    assert.equal(typeof handler, "function", `${channel} must be registered`);
+    const response = await handler(mockEvent(LOCAL_RENDERER_URL), payload);
+    assert.equal(response.ok, false, `${channel} must not fabricate a scope/session before providers bind`);
+    assert.equal(response.status, "route_provider_unavailable");
+    assert.equal(response.error.code, "ROUTE_PROVIDER_UNAVAILABLE");
+    assert.equal(response.data, null, `${channel} must carry no empty-session/scope claim`);
+    assert.ok(!JSON.stringify(response).includes("canonical"), `${channel} must never claim canonical history`);
+  }
+  // Malformed/foreign scope input on these channels is denied before any
+  // provider work (no ROUTE_PROVIDER_UNAVAILABLE masking for schema errors).
+  const malformed = await ipcMain.handlers.get("harness:select-project-scope")(
+    mockEvent(LOCAL_RENDERER_URL),
+    { projectScopeId: "SELECT * FROM agent_conversations" },
+  );
+  assert.equal(malformed.ok, false);
+  assert.equal(malformed.status, "denied");
+  assert.ok(malformed.error && typeof malformed.error.code === "string");
+  assert.equal(malformed.data, null);
+});
+
 // Keep the boundary honest: no test here may depend on a live Electron window
 // or a network provider; the whole file must finish well under 60 seconds.
