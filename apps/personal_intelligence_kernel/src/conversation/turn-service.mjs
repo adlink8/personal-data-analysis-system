@@ -68,6 +68,73 @@ async function waitForIdleWithinBudget(waitForIdle, timeoutMs) {
 }
 
 /**
+ * Plan 61-09 (HARNESS-07): governed pre-prompt projection context builder.
+ *
+ * Calls the fixed `personal.model_projection.get` provider with the turn's
+ * scope/binding and injects ONLY compatible current derived/correctable context
+ * (status current|uncertain) before `AgentSession.prompt`. Stale, conflicting,
+ * unknown, empty, foreign-scope or version-less results are omitted with a
+ * limitation in the receipt and are never presented as current truth. The
+ * receipt always carries the projection version/freshness/limitations for an
+ * injected projection and only limitations for an omission.
+ */
+function buildProjectionContext({ scope, binding, modelProjectionProvider }) {
+  if (!scope || !binding || typeof modelProjectionProvider !== "function") {
+    return { injected: [], receipt: null };
+  }
+  return Promise.resolve()
+    .then(() => modelProjectionProvider({ scope, binding }))
+    .then((result) => {
+      const data = result?.data;
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        return { injected: [], receipt: { omitted: true, limitations: ["projection provider returned no derived context"] } };
+      }
+      const status = data.status;
+      const injectable = status === "current" || status === "uncertain";
+      const scopeMatches = String(data.scope ?? "") === scope;
+      const hasVersion = Number.isInteger(data.version) && data.version >= 1;
+      const limitations = Array.isArray(data.limitations) && data.limitations.length > 0
+        ? data.limitations
+        : ["derived projection; not a personal fact or stable label"];
+      if (!injectable || !scopeMatches || !hasVersion) {
+        return { injected: [], receipt: { omitted: true, limitations } };
+      }
+      return {
+        injected: [{
+          projection_id: data.projection_id,
+          version: data.version,
+          provenance_class: data.provenance_class ?? "inference",
+          scope: data.scope,
+          status,
+          valid_from: data.valid_from,
+          valid_to: data.valid_to,
+          observed_at: data.observed_at,
+          confidence: data.confidence,
+          uncertainty: data.uncertainty,
+          freshness: data.freshness,
+          support_refs: data.support_refs,
+          support_count: data.support_count,
+          conflict_refs: data.conflict_refs,
+          conflict_count: data.conflict_count,
+          conflicts: data.conflicts,
+          supersession: data.supersession,
+          limitations,
+        }],
+        receipt: {
+          version: data.version,
+          scope: data.scope,
+          status,
+          freshness: data.freshness,
+          support_count: data.support_count,
+          conflict_count: data.conflict_count,
+          limitations,
+        },
+      };
+    })
+    .catch(() => ({ injected: [], receipt: { omitted: true, limitations: ["projection provider unavailable"] } }));
+}
+
+/**
  * Run one conversation turn on the supplied per-turn session.
  *
  * Returns `{ ok: true, turn }` for every terminal outcome; `turn.success` is only
@@ -84,12 +151,19 @@ export async function runConversationTurn({
   idempotencyKey = null,
   skillId = null,
   skillChecksum = null,
+  scope = null,
+  binding = null,
+  modelProjectionProvider = null,
   signal,
   timeoutMs = 30000,
 } = {}) {
   if (!session) throw new TypeError("session is required");
   if (typeof prompt !== "string" || !prompt.trim()) throw new TypeError("prompt is required");
   if (!Array.isArray(activeToolNames)) throw new TypeError("activeToolNames must be an array");
+
+  // Plan 61-09: the governed pre-prompt context builder runs before any
+  // AgentSession.prompt and never blocks the turn on an omitted projection.
+  const projection = await buildProjectionContext({ scope, binding, modelProjectionProvider });
 
   const rawEvents = [];
   const unsubscribe = typeof session.subscribe === "function"
@@ -102,7 +176,11 @@ export async function runConversationTurn({
       await session.abort?.();
     } else {
       session.setActiveToolsByName(activeToolNames);
-      await session.prompt(prompt, { source: "rpc", expandPromptTemplates: false });
+      await session.prompt(prompt, {
+        source: "rpc",
+        expandPromptTemplates: false,
+        ...(projection.injected.length > 0 ? { projection_context: projection.injected } : {}),
+      });
       const settled = await waitForIdleWithinBudget(() => session.waitForIdle(), timeoutMs);
       state = settled ? "settled" : "outcome_unknown";
       if (!settled) await session.abort?.();
@@ -128,6 +206,7 @@ export async function runConversationTurn({
       tool_count: activeToolNames.length,
       timeout_ms: Number.isFinite(timeoutMs) ? timeoutMs : null,
       outcome: state,
+      ...(projection.receipt ? { projection: projection.receipt } : {}),
     },
   };
   return { ok: true, turn };

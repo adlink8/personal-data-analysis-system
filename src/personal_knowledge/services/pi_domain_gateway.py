@@ -79,6 +79,14 @@ CANDIDATE_REVIEW_OPERATION = "candidate.review"
 # Default metadata-only review ledger used by the gateway-provider path.
 DEFAULT_CANDIDATE_REVIEW_DB = ROOT / "var" / "db" / "candidate_review.sqlite"
 
+# Plan 61-09: the fixed read-only personal-model projection provider
+# (HARNESS-07). The exact request shape is {scope, task_id, binding,
+# idempotency_key}; ``capability`` is the loopback header and never a declared
+# parameter. Private/override fields, provider/operation/endpoint/path/authority
+# overrides can never enter this map. The provider derives ONLY from confirmed
+# accepted review state (D-19-D-22, D-26, D-28-D-29).
+PROJECTION_GET_OPERATION = "personal.model_projection.get"
+
 OPERATIONS: dict[str, dict[str, Any]] = {
     "domain.inspect": {"kind": "read", "allowed": {"task_id", "idempotency_key", "binding"}, "privacy": "R1"},
     "domain.candidate": {"kind": "read", "allowed": {"task_id", "idempotency_key", "binding", "evidence_refs", "proposal"}, "privacy": "R1"},
@@ -101,6 +109,11 @@ OPERATIONS: dict[str, dict[str, Any]] = {
             "conflict_disposition", "feedback_id", "task_id", "idempotency_key",
             "binding",
         },
+        "privacy": "R2",
+    },
+    PROJECTION_GET_OPERATION: {
+        "kind": "read",
+        "allowed": {"task_id", "idempotency_key", "binding", "scope"},
         "privacy": "R2",
     },
     "evidence.sqlite_query": {
@@ -286,6 +299,27 @@ class PiDomainGateway:
                 if isinstance(data, dict):
                     data["capability_checksum"] = spec.get("checksum")
                 return _ok(canonical, data)
+            if canonical == PROJECTION_GET_OPERATION:
+                # Explicit fixed read-only provider only (HARNESS-07): derives
+                # the safe versioned projection envelope exclusively from the
+                # confirmed accepted review state of the bound review
+                # adapter/ledger (D-28). Never a promotion/rollback/canonical/
+                # pointer route and never a dynamic callable name.
+                from personal_knowledge.services.harness_conversation_service import (
+                    HarnessModelProjectionError,
+                    HarnessModelProjectionProvider,
+                )
+                provider = HarnessModelProjectionProvider(
+                    review_adapter=self.review_adapter,
+                    review_db=self.review_db,
+                )
+                try:
+                    data = provider.get(**dict(params))
+                except HarnessModelProjectionError as exc:
+                    return _error(canonical, exc.code)
+                if isinstance(data, dict):
+                    data.setdefault("capability_checksum", spec.get("checksum"))
+                return _ok(canonical, data)
             if spec["kind"] == "read":
                 if self.read_handler is not None:
                     return _ok(canonical, self.read_handler(canonical, params))
@@ -315,4 +349,4 @@ class PiDomainGateway:
 def invoke_pi_domain(operation: str, params: Mapping[str, Any] | None = None, *, capability: str | None = None, service=None) -> dict[str, Any]:
     return PiDomainGateway(service=service).invoke(operation, params, capability=capability)
 
-__all__ = ["OPERATIONS", "PROJECT_OPERATIONS", "PROJECT_ALIASES", "PI_DOMAIN_GATEWAY_SCHEMA", "PI_DOMAIN_CAPABILITY_HEADER", "CANDIDATE_REVIEW_OPERATION", "PiDomainGateway", "PiDomainGatewayError", "canonical_project_operation", "invoke_pi_domain"]
+__all__ = ["OPERATIONS", "PROJECT_OPERATIONS", "PROJECT_ALIASES", "PI_DOMAIN_GATEWAY_SCHEMA", "PI_DOMAIN_CAPABILITY_HEADER", "CANDIDATE_REVIEW_OPERATION", "PROJECTION_GET_OPERATION", "PiDomainGateway", "PiDomainGatewayError", "canonical_project_operation", "invoke_pi_domain"]

@@ -270,10 +270,23 @@ class ProjectedState:
 
 @dataclass(frozen=True)
 class StateProjection:
+    """Versioned, time-aware projection surface (Plan 61-09 / D-21).
+
+    Every derived projection is a versioned inference: it carries a version, its
+    supersession record (which accepted inference a newer one replaced), the
+    source/snapshot/freshness binding and its limitations. These are the fields
+    ``personal.model_projection.get`` serves without raw Evidence or canonical
+    claims.
+    """
+
     snapshot_id: str
     snapshot_hash: str
     as_of: str
     states: tuple[ProjectedState, ...]
+    version: int = 1
+    supersession: Any = None
+    freshness: tuple = ()
+    limitations: tuple[str, ...] = ()
 
     @property
     def current_goals(self) -> tuple[ProjectedState, ...]:
@@ -481,6 +494,7 @@ def project_current_state(
         grouped.setdefault(key, [])
 
     history = tuple(history_rows)
+    superseded_assertion_ids: list[str] = []
     states: list[ProjectedState] = []
     for key, rows in sorted(grouped.items(), key=lambda item: item[0]):
         ordered = sorted(
@@ -574,6 +588,12 @@ def project_current_state(
             uncertainty.append("no_current_evidence")
         else:
             uncertainty.append("unknown_no_evidence")
+        if selected is not None:
+            # Supersession: a newer current accepted inference replaces the
+            # earlier current ones on the same key (D-21 formation history).
+            for step in formation:
+                if step.assertion_id != selected.assertion_id and step.lifecycle == "current":
+                    superseded_assertion_ids.append(step.assertion_id)
         states.append(
             ProjectedState(
                 key=key,
@@ -588,11 +608,25 @@ def project_current_state(
                 lifecycle_path=lifecycle_path,
             )
         )
+    superseded = tuple(sorted(set(superseded_assertion_ids)))
+    projection_limitations = ["derived projection; not a personal fact or stable label"]
+    for state in states:
+        if state.status == "unknown":
+            projection_limitations.append("unknown: some scope content has no current derived state")
+        elif state.status == "expired":
+            projection_limitations.append("expired: some scope content is outside its valid interval")
+        elif state.status == "conflict":
+            projection_limitations.append("conflict: some scope content is unresolved")
+        elif state.status == "uncertain":
+            projection_limitations.append("uncertain: some scope content is low-confidence")
     return StateProjection(
         snapshot_id=snapshot.snapshot_id,
         snapshot_hash=snapshot.snapshot_hash,
         as_of=as_of,
         states=tuple(states),
+        version=max(1, len(run_rows)),
+        supersession=superseded if superseded else None,
+        limitations=tuple(sorted(set(projection_limitations))),
     )
 
 

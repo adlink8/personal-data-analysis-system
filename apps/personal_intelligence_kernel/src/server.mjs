@@ -26,6 +26,7 @@ export const ALLOWED_ROUTES = Object.freeze([
   "POST /v1/conversations/resume",
   "POST /v1/conversations/reconcile",
   "POST /v1/candidates/review",
+  "GET /v1/personal/model-projection",
 ]);
 export const MAX_EVENT_BODY_BYTES = 64 * 1024;
 export const SAFE_ERROR_CODES = Object.freeze([
@@ -90,6 +91,7 @@ export const SAFE_ERROR_CODES = Object.freeze([
   "idempotency_key_required",
   "action_unknown",
   "review_request_invalid",
+  "projection_request_invalid",
 ]);
 
 function safeCode(error, fallback = "internal_error") {
@@ -362,6 +364,17 @@ function attachRequestHandler(host, options) {
         sendJson(response, 200, { ok: true, ...result });
         return;
       }
+      if (route === "GET /v1/personal/model-projection") {
+        // Plan 61-09: one fixed read route mapped ONLY to
+        // personal.model_projection.get (HARNESS-07). Query params become the
+        // exact projection request; field-level validation in
+        // KernelHost.getModelProjection rejects private/override inputs before
+        // the bound Gateway bridge is dispatched.
+        const params = Object.fromEntries(url.searchParams.entries());
+        const result = await host.getModelProjection(params);
+        sendJson(response, 200, { ok: true, ...result });
+        return;
+      }
       if (request.method === "GET" && url.pathname.startsWith("/v1/tasks/")) {
         const taskId = url.pathname.slice("/v1/tasks/".length);
         const task = host.taskLedger.get(taskId);
@@ -411,7 +424,7 @@ function attachRequestHandler(host, options) {
         });
         return;
       }
-      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/skills", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates", "/internal/v1/conversation-deltas", "/v1/conversations/turn", "/v1/conversations/session", "/v1/conversations/cancel", "/v1/conversations/resume", "/v1/conversations/reconcile", "/v1/candidates/review"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/") || url.pathname.startsWith("/v1/conversations/");
+      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/skills", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates", "/internal/v1/conversation-deltas", "/v1/conversations/turn", "/v1/conversations/session", "/v1/conversations/cancel", "/v1/conversations/resume", "/v1/conversations/reconcile", "/v1/candidates/review", "/v1/personal/model-projection"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/") || url.pathname.startsWith("/v1/conversations/");
       sendSafeError(response, samePath ? 405 : 404, samePath ? "method_not_allowed" : "route_not_found");
     } catch (error) {
       const code = safeCode(error);

@@ -40,6 +40,15 @@ const CANDIDATE_REVIEW_ALLOWED_FIELDS = new Set([
   "conflict_disposition", "feedback_id", "task_id", "binding", "idempotency_key",
 ]);
 
+// Plan 61-09: the fixed personal-model projection read route (HARNESS-07)
+// accepts exactly {scope, task_id, idempotency_key, binding}; capability is the
+// loopback transport header and never a field. Private/override fields,
+// provider/operation/endpoint/path/authority overrides and alternate paths fail
+// before Gateway dispatch so no endpoint/path/provider bypass is possible
+// (T-61-PROJ-02).
+const MODEL_PROJECTION_OPERATION = "personal.model_projection.get";
+const MODEL_PROJECTION_ALLOWED_FIELDS = new Set(["scope", "task_id", "idempotency_key", "binding"]);
+
 export class KernelHostError extends Error {
   constructor(code, message = code) {
     super(message);
@@ -50,6 +59,36 @@ export class KernelHostError extends Error {
 
 function safeError(code) {
   return new KernelHostError(code);
+}
+
+/**
+ * Plan 61-09 (T-61-CANON-02): bound the served projection envelope so it never
+ * exposes canonical/promotion authority state. Watermark/active-pointer keys
+ * and evidence references that name canonical/promotion authority are stripped;
+ * support/conflict counts are recomputed against the sanitized refs. The
+ * projection route is a bounded no-store read and never claims an authority
+ * mutation.
+ */
+function sanitizeProjectionEnvelope(data) {
+  if (Array.isArray(data)) {
+    const cleaned = [];
+    for (const item of data) {
+      if (typeof item === "string" && /promot|rollback|canonical\./i.test(item)) continue;
+      cleaned.push(sanitizeProjectionEnvelope(item));
+    }
+    return cleaned;
+  }
+  if (data && typeof data === "object") {
+    const out = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (/^(watermark|active_pointer)$/i.test(key)) continue;
+      out[key] = sanitizeProjectionEnvelope(value);
+    }
+    if (Array.isArray(out.support_refs)) out.support_count = out.support_refs.length;
+    if (Array.isArray(out.conflict_refs)) out.conflict_count = out.conflict_refs.length;
+    return out;
+  }
+  return data;
 }
 
 function assertIdentifier(value, code) {
@@ -466,7 +505,7 @@ export class KernelHost {
    * `providerAdapter.generate()` or `SkillEngine.run()` as a second outer agent
    * loop.
    */
-  async executeConversationTurn({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, skill_id: skillId, prompt } = {}) {
+  async executeConversationTurn({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, skill_id: skillId, prompt, scope = null, binding = null } = {}) {
     if (!this.taskLedger || !this.sessionStore || !this.skillRegistry || !this.conversationSessionFactory || !this.domainBridge) throw safeError("skill_runtime_unavailable");
     assertIdentifier(idempotencyKey, "task_identity_invalid");
     if (taskId !== undefined) assertIdentifier(taskId, "task_identity_invalid");
@@ -524,6 +563,19 @@ export class KernelHost {
         invokeTool: (operation, params) => leaseBridge.invoke(operation, params),
       });
       if (!turnContext?.session) throw safeError("conversation_session_unavailable");
+      // Plan 61-09: a real turn with an approved scope/binding asks the fixed
+      // read-only projection provider before prompt; an unavailable or
+      // incompatible projection is omitted (never blocks the turn).
+      const turnScope = typeof scope === "string" && scope ? scope : null;
+      const turnBinding = typeof binding === "string" && binding ? binding : "pi_kernel_conversation_turn";
+      const projectionProvider = turnScope
+        ? (opts) => this.domainBridge.invoke(MODEL_PROJECTION_OPERATION, {
+            scope: opts.scope,
+            binding: opts.binding,
+            task_id: actualTaskId,
+            idempotency_key: `${idempotencyKey}:projection`,
+          })
+        : null;
       const result = await runConversationTurn({
         session: turnContext.session,
         prompt,
@@ -534,6 +586,9 @@ export class KernelHost {
         idempotencyKey,
         skillId: skill.id,
         skillChecksum: skill.checksum,
+        scope: turnScope,
+        binding: turnBinding,
+        modelProjectionProvider: projectionProvider,
         timeoutMs: skill.timeout_ms,
       });
       const turn = result.turn;
@@ -639,6 +694,29 @@ export class KernelHost {
     const result = await this.domainBridge.invoke("candidate.review", payload);
     if (result?.ok !== true) throw safeError(result?.error?.code ?? "domain_unavailable");
     return { ok: true, ...(result.data ?? result) };
+  }
+
+  /**
+   * Fixed `personal.model_projection.get` binding (Plan 61-09 / HARNESS-07):
+   * field-level validate the exact projection request shape, then dispatch ONLY
+   * `personal.model_projection.get` to the bound Gateway bridge. Private/
+   * override fields are rejected before dispatch so the bridge is never reached
+   * with an endpoint/path/provider override; the returned envelope is
+   * metadata-only and never claims a canonical/promotion/rollback/watermark/
+   * active-pointer authority change.
+   */
+  async getModelProjection(payload = {}) {
+    if (!this.domainBridge) throw safeError("domain_unavailable");
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw safeError("projection_request_invalid");
+    for (const key of Object.keys(payload)) {
+      if (!MODEL_PROJECTION_ALLOWED_FIELDS.has(key)) throw safeError("undeclared_input");
+    }
+    if (typeof payload.scope !== "string" || !payload.scope) throw safeError("scope_identity_invalid");
+    if (typeof payload.idempotency_key !== "string" || !payload.idempotency_key) throw safeError("idempotency_key_required");
+    if (payload.binding === null || payload.binding === undefined || (typeof payload.binding !== "string" && typeof payload.binding !== "object")) throw safeError("binding_required");
+    const result = await this.domainBridge.invoke(MODEL_PROJECTION_OPERATION, payload);
+    if (result?.ok !== true) throw safeError(result?.error?.code ?? "domain_unavailable");
+    return { ok: true, ...sanitizeProjectionEnvelope(result.data ?? result) };
   }
 
   async listen() {
