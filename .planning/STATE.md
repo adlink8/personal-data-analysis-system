@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Pi Personal Intelligence Kernel
 status: executing
-last_updated: "2026-08-05T17:00:00.000Z"
-last_activity: 2026-08-05 -- Phase 60 deterministic UAT complete; real primary remains blocked
+last_updated: "2026-08-09T13:55:36.800Z"
+last_activity: 2026-08-09 -- Phase 61 planning complete
 progress:
-  total_phases: 67
-  completed_phases: 40
-  total_plans: 174
-  completed_plans: 137
-  percent: 60
+  total_phases: 68
+  completed_phases: 46
+  total_plans: 186
+  completed_plans: 149
+  percent: 68
 ---
 
 # Project State
@@ -63,8 +63,8 @@ progress:
 
 Phase: 60 — Whole-system UAT and final primary activation
 Plan: 60-02
-Status: Deterministic UAT complete; real paired baseline and primary activation remain blocked
-Last activity: 2026-08-05 -- 16/16 Capability OS UAT cases passed; fresh mode remains legacy
+Status: Ready to execute
+Last activity: 2026-08-09 -- Phase 61 planning complete
 
 ## Project Reference
 
@@ -155,6 +155,7 @@ python -m personal_knowledge.governance.preflight
 - Phase 26 added: Target D decision/action feedback loop
 - Phase 27 added: Target D proactive multi-domain acceptance
 - Phase 36-40 added: v1.4 Decision Cockpit UI: secure projection baseline, authority-aware state/evidence, guarded project decision workspace, truthful feedback/runtime, and browser UAT; Wiki deferred to v1.5.
+- Phase 61 added: Conversation-first Desktop Harness and Evidence-bound Reflection Loop
 
 ## Operator Next Steps
 

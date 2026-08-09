@@ -136,6 +136,28 @@ v1.4 的 Phase 40 UAT 已由用户在 2026-07-28 确认通过；验收记录保�
 - **WIKI-02**: 主题页展示来源、历史、关联决策和 backlinks，并由变化检测标记 stale、生成 Candidate、受控发布。
 - **WIKI-03**: LLM 只能生成受证据约束的页面叙述候选；页面文案不会反馈写入 KU/Chroma 作为事实权威。
 
+## Phase 61 Requirements — Conversation-first Desktop Harness
+
+### Desktop Conversation Walking Skeleton
+
+- [ ] **HARNESS-01**: A local Electron desktop shell opens directly into the last conversation and provides Codex-style new/recent conversation and project-scope navigation without requiring a browser product surface.
+- [ ] **HARNESS-02**: The conversation path routes zero or one primary governed Skill through the actual Pi iterative model/Tool loop, scopes the Tool lease from the Skill manifest, and returns evidence, freshness, limitations, and expandable receipts.
+
+### Governed Evidence Access
+
+- [ ] **HARNESS-03**: A dedicated SQLite read-only Tool permits bounded SELECT/read-only CTE queries only against approved databases, views, and columns; unsafe statements, ATTACH, extension loading, write PRAGMA, unbounded results, and authority mutation fail closed.
+- [ ] **HARNESS-04**: AgentView remains the cross-Agent aggregation source, and conversation answers expose both source-to-AgentView and AgentView-to-canonical freshness/backlog instead of presenting stale data as complete.
+
+### Evidence-bound Reflection Loop
+
+- [ ] **HARNESS-05**: A deterministic conversation-delta event produces a deduplicated reflection Candidate that preserves source evidence, inference status, confidence, time scope, conflicts, and receipt metadata; generated text and Agent agreement never become facts directly.
+- [ ] **HARNESS-06**: The desktop conversation can review a Candidate through accept, edit, and ignore actions; acceptance uses the existing governed Candidate/canonical path and does not inherit authority from the Agent or Skill.
+- [ ] **HARNESS-07**: Accepted content contributes to a versioned, derived personal-model projection that remains separable from immutable Evidence and can be retrieved in a later conversation with provenance, freshness, confidence, temporal validity, and contradiction disclosure.
+
+### Safety and Verification
+
+- [ ] **HARNESS-08**: Automated and desktop UAT prove renderer/IPC least privilege, no unrestricted SQL or body/credential leakage, no unauthorized authority change, deterministic trigger/dedup behavior, Tool receipt integrity, cancel/recovery behavior, and preservation of existing Phase 55–60 activation and rollback gates.
+
 ## v2.0 Out of Scope
 
 | Feature | Reason |
@@ -164,9 +186,10 @@ v1.4 的 Phase 40 UAT 已由用户在 2026-07-28 确认通过；验收记录保�
 | PSKILL-01..03 | Phase 58 | Verified 2026-08-05 |
 | OPS-02 | Phase 59 | Verified 2026-08-05 |
 | EVAL-03, ACT-03 | Phase 60 | EVAL-03 deterministic pass; ACT-03 blocked by Phase 53 revise and human checkpoint |
+| HARNESS-01..08 | Phase 61 | Pending |
 
-**Coverage:** v2.0 共 34 项 requirements，34/34 已映射到唯一 Phase。
+**Coverage:** v2.0 原 34 项 requirements 保持映射；Phase 61 新增 HARNESS-01..08 并全部映射到 Phase 61。
 
 ---
 *Requirements defined: 2026-08-04*
-*Last updated: 2026-08-05 after removing the Local Pi Agent and consolidating on the Pi SDK Kernel*
+*Last updated: 2026-08-09 after adding the conversation-first desktop Harness and evidence-bound reflection Walking Skeleton*

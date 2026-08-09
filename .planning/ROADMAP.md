@@ -488,17 +488,43 @@ v1.5 的详细契约和背景仍保留在 [`future-milestones/v1.5-personal-know
 **Plans:** 12 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 61-01-PLAN.md — Electron package qualification and blocking approval record
-- [ ] 61-02-PLAN.md — approved Electron shell, IPC schema and preload boundary
 - [ ] 61-03-PLAN.md — real Pi AgentSession conversation loop and three profiles
 - [ ] 61-04-PLAN.md — bounded governed SQLite evidence Tool
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 61-02-PLAN.md — approved Electron shell, IPC schema and preload boundary
 - [ ] 61-05-PLAN.md — canonical thread projection and dual freshness
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 61-06-PLAN.md — post-commit canonical event publisher and durable dispatcher
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 61-07-PLAN.md — evidence-bound reflection Candidate and deterministic proactive adapter
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 61-08-PLAN.md — guarded Candidate review fixed route
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 61-09-PLAN.md — versioned projection and governed next-turn injection
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
 - [ ] 61-10-PLAN.md — fixed deterministic proactive control/read/dismiss/undo routes
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
 - [ ] 61-11-PLAN.md — conversation-first renderer, provider bridge binding and controlled-query display
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
 - [ ] 61-12-PLAN.md — regression aggregation and six-step Electron UAT
 
 ---
