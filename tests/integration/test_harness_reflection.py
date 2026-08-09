@@ -275,10 +275,12 @@ def test_dry_run_uncommitted_missing_and_mismatched_publish_nothing(kernel_serve
         ("mismatched watermark", dict(watermark=_sha256("different:watermark"))),
     ]
     for label, overrides in cases:
+        args = _committed_publish_args(checksum, source_checksum)
+        args.update(overrides)
         result = publish_conversation_delta_committed(
             endpoint=f"http://127.0.0.1:{kernel_server.port}",
             internal_capability=INTERNAL_CAPABILITY,
-            **_committed_publish_args(checksum, source_checksum, **overrides),
+            **args,
         )
         assert result.get("published") is False, f"{label} must publish nothing"
         assert result.get("reason"), f"{label} must state a fail-closed reason"
