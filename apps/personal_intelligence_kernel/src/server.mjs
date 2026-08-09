@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { createKernelHost, DEFAULT_KERNEL_HOST, KernelHostError } from "./kernel-host.mjs";
 import { JOURNAL_SCHEMA_VERSION, PiKernelJournalError } from "./events/journal.mjs";
-import { PiKernelSchemaError, validatePiKernelEvent } from "./events/schema.mjs";
+import { CONVERSATION_DELTA_TYPE, createPiKernelEvent, PiKernelSchemaError, validatePiKernelEvent } from "./events/schema.mjs";
 import { streamJournalAsSse, SseTransportError } from "./transport/sse.mjs";
 
 export const ALLOWED_ROUTES = Object.freeze([
@@ -17,6 +17,7 @@ export const ALLOWED_ROUTES = Object.freeze([
   "POST /v1/tasks/:task_id/cancel",
   "POST /v1/tasks/:task_id/resume",
   "POST /internal/v1/candidates",
+  "POST /internal/v1/conversation-deltas",
   "POST /v1/events",
   "GET /v1/events/stream",
   "POST /v1/conversations/turn",
@@ -55,6 +56,8 @@ export const SAFE_ERROR_CODES = Object.freeze([
   "provider_response_invalid",
   "provider_response_unavailable",
   "internal_capability_invalid",
+  "conversation_delta_invalid",
+  "conversation_delta_uncommitted",
   "candidate_identity_invalid",
   "candidate_metadata_invalid",
   "provider_cost_ceiling_exceeded",
@@ -140,6 +143,61 @@ async function readBoundedJson(request) {
   } catch {
     throw new KernelHostError("event_invalid");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Plan 61-06 committed conversation-delta producer
+// ---------------------------------------------------------------------------
+const COMMITTED_DELTA_SOURCES = Object.freeze(["pk-sync", "conversation.close"]);
+const COMMITTED_DELTA_AUTHORITY = "canonical.sync";
+const SHA256_HEX = /^[a-f0-9]{64}$/;
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/@#-]{0,255}$/;
+const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * Server-side construction of the sole committed `conversation.delta.committed`
+ * event. Only committed canonical facts may reach the Journal: dry-run,
+ * uncommitted, missing or mismatched checksum/watermark states fail closed
+ * with no event. The payload is metadata-only by construction; no request
+ * field other than the declared identifiers is ever copied into the event.
+ */
+function buildCommittedConversationDelta(body) {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) throw new KernelHostError("conversation_delta_invalid");
+  if (body.committed !== true) throw new KernelHostError("conversation_delta_uncommitted");
+  const {
+    producer,
+    scope,
+    source_checksum: sourceChecksum,
+    canonical_checksum: canonicalChecksum,
+    watermark,
+    publication_version: publicationVersion,
+    occurred_at: occurredAt,
+    idempotency_key: idempotencyKey,
+  } = body;
+  if (typeof producer !== "string" || !COMMITTED_DELTA_SOURCES.includes(producer)) throw new KernelHostError("conversation_delta_invalid");
+  if (typeof scope !== "string" || !IDENTIFIER.test(scope)) throw new KernelHostError("conversation_delta_invalid");
+  if (typeof sourceChecksum !== "string" || !SHA256_HEX.test(sourceChecksum)) throw new KernelHostError("conversation_delta_invalid");
+  if (typeof canonicalChecksum !== "string" || !SHA256_HEX.test(canonicalChecksum)) throw new KernelHostError("conversation_delta_invalid");
+  if (typeof watermark !== "string" || !SHA256_HEX.test(watermark) || watermark !== canonicalChecksum) throw new KernelHostError("conversation_delta_invalid");
+  if (typeof publicationVersion !== "string" || !publicationVersion || publicationVersion.length > 128) throw new KernelHostError("conversation_delta_invalid");
+  if (typeof occurredAt !== "string" || !UTC_INSTANT.test(occurredAt) || Number.isNaN(Date.parse(occurredAt))) throw new KernelHostError("conversation_delta_invalid");
+  if (typeof idempotencyKey !== "string" || !IDENTIFIER.test(idempotencyKey)) throw new KernelHostError("conversation_delta_invalid");
+  return createPiKernelEvent({
+    type: CONVERSATION_DELTA_TYPE,
+    source: producer,
+    authority: COMMITTED_DELTA_AUTHORITY,
+    snapshot: `agentsview@${sourceChecksum}`,
+    correlation_id: `scope:${scope}`,
+    causation_id: null,
+    idempotency_key: idempotencyKey,
+    occurred_at: occurredAt,
+    payload_ref: {
+      kind: "artifact",
+      ref: `canonical.conversation@${watermark}#${publicationVersion}`,
+      checksum: canonicalChecksum,
+    },
+    privacy_class: "R2",
+  });
 }
 
 function resourceRegistryReady(host) {
@@ -297,8 +355,26 @@ function attachRequestHandler(host, options) {
         sendJson(response, 200, { ok: true, task });
         return;
       }
+      if (route === "POST /internal/v1/conversation-deltas") {
+        if (!isInternalRequest(request, options)) throw new KernelHostError("internal_capability_invalid");
+        const body = await readBoundedJson(request);
+        const event = buildCommittedConversationDelta(body);
+        const row = host.journal.append(event);
+        sendJson(response, row.duplicate ? 200 : 201, {
+          ok: true,
+          status: row.status,
+          replay: row.replay,
+          duplicate: row.duplicate,
+          event_id: row.event_id,
+          sequence: row.sequence,
+        });
+        return;
+      }
       if (route === "POST /v1/events") {
         const event = await readBoundedJson(request);
+        // The delta type has one fixed producer endpoint and never enters the
+        // public generic events route.
+        if (event?.type === CONVERSATION_DELTA_TYPE) throw new KernelHostError("conversation_delta_invalid");
         const row = host.journal.append(validatePiKernelEvent(event));
         sendJson(response, row.duplicate ? 200 : 201, {
           ok: true,
@@ -321,7 +397,7 @@ function attachRequestHandler(host, options) {
         });
         return;
       }
-      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/skills", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates", "/v1/conversations/turn", "/v1/conversations/session", "/v1/conversations/cancel", "/v1/conversations/resume", "/v1/conversations/reconcile"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/") || url.pathname.startsWith("/v1/conversations/");
+      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/skills", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates", "/internal/v1/conversation-deltas", "/v1/conversations/turn", "/v1/conversations/session", "/v1/conversations/cancel", "/v1/conversations/resume", "/v1/conversations/reconcile"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/") || url.pathname.startsWith("/v1/conversations/");
       sendSafeError(response, samePath ? 405 : 404, samePath ? "method_not_allowed" : "route_not_found");
     } catch (error) {
       const code = safeCode(error);

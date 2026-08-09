@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 
 export const PI_KERNEL_EVENT_SCHEMA = "pi_kernel_event_v1";
 
+/** Sole project-owned committed conversation-delta event type (Plan 61-06). */
+export const CONVERSATION_DELTA_TYPE = "conversation.delta.committed";
+
 export const EVENT_KEYS = Object.freeze([
   "event_id",
   "type",
@@ -17,7 +20,9 @@ export const EVENT_KEYS = Object.freeze([
 ]);
 
 const IDENTITY_KEYS = Object.freeze(EVENT_KEYS.slice(1));
-const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
+// Project-owned event identifiers may carry canonical snapshot/ref markers
+// (`agentsview@<checksum>`, `canonical.conversation@<watermark>#<version>`).
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/@#-]{0,255}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const EVENT_ID = /^pi_evt_[a-f0-9]{64}$/;
 const UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -42,6 +47,8 @@ export const PI_KERNEL_EVENT_TYPES = Object.freeze([
   "tool_failed",
   "candidate_staged",
   "error",
+  // Committed canonical sync/close delta (Plan 61-06); metadata-only payload.
+  "conversation.delta.committed",
   // Prototype-compatible lifecycle names are intentionally project-owned.
   "started",
   "completed",
@@ -200,6 +207,10 @@ function validateRootKeys(input) {
 export function validatePiKernelEvent(input) {
   validateRootKeys(input);
   assertNoForbiddenKeys(input);
+
+  // An empty event_id means "derive from the identity fields" (Plan 61-06
+  // committed-delta schema contract). A present non-empty id must match.
+  if (input.event_id === "") input = { ...input, event_id: deriveEventId(input) };
 
   if (typeof input.event_id !== "string" || !EVENT_ID.test(input.event_id)) fail("invalid_event_id", "event_id");
   if (typeof input.type !== "string" || !PI_KERNEL_EVENT_TYPES.includes(input.type)) fail("unknown_event_type", "type");

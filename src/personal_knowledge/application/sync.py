@@ -13,12 +13,18 @@ Usage::
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
+import re
 import sqlite3
 import sys
+import urllib.request
+from urllib.error import HTTPError, URLError
 
 from personal_knowledge.core.project_paths import (
+    AGENTSVIEW_DB,
     AGENT_CONVERSATIONS_DB,
     AI_CONTEXT_DIR,
     GOOGLE_DB,
@@ -27,6 +33,13 @@ from personal_knowledge.core.project_paths import (
 
 
 TURN_SUMMARIES = AI_CONTEXT_DIR / "conversation_summaries.json"
+
+# Plan 61-06: the sole committed conversation-delta producer is the fixed
+# internal kernel route; the publisher is metadata-only by construction.
+CONVERSATION_DELTA_TYPE = "conversation.delta.committed"
+CONVERSATION_DELTA_ROUTE = "/internal/v1/conversation-deltas"
+CONVERSATION_DELTA_HEADER = "x-pi-internal-capability"
+_SHA256_HEX = re.compile(r"^[a-f0-9]{64}$")
 
 
 def _record_conversation_versions() -> list[dict]:
@@ -57,19 +70,170 @@ def _record_conversation_versions() -> list[dict]:
     return [canonical, message]
 
 
+def _now_utc_iso() -> str:
+    """UTC instant in the EventJournal `YYYY-MM-DDTHH:MM:SS.mmmZ` format."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _kernel_delta_endpoint() -> str:
+    host = os.environ.get("PI_KERNEL_HOST", "127.0.0.1")
+    port = os.environ.get("PI_KERNEL_PORT", "8790")
+    return f"http://{host}:{port}"
+
+
+def _kernel_delta_capability() -> str | None:
+    return os.environ.get("PI_KERNEL_INTERNAL_CAPABILITY") or None
+
+
+def _agentsview_source_checksum() -> str | None:
+    """Source -> AgentView binding checksum (AgentsView DB content checksum)."""
+    from personal_knowledge.application.serving.versions import file_checksum
+
+    try:
+        if AGENTSVIEW_DB.exists():
+            return file_checksum(AGENTSVIEW_DB)
+    except Exception:  # noqa: BLE001 - a probe failure never blocks canonical sync
+        return None
+    return None
+
+
+def _delta_fail_closed(reason: str) -> dict[str, object]:
+    return {"published": False, "reason": reason, "event_type": CONVERSATION_DELTA_TYPE}
+
+
+def _post_conversation_delta(endpoint: str, body: dict, internal_capability: str) -> tuple[int, dict]:
+    url = endpoint.rstrip("/") + CONVERSATION_DELTA_ROUTE
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            CONVERSATION_DELTA_HEADER: internal_capability,
+        },
+        method="POST",
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=10) as response:
+            return response.status, json.loads(response.read().decode("utf-8") or "{}")
+    except HTTPError as exc:
+        try:
+            payload = json.loads(exc.read().decode("utf-8") or "{}")
+        except (ValueError, OSError):
+            payload = {}
+        return exc.code, payload
+    except URLError:
+        return 0, {}
+
+
+def publish_conversation_delta_committed(
+    *,
+    canonical_checksum: str,
+    source_checksum: str | None = None,
+    watermark: str | None = None,
+    publication_version: str | None = None,
+    source: str = "pk-sync",
+    scope: str = "agent.conversation",
+    idempotency_key: str,
+    occurred_at: str | None = None,
+    committed: bool = True,
+    endpoint: str | None = None,
+    internal_capability: str | None = None,
+) -> dict[str, object]:
+    """Post-commit metadata-only publisher for ``conversation.delta.committed``.
+
+    Strictly keyword-only metadata; the seam can never be handed a conversation
+    body, prompt, credential, SQL statement or private path. Publishing happens
+    only after canonical records and the watermark are committed and the
+    observed canonical checksum equals the committed watermark; every dry-run,
+    uncommitted, missing, mismatched or ambiguous pre-commit state publishes
+    nothing and returns a fail-closed reason.
+    """
+    if committed is not True:
+        return _delta_fail_closed("uncommitted_or_dry_run")
+    if not isinstance(canonical_checksum, str) or not _SHA256_HEX.fullmatch(canonical_checksum):
+        return _delta_fail_closed("missing_or_invalid_canonical_checksum")
+    if not isinstance(watermark, str) or not _SHA256_HEX.fullmatch(watermark):
+        return _delta_fail_closed("missing_or_invalid_watermark")
+    if watermark != canonical_checksum:
+        return _delta_fail_closed("mismatched_watermark")
+    if not source_checksum:
+        return _delta_fail_closed("missing_source_checksum")
+    if not endpoint:
+        return _delta_fail_closed("endpoint_missing")
+    if not internal_capability:
+        return _delta_fail_closed("internal_capability_missing")
+
+    body = {
+        "producer": source,
+        "scope": scope,
+        "source_checksum": source_checksum,
+        "canonical_checksum": canonical_checksum,
+        "watermark": watermark,
+        "publication_version": publication_version or "1",
+        "occurred_at": occurred_at or _now_utc_iso(),
+        "idempotency_key": idempotency_key,
+        "committed": True,
+    }
+    status, payload = _post_conversation_delta(endpoint, body, internal_capability)
+    if status in (200, 201) and isinstance(payload, dict) and payload.get("ok") is True:
+        return {
+            "published": True,
+            "status": payload.get("status", "appended"),
+            "replay": bool(payload.get("replay")),
+            "duplicate": bool(payload.get("duplicate")),
+            "event_type": CONVERSATION_DELTA_TYPE,
+            "event_id": payload.get("event_id"),
+            "sequence": payload.get("sequence"),
+        }
+    code = ""
+    if isinstance(payload, dict):
+        error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+        code = error.get("code") or ""
+    return _delta_fail_closed(f"rejected:{code or status or 'transport_error'}")
+
+
 def _cmd_conversations(write: bool) -> int:
     from personal_knowledge.application.run_pipeline import run_agentsview_stage
+    from personal_knowledge.application.serving.versions import file_checksum
 
     ok = run_agentsview_stage(write=write)
     if not ok:
         return 1
     publications = _record_conversation_versions() if write else []
+    delta = None
+    if write:
+        # Strictly post-commit: canonical records and watermark are committed by
+        # _record_conversation_versions, and publishing requires the observed
+        # canonical checksum to equal the committed watermark.
+        observed_checksum = file_checksum(AGENT_CONVERSATIONS_DB)
+        committed_watermark = publications[0]["checksum"] if publications else observed_checksum
+        try:
+            delta = publish_conversation_delta_committed(
+                canonical_checksum=observed_checksum,
+                source_checksum=_agentsview_source_checksum(),
+                watermark=committed_watermark,
+                publication_version=f"{_now_utc_iso()}#1",
+                source="pk-sync",
+                scope="agent.conversation",
+                idempotency_key=f"pk-sync-conversations-{observed_checksum}",
+                occurred_at=_now_utc_iso(),
+                committed=True,
+                endpoint=_kernel_delta_endpoint(),
+                internal_capability=_kernel_delta_capability(),
+            )
+        except Exception as exc:  # noqa: BLE001 - kernel may be offline; canonical sync is committed
+            delta = {"published": False, "reason": f"delta_publish_failed:{type(exc).__name__}"}
+        if not delta.get("published"):
+            print(f"[warn] conversation delta not published: {delta.get('reason')}", file=sys.stderr)
     mode = "write" if write else "dry-run"
     print(f"\n[done] pk-sync conversations ({mode}) finished.")
     print("  SSOT: data/canonical/agent/structured/db/agent_conversations.sqlite")
     print("  Next (optional): pk-ku inspect → prepare → extract — not part of this command.")
     if publications:
         print(f"  Versions: {sum(int(x['created']) for x in publications)} new / {len(publications)} recorded")
+    if delta and delta.get("published"):
+        print(f"  Delta: conversation.delta.committed ({delta.get('status')}, event {delta.get('event_id')})")
     return 0
 
 
