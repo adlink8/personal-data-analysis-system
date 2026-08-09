@@ -9,6 +9,7 @@ import {
 } from "./runtime/resource-policy.mjs";
 import { conversationSessionFactory } from "./runtime/conversation-session.mjs";
 import { runConversationTurn } from "./conversation/turn-service.mjs";
+import { createConversationSession, SessionServiceError } from "./conversation/session-service.mjs";
 import { EventJournal, PI_KERNEL_EVENTS_DB } from "./events/journal.mjs";
 import { createPiKernelEvent, sha256 } from "./events/schema.mjs";
 import { TaskLedger, PI_KERNEL_TASKS_DB, TaskLedgerError } from "./tasks/ledger.mjs";
@@ -575,6 +576,32 @@ export class KernelHost {
       }
       if (error instanceof KernelHostError) throw error;
       throw safeError(code);
+    }
+  }
+
+  /**
+   * Named `conversation.session.create`: validate sender/schema, request an
+   * approved project scope through the Python canonical
+   * `conversation.project_scope.select` provider, then persist only governed
+   * empty Session metadata plus an empty safe ConversationThreadView. This path
+   * never writes canonical conversation bodies, Candidate, promotion, active
+   * pointer or desktop persistence, and never invokes providerAdapter.generate()
+   * or SkillEngine.run() as a conversation authority.
+   */
+  async createConversationSession(payload = {}) {
+    if (!this.sessionStore || !this.domainBridge) throw safeError("session_runtime_unavailable");
+    try {
+      return await createConversationSession({
+        sessionStore: this.sessionStore,
+        domainBridge: this.domainBridge,
+        session_id: payload.session_id,
+        project_scope_id: payload.project_scope_id,
+        idempotency_key: payload.idempotency_key,
+        binding: payload.binding,
+      });
+    } catch (error) {
+      if (error instanceof SessionServiceError) throw safeError(error.code);
+      throw error;
     }
   }
 

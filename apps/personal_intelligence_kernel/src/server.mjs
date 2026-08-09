@@ -20,6 +20,7 @@ export const ALLOWED_ROUTES = Object.freeze([
   "POST /v1/events",
   "GET /v1/events/stream",
   "POST /v1/conversations/turn",
+  "POST /v1/conversations/session",
   "POST /v1/conversations/cancel",
   "POST /v1/conversations/resume",
   "POST /v1/conversations/reconcile",
@@ -71,6 +72,10 @@ export const SAFE_ERROR_CODES = Object.freeze([
   "conversation_lease_denied",
   "conversation_session_unavailable",
   "conversation_turn_failed",
+  "session_runtime_unavailable",
+  "session_identity_invalid",
+  "scope_identity_invalid",
+  "unknown_scope",
   "timeout",
   "host_not_ready",
   "host_bind_failed",
@@ -261,6 +266,12 @@ function attachRequestHandler(host, options) {
         sendJson(response, result.duplicate ? 200 : 201, { ok: true, ...result });
         return;
       }
+      if (route === "POST /v1/conversations/session") {
+        const body = await readBoundedJson(request);
+        const result = await host.createConversationSession(body);
+        sendJson(response, result.duplicate ? 200 : 201, { ok: true, ...result });
+        return;
+      }
       if (route === "POST /v1/conversations/cancel") {
         const body = await readBoundedJson(request);
         const result = await host.cancelTask(body);
@@ -310,7 +321,7 @@ function attachRequestHandler(host, options) {
         });
         return;
       }
-      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/skills", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates", "/v1/conversations/turn", "/v1/conversations/cancel", "/v1/conversations/resume", "/v1/conversations/reconcile"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/") || url.pathname.startsWith("/v1/conversations/");
+      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/skills", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates", "/v1/conversations/turn", "/v1/conversations/session", "/v1/conversations/cancel", "/v1/conversations/resume", "/v1/conversations/reconcile"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/") || url.pathname.startsWith("/v1/conversations/");
       sendSafeError(response, samePath ? 405 : 404, samePath ? "method_not_allowed" : "route_not_found");
     } catch (error) {
       const code = safeCode(error);

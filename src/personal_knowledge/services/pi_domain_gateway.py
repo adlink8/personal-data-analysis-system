@@ -24,6 +24,38 @@ PI_DOMAIN_GATEWAY_SCHEMA = "pi_domain_gateway_v1"
 PI_DOMAIN_CAPABILITY_HEADER = "X-PI-Domain-Capability"
 DEFAULT_CAPABILITY = "pi-domain-local-capability-v1"
 
+# Python-owned canonical conversation navigation: schema-bound read-only
+# providers (Plan 61-05). They expose only safe scope/history metadata, never
+# canonical bodies; they are read-only by construction and carry no
+# canonical/promotion operation.
+CONVERSATION_READ_OPERATIONS: dict[str, dict[str, Any]] = {
+    "conversation.thread.last": {
+        "kind": "read",
+        "allowed": {"task_id", "idempotency_key", "binding", "limit"},
+        "privacy": "R1",
+    },
+    "conversation.thread.recent": {
+        "kind": "read",
+        "allowed": {"task_id", "idempotency_key", "binding", "limit", "cursor"},
+        "privacy": "R1",
+    },
+    "conversation.thread.select": {
+        "kind": "read",
+        "allowed": {"task_id", "idempotency_key", "binding", "conversation_id", "limit", "after"},
+        "privacy": "R1",
+    },
+    "conversation.project_scopes.list": {
+        "kind": "read",
+        "allowed": {"task_id", "idempotency_key", "binding"},
+        "privacy": "R1",
+    },
+    "conversation.project_scope.select": {
+        "kind": "read",
+        "allowed": {"task_id", "idempotency_key", "binding", "project_scope_id", "limit", "after"},
+        "privacy": "R1",
+    },
+}
+
 OPERATIONS: dict[str, dict[str, Any]] = {
     "domain.inspect": {"kind": "read", "allowed": {"task_id", "idempotency_key", "binding"}, "privacy": "R1"},
     "domain.candidate": {"kind": "read", "allowed": {"task_id", "idempotency_key", "binding", "evidence_refs", "proposal"}, "privacy": "R1"},
@@ -39,6 +71,7 @@ OPERATIONS: dict[str, dict[str, Any]] = {
         "privacy": "R1",
         "checksum": "b06b0d5ce4f762515082aebc296bd804ff18ff6875d7af552f0aa936f163227e",
     },
+    **CONVERSATION_READ_OPERATIONS,
 }
 
 PROJECT_OPERATIONS: dict[str, dict[str, Any]] = {
