@@ -13,3 +13,4 @@ Codex、Zed / ZCode 一类的代码工作台：紧凑分栏、可切换上下文
 | # | Name | Design Question | Winner | Tags |
 |---|------|-----------------|--------|------|
 | 001 | conversation-first-shell | 如何让个人知识系统以对话为第一屏，同时仍保留项目与证据上下文？ | A | desktop, conversation, navigation, context |
+| 002 | sqlite-evidence | 只读 SQLite 查询的 SQL、结果与证据应在何处呈现，才能既可信又不打断对话？ | A | sqlite, evidence, conversation, audit |
