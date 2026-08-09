@@ -430,7 +430,7 @@ Plans:
 （L2，定 `YYYY-MM-DDTHH:MM:SSZ` 规范 + 存量迁移 + 写入口校验）、
 `parent_canonical_id` 永不回填（L3，实现回填或删字段，与 lifecycle 审查同批）。
 **Requirements:** TBD
-**Plans:** 0 plans
+**Plans:** 11 plans
 
 ### Phase 999.2: 检索性能优化 (BACKLOG)
 
@@ -479,6 +479,26 @@ Phase 17 遗留 UAT 以简化协议关闭并记录。细化见
 ## v1.5 Execution Source
 
 v1.5 的详细契约和背景仍保留在 [`future-milestones/v1.5-personal-knowledge-wiki-projection`](./future-milestones/v1.5-personal-knowledge-wiki-projection/README.md)；其 Phase 41–44 已映射为当前活动 Phase 44–47，以避开 v1.4.1 已占用的历史编号。当前 P0 实现与真实服务授权只读 UAT 已完成；扩域保持单独延期。
+
+### Phase 61: Conversation-first Desktop Harness and Evidence-bound Reflection Loop
+
+**Goal:** Deliver a local conversation-first desktop Walking Skeleton that uses the real Pi Agent tool loop, existing governed Skills/Tools, bounded read-only SQLite evidence access, and one end-to-end evidence-to-Candidate-to-personal-model reflection path.
+**Requirements**: HARNESS-01, HARNESS-02, HARNESS-03, HARNESS-04, HARNESS-05, HARNESS-06, HARNESS-07, HARNESS-08
+**Depends on:** Phases 55, 58, and 59; Phase 60 primary activation is not required
+**Plans:** 0 plans
+
+Plans:
+- [ ] 61-01-PLAN.md — Electron package qualification and blocking approval record
+- [ ] 61-02-PLAN.md — approved Electron shell, IPC schema and preload boundary
+- [ ] 61-03-PLAN.md — real Pi AgentSession conversation loop and three profiles
+- [ ] 61-04-PLAN.md — bounded governed SQLite evidence Tool
+- [ ] 61-05-PLAN.md — canonical thread projection and dual freshness
+- [ ] 61-06-PLAN.md — post-commit canonical event publisher and durable dispatcher
+- [ ] 61-07-PLAN.md — evidence-bound reflection Candidate and deterministic proactive adapter
+- [ ] 61-08-PLAN.md — guarded Candidate review fixed route
+- [ ] 61-09-PLAN.md — versioned projection, next-turn injection and proactive routes
+- [ ] 61-10-PLAN.md — conversation-first renderer, bridge binding and command palette
+- [ ] 61-11-PLAN.md — regression aggregation and six-step Electron UAT
 
 ---
 *Updated 2026-08-05 after consolidating the Capability OS on the Pi SDK Kernel and removing the Local Pi Agent; real activation remains explicitly gated*
