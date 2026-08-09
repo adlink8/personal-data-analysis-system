@@ -27,6 +27,10 @@ export const ALLOWED_ROUTES = Object.freeze([
   "POST /v1/conversations/reconcile",
   "POST /v1/candidates/review",
   "GET /v1/personal/model-projection",
+  "POST /v1/proactive/state",
+  "POST /v1/proactive/controls",
+  "POST /v1/proactive/dismiss",
+  "POST /v1/proactive/undo",
 ]);
 export const MAX_EVENT_BODY_BYTES = 64 * 1024;
 export const SAFE_ERROR_CODES = Object.freeze([
@@ -92,6 +96,12 @@ export const SAFE_ERROR_CODES = Object.freeze([
   "action_unknown",
   "review_request_invalid",
   "projection_request_invalid",
+  "category_unknown",
+  "proactive_request_invalid",
+  "declared_category",
+  "declared_event",
+  "quiet_hours_invalid",
+  "dismissal_not_found",
 ]);
 
 function safeCode(error, fallback = "internal_error") {
@@ -375,6 +385,42 @@ function attachRequestHandler(host, options) {
         sendJson(response, 200, { ok: true, ...result });
         return;
       }
+      if (route === "POST /v1/proactive/state") {
+        // Plan 61-10: one fixed deterministic proactive state read mapped ONLY
+        // to proactive.state.get (HARNESS-05). Field-level validation in
+        // KernelHost.getProactiveState rejects private/override inputs before
+        // the bound Gateway bridge is dispatched; the no-store metadata-only
+        // envelope never claims an authority mutation (T-61-PROACTIVE-02/-03).
+        const body = await readBoundedJson(request);
+        const result = await host.getProactiveState(body);
+        sendJson(response, 200, { ok: true, ...result });
+        return;
+      }
+      if (route === "POST /v1/proactive/controls") {
+        // Plan 61-10: one fixed proactive controls route mapped ONLY to
+        // proactive.controls.update (HARNESS-05).
+        const body = await readBoundedJson(request);
+        const result = await host.updateProactiveControls(body);
+        sendJson(response, 200, { ok: true, ...result });
+        return;
+      }
+      if (route === "POST /v1/proactive/dismiss") {
+        // Plan 61-10: one fixed proactive dismissal route mapped ONLY to
+        // proactive.dismiss (HARNESS-05); feedback stays append-only.
+        const body = await readBoundedJson(request);
+        const result = await host.dismissProactive(body);
+        sendJson(response, 200, { ok: true, ...result });
+        return;
+      }
+      if (route === "POST /v1/proactive/undo") {
+        // Plan 61-10: one fixed proactive undo route mapped ONLY to
+        // proactive.dismiss.undo (HARNESS-05); undo never mutates the
+        // original dismissal entry.
+        const body = await readBoundedJson(request);
+        const result = await host.undoProactiveDismissal(body);
+        sendJson(response, 200, { ok: true, ...result });
+        return;
+      }
       if (request.method === "GET" && url.pathname.startsWith("/v1/tasks/")) {
         const taskId = url.pathname.slice("/v1/tasks/".length);
         const task = host.taskLedger.get(taskId);
@@ -424,7 +470,7 @@ function attachRequestHandler(host, options) {
         });
         return;
       }
-      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/skills", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates", "/internal/v1/conversation-deltas", "/v1/conversations/turn", "/v1/conversations/session", "/v1/conversations/cancel", "/v1/conversations/resume", "/v1/conversations/reconcile", "/v1/candidates/review", "/v1/personal/model-projection"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/") || url.pathname.startsWith("/v1/conversations/");
+      const samePath = ["/health", "/ready", "/v1/tasks", "/v1/skills", "/v1/operations", "/v1/events", "/v1/events/stream", "/internal/v1/candidates", "/internal/v1/conversation-deltas", "/v1/conversations/turn", "/v1/conversations/session", "/v1/conversations/cancel", "/v1/conversations/resume", "/v1/conversations/reconcile", "/v1/candidates/review", "/v1/personal/model-projection", "/v1/proactive/state", "/v1/proactive/controls", "/v1/proactive/dismiss", "/v1/proactive/undo"].includes(url.pathname) || url.pathname.startsWith("/v1/tasks/") || url.pathname.startsWith("/v1/operations/") || url.pathname.startsWith("/v1/conversations/");
       sendSafeError(response, samePath ? 405 : 404, samePath ? "method_not_allowed" : "route_not_found");
     } catch (error) {
       const code = safeCode(error);

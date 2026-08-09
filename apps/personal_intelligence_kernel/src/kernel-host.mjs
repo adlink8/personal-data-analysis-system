@@ -49,6 +49,63 @@ const CANDIDATE_REVIEW_ALLOWED_FIELDS = new Set([
 const MODEL_PROJECTION_OPERATION = "personal.model_projection.get";
 const MODEL_PROJECTION_ALLOWED_FIELDS = new Set(["scope", "task_id", "idempotency_key", "binding"]);
 
+// Plan 61-10: four fixed deterministic proactive presentation bindings
+// (D-23-D-25, HARNESS-05). Each route accepts exactly the declared request
+// vocabulary (capability is the loopback transport header and never a field);
+// state is a read and controls/dismiss/undo are guarded_writes. Private/
+// override fields, provider/operation/endpoint/path/authority overrides,
+// learned-scheduling/permission/value/canonical commands, alternate paths and
+// method mismatches fail before Gateway dispatch so no endpoint/path/provider
+// bypass is possible (T-61-PROACTIVE-02/-03). Feedback stays append-only and
+// the envelopes never claim a canonical/promotion/rollback/watermark/
+// active-pointer authority mutation.
+const PROACTIVE_STATE_OPERATION = "proactive.state.get";
+const PROACTIVE_CONTROLS_OPERATION = "proactive.controls.update";
+const PROACTIVE_DISMISS_OPERATION = "proactive.dismiss";
+const PROACTIVE_UNDO_OPERATION = "proactive.dismiss.undo";
+const PROACTIVE_CATEGORIES = new Set(["同步", "简报", "反思候选"]);
+const PROACTIVE_PROJECT_SCOPE = /^project:[A-Za-z0-9][A-Za-z0-9._:/@#-]{0,255}$/;
+const PROACTIVE_QUIET_TIME = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+const PROACTIVE_ALLOWED_FIELDS = Object.freeze({
+  [PROACTIVE_STATE_OPERATION]: new Set(["scope", "events", "controls", "quiet_hours", "now", "manual_order", "task_id", "idempotency_key", "binding"]),
+  [PROACTIVE_CONTROLS_OPERATION]: new Set(["scope", "category", "enabled", "quiet_hours", "task_id", "idempotency_key", "binding"]),
+  [PROACTIVE_DISMISS_OPERATION]: new Set(["cluster_key", "feedback_id", "actor_identity_hash", "now", "feedback_log", "task_id", "idempotency_key", "binding"]),
+  [PROACTIVE_UNDO_OPERATION]: new Set(["dismissal_feedback_id", "feedback_id", "actor_identity_hash", "now", "feedback_log", "task_id", "idempotency_key", "binding"]),
+});
+
+function assertProactivePayloadShape(payload) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) throw safeError("proactive_request_invalid");
+}
+
+function assertProactiveBinding(payload) {
+  if (typeof payload.idempotency_key !== "string" || !payload.idempotency_key) throw safeError("idempotency_key_required");
+  if (payload.binding === null || payload.binding === undefined || (typeof payload.binding !== "string" && typeof payload.binding !== "object")) throw safeError("binding_required");
+}
+
+function assertProactiveScope(value) {
+  if (typeof value !== "string" || (value !== "global" && !PROACTIVE_PROJECT_SCOPE.test(value))) throw safeError("scope_identity_invalid");
+  return value;
+}
+
+function assertProactiveQuietHours(quietHours) {
+  if (quietHours === undefined || quietHours === null) return;
+  if (typeof quietHours !== "object" || Array.isArray(quietHours)) throw safeError("proactive_request_invalid");
+  if (quietHours.enabled !== true) return;
+  if (typeof quietHours.start !== "string" || !PROACTIVE_QUIET_TIME.test(quietHours.start)
+    || typeof quietHours.end !== "string" || !PROACTIVE_QUIET_TIME.test(quietHours.end)) {
+    throw safeError("proactive_request_invalid");
+  }
+}
+
+/** Shared field allowlist + sender/binding gate for a fixed proactive route. */
+function assertProactiveRequest(operation, payload) {
+  assertProactivePayloadShape(payload);
+  for (const key of Object.keys(payload)) {
+    if (!PROACTIVE_ALLOWED_FIELDS[operation].has(key)) throw safeError("undeclared_input");
+  }
+  assertProactiveBinding(payload);
+}
+
 export class KernelHostError extends Error {
   constructor(code, message = code) {
     super(message);
@@ -717,6 +774,81 @@ export class KernelHost {
     const result = await this.domainBridge.invoke(MODEL_PROJECTION_OPERATION, payload);
     if (result?.ok !== true) throw safeError(result?.error?.code ?? "domain_unavailable");
     return { ok: true, ...sanitizeProjectionEnvelope(result.data ?? result) };
+  }
+
+  /**
+   * Fixed `proactive.state.get` binding (Plan 61-10 / HARNESS-05): field-level
+   * validate the exact deterministic state request shape (scope, events,
+   * controls, quiet_hours, now, manual_order, binding, idempotency), then
+   * dispatch ONLY `proactive.state.get` to the bound Gateway bridge. Private/
+   * override fields, schedule/permission/value/canonical commands and malformed
+   * scope/now/events/quiet-hours are rejected before dispatch; the returned
+   * envelope is no-store metadata-only and never claims an authority mutation.
+   */
+  async getProactiveState(payload = {}) {
+    if (!this.domainBridge) throw safeError("domain_unavailable");
+    assertProactiveRequest(PROACTIVE_STATE_OPERATION, payload);
+    assertProactiveScope(payload.scope);
+    if (typeof payload.now !== "string" || !payload.now) throw safeError("proactive_request_invalid");
+    if (!Array.isArray(payload.events)) throw safeError("proactive_request_invalid");
+    assertProactiveQuietHours(payload.quiet_hours);
+    const result = await this.domainBridge.invoke(PROACTIVE_STATE_OPERATION, payload);
+    if (result?.ok !== true) throw safeError(result?.error?.code ?? "domain_unavailable");
+    return { ok: true, ...sanitizeProjectionEnvelope(result.data ?? result) };
+  }
+
+  /**
+   * Fixed `proactive.controls.update` binding (Plan 61-10 / HARNESS-05):
+   * validate the exact controls request shape and the exact category
+   * (同步/简报/反思候选), then dispatch ONLY `proactive.controls.update` to the
+   * bound Gateway bridge. Controls updates never schedule, change permissions/
+   * values or write canonical/promotion/rollback/watermark/active-pointer state.
+   */
+  async updateProactiveControls(payload = {}) {
+    if (!this.domainBridge) throw safeError("domain_unavailable");
+    assertProactiveRequest(PROACTIVE_CONTROLS_OPERATION, payload);
+    assertProactiveScope(payload.scope);
+    if (!PROACTIVE_CATEGORIES.has(payload.category)) throw safeError("category_unknown");
+    assertProactiveQuietHours(payload.quiet_hours);
+    const result = await this.domainBridge.invoke(PROACTIVE_CONTROLS_OPERATION, payload);
+    if (result?.ok !== true) throw safeError(result?.error?.code ?? "domain_unavailable");
+    return { ok: true, ...(result.data ?? result) };
+  }
+
+  /**
+   * Fixed `proactive.dismiss` binding (Plan 61-10 / HARNESS-05): validate the
+   * exact dismissal request shape (cluster_key, feedback_id, actor_identity_hash,
+   * now, binding, idempotency), then dispatch ONLY `proactive.dismiss` to the
+   * bound Gateway bridge. Dismissal is append-only and idempotent; it never
+   * schedules or mutates authority state.
+   */
+  async dismissProactive(payload = {}) {
+    if (!this.domainBridge) throw safeError("domain_unavailable");
+    assertProactiveRequest(PROACTIVE_DISMISS_OPERATION, payload);
+    if (typeof payload.cluster_key !== "string" || !payload.cluster_key) throw safeError("proactive_request_invalid");
+    if (typeof payload.feedback_id !== "string" || !payload.feedback_id) throw safeError("proactive_request_invalid");
+    if (typeof payload.now !== "string" || !payload.now) throw safeError("proactive_request_invalid");
+    const result = await this.domainBridge.invoke(PROACTIVE_DISMISS_OPERATION, payload);
+    if (result?.ok !== true) throw safeError(result?.error?.code ?? "domain_unavailable");
+    return { ok: true, ...(result.data ?? result) };
+  }
+
+  /**
+   * Fixed `proactive.dismiss.undo` binding (Plan 61-10 / HARNESS-05): validate
+   * the exact undo request shape (dismissal_feedback_id, feedback_id,
+   * actor_identity_hash, now, binding, idempotency), then dispatch ONLY
+   * `proactive.dismiss.undo` to the bound Gateway bridge. Undo appends a new
+   * entry and never mutates the original dismissal.
+   */
+  async undoProactiveDismissal(payload = {}) {
+    if (!this.domainBridge) throw safeError("domain_unavailable");
+    assertProactiveRequest(PROACTIVE_UNDO_OPERATION, payload);
+    if (typeof payload.dismissal_feedback_id !== "string" || !payload.dismissal_feedback_id) throw safeError("proactive_request_invalid");
+    if (typeof payload.feedback_id !== "string" || !payload.feedback_id) throw safeError("proactive_request_invalid");
+    if (typeof payload.now !== "string" || !payload.now) throw safeError("proactive_request_invalid");
+    const result = await this.domainBridge.invoke(PROACTIVE_UNDO_OPERATION, payload);
+    if (result?.ok !== true) throw safeError(result?.error?.code ?? "domain_unavailable");
+    return { ok: true, ...(result.data ?? result) };
   }
 
   async listen() {

@@ -1,8 +1,11 @@
 """Typed, loopback-only bridge from Pi tools to the existing Python authority."""
 from __future__ import annotations
 
+import hashlib
 import hmac
+import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -87,6 +90,88 @@ DEFAULT_CANDIDATE_REVIEW_DB = ROOT / "var" / "db" / "candidate_review.sqlite"
 # accepted review state (D-19-D-22, D-26, D-28-D-29).
 PROJECTION_GET_OPERATION = "personal.model_projection.get"
 
+# Plan 61-10: the four fixed deterministic proactive presentation providers
+# (HARNESS-05 / D-23-D-25). State is a read; controls, dismiss and undo are
+# guarded_writes. Each provider accepts only its exact declared request
+# vocabulary (``capability`` is the loopback transport header and never a
+# declared field); endpoint/path/provider/authority overrides plus
+# learned-scheduling/permission/personal-value/canonical command fields can
+# never enter these maps. The provider branches call only the deterministic
+# Plan 61-07 adapter after validating scope/category/quiet-hour/item-identity
+# and normalize the no-store metadata-only envelope (T-61-PROACTIVE-02/-03).
+PROACTIVE_STATE_OPERATION = "proactive.state.get"
+PROACTIVE_CONTROLS_OPERATION = "proactive.controls.update"
+PROACTIVE_DISMISS_OPERATION = "proactive.dismiss"
+PROACTIVE_UNDO_OPERATION = "proactive.dismiss.undo"
+
+_PROJECT_SCOPE_RE = re.compile(r"^project:[A-Za-z0-9][A-Za-z0-9._:/@#-]{0,255}$")
+_QUIET_TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+
+
+def _proactive_scope_ok(scope: Any) -> bool:
+    """Scope is exactly ``global`` or an approved ``project:`` identifier shape."""
+    return scope == "global" or (isinstance(scope, str) and bool(_PROJECT_SCOPE_RE.match(scope)))
+
+
+def _proactive_quiet_hours_ok(quiet_hours: Any) -> bool:
+    """Quiet hours are a mapping with HH:MM start/end whenever enabled."""
+    if quiet_hours is None:
+        return True
+    if not isinstance(quiet_hours, Mapping):
+        return False
+    if not quiet_hours.get("enabled"):
+        return True
+    start, end = quiet_hours.get("start"), quiet_hours.get("end")
+    return (
+        isinstance(start, str) and isinstance(end, str)
+        and bool(_QUIET_TIME_RE.match(start)) and bool(_QUIET_TIME_RE.match(end))
+    )
+
+
+def _proactive_feedback_id(operation: str, scope: Any, idempotency_key: Any) -> str:
+    """Deterministic append-only feedback id for a no-store metadata envelope."""
+    seed = json.dumps(
+        {"operation": operation, "scope": scope, "idempotency_key": idempotency_key},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    )
+    return "feedback_proactive_" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+
+
+PROACTIVE_OPERATIONS: dict[str, dict[str, Any]] = {
+    PROACTIVE_STATE_OPERATION: {
+        "kind": "read",
+        "allowed": {
+            "scope", "events", "controls", "quiet_hours", "now", "manual_order",
+            "task_id", "idempotency_key", "binding",
+        },
+        "privacy": "R2",
+    },
+    PROACTIVE_CONTROLS_OPERATION: {
+        "kind": "guarded_write",
+        "allowed": {
+            "scope", "category", "enabled", "quiet_hours",
+            "task_id", "idempotency_key", "binding",
+        },
+        "privacy": "R2",
+    },
+    PROACTIVE_DISMISS_OPERATION: {
+        "kind": "guarded_write",
+        "allowed": {
+            "cluster_key", "feedback_id", "actor_identity_hash", "now", "feedback_log",
+            "task_id", "idempotency_key", "binding",
+        },
+        "privacy": "R2",
+    },
+    PROACTIVE_UNDO_OPERATION: {
+        "kind": "guarded_write",
+        "allowed": {
+            "dismissal_feedback_id", "feedback_id", "actor_identity_hash", "now", "feedback_log",
+            "task_id", "idempotency_key", "binding",
+        },
+        "privacy": "R2",
+    },
+}
+
 OPERATIONS: dict[str, dict[str, Any]] = {
     "domain.inspect": {"kind": "read", "allowed": {"task_id", "idempotency_key", "binding"}, "privacy": "R1"},
     "domain.candidate": {"kind": "read", "allowed": {"task_id", "idempotency_key", "binding", "evidence_refs", "proposal"}, "privacy": "R1"},
@@ -127,6 +212,7 @@ OPERATIONS: dict[str, dict[str, Any]] = {
         "checksum": "b06b0d5ce4f762515082aebc296bd804ff18ff6875d7af552f0aa936f163227e",
     },
     **CONVERSATION_READ_OPERATIONS,
+    **PROACTIVE_OPERATIONS,
 }
 
 PROJECT_OPERATIONS: dict[str, dict[str, Any]] = {
@@ -320,6 +406,120 @@ class PiDomainGateway:
                 if isinstance(data, dict):
                     data.setdefault("capability_checksum", spec.get("checksum"))
                 return _ok(canonical, data)
+            if canonical == PROACTIVE_STATE_OPERATION:
+                # Explicit fixed read-only provider only (Plan 61-10): validates
+                # the exact scope/category/quiet-hour vocabulary and projects
+                # deterministic no-store metadata through the Plan 61-07 adapter.
+                # Never a scheduling/permission/value/canonical mutation path and
+                # never a dynamic callable name.
+                from personal_knowledge.application.conversation.harness_proactive import (
+                    ProactiveError,
+                    project_proactive_state,
+                )
+                if not _proactive_scope_ok(params.get("scope")):
+                    return _error(canonical, "unknown_scope")
+                try:
+                    projection = project_proactive_state(
+                        events=params.get("events"),
+                        controls=params.get("controls"),
+                        quiet_hours=params.get("quiet_hours"),
+                        now=params.get("now"),
+                        manual_order=params.get("manual_order"),
+                    )
+                except ProactiveError as exc:
+                    return _error(canonical, exc.code)
+                data = dict(projection)
+                data["scope"] = params.get("scope")
+                data["controls"] = params.get("controls")
+                data["feedback"] = {
+                    "feedback_id": _proactive_feedback_id(
+                        canonical, params.get("scope"), params.get("idempotency_key")
+                    ),
+                    "feedback_count": 0,
+                }
+                data["metadata_only"] = True
+                return _ok(canonical, data)
+            if canonical == PROACTIVE_CONTROLS_OPERATION:
+                # Explicit guarded presentation-control provider only (Plan
+                # 61-10): a bounded metadata envelope that validates the exact
+                # category and quiet-hour vocabulary; it never schedules,
+                # changes permissions/values or writes canonical/promotion/
+                # rollback/watermark/active-pointer state.
+                from personal_knowledge.application.conversation.harness_proactive import (
+                    CONTROL_CATEGORIES,
+                )
+                if not _proactive_scope_ok(params.get("scope")):
+                    return _error(canonical, "unknown_scope")
+                if params.get("category") not in CONTROL_CATEGORIES:
+                    return _error(canonical, "declared_category")
+                if not _proactive_quiet_hours_ok(params.get("quiet_hours")):
+                    return _error(canonical, "quiet_hours_invalid")
+                return _ok(canonical, {
+                    "scope": params.get("scope"),
+                    "category": params.get("category"),
+                    "enabled": bool(params.get("enabled")),
+                    "quiet_hours": params.get("quiet_hours"),
+                    "feedback": {
+                        "feedback_id": _proactive_feedback_id(
+                            canonical, params.get("scope"), params.get("idempotency_key")
+                        ),
+                        "feedback_count": 0,
+                    },
+                    "metadata_only": True,
+                })
+            if canonical == PROACTIVE_DISMISS_OPERATION:
+                # Explicit guarded dismissal provider only (Plan 61-10): appends
+                # exactly one dismissal feedback entry through the Plan 61-07
+                # adapter; an exact idempotent retry appends nothing.
+                from personal_knowledge.application.conversation.harness_proactive import (
+                    ProactiveError,
+                    apply_dismissal,
+                )
+                try:
+                    result = apply_dismissal(
+                        feedback_log=params.get("feedback_log", ()),
+                        cluster_key=params.get("cluster_key"),
+                        feedback_id=params.get("feedback_id"),
+                        actor_identity_hash=params.get("actor_identity_hash"),
+                        idempotency_key=params.get("idempotency_key"),
+                        now=params.get("now"),
+                    )
+                except ProactiveError as exc:
+                    return _error(canonical, exc.code)
+                return _ok(canonical, {
+                    "operation": "dismiss",
+                    "existing": result["existing"],
+                    "feedback_log": result["feedback_log"],
+                    "feedback_count": len(result["feedback_log"]),
+                    "receipt": result["receipt"],
+                    "metadata_only": True,
+                })
+            if canonical == PROACTIVE_UNDO_OPERATION:
+                # Explicit guarded undo provider only (Plan 61-10): appends a
+                # new undo entry and never mutates the dismissal entry.
+                from personal_knowledge.application.conversation.harness_proactive import (
+                    ProactiveError,
+                    undo_dismissal,
+                )
+                try:
+                    result = undo_dismissal(
+                        feedback_log=params.get("feedback_log", ()),
+                        dismissal_feedback_id=params.get("dismissal_feedback_id"),
+                        feedback_id=params.get("feedback_id"),
+                        actor_identity_hash=params.get("actor_identity_hash"),
+                        idempotency_key=params.get("idempotency_key"),
+                        now=params.get("now"),
+                    )
+                except ProactiveError as exc:
+                    return _error(canonical, exc.code)
+                return _ok(canonical, {
+                    "operation": "undo_dismissal",
+                    "existing": result["existing"],
+                    "feedback_log": result["feedback_log"],
+                    "feedback_count": len(result["feedback_log"]),
+                    "receipt": result["receipt"],
+                    "metadata_only": True,
+                })
             if spec["kind"] == "read":
                 if self.read_handler is not None:
                     return _ok(canonical, self.read_handler(canonical, params))
@@ -343,10 +543,11 @@ class PiDomainGateway:
                 "sql_forbidden", "parameter_invalid", "path_forbidden", "limit_exceeded",
                 "supporting_skill_rejected", "database_unavailable", "schema_gate_failed",
                 "query_timeout", "descriptor_invalid", "undeclared_input",
+                "unknown_scope", "declared_category", "quiet_hours_invalid", "dismissal_not_found",
             }
             return _error(operation, code if code in safe_codes else "domain_unavailable")
 
 def invoke_pi_domain(operation: str, params: Mapping[str, Any] | None = None, *, capability: str | None = None, service=None) -> dict[str, Any]:
     return PiDomainGateway(service=service).invoke(operation, params, capability=capability)
 
-__all__ = ["OPERATIONS", "PROJECT_OPERATIONS", "PROJECT_ALIASES", "PI_DOMAIN_GATEWAY_SCHEMA", "PI_DOMAIN_CAPABILITY_HEADER", "CANDIDATE_REVIEW_OPERATION", "PROJECTION_GET_OPERATION", "PiDomainGateway", "PiDomainGatewayError", "canonical_project_operation", "invoke_pi_domain"]
+__all__ = ["OPERATIONS", "PROJECT_OPERATIONS", "PROJECT_ALIASES", "PI_DOMAIN_GATEWAY_SCHEMA", "PI_DOMAIN_CAPABILITY_HEADER", "CANDIDATE_REVIEW_OPERATION", "PROJECTION_GET_OPERATION", "PROACTIVE_STATE_OPERATION", "PROACTIVE_CONTROLS_OPERATION", "PROACTIVE_DISMISS_OPERATION", "PROACTIVE_UNDO_OPERATION", "PROACTIVE_OPERATIONS", "PiDomainGateway", "PiDomainGatewayError", "canonical_project_operation", "invoke_pi_domain"]
