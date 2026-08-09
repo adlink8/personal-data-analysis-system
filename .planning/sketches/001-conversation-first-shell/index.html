@@ -124,6 +124,21 @@
     .toast.show { opacity:1; transform:translate(-50%,0); }
     @media (max-width: 850px) { #variant-b .app { grid-template-columns:1fr; } .context-panel { display:none; } body[data-variant="b"] .composer { right:0; } .brief { grid-template-columns:1fr; } .conversation { padding:30px 18px 126px; } }
   </style>
+  <style id="codex-theme-overrides">
+    body { background: var(--color-bg); }
+    .variant-nav { background: rgba(26,34,40,.96); }
+    .sidebar, .context-panel { background: var(--color-surface); }
+    .brand-mark, .send, .focus-toggle.active { color: var(--color-button-text); }
+    .brand-mark, .send, .focus-toggle.active { background: var(--color-primary); border-color: var(--color-primary); }
+    .nav-item.active, .message.user .bubble { background: var(--color-selected); }
+    .avatar { background: var(--color-selected); color: var(--color-text); }
+    .status b { background: var(--color-success); box-shadow: 0 0 0 3px rgba(114,201,143,.11); }
+    .focus-note { background: var(--color-surface-raised); border-color: var(--color-border); color: var(--color-text-muted); }
+    .toast { background: var(--color-surface-raised); border-color: var(--color-border); color: var(--color-text); }
+    .project-dot.green { background: var(--color-success); }
+    .project-dot.gray { background: var(--color-text-muted); }
+    .context-card { background: var(--color-surface-raised); }
+  </style>
 </head>
 <body data-variant="a">
   <nav class="variant-nav" aria-label="草图变体">
