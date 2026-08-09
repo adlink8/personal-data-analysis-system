@@ -865,3 +865,252 @@ test("candidate review route rejects missing and malformed request bodies safely
 
   assert.equal(bridgeCalls.length, 0, "a malformed review must never reach the Gateway bridge");
 });
+
+// ---------------------------------------------------------------------------
+// Plan 61-09 Task 1 RED contract: fixed `personal.model_projection.get` route
+// (GET /v1/personal/model-projection) and governed next-turn context injection
+// (HARNESS-07).
+//
+// The Kernel owns ONE fixed read route. It validates the approved input
+// vocabulary (scope/binding/task_id/idempotency_key), dispatches ONLY
+// `personal.model_projection.get` to the bound Gateway bridge (never an
+// arbitrary endpoint/path/provider), and returns a safe metadata-only
+// projection envelope. Private/override fields and alternate paths are rejected
+// before dispatch. The real turn-service pre-prompt context builder calls the
+// provider with the turn's scope/binding and injects ONLY compatible current
+// derived context before `AgentSession.prompt`; stale/unknown/conflicting/
+// foreign-scope results are omitted with a limitation, never inferred as truth.
+//
+// This section is RED today: the route does not exist (404 route_not_found) and
+// `runConversationTurn` has no projection context builder, so every expectation
+// below fails pointing at the missing Plan 61-09 Task 2 dispatch/injection,
+// never at a syntax error. The 61-03/61-05/61-08 tests above stay green.
+// ---------------------------------------------------------------------------
+
+const MODEL_PROJECTION_ROUTE = "/v1/personal/model-projection";
+const MODEL_PROJECTION_OPERATION = "personal.model_projection.get";
+
+function projectionFixture(scope, overrides = {}) {
+  return {
+    projection_id: "projection_61_09_001",
+    version: 1,
+    provenance_class: "inference",
+    scope,
+    valid_from: "2026-08-09T09:00:00.000Z",
+    valid_to: "9999-12-31T23:59:59.000Z",
+    observed_at: "2026-08-09T09:00:00.000Z",
+    confidence: 0.6,
+    uncertainty: ["source:fixture", "low_confidence"],
+    freshness: {
+      source_to_agentsview: { leg: "source_to_agentsview", status: "current", watermark: "2026-08-09T07:00:00Z", observed_at: "2026-08-09T08:00:00Z", backlog: 0, limitation: "source current" },
+      agentsview_to_canonical: { leg: "agentsview_to_canonical", status: "current", watermark: "2026-08-09T08:00:00Z", observed_at: "2026-08-09T08:00:00Z", backlog: 0, limitation: "canonical current" },
+    },
+    support_refs: ["agentsview.snapshot@abc", "canonical.conversation@def"],
+    support_count: 2,
+    conflict_refs: [],
+    conflict_count: 0,
+    conflicts: [],
+    supersession: null,
+    limitations: ["derived projection; not a personal fact or stable label"],
+    status: "current",
+    ...overrides,
+  };
+}
+
+/** Gateway double: records every dispatch and mirrors the Python gateway guard. */
+function createProjectionBridge(records) {
+  return {
+    async invoke(operation, params) {
+      records.push({ operation, params });
+      if (operation !== MODEL_PROJECTION_OPERATION) {
+        return { ok: false, status: "error", error: { code: "unknown_operation" } };
+      }
+      const privateField = Object.keys(params || {}).find((key) =>
+        /^(?:body|content|prompt|completion|credential|secret|provider|operation|authority|endpoint|path|sql|raw_evidence|authority_override)$/i.test(key));
+      if (privateField) {
+        return { ok: false, status: "error", error: { code: "undeclared_input" } };
+      }
+      return { ok: true, status: "success", data: projectionFixture(String(params.scope ?? "")) };
+    },
+  };
+}
+
+async function startProjectionServer(t) {
+  const dir = await mkdtemp(join(tmpdir(), "pi-model-projection-"));
+  const decisionPath = join(dir, "decision.json");
+  await writeFile(decisionPath, JSON.stringify({
+    schema: "pi-package-decision-v1", run_id: PHASE_48_DECISION_RUN_ID,
+    status: "accepted", accepted: true, expiry: "2099-01-01T00:00:00.000Z",
+  }), "utf8");
+  const bridgeCalls = [];
+  const runtime = await startKernelServer({
+    projectRoot: process.cwd(), decisionPath, databasePath: join(dir, "events.sqlite"), controlDatabaseDirectory: dir,
+    cwd: dir, agentDir: join(dir, "agent"), host: "127.0.0.1", port: 0, providerMode: "replay",
+    domainBridge: createProjectionBridge(bridgeCalls),
+  });
+  const port = runtime.server.address().port;
+  t.after(async () => { await runtime.stop(100); await rm(dir, { recursive: true, force: true }); });
+  return { port, bridgeCalls };
+}
+
+function projectionQuery(overrides = {}) {
+  const params = {
+    scope: "/work/alpha",
+    task_id: "pi_task_projection_001",
+    idempotency_key: "pi-idem-projection-001",
+    binding: "pi_kernel_model_projection",
+    ...overrides,
+  };
+  return Object.entries(params)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+    .join("&");
+}
+
+test("fixed GET /v1/personal/model-projection maps only to personal.model_projection.get through KernelHost->Gateway binding", async (t) => {
+  const { port, bridgeCalls } = await startProjectionServer(t);
+  const response = await requestJson(port, "GET", `${MODEL_PROJECTION_ROUTE}?${projectionQuery()}`);
+  assert.notEqual(response.status, 404, "RED: GET /v1/personal/model-projection must exist (expected for 61-09 Task 1)");
+  assert.equal(response.status, 200, "a safe projection read must be a 200 envelope");
+  assert.equal(response.json.ok, true);
+  const payload = response.json.data ?? response.json;
+  assert.equal(payload.status, "current");
+  assert.equal(payload.provenance_class, "inference", "a projection is an inference, never a fact");
+  assert.equal(payload.scope, "/work/alpha");
+  assert.equal(typeof payload.version, "number");
+  assert.ok(Array.isArray(payload.support_refs) && payload.support_count === payload.support_refs.length);
+  assert.ok(Array.isArray(payload.conflict_refs) && payload.conflict_count === payload.conflict_refs.length);
+  assert.ok("supersession" in payload, "the projection records supersession");
+  assert.ok(payload.limitations?.length > 0, "the projection states its limitations");
+  assert.ok(payload.freshness?.source_to_agentsview && payload.freshness?.agentsview_to_canonical, "two typed freshness legs are returned");
+  assertNoPrivateLeak(response.json, "model projection response");
+
+  // The route reaches the bound Gateway bridge exactly once and never another
+  // endpoint/provider: this is a KernelHost/server -> Gateway binding.
+  assert.equal(bridgeCalls.length, 1, "the fixed route must dispatch exactly once to the bound Gateway bridge");
+  assert.equal(bridgeCalls[0].operation, MODEL_PROJECTION_OPERATION, "the fixed route maps ONLY to personal.model_projection.get");
+  assert.equal(bridgeCalls[0].params.scope, "/work/alpha");
+  assert.equal(bridgeCalls[0].params.task_id, "pi_task_projection_001");
+  assert.equal(bridgeCalls[0].params.idempotency_key, "pi-idem-projection-001");
+  assert.equal(bridgeCalls[0].params.binding, "pi_kernel_model_projection");
+  assert.equal(/promot|rollback|watermark|active_pointer|canonical\./.test(JSON.stringify(response.json)), false,
+    "the projection envelope must never claim canonical/promotion authority mutation");
+});
+
+test("model projection has exactly one fixed route; method/path/provider/private input fail closed", async (t) => {
+  const { port, bridgeCalls } = await startProjectionServer(t);
+  const query = projectionQuery();
+
+  // The fixed route is GET-only.
+  const post = await requestJson(port, "POST", MODEL_PROJECTION_ROUTE, { scope: "/work/alpha" });
+  assert.equal(post.status, 405, "RED: GET /v1/personal/model-projection must exist and reject other methods (got 404/405)");
+  assert.equal(post.json.error.code, "method_not_allowed");
+
+  // Alternate paths must not exist (one fixed route, no endpoint override).
+  for (const path of [
+    "/v1/personal/model-projection/extra",
+    "/v1/personal/projections",
+    "/v1/model-projection",
+    "/v1/projections",
+    "/v1/personal/model",
+  ]) {
+    const alt = await requestJson(port, "GET", `${path}?${query}`);
+    assert.equal(alt.status, 404, `${path} must be route_not_found`);
+    assert.equal(alt.json.error.code, "route_not_found");
+  }
+
+  // Private/override query inputs reject before Gateway dispatch (no provider override).
+  const before = bridgeCalls.length;
+  for (const [label, extra] of [
+    ["private prompt", { prompt: SENTINELS.prompt }],
+    ["private secret", { secret: SENTINELS.secret }],
+    ["provider override", { provider: "model.wake" }],
+    ["operation override", { operation: "canonical.promote" }],
+    ["endpoint override", { endpoint: "http://127.0.0.1:9999" }],
+    ["path override", { path: "/v1/canonical" }],
+  ]) {
+    const rejected = await requestJson(port, "GET", `${MODEL_PROJECTION_ROUTE}?${projectionQuery(extra)}`);
+    assert.equal(rejected.status, 400, `${label} must be rejected by the fixed route (got ${rejected.status})`);
+    assert.equal(rejected.json.ok, false);
+    assertNoPrivateLeak(rejected.json, `${label} rejection`);
+    assert.equal(rejected.text.includes(SENTINELS.prompt), false, `${label} must never leak request text`);
+  }
+  assert.equal(bridgeCalls.length, before, "private/override fields must never reach the Gateway bridge");
+});
+
+test("real turn session receives only approved compatible derived context before AgentSession.prompt", async (t) => {
+  const { runConversationTurn } = await importTurnService();
+  assert.equal(typeof runConversationTurn, "function");
+
+  // Positive: one compatible current projection is injected before prompt.
+  const providerCalls = [];
+  const approvedProvider = async ({ scope, binding } = {}) => {
+    providerCalls.push({ scope, binding });
+    return { ok: true, status: "success", data: projectionFixture(scope) };
+  };
+  const double = createSessionDouble({ script: "settle" });
+  const result = await runConversationTurn({
+    session: double.session,
+    prompt: SENTINELS.prompt,
+    activeToolNames: ["knowledge.search"],
+    profile: "conversation",
+    taskId: "pi_task_projection_turn_001",
+    sessionId: "pi_session_projection_turn_001",
+    idempotencyKey: "pi-idem-projection-turn-001",
+    scope: "/work/alpha",
+    binding: "pi_kernel_conversation_turn",
+    modelProjectionProvider: approvedProvider,
+    timeoutMs: 1000,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(providerCalls.length, 1, "RED: turn-service must call personal.model_projection.get before prompt (expected for 61-09 Task 1)");
+  assert.equal(providerCalls[0].scope, "/work/alpha", "the provider is called with the turn scope");
+  assert.equal(providerCalls[0].binding, "pi_kernel_conversation_turn", "the provider is called with the turn binding");
+  assert.equal(double.calls.prompts.length, 1);
+  const promptOptions = double.calls.prompts[0].options;
+  assert.ok(Array.isArray(promptOptions.projection_context), "RED: typed projection context must be built before AgentSession.prompt");
+  const injected = promptOptions.projection_context;
+  assert.equal(injected.some((entry) => entry.scope === "/work/alpha" && entry.version === 1 && entry.status === "current"), true,
+    "the approved compatible projection is injected into the pre-prompt context");
+  assert.equal(injected.some((entry) => entry.provenance_class === "fact"), false, "no projection is injected as a fact");
+  assert.ok(result.turn.receipts.projection, "the safe receipt carries the projection summary");
+  assert.equal(result.turn.receipts.projection.version, 1, "the receipt returns the projection version");
+  assert.ok(result.turn.receipts.projection.freshness, "the receipt returns freshness");
+  assert.ok(result.turn.receipts.projection.limitations, "the receipt returns limitations");
+  assertNoPrivateLeak(result, "projection-aware turn result");
+
+  // Negative: stale/unknown/conflicting/foreign results are omitted with a
+  // limitation and never injected as current derived context.
+  const negativeCases = {
+    stale: { status: "stale", version: 1 },
+    conflict: { status: "conflict", version: 2, conflict_refs: ["ref:conflict"], conflict_count: 1, conflicts: [{ ref: "ref:conflict", disposition: "coexist_by_context" }] },
+    unknown: { status: "unknown", projection_id: null, version: 0, support_refs: [], support_count: 0 },
+    foreign_scope: { scope: "scope:foreign" },
+  };
+  for (const [label, projectionOverride] of Object.entries(negativeCases)) {
+    const negativeDouble = createSessionDouble({ script: "settle" });
+    const negativeProvider = async ({ scope } = {}) => ({ ok: true, status: "success", data: projectionFixture(scope, projectionOverride) });
+    const negative = await runConversationTurn({
+      session: negativeDouble.session,
+      prompt: SENTINELS.prompt,
+      activeToolNames: ["knowledge.search"],
+      profile: "conversation",
+      taskId: `pi_task_projection_${label}_001`,
+      sessionId: `pi_session_projection_${label}_001`,
+      idempotencyKey: `pi-idem-projection-${label}-001`,
+      scope: "/work/alpha",
+      binding: "pi_kernel_conversation_turn",
+      modelProjectionProvider: negativeProvider,
+      timeoutMs: 1000,
+    });
+    const context = negativeDouble.calls.prompts[0]?.options?.projection_context ?? [];
+    assert.equal(
+      context.some((entry) => entry.scope === "/work/alpha" && (entry.status === "current" || entry.status === "uncertain")),
+      false,
+      `${label} derived context must never be injected as current compatible context`,
+    );
+    assert.ok(negative.turn.receipts.projection, `${label} receipt still carries a projection summary`);
+    assert.ok(negative.turn.receipts.projection.limitations, `${label} omission must state a limitation`);
+    assert.equal(negative.turn.receipts.projection.version, undefined, `${label} omission must not report a usable version`);
+    assertNoPrivateLeak(negative, `${label} turn result`);
+  }
+});

@@ -267,3 +267,154 @@ def test_historical_conflict_does_not_override_newer_current_evidence() -> None:
     ).states[0]
     assert state.status == "current"
     assert state.current_assertion_id == "current"
+
+
+# ---------------------------------------------------------------------------
+# Plan 61-09 Task 1 RED contract: the normalization/validation path behind the
+# versioned personal-model projection (HARNESS-07).
+#
+# state_projection is the ONLY normalization/validation path through which
+# confirmed accepted review material may become a projection (D-20/D-21/D-22).
+# These unit tests pin the invariants Plan 61-09 Task 2 must preserve and
+# extend:
+#   - inference content derives only from synthesis and is never a fact;
+#   - draft/ignored/pending lifecycle states are invalid projection input;
+#   - mixed-snapshot candidates/evidence and private/secret payloads reject;
+#   - a derived projection stays evidence-bound, deterministic and reproducible.
+# The RED surface test additionally requires the derived projection result to be
+# versioned and time-aware with supersession, freshness and limitations.
+# ---------------------------------------------------------------------------
+
+
+def test_inference_derivation_requires_synthesis_and_never_fact() -> None:
+    """An inference projection input comes only from synthesis, never fact."""
+    accepted = normalize_candidates(
+        [_candidate(provenance_class="inference", derivation="synthesis")],
+        snapshot=_snapshot(),
+    )
+    assert accepted[0].provenance_class == "inference"
+    assert accepted[0].assertion_kind == "goal"
+
+    with pytest.raises(ProjectionError) as fact:
+        normalize_candidates(
+            [_candidate(provenance_class="fact", derivation="synthesis")],
+            snapshot=_snapshot(),
+        )
+    assert fact.value.code == "provenance_rule_violation"
+
+    with pytest.raises(ProjectionError) as wrong_derivation:
+        normalize_candidates(
+            [_candidate(provenance_class="inference", derivation="occurrence")],
+            snapshot=_snapshot(),
+        )
+    assert wrong_derivation.value.code == "provenance_rule_violation"
+
+
+def test_draft_ignored_and_pending_lifecycles_are_invalid_projection_input() -> None:
+    """Draft/ignored/pending review states can never enter a projection."""
+    for lifecycle in ("draft", "ignored", "pending", "proposed"):
+        with pytest.raises(ProjectionError) as invalid:
+            normalize_candidates(
+                [_candidate(provenance_class="inference", derivation="synthesis",
+                            lifecycle=lifecycle)],
+                snapshot=_snapshot(),
+            )
+        assert invalid.value.code == "invalid_assertion_lifecycle", lifecycle
+
+
+def test_mixed_snapshot_candidate_and_evidence_are_rejected() -> None:
+    """Every candidate and evidence row must bind the same snapshot."""
+    with pytest.raises(ProjectionError) as foreign_candidate:
+        normalize_candidates(
+            [_candidate(provenance_class="inference", derivation="synthesis",
+                        snapshot_hash="hash-foreign")],
+            snapshot=_snapshot(),
+        )
+    assert foreign_candidate.value.code == "mixed_snapshot"
+
+    mixed_evidence = _candidate(provenance_class="inference", derivation="synthesis")
+    mixed_evidence["evidence"] = [{**mixed_evidence["evidence"][0], "snapshot_hash": "hash-foreign"}]
+    with pytest.raises(ProjectionError) as foreign_evidence:
+        normalize_candidates([mixed_evidence], snapshot=_snapshot())
+    assert foreign_evidence.value.code == "mixed_snapshot"
+
+
+def _inference_assertion(assertion_id: str, *, value: object, confidence: float = 0.6) -> ValidatedAssertion:
+    """A confirmed-accepted review-derived inference assertion (61-09 shape)."""
+    return ValidatedAssertion(
+        assertion_id=assertion_id,
+        assertion_kind="goal",
+        provenance_class="inference",
+        subject="user",
+        domain="work",
+        scope="personal",
+        predicate="complete_target",
+        value=value,
+        valid_from="2026-06-01T00:00:00Z",
+        valid_to=None,
+        observed_at="2026-06-01T01:00:00Z",
+        confidence=confidence,
+        uncertainty="accepted review synthesis",
+        lifecycle="current",
+        evidence=(
+            ValidatedEvidence(
+                ref=f"ku-{assertion_id}",
+                artifact_type="knowledge_unit",
+                serving_role="canonical_knowledge",
+                artifact_version_id="av1",
+                evidence_checksum=checksum(assertion_id),
+                privacy_class="R4",
+            ),
+        ),
+        payload_checksum=checksum([assertion_id, value]),
+    )
+
+
+def test_inference_projection_preserves_provenance_confidence_and_evidence_refs() -> None:
+    """A derived inference projection stays evidence-bound and reproducible."""
+    inference = _inference_assertion("inf-proj-1", value="D")
+    state = project_current_state(
+        [_run("run-inf", inference)], as_of="2026-07-18T00:00:00Z"
+    ).current_goals[0]
+    assert state.status == "current"
+    assert state.provenance_class == "inference", "a projection is an inference, never a fact"
+    assert state.confidence == 0.6
+    assert state.evidence[0].ref == "ku-inf-proj-1"
+    assert state.formation_path[0].uncertainty == ("source:accepted review synthesis",)
+    assert [step.assertion_id for step in state.formation_path] == ["inf-proj-1"]
+
+    again = project_current_state(
+        [_run("run-inf", inference)], as_of="2026-07-18T00:00:00Z"
+    ).current_goals[0]
+    assert canonical_json(state) == canonical_json(again), "the projection replays deterministically"
+
+
+try:
+    _probe = project_current_state(
+        [_run("run-red", _validated("red-a", value="D",
+                                    valid_from="2026-06-01T00:00:00Z",
+                                    observed_at="2026-06-01T01:00:00Z"))],
+        as_of="2026-07-18T00:00:00Z",
+    )
+    _VERSIONED_PROJECTION_SURFACE = all(
+        hasattr(_probe, name) for name in ("version", "supersession", "freshness", "limitations")
+    )
+except Exception:  # noqa: BLE001 - a broken surface is RED evidence, not a syntax error
+    _VERSIONED_PROJECTION_SURFACE = False
+
+
+def test_derived_projection_carries_version_supersession_freshness_and_limitations() -> None:
+    """The derived projection is versioned and time-aware with supersession.
+
+    Plan 61-09 (D-21): personal understanding is a time-aware projection, not a
+    fixed profile document. Each derived projection must carry a version, its
+    supersession record, source/snapshot/freshness binding and limitations.
+    """
+    if not _VERSIONED_PROJECTION_SURFACE:
+        pytest.fail(
+            "RED: state_projection must expose a versioned projection surface "
+            "(version/supersession/freshness/limitations on the projection "
+            "result) before a derived projection can be served by "
+            "personal.model_projection.get (expected for 61-09 Task 1 RED)",
+            pytrace=False,
+        )
