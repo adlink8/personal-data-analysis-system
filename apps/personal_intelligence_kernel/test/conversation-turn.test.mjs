@@ -1114,3 +1114,371 @@ test("real turn session receives only approved compatible derived context before
     assertNoPrivateLeak(negative, `${label} turn result`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Plan 61-10 Task 1 RED contract: four fixed proactive routes
+// (POST /v1/proactive/state, POST /v1/proactive/controls,
+//  POST /v1/proactive/dismiss, POST /v1/proactive/undo).
+//
+// The Kernel owns four fixed deterministic proactive presentation bindings
+// (D-23-D-25, HARNESS-05): getProactiveState -> proactive.state.get,
+// updateProactiveControls -> proactive.controls.update,
+// dismissProactive -> proactive.dismiss and undoProactiveDismissal ->
+// proactive.dismiss.undo. Each route validates the exact request shape and
+// dispatches ONLY its named Gateway provider -- never an arbitrary
+// endpoint/path/provider. Scope is exactly "global" or an approved project
+// identifier; category is exactly 同步/简报/反思候选. Responses are no-store
+// metadata-only: active/quiet status, quiet_until, one card per evidence
+// cluster with merged count and source/time/receipt/support/conflict refs,
+// control state and append-only feedback ID. The Kernel validates request
+// shape/identity/quiet-hour format/top-level category; the Gateway/adapter
+// validates scope approval, the declared event/category vocabulary and
+// feedback identity. Controls/dismiss/undo never schedule, change
+// permissions/values or write canonical/promotion/rollback/watermark/
+// active-pointer authority (T-61-PROACTIVE-02/-03).
+//
+// This section is RED today: none of the four routes or KernelHost methods
+// exist (404 route_not_found), so every expectation below fails pointing at
+// the missing Plan 61-10 Task 2 dispatch, never at a syntax error. The
+// 61-03/61-05/61-08/61-09 tests above stay green.
+// ---------------------------------------------------------------------------
+
+const PROACTIVE_ROUTES = Object.freeze({
+  state: "/v1/proactive/state",
+  controls: "/v1/proactive/controls",
+  dismiss: "/v1/proactive/dismiss",
+  undo: "/v1/proactive/undo",
+});
+const PROACTIVE_PROVIDERS = Object.freeze({
+  state: "proactive.state.get",
+  controls: "proactive.controls.update",
+  dismiss: "proactive.dismiss",
+  undo: "proactive.dismiss.undo",
+});
+const PROACTIVE_CATEGORIES = new Set(["同步", "简报", "反思候选"]);
+const PROJECT_SCOPE_PATTERN = /^project:[A-Za-z0-9][A-Za-z0-9._:/@#-]{0,255}$/;
+const QUIET_TIME_PATTERN = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+
+function proactiveStateBody(overrides = {}) {
+  return {
+    scope: "global",
+    events: [
+      { event_id: "pi_evt_proactive_001", type: "conversation.delta.committed", source: "pk-sync", occurred_at: "2026-08-09T09:00:00.000Z", category: "反思候选", scope: "global", cluster_key: "cluster-proactive-1", support_refs: ["evidence:proactive-1:support"], conflict_refs: ["evidence:proactive-1:conflict"], receipt_checksum: "a".repeat(64), canonical_checksum: "b".repeat(64), watermark: "b".repeat(64), rule_version: "conversation-reflection-v1" },
+      { event_id: "pi_evt_proactive_002", type: "conversation.delta.committed", source: "pk-sync", occurred_at: "2026-08-09T09:05:00.000Z", category: "反思候选", scope: "global", cluster_key: "cluster-proactive-1", support_refs: ["evidence:proactive-1:support"], conflict_refs: ["evidence:proactive-1:conflict"], receipt_checksum: "c".repeat(64), canonical_checksum: "b".repeat(64), watermark: "b".repeat(64), rule_version: "conversation-reflection-v1" },
+    ],
+    controls: [
+      { scope: "global", category: "同步", enabled: true },
+      { scope: "global", category: "简报", enabled: true },
+      { scope: "global", category: "反思候选", enabled: true },
+    ],
+    quiet_hours: { enabled: false, start: "22:00", end: "07:00" },
+    now: "2026-08-09T12:00:00Z",
+    manual_order: ["manual-1", "manual-2"],
+    task_id: "pi_task_proactive_state_001",
+    idempotency_key: "pi-idem-proactive-state-001",
+    binding: "pi_kernel_proactive_state",
+    ...overrides,
+  };
+}
+
+function proactiveControlsBody(overrides = {}) {
+  return {
+    scope: "global",
+    category: "同步",
+    enabled: true,
+    task_id: "pi_task_proactive_controls_001",
+    idempotency_key: "pi-idem-proactive-controls-001",
+    binding: "pi_kernel_proactive_controls",
+    ...overrides,
+  };
+}
+
+function proactiveDismissBody(overrides = {}) {
+  return {
+    cluster_key: "cluster-proactive-1",
+    feedback_id: "feedback_proactive_dismiss_001",
+    actor_identity_hash: "a".repeat(64),
+    now: "2026-08-09T10:00:00Z",
+    task_id: "pi_task_proactive_dismiss_001",
+    idempotency_key: "pi-idem-proactive-dismiss-001",
+    binding: "pi_kernel_proactive_dismiss",
+    ...overrides,
+  };
+}
+
+function proactiveUndoBody(overrides = {}) {
+  return {
+    dismissal_feedback_id: "feedback_proactive_dismiss_001",
+    feedback_id: "feedback_proactive_undo_001",
+    actor_identity_hash: "a".repeat(64),
+    now: "2026-08-09T10:05:00Z",
+    task_id: "pi_task_proactive_undo_001",
+    idempotency_key: "pi-idem-proactive-undo-001",
+    binding: "pi_kernel_proactive_undo",
+    ...overrides,
+  };
+}
+
+/** Gateway double: records every dispatch and mirrors the Python gateway guard. */
+function createProactiveBridge(records) {
+  const approvedProjects = new Set(["project:alpha"]);
+  const privateField = (params) => Object.keys(params || {}).find((key) =>
+    /^(?:body|content|prompt|completion|credential|secret|token|password|sql|statement|provider|operation|endpoint|path|authority|schedule|permission|value|canonical|promotion|rollback)$/i.test(key));
+  return {
+    async invoke(operation, params) {
+      records.push({ operation, params });
+      if (!Object.values(PROACTIVE_PROVIDERS).includes(operation)) {
+        return { ok: false, status: "error", error: { code: "unknown_operation" } };
+      }
+      if (privateField(params)) {
+        return { ok: false, status: "error", error: { code: "undeclared_input" } };
+      }
+      if (params.scope !== undefined && params.scope !== "global" && !approvedProjects.has(String(params.scope))) {
+        return { ok: false, status: "error", error: { code: "unknown_scope" } };
+      }
+      if (operation === PROACTIVE_PROVIDERS.state) {
+        for (const event of Array.isArray(params.events) ? params.events : []) {
+          if (!PROACTIVE_CATEGORIES.has(event?.category)) {
+            return { ok: false, status: "error", error: { code: "declared_category" } };
+          }
+          if (event?.type !== "conversation.delta.committed") {
+            return { ok: false, status: "error", error: { code: "declared_event" } };
+          }
+        }
+        const quietHours = params.quiet_hours;
+        if (quietHours?.enabled && (!QUIET_TIME_PATTERN.test(String(quietHours.start ?? "")) || !QUIET_TIME_PATTERN.test(String(quietHours.end ?? "")))) {
+          return { ok: false, status: "error", error: { code: "quiet_hours_invalid" } };
+        }
+        return {
+          ok: true, status: "success",
+          data: {
+            active: true, quiet_until: null, scope: params.scope, controls: params.controls,
+            cards: [{
+              cluster_key: "cluster-proactive-1", category: "反思候选", scope: params.scope, merged_count: 2,
+              merged_evidence: [
+                { event_id: "pi_evt_proactive_001", source: "pk-sync", occurred_at: "2026-08-09T09:00:00.000Z", receipt_checksum: "a".repeat(64), support_refs: ["evidence:proactive-1:support"], conflict_refs: ["evidence:proactive-1:conflict"], canonical_checksum: "b".repeat(64), watermark: "b".repeat(64) },
+                { event_id: "pi_evt_proactive_002", source: "pk-sync", occurred_at: "2026-08-09T09:05:00.000Z", receipt_checksum: "c".repeat(64), support_refs: ["evidence:proactive-1:support"], conflict_refs: ["evidence:proactive-1:conflict"], canonical_checksum: "b".repeat(64), watermark: "b".repeat(64) },
+              ],
+              support_refs: ["evidence:proactive-1:support"], conflict_refs: ["evidence:proactive-1:conflict"],
+              rule_version: "conversation-reflection-v1", anchor_before: "manual-1",
+            }],
+            manual_order: params.manual_order,
+            feedback: { feedback_id: "feedback_proactive_state_001", feedback_count: 0 },
+            metadata_only: true,
+          },
+        };
+      }
+      if (operation === PROACTIVE_PROVIDERS.controls) {
+        return {
+          ok: true, status: "success",
+          data: {
+            scope: params.scope, category: params.category, enabled: params.enabled === true,
+            quiet_hours: params.quiet_hours ?? null,
+            feedback: { feedback_id: "feedback_proactive_controls_001", feedback_count: 0 },
+            metadata_only: true,
+          },
+        };
+      }
+      if (operation === PROACTIVE_PROVIDERS.dismiss) {
+        const entry = {
+          operation: "dismiss", cluster_key: params.cluster_key, feedback_id: params.feedback_id,
+          actor_identity_hash: params.actor_identity_hash, idempotency_key: params.idempotency_key,
+          dismissed_at: params.now, receipt_checksum: sha256Hex(`dismiss:${params.feedback_id}`),
+        };
+        return {
+          ok: true, status: "success",
+          data: {
+            existing: false,
+            feedback_log: [...(params.feedback_log ?? []), entry],
+            receipt: { operation: "dismiss", feedback_id: params.feedback_id, cluster_key: params.cluster_key, actor_identity_hash: params.actor_identity_hash, idempotency_key: params.idempotency_key, dismissed_at: params.now, receipt_checksum: entry.receipt_checksum, feedback_count: (params.feedback_log?.length ?? 0) + 1, metadata_only: true },
+            metadata_only: true,
+          },
+        };
+      }
+      if (params.dismissal_feedback_id !== "feedback_proactive_dismiss_001") {
+        return { ok: false, status: "error", error: { code: "dismissal_not_found" } };
+      }
+      return {
+        ok: true, status: "success",
+        data: {
+          operation: "undo_dismissal", dismissal_feedback_id: params.dismissal_feedback_id, feedback_id: params.feedback_id,
+          actor_identity_hash: params.actor_identity_hash, idempotency_key: params.idempotency_key,
+          undone_at: params.now, receipt_checksum: sha256Hex(`undo:${params.feedback_id}`),
+          feedback_count: (params.feedback_log?.length ?? 0) + 1, metadata_only: true,
+        },
+      };
+    },
+  };
+}
+
+async function startProactiveServer(t) {
+  const dir = await mkdtemp(join(tmpdir(), "pi-proactive-"));
+  const decisionPath = join(dir, "decision.json");
+  await writeFile(decisionPath, JSON.stringify({
+    schema: "pi-package-decision-v1", run_id: PHASE_48_DECISION_RUN_ID,
+    status: "accepted", accepted: true, expiry: "2099-01-01T00:00:00.000Z",
+  }), "utf8");
+  const bridgeCalls = [];
+  const runtime = await startKernelServer({
+    projectRoot: process.cwd(), decisionPath, databasePath: join(dir, "events.sqlite"), controlDatabaseDirectory: dir,
+    cwd: dir, agentDir: join(dir, "agent"), host: "127.0.0.1", port: 0, providerMode: "replay",
+    domainBridge: createProactiveBridge(bridgeCalls),
+  });
+  const port = runtime.server.address().port;
+  t.after(async () => { await runtime.stop(100); await rm(dir, { recursive: true, force: true }); });
+  return { port, bridgeCalls };
+}
+
+test("kernel-host declares exactly the four fixed proactive KernelHost methods (RED until 61-10 Task 2)", async () => {
+  const source = await readFile(join(KERNEL_ROOT, "src/kernel-host.mjs"), "utf8");
+  for (const method of ["getProactiveState", "updateProactiveControls", "dismissProactive", "undoProactiveDismissal"]) {
+    assert.match(
+      source,
+      new RegExp(`\\basync\\s+${method}\\s*\\(|\\b${method}\\s*\\(`),
+      `kernel-host.mjs must declare ${method} (RED: missing for 61-10 Task 1)`,
+    );
+  }
+});
+
+test("four fixed proactive routes map only to their matching Gateway providers through KernelHost->Gateway binding", async (t) => {
+  const { port, bridgeCalls } = await startProactiveServer(t);
+  const cases = [
+    { name: "state", method: "POST", path: PROACTIVE_ROUTES.state, operation: PROACTIVE_PROVIDERS.state, body: proactiveStateBody() },
+    { name: "controls", method: "POST", path: PROACTIVE_ROUTES.controls, operation: PROACTIVE_PROVIDERS.controls, body: proactiveControlsBody() },
+    { name: "dismiss", method: "POST", path: PROACTIVE_ROUTES.dismiss, operation: PROACTIVE_PROVIDERS.dismiss, body: proactiveDismissBody() },
+    { name: "undo", method: "POST", path: PROACTIVE_ROUTES.undo, operation: PROACTIVE_PROVIDERS.undo, body: proactiveUndoBody() },
+  ];
+  for (const route of cases) {
+    const response = await requestJson(port, route.method, route.path, route.body);
+    assert.notEqual(response.status, 404, `RED: ${route.method} ${route.path} must exist (expected for 61-10 Task 1)`);
+    assert.equal(response.status, 200, `a safe proactive ${route.name} envelope must be a 200`);
+    assert.equal(response.json.ok, true);
+    const payload = response.json.data ?? response.json;
+    assert.equal(payload.metadata_only, true, "proactive responses are metadata-only");
+    assert.equal(/promot|rollback|watermark|active_pointer/.test(JSON.stringify(response.json)), false,
+      `${route.name} envelope must never claim canonical/promotion/watermark/active-pointer authority`);
+    assertNoPrivateLeak(response.json, `proactive ${route.name} response`);
+  }
+  assert.equal(bridgeCalls.length, 4, "each proactive route must dispatch exactly once to the bound Gateway bridge");
+  for (const route of cases) {
+    const call = bridgeCalls.find((entry) => entry.operation === route.operation);
+    assert.ok(call, `${route.operation} must be dispatched through the Gateway bridge`);
+    assert.equal("capability" in (call.params || {}), false, "capability is the loopback transport header, never a declared parameter");
+    assert.ok(call.params.idempotency_key, `${route.operation} dispatch must carry idempotency_key`);
+    assert.ok(call.params.binding, `${route.operation} dispatch must carry binding`);
+  }
+  for (const call of bridgeCalls) {
+    assert.ok(Object.values(PROACTIVE_PROVIDERS).includes(call.operation),
+      `only the named proactive providers may be dispatched (got ${call.operation})`);
+  }
+});
+
+test("proactive routes are exactly four fixed paths; wrong methods and alternate paths fail closed", async (t) => {
+  const { port, bridgeCalls } = await startProactiveServer(t);
+
+  // Each fixed route is POST-only (a deterministic request body is required).
+  for (const [name, path] of Object.entries(PROACTIVE_ROUTES)) {
+    const get = await requestJson(port, "GET", path);
+    assert.equal(get.status, 405, `RED: POST ${path} must exist and reject other methods (got 404/405)`);
+    assert.equal(get.json.error.code, "method_not_allowed");
+    assertNoPrivateLeak(get.json, `GET ${path} rejection`);
+  }
+
+  // Alternate paths must not exist (one fixed path per provider, no endpoint override).
+  const alternatePaths = [
+    "/v1/proactive/state/extra", "/v1/proactive/state/current", "/v1/proactive/controls/extra",
+    "/v1/proactive/dismiss/extra", "/v1/proactive/undo/extra", "/v1/proactive/dismiss/undo",
+    "/v1/proactive", "/v1/proactives", "/v1/proactive/all", "/v1/proactive/manage",
+    "/v1/proactive/config", "/v1/proactive/schedule", "/v1/proactive/feedback", "/v1/proactive/quiet-hours",
+  ];
+  for (const path of alternatePaths) {
+    const alt = await requestJson(port, "POST", path, proactiveDismissBody());
+    assert.equal(alt.status, 404, `${path} must be route_not_found`);
+    assert.equal(alt.json.error.code, "route_not_found");
+    assertNoPrivateLeak(alt.json, `${path} rejection`);
+  }
+  assert.equal(bridgeCalls.length, 0, "alternate/method-mismatched routes must never reach the Gateway bridge");
+});
+
+test("proactive routes reject override, private, schedule, permission, value and canonical inputs before Gateway dispatch", async (t) => {
+  const { port, bridgeCalls } = await startProactiveServer(t);
+  const cases = [
+    { name: "state", method: "POST", path: PROACTIVE_ROUTES.state, body: proactiveStateBody() },
+    { name: "controls", method: "POST", path: PROACTIVE_ROUTES.controls, body: proactiveControlsBody() },
+    { name: "dismiss", method: "POST", path: PROACTIVE_ROUTES.dismiss, body: proactiveDismissBody() },
+    { name: "undo", method: "POST", path: PROACTIVE_ROUTES.undo, body: proactiveUndoBody() },
+  ];
+  const before = bridgeCalls.length;
+  for (const route of cases) {
+    for (const [label, extra] of [
+      ["provider override", { provider: "model.wake" }],
+      ["operation override", { operation: "canonical.promote" }],
+      ["endpoint override", { endpoint: "http://127.0.0.1:9999" }],
+      ["path override", { path: "/v1/canonical" }],
+      ["authority override", { authority: "authority:promotion" }],
+      ["schedule input", { schedule_at: "2026-08-10T09:00:00Z" }],
+      ["permission input", { permission: "broadcast" }],
+      ["value input", { value: "override-personal-value" }],
+      ["canonical command", { canonical: "promote" }],
+      ["private prompt", { prompt: SENTINELS.prompt }],
+      ["private secret", { secret: SENTINELS.secret }],
+    ]) {
+      const rejected = await requestJson(port, route.method, route.path, { ...route.body, ...extra });
+      assert.equal(rejected.status, 400, `${route.name} ${label} must be rejected (got ${rejected.status})`);
+      assert.equal(rejected.json.ok, false);
+      assertNoPrivateLeak(rejected.json, `${route.name} ${label} rejection`);
+      assert.equal(rejected.text.includes(SENTINELS.prompt), false, `${route.name} ${label} must never leak request text`);
+    }
+    for (const [label, malformed] of [
+      ["no idempotency key", { idempotency_key: undefined }],
+      ["no binding", { binding: undefined }],
+    ]) {
+      const rejected = await requestJson(port, route.method, route.path, { ...route.body, ...malformed });
+      assert.equal(rejected.status, 400, `${route.name} ${label} must fail closed`);
+      assert.equal(rejected.json.ok, false);
+      assertNoPrivateLeak(rejected.json, `${route.name} ${label} rejection`);
+    }
+  }
+  assert.equal(bridgeCalls.length, before, "rejected proactive inputs must never reach the Gateway bridge");
+});
+
+test("proactive routes reject foreign scope, unknown category, malformed quiet hours and foreign feedback/item identity", async (t) => {
+  const { port, bridgeCalls } = await startProactiveServer(t);
+
+  // Kernel-level identity/format validation: rejected before any Gateway dispatch.
+  const before = bridgeCalls.length;
+  const kernelNegatives = [
+    ["state foreign scope shape", "POST", PROACTIVE_ROUTES.state, { ...proactiveStateBody(), scope: "not-a-scope" }, "scope_identity_invalid"],
+    ["state missing now", "POST", PROACTIVE_ROUTES.state, { ...proactiveStateBody(), now: undefined }, "proactive_request_invalid"],
+    ["state non-array events", "POST", PROACTIVE_ROUTES.state, { ...proactiveStateBody(), events: "not-an-array" }, "proactive_request_invalid"],
+    ["state malformed quiet hours format", "POST", PROACTIVE_ROUTES.state, { ...proactiveStateBody(), quiet_hours: { enabled: true, start: "25:00", end: "07:00" } }, "proactive_request_invalid"],
+    ["controls unknown category", "POST", PROACTIVE_ROUTES.controls, { ...proactiveControlsBody(), category: "autonomous" }, "category_unknown"],
+    ["controls quiet hours shape", "POST", PROACTIVE_ROUTES.controls, { ...proactiveControlsBody(), quiet_hours: { enabled: true } }, "proactive_request_invalid"],
+    ["dismiss malformed feedback id", "POST", PROACTIVE_ROUTES.dismiss, { ...proactiveDismissBody(), feedback_id: "" }, "proactive_request_invalid"],
+    ["undo non-string feedback id", "POST", PROACTIVE_ROUTES.undo, { ...proactiveUndoBody(), feedback_id: 42 }, "proactive_request_invalid"],
+  ];
+  for (const [label, method, path, body, code] of kernelNegatives) {
+    const rejected = await requestJson(port, method, path, body);
+    assert.equal(rejected.status, 400, `${label} must be rejected (got ${rejected.status})`);
+    assert.equal(rejected.json.ok, false);
+    assert.equal(rejected.json.error.code, code, `${label} must surface the Kernel rejection code`);
+    assertNoPrivateLeak(rejected.json, `${label} rejection`);
+  }
+  assert.equal(bridgeCalls.length, before, "shape/identity-invalid proactive inputs must never reach the Gateway bridge");
+
+  // Provider-level validation: the fixed route dispatches once, then surfaces the
+  // Gateway/adapter rejection as a safe no-store 400 (never a crash or a leak).
+  const providerNegatives = [
+    ["state foreign project scope", "POST", PROACTIVE_ROUTES.state, { ...proactiveStateBody(), scope: "project:not-approved" }, "unknown_scope"],
+    ["state undeclared event category", "POST", PROACTIVE_ROUTES.state, { ...proactiveStateBody(), events: [{ ...proactiveStateBody().events[0], category: "autonomous" }] }, "declared_category"],
+    ["undo unknown dismissal feedback", "POST", PROACTIVE_ROUTES.undo, { ...proactiveUndoBody(), dismissal_feedback_id: "feedback_never_exists" }, "dismissal_not_found"],
+  ];
+  for (const [label, method, path, body, code] of providerNegatives) {
+    const rejected = await requestJson(port, method, path, body);
+    assert.equal(rejected.status, 400, `${label} must surface a safe 400 (got ${rejected.status})`);
+    assert.equal(rejected.json.ok, false);
+    assert.equal(rejected.json.error.code, code, `${label} must surface the safe Gateway rejection code`);
+    assertNoPrivateLeak(rejected.json, `${label} rejection`);
+    assert.equal(rejected.text.includes(SENTINELS.prompt), false, `${label} must never leak request text`);
+  }
+});

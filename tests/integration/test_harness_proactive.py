@@ -51,6 +51,11 @@ except (ImportError, AttributeError) as exc:  # expected RED: adapter not implem
     _PROACTIVE_AVAILABLE = False
     _PROACTIVE_IMPORT_ERROR = exc
 
+from personal_knowledge.services.pi_domain_gateway import (  # noqa: E402
+    OPERATIONS as PI_DOMAIN_OPERATIONS,
+    PiDomainGateway,
+)
+
 
 def _require_proactive() -> None:
     """Fail each proactive test with a clear RED signal until the adapter exists."""
@@ -422,3 +427,421 @@ def test_projection_is_metadata_only_no_body_or_secret():
     text = json.dumps(projection)
     for sentinel in SENTINELS:
         assert sentinel not in text, "proactive projection leaked a private sentinel"
+
+
+# ---------------------------------------------------------------------------
+# Plan 61-10 Task 1 RED contract: four fixed proactive Gateway providers
+# (HARNESS-05, T-61-PROACTIVE-02/-03).
+#
+# The Kernel routes (Node test) dispatch ONLY the named providers
+# proactive.state.get / proactive.controls.update / proactive.dismiss /
+# proactive.dismiss.undo through the KernelHost -> PiDomainGateway boundary.
+# This Python contract pins the gateway registration, the deterministic
+# no-store metadata-only envelopes and the fail-closed semantics: scope is
+# exactly "global" or an approved project identifier; category is exactly
+# 同步/简报/反思候选; state returns active/quiet status, quiet_until, one card
+# per evidence cluster with merged count and source/time/receipt/support/
+# conflict refs, control state and an append-only feedback ID. Controls,
+# dismiss and undo keep feedback append-only and idempotent, never reorder
+# manual messages, never invoke learned scheduling and never write
+# canonical/promotion/rollback/watermark/active-pointer/permission/value state
+# (D-23-D-26, D-29).
+#
+# This section is RED today: none of the four providers are registered in the
+# PiDomainGateway, so every expectation below fails pointing at the missing
+# Plan 61-10 Task 2 provider wiring, never at a syntax error. The 61-07 tests
+# above stay green.
+#
+# Implementation target (Plan 61-10 Task 2):
+#   src/personal_knowledge/services/pi_domain_gateway.py
+#     PROACTIVE_STATE_OPERATION    = "proactive.state.get"     (read)
+#     PROACTIVE_CONTROLS_OPERATION = "proactive.controls.update" (guarded_write)
+#     PROACTIVE_DISMISS_OPERATION  = "proactive.dismiss"       (guarded_write)
+#     PROACTIVE_UNDO_OPERATION     = "proactive.dismiss.undo"  (guarded_write)
+#     OPERATIONS[...] -> exact allowed field vocabularies below; capability is
+#       the loopback header and never a declared parameter; the safe_codes list
+#       gains unknown_scope / declared_category / quiet_hours_invalid /
+#       dismissal_not_found so provider errors surface redacted, never crash.
+#   The provider branches call only the deterministic Plan 61-07 adapter
+#   functions (project_proactive_state / apply_dismissal / undo_dismissal)
+#   after validating scope/category/quiet-hour/item-identity and normalize the
+#   no-store metadata-only envelope below.
+# ---------------------------------------------------------------------------
+
+PROACTIVE_STATE_OPERATION = "proactive.state.get"
+PROACTIVE_CONTROLS_OPERATION = "proactive.controls.update"
+PROACTIVE_DISMISS_OPERATION = "proactive.dismiss"
+PROACTIVE_UNDO_OPERATION = "proactive.dismiss.undo"
+
+PROACTIVE_OPERATIONS = (
+    PROACTIVE_STATE_OPERATION,
+    PROACTIVE_CONTROLS_OPERATION,
+    PROACTIVE_DISMISS_OPERATION,
+    PROACTIVE_UNDO_OPERATION,
+)
+
+# The exact declared request vocabulary per provider (Plan 61-10 <interfaces>).
+# ``capability`` stays a loopback transport header and never a declared field.
+PROACTIVE_STATE_ALLOWED_FIELDS = frozenset({
+    "scope", "events", "controls", "quiet_hours", "now", "manual_order",
+    "task_id", "idempotency_key", "binding",
+})
+PROACTIVE_CONTROLS_ALLOWED_FIELDS = frozenset({
+    "scope", "category", "enabled", "quiet_hours",
+    "task_id", "idempotency_key", "binding",
+})
+PROACTIVE_DISMISS_ALLOWED_FIELDS = frozenset({
+    "cluster_key", "feedback_id", "actor_identity_hash", "now", "feedback_log",
+    "task_id", "idempotency_key", "binding",
+})
+PROACTIVE_UNDO_ALLOWED_FIELDS = frozenset({
+    "dismissal_feedback_id", "feedback_id", "actor_identity_hash", "now", "feedback_log",
+    "task_id", "idempotency_key", "binding",
+})
+
+# Endpoint/path/provider/authority override plus learned-scheduling/permission/
+# personal-value/canonical command fields must never enter a proactive provider
+# (T-61-PROACTIVE-03).
+PRIVATE_PROACTIVE_FIELDS = frozenset({
+    "body", "content", "prompt", "completion", "credential", "secret", "token",
+    "password", "path", "sql", "statement", "raw_evidence",
+    "provider", "operation", "endpoint", "authority",
+    "schedule", "schedule_at", "permission", "value",
+    "canonical", "promotion", "rollback", "active_pointer", "watermark",
+})
+
+# Safe fail-closed codes the providers must surface (never a crash or leak).
+ERR_UNKNOWN_SCOPE = "unknown_scope"
+ERR_DISMISSAL_NOT_FOUND = "dismissal_not_found"
+
+
+def _require_proactive_registration() -> None:
+    """Fail each 61-10 gateway test with a clear RED signal until the providers exist."""
+    missing = [operation for operation in PROACTIVE_OPERATIONS if operation not in PI_DOMAIN_OPERATIONS]
+    if missing:
+        pytest.fail(
+            "RED: PiDomainGateway must register the four proactive providers before the "
+            f"61-10 contract can be enforced (expected for 61-10 Task 1 RED): missing {missing}",
+            pytrace=False,
+        )
+
+
+def _proactive_gateway() -> PiDomainGateway:
+    return PiDomainGateway(capability="cap")
+
+
+def _proactive_state_request(**overrides) -> dict[str, Any]:
+    """Deterministic state request through the gateway boundary (no helper call)."""
+    return {
+        "scope": "global",
+        "events": (_delta_event("cluster-1"), _delta_event("cluster-1", ordinal=2)),
+        "controls": _controls(),
+        "quiet_hours": QUIET_OFF,
+        "now": NOW_ACTIVE,
+        "manual_order": _manual_order(),
+        "task_id": "task-proactive-state",
+        "idempotency_key": "pi-idem-proactive-state-001",
+        "binding": "pi_kernel_proactive_state",
+        **overrides,
+    }
+
+
+def _proactive_controls_request(**overrides) -> dict[str, Any]:
+    return {
+        "scope": "global",
+        "category": "同步",
+        "enabled": True,
+        "task_id": "task-proactive-controls",
+        "idempotency_key": "pi-idem-proactive-controls-001",
+        "binding": "pi_kernel_proactive_controls",
+        **overrides,
+    }
+
+
+def _proactive_dismiss_request(**overrides) -> dict[str, Any]:
+    return {
+        "cluster_key": "cluster-1",
+        "feedback_id": "feedback_proactive_dismiss_001",
+        "actor_identity_hash": "a" * 64,
+        "now": "2026-08-09T10:00:00Z",
+        "feedback_log": (),
+        "task_id": "task-proactive-dismiss",
+        "idempotency_key": "pi-idem-proactive-dismiss-001",
+        "binding": "pi_kernel_proactive_dismiss",
+        **overrides,
+    }
+
+
+def _proactive_undo_request(**overrides) -> dict[str, Any]:
+    return {
+        "dismissal_feedback_id": "feedback_proactive_dismiss_001",
+        "feedback_id": "feedback_proactive_undo_001",
+        "actor_identity_hash": "a" * 64,
+        "now": "2026-08-09T10:05:00Z",
+        "feedback_log": (),
+        "task_id": "task-proactive-undo",
+        "idempotency_key": "pi-idem-proactive-undo-001",
+        "binding": "pi_kernel_proactive_undo",
+        **overrides,
+    }
+
+
+def test_gateway_registers_the_four_fixed_proactive_providers():
+    """The four proactive entries are named gateway providers with exact vocabularies."""
+    specs = {
+        PROACTIVE_STATE_OPERATION: ("read", PROACTIVE_STATE_ALLOWED_FIELDS),
+        PROACTIVE_CONTROLS_OPERATION: ("guarded_write", PROACTIVE_CONTROLS_ALLOWED_FIELDS),
+        PROACTIVE_DISMISS_OPERATION: ("guarded_write", PROACTIVE_DISMISS_ALLOWED_FIELDS),
+        PROACTIVE_UNDO_OPERATION: ("guarded_write", PROACTIVE_UNDO_ALLOWED_FIELDS),
+    }
+    for operation, (kind, allowed) in specs.items():
+        assert operation in PI_DOMAIN_OPERATIONS, (
+            f"RED: PiDomainGateway must register {operation} (expected for 61-10 Task 1 RED)"
+        )
+        spec = PI_DOMAIN_OPERATIONS[operation]
+        assert spec["kind"] == kind, f"{operation} must be a {kind} provider"
+        missing = sorted(allowed - set(spec["allowed"]))
+        assert not missing, (
+            f"RED: {operation} provider must accept its declared request shape: missing {missing}"
+        )
+        assert not (set(spec["allowed"]) & PRIVATE_PROACTIVE_FIELDS), (
+            f"{operation} must never accept private/override/schedule/permission/canonical fields"
+        )
+
+
+def test_gateway_proactive_rejects_without_capability_binding_or_idempotency():
+    """The gateway enforces the loopback capability before any proactive work."""
+    _require_proactive_registration()
+    gateway = _proactive_gateway()
+    request = _proactive_state_request()
+    denied = gateway.invoke(PROACTIVE_STATE_OPERATION, request, capability="wrong")
+    assert denied.get("error", {}).get("code") == "capability_invalid"
+    no_binding = gateway.invoke(PROACTIVE_STATE_OPERATION, {**request, "binding": None}, capability="cap")
+    assert no_binding.get("error", {}).get("code") == "binding_required"
+    no_idem = gateway.invoke(PROACTIVE_STATE_OPERATION, {**request, "idempotency_key": ""}, capability="cap")
+    assert no_idem.get("error", {}).get("code") == "idempotency_key_required"
+    undeclared = gateway.invoke(PROACTIVE_STATE_OPERATION, {**request, "provider": "model.wake"}, capability="cap")
+    assert undeclared.get("error", {}).get("code") == "undeclared_input"
+
+
+def test_gateway_state_returns_deterministic_quiet_global_project_category_cluster_metadata():
+    """State through the gateway keeps active/quiet, one-card-per-cluster, control state and feedback id."""
+    _require_proactive_registration()
+    gateway = _proactive_gateway()
+    manual = _manual_order(3)
+    result = gateway.invoke(
+        PROACTIVE_STATE_OPERATION, _proactive_state_request(manual_order=manual), capability="cap",
+    )
+    assert result["ok"] is True, result
+    data = result["data"]
+    assert data["active"] is True
+    assert data["quiet_until"] is None
+    cards = [card for card in data["cards"] if card["cluster_key"] == "cluster-1"]
+    assert len(cards) == 1, "one evidence cluster must yield exactly one card"
+    card = cards[0]
+    assert card["merged_count"] == 2
+    merged = card["merged_evidence"]
+    assert len(merged) == 2, "merged drilldown lists every merged evidence source/time/receipt"
+    for item in merged:
+        assert item["source"] and item["occurred_at"] and item["receipt_checksum"]
+        assert item["support_refs"] and item["conflict_refs"]
+    assert tuple(data["manual_order"]) == manual, "manual message order must be preserved"
+    assert data.get("metadata_only") is True
+    assert data.get("feedback", {}).get("feedback_id"), "the state envelope carries the append-only feedback id"
+    _assert_metadata_only(data)
+
+    quiet = gateway.invoke(
+        PROACTIVE_STATE_OPERATION,
+        _proactive_state_request(quiet_hours=QUIET_HOURS, now=NOW_QUIET),
+        capability="cap",
+    )
+    assert quiet["data"]["active"] is False
+    assert quiet["data"]["quiet_until"] == "07:00", "quiet window must expose quiet_until without scheduling"
+
+    project = gateway.invoke(
+        PROACTIVE_STATE_OPERATION,
+        _proactive_state_request(
+            scope="project:alpha",
+            events=(_delta_event("cluster-alpha", scope="project:alpha", category="简报"),),
+        ),
+        capability="cap",
+    )
+    keys = {card["cluster_key"] for card in project["data"]["cards"]}
+    assert "cluster-alpha" in keys, "an approved project scope card must project"
+    assert project["data"]["cards"][0]["scope"] == "project:alpha"
+    assert project["data"]["cards"][0]["category"] == "简报"
+
+
+def test_gateway_state_rejects_foreign_scope_undeclared_category_and_malformed_quiet_hours():
+    """Scope, category and quiet hours are exact and fail closed at the provider boundary."""
+    _require_proactive_registration()
+    gateway = _proactive_gateway()
+    foreign = gateway.invoke(
+        PROACTIVE_STATE_OPERATION, _proactive_state_request(scope="scope:not-approved"), capability="cap",
+    )
+    assert foreign["ok"] is False
+    assert foreign.get("error", {}).get("code") == ERR_UNKNOWN_SCOPE, foreign
+
+    unknown_category = gateway.invoke(
+        PROACTIVE_STATE_OPERATION,
+        _proactive_state_request(events=(_delta_event("cluster-1", category="autonomous"),)),
+        capability="cap",
+    )
+    assert unknown_category["ok"] is False
+    assert unknown_category.get("error", {}).get("code") == ERR_UNDECLARED_CATEGORY, unknown_category
+
+    malformed = gateway.invoke(
+        PROACTIVE_STATE_OPERATION,
+        _proactive_state_request(quiet_hours={"enabled": True, "start": "25:00", "end": "07:00"}),
+        capability="cap",
+    )
+    assert malformed["ok"] is False
+    assert malformed.get("error", {}).get("code") == ERR_QUIET_HOURS_INVALID, malformed
+
+
+def test_gateway_controls_update_returns_control_state_and_rejects_unknown_category_and_quiet_shape():
+    """Controls update is a bounded metadata envelope and validates category/quiet hours exactly."""
+    _require_proactive_registration()
+    gateway = _proactive_gateway()
+    ok = gateway.invoke(PROACTIVE_CONTROLS_OPERATION, _proactive_controls_request(), capability="cap")
+    assert ok["ok"] is True, ok
+    data = ok["data"]
+    assert data.get("scope") == "global"
+    assert data.get("category") == "同步"
+    assert data.get("enabled") is True
+    assert data.get("metadata_only") is True
+    assert data.get("feedback", {}).get("feedback_id"), "the controls envelope carries the append-only feedback id"
+    _assert_metadata_only(data)
+
+    unknown_category = gateway.invoke(
+        PROACTIVE_CONTROLS_OPERATION, _proactive_controls_request(category="autonomous"), capability="cap",
+    )
+    assert unknown_category["ok"] is False
+    assert unknown_category.get("error", {}).get("code") == ERR_UNDECLARED_CATEGORY, unknown_category
+
+    malformed = gateway.invoke(
+        PROACTIVE_CONTROLS_OPERATION,
+        _proactive_controls_request(quiet_hours={"enabled": True}),
+        capability="cap",
+    )
+    assert malformed["ok"] is False
+    assert malformed.get("error", {}).get("code") == ERR_QUIET_HOURS_INVALID, malformed
+
+
+def test_gateway_dismiss_is_append_only_and_exactly_idempotent():
+    """Dismiss appends exactly one feedback entry through the gateway; an exact retry appends nothing."""
+    _require_proactive_registration()
+    gateway = _proactive_gateway()
+    first = gateway.invoke(PROACTIVE_DISMISS_OPERATION, _proactive_dismiss_request(), capability="cap")
+    assert first["ok"] is True, first
+    data = first["data"]
+    assert data.get("operation") == "dismiss"
+    assert data.get("existing") is False
+    log = data.get("feedback_log")
+    assert len(log) == 1, "dismiss appends exactly one feedback entry"
+    assert data.get("feedback_count") == 1
+    assert data.get("metadata_only") is True
+    _assert_metadata_only(first)
+
+    replay = gateway.invoke(
+        PROACTIVE_DISMISS_OPERATION, _proactive_dismiss_request(feedback_log=log), capability="cap",
+    )
+    assert replay["ok"] is True, replay
+    assert replay["data"].get("existing") is True, "an exact idempotent dismissal must not append twice"
+    assert len(replay["data"].get("feedback_log")) == 1
+    assert replay["data"]["receipt"]["feedback_id"] == data["receipt"]["feedback_id"]
+
+
+def test_gateway_undo_appends_new_entry_and_never_mutates_the_dismissal():
+    """Undo through the gateway appends a new entry and preserves the original dismissal immutably."""
+    _require_proactive_registration()
+    gateway = _proactive_gateway()
+    dismissed = gateway.invoke(PROACTIVE_DISMISS_OPERATION, _proactive_dismiss_request(), capability="cap")
+    log = dismissed["data"]["feedback_log"]
+    original = log[0]
+
+    undone = gateway.invoke(
+        PROACTIVE_UNDO_OPERATION, _proactive_undo_request(feedback_log=log), capability="cap",
+    )
+    assert undone["ok"] is True, undone
+    log = undone["data"]["feedback_log"]
+    assert len(log) == 2, "undo appends a new feedback entry"
+    assert log[0] == original, "undo must never mutate or delete the dismissal entry"
+    assert log[1]["operation"] == "undo_dismissal"
+    assert log[1]["dismissal_feedback_id"] == "feedback_proactive_dismiss_001"
+    assert undone["data"].get("metadata_only") is True
+    _assert_metadata_only(undone)
+
+    missing = gateway.invoke(
+        PROACTIVE_UNDO_OPERATION,
+        _proactive_undo_request(dismissal_feedback_id="feedback_never_exists"),
+        capability="cap",
+    )
+    assert missing["ok"] is False
+    assert missing.get("error", {}).get("code") == ERR_DISMISSAL_NOT_FOUND, missing
+
+
+def test_proactive_gateway_never_writes_authority_or_invokes_learned_scheduling(tmp_path):
+    """State/controls/dismiss/undo through the gateway never mutate authority state."""
+    _require_proactive_registration()
+    gateway = _proactive_gateway()
+    authority = tmp_path / "authority"
+    authority.mkdir()
+    files = {
+        "canonical.sqlite": b"canonical-bytes",
+        "active_pointer.txt": b"pointer-bytes",
+        "watermark.json": b"{}",
+        "schedule.json": b"{}",
+        "permissions.json": b"{}",
+        "values.json": b"{}",
+    }
+    for name, content in files.items():
+        (authority / name).write_bytes(content)
+
+    def fingerprints() -> dict[str, str]:
+        return {name: hashlib.sha256((authority / name).read_bytes()).hexdigest() for name in files}
+
+    before = fingerprints()
+    gateway.invoke(PROACTIVE_STATE_OPERATION, _proactive_state_request(), capability="cap")
+    gateway.invoke(PROACTIVE_CONTROLS_OPERATION, _proactive_controls_request(), capability="cap")
+    dismissed = gateway.invoke(PROACTIVE_DISMISS_OPERATION, _proactive_dismiss_request(), capability="cap")
+    gateway.invoke(
+        PROACTIVE_UNDO_OPERATION,
+        _proactive_undo_request(feedback_log=dismissed["data"]["feedback_log"]),
+        capability="cap",
+    )
+    assert fingerprints() == before, (
+        "proactive state/controls/dismiss/undo must never change scheduling, permissions, values, "
+        "canonical, promotion/rollback, watermark or active-pointer state"
+    )
+
+
+def test_proactive_error_envelopes_are_redacted_and_no_store_metadata_only():
+    """Every rejection and success envelope is safe, redacted and carries no authority claim."""
+    _require_proactive_registration()
+    gateway = _proactive_gateway()
+    responses = [
+        gateway.invoke(
+            PROACTIVE_STATE_OPERATION, _proactive_state_request(scope="scope:not-approved"), capability="cap",
+        ),
+        gateway.invoke(
+            PROACTIVE_STATE_OPERATION,
+            _proactive_state_request(quiet_hours={"enabled": True, "start": "25:00", "end": "07:00"}),
+            capability="cap",
+        ),
+        gateway.invoke(
+            PROACTIVE_CONTROLS_OPERATION, _proactive_controls_request(category="autonomous"), capability="cap",
+        ),
+        gateway.invoke(PROACTIVE_DISMISS_OPERATION, _proactive_dismiss_request(), capability="cap"),
+        gateway.invoke(
+            PROACTIVE_UNDO_OPERATION,
+            _proactive_undo_request(dismissal_feedback_id="feedback_never_exists"),
+            capability="cap",
+        ),
+    ]
+    for response in responses:
+        text = json.dumps(response)
+        for sentinel in SENTINELS:
+            assert sentinel not in text, "proactive envelope leaked a private sentinel"
+        assert "promote" not in text and "rollback" not in text, "proactive envelope must never claim authority mutation"
+        _assert_metadata_only(response)
