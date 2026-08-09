@@ -22,6 +22,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readdirSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
@@ -553,3 +554,149 @@ function createGatewayContract(operations) {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Plan 61-05 Task 1 RED contract: `conversation.session.create`
+//
+// The Kernel owns the named empty-session intent. It must first validate the
+// requested project scope through the Python canonical `conversation.project_scope.select`
+// provider, then create only governed empty Session metadata
+// `{session_id, project_scope_id, created_at, status:"empty"}` plus an empty safe
+// `ConversationThreadView`. It must never write canonical conversation bodies,
+// Candidate, promotion, active pointer or desktop persistence, and it must never
+// describe runtime text as canonical history.
+//
+// HTTP seam (Plan 61-05 Task 2): POST /v1/conversations/session on server.mjs
+// dispatch, backed by src/conversation/session-service.mjs through kernel-host.mjs.
+// This test is RED today: the route does not exist, so every request returns
+// `route_not_found` (404) instead of the contract below.
+// ---------------------------------------------------------------------------
+
+test("conversation.session.create validates approved scope and creates only empty Session metadata (RED until 61-05 Task 2)", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-conversation-session-"));
+  const decisionPath = join(dir, "decision.json");
+  await writeFile(decisionPath, JSON.stringify({
+    schema: "pi-package-decision-v1", run_id: PHASE_48_DECISION_RUN_ID,
+    status: "accepted", accepted: true, expiry: "2099-01-01T00:00:00.000Z",
+  }), "utf8");
+
+  // Injected domain bridge stub: the Kernel must ask the Python canonical
+  // `conversation.project_scope.select` provider before creating a session.
+  const approvedScopes = new Set(["/work/alpha"]);
+  const scopeCalls = [];
+  const scopeBridge = {
+    async invoke(operation, params) {
+      scopeCalls.push({ operation, params });
+      if (operation !== "conversation.project_scope.select") {
+        return { ok: false, status: "error", error: { code: "unknown_operation" } };
+      }
+      if (!approvedScopes.has(params?.project_scope_id)) {
+        return { ok: false, status: "error", error: { code: "unknown_scope" } };
+      }
+      return {
+        ok: true, status: "success",
+        data: {
+          project_scope_id: params.project_scope_id, label: "alpha", threads: [],
+          pagination: { limit: 20, has_more: false, cursor: null },
+          freshness: {
+            source_to_agentsview: { leg: "source_to_agentsview", status: "current", watermark: "2026-08-09T07:00:00Z", observed_at: "2026-08-09T08:00:00Z", backlog: 0, limitation: "source current" },
+            agentsview_to_canonical: { leg: "agentsview_to_canonical", status: "current", watermark: "2026-08-09T08:00:00Z", observed_at: "2026-08-09T08:00:00Z", backlog: 0, limitation: "canonical current" },
+          },
+        },
+      };
+    },
+  };
+
+  const runtime = await startKernelServer({
+    projectRoot: process.cwd(), decisionPath, databasePath: join(dir, "events.sqlite"), controlDatabaseDirectory: dir,
+    cwd: dir, agentDir: join(dir, "agent"), host: "127.0.0.1", port: 0, providerMode: "replay",
+    domainBridge: scopeBridge,
+  });
+  const port = runtime.server.address().port;
+  t.after(async () => { await runtime.stop(100); await rm(dir, { recursive: true, force: true }); });
+
+  const sqliteFiles = () => readdirSync(dir).filter((name) => name.endsWith(".sqlite")).sort();
+
+  const createBody = {
+    session_id: "pi_session_empty_001",
+    project_scope_id: "/work/alpha",
+    idempotency_key: "pi-idem-session-create-001",
+    binding: "pi_kernel_session",
+  };
+  const response = await requestJson(port, "POST", "/v1/conversations/session", createBody);
+  assert.equal(response.status, 201, "POST /v1/conversations/session must exist");
+  assert.equal(response.json.ok, true);
+  // Exactly the governed empty Session metadata; nothing else.
+  assert.deepEqual(Object.keys(response.json.session).sort(), ["created_at", "project_scope_id", "session_id", "status"]);
+  assert.equal(response.json.session.session_id, createBody.session_id);
+  assert.equal(response.json.session.project_scope_id, createBody.project_scope_id);
+  assert.equal(response.json.session.status, "empty");
+  assert.ok(response.json.session.created_at, "created_at must be present");
+  // Empty safe ConversationThreadView: no body, no history claim.
+  assert.ok(Array.isArray(response.json.thread.messages) && response.json.thread.messages.length === 0, "the new session thread view is empty");
+  assert.equal(response.json.thread.state, "empty");
+  assert.ok(response.json.thread.limitation, "empty thread view must state its limitation");
+  assertNoPrivateLeak(response.json, "session create response");
+
+  // Approved scope validation happened exactly once through the canonical provider.
+  assert.equal(scopeCalls.length, 1, "conversation.project_scope.select must validate the scope");
+  assert.equal(scopeCalls[0].operation, "conversation.project_scope.select");
+  assert.equal(scopeCalls[0].params.project_scope_id, createBody.project_scope_id);
+
+  // An unapproved/foreign scope must be rejected and create nothing.
+  const rejected = await requestJson(port, "POST", "/v1/conversations/session", {
+    ...createBody, session_id: "pi_session_rejected_001", project_scope_id: "scope:not-approved",
+    idempotency_key: "pi-idem-session-create-rejected",
+  });
+  assert.equal(rejected.status, 400, "unapproved scope must be rejected");
+  assert.equal(rejected.json.ok, false);
+  assertNoPrivateLeak(rejected.json, "rejected session response");
+
+  // Missing idempotency_key/binding fail closed.
+  for (const [label, malformed] of [
+    ["no idempotency key", { ...createBody, session_id: "pi_session_malformed_001", idempotency_key: undefined }],
+    ["no binding", { ...createBody, session_id: "pi_session_malformed_002", binding: undefined }],
+  ]) {
+    const bad = await requestJson(port, "POST", "/v1/conversations/session", malformed);
+    assert.equal(bad.status, 400, `${label} must fail closed`);
+    assert.equal(bad.json.ok, false);
+  }
+
+  // Runtime text in the request must never leak or be described as canonical history.
+  const leaked = await requestJson(port, "POST", "/v1/conversations/session", {
+    ...createBody, session_id: "pi_session_leak_001",
+    idempotency_key: "pi-idem-session-create-leak", prompt: SENTINELS.prompt,
+  });
+  assert.equal(leaked.text.includes(SENTINELS.prompt), false, "request text must never leak into the response");
+
+  await runtime.stop(100);
+  const sessions = new SessionStore(join(dir, "pi_kernel_sessions.sqlite"));
+  const candidates = new CandidateStore(join(dir, "pi_kernel_candidates.sqlite"));
+  const tasks = new TaskLedger(join(dir, "pi_kernel_tasks.sqlite"));
+  const events = new EventJournal(join(dir, "events.sqlite"));
+  try {
+    const row = sessions.get(createBody.session_id);
+    assert.ok(row, "created session metadata must be persisted in the governed Session store");
+    assert.equal(JSON.stringify(row).includes("display_text"), false, "no display text may be persisted");
+    assert.equal(JSON.stringify(row).includes(SENTINELS.prompt), false, "no request body may be persisted");
+    assertNoPrivateLeak(row, "session store row");
+    assert.equal(candidates.list().length, 0, "session.create must never stage Candidate metadata");
+    assert.equal(tasks.list().length, 0, "session.create must not create tasks");
+    const allStored = JSON.stringify({
+      sessions: sessions.get(createBody.session_id),
+      candidates: candidates.list(), tasks: tasks.list(), events: events.replay(0, 500).events,
+    });
+    for (const sentinel of Object.values(SENTINELS)) {
+      assert.equal(allStored.includes(sentinel), false, "session stores leaked sentinel");
+    }
+    assert.equal(allStored.includes("canonical history"), false, "empty session must never claim canonical history");
+    // No second conversation fact store: only the four governed Kernel DBs exist.
+    assert.deepEqual(
+      sqliteFiles(),
+      ["events.sqlite", "pi_kernel_candidates.sqlite", "pi_kernel_sessions.sqlite", "pi_kernel_tasks.sqlite"],
+      "no second conversation fact store may be created",
+    );
+  } finally {
+    sessions.close(); candidates.close(); tasks.close(); events.close();
+  }
+});
