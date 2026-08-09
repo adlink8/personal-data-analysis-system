@@ -10,6 +10,74 @@ from personal_knowledge.services.pi_domain_gateway import (
     OPERATIONS,
     PiDomainGateway,
 )
+from personal_knowledge.services.evidence_sqlite_tool import (
+    DATABASE_ID,
+    DESCRIPTOR_VERSION,
+    EVIDENCE_SQLITE_OPERATION,
+    LEASE_SKILL_ID,
+    PRIVACY_CEILING,
+    QUERY_ID,
+    EvidenceSqliteTool,
+    knowledge_research_checksum,
+)
+
+
+def _make_canonical_fixture(db) -> None:
+    import sqlite3 as sqlite3_module
+
+    con = sqlite3_module.connect(str(db))
+    con.execute(
+        """CREATE TABLE canonical_sessions (
+            canonical_session_id TEXT PRIMARY KEY, primary_source TEXT, agent TEXT,
+            started_at TEXT, ended_at TEXT, message_count INTEGER,
+            user_message_count INTEGER, file_hash TEXT, parent_canonical_id TEXT,
+            relationship_type TEXT, cwd TEXT, git_branch TEXT, model TEXT,
+            evidence_eligible INTEGER NOT NULL DEFAULT 1,
+            evidence_scope TEXT NOT NULL DEFAULT 'user',
+            merged INTEGER NOT NULL DEFAULT 0,
+            lifecycle TEXT NOT NULL DEFAULT 'active',
+            superseded_by_canonical_id TEXT)"""
+    )
+    con.execute(
+        """CREATE TABLE canonical_messages (
+            canonical_message_id TEXT PRIMARY KEY, canonical_session_id TEXT NOT NULL,
+            source TEXT NOT NULL, source_message_ref TEXT, ordinal INTEGER NOT NULL,
+            role TEXT NOT NULL, content TEXT, content_length INTEGER, timestamp TEXT,
+            model TEXT, is_system INTEGER NOT NULL DEFAULT 0,
+            is_sidechain INTEGER NOT NULL DEFAULT 0, content_hash TEXT,
+            evidence_scope TEXT NOT NULL DEFAULT 'user')"""
+    )
+    con.execute(
+        "INSERT INTO canonical_sessions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            "codex:gateway-session", "agentsview", "codex", "2026-08-01T00:00:00Z",
+            "2026-08-01T01:00:00Z", 1, 1, "file-hash-1", None, "main", None, None,
+            None, 1, "user", 0, "active", None,
+        ),
+    )
+    con.execute(
+        "INSERT INTO canonical_messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("g-1", "codex:gateway-session", "agentsview", "av:1", 1, "user",
+         "redacted", 8, "2026-08-01T00:01:00Z", "gpt-4o", 0, 0, "hash-1", "user"),
+    )
+    con.commit()
+    con.close()
+
+
+def _evidence_descriptor(**overrides) -> dict:
+    base: dict = {
+        "database_id": DATABASE_ID,
+        "query_id": QUERY_ID,
+        "version": DESCRIPTOR_VERSION,
+        "parameters": {"session_id": "codex:gateway-session", "after": None, "limit": 10},
+        "scope": {"session_id": "codex:gateway-session"},
+        "skill_id": LEASE_SKILL_ID,
+        "supporting_skills": [],
+        "manifest_checksum": knowledge_research_checksum(),
+        "privacy_ceiling": PRIVACY_CEILING,
+    }
+    base.update(overrides)
+    return base
 
 
 def test_registry_is_static_and_unknown_inputs_are_rejected():
@@ -46,3 +114,61 @@ def test_guarded_write_requires_binding_and_routes_through_interface():
     gateway = PiDomainGateway(capability="cap", service=Stub())
     result = gateway.invoke("session.preview", {"task_id": "t", "idempotency_key": "i", "binding": "b", "session_id": "s", "transition": "generate", "payload": {}, "actor_identity_hash": "a", "expected_sequence": 1, "now": "2026-08-04T00:00:00Z"}, capability="cap")
     assert result["ok"] is True
+
+
+def test_evidence_sqlite_query_is_registered_static_read_operation():
+    assert EVIDENCE_SQLITE_OPERATION in OPERATIONS
+    spec = OPERATIONS[EVIDENCE_SQLITE_OPERATION]
+    assert spec["kind"] == "read"
+    assert spec["privacy"] == PRIVACY_CEILING
+    # no statement_display / SQL / path / callable override can enter the map
+    assert "statement_display" not in spec["allowed"]
+    assert "sql" not in spec["allowed"] and "path" not in spec["allowed"]
+
+
+def test_gateway_denies_foreign_lease_manifest_privacy_and_override_before_adapter():
+    gateway = PiDomainGateway(capability="cap")  # no DB and no evidence_tool injected
+    base = {"task_id": "t", "idempotency_key": "i", "binding": "b"}
+    lease = gateway.invoke(EVIDENCE_SQLITE_OPERATION, {**base, **_evidence_descriptor(skill_id="system.diagnosis")}, capability="cap")
+    assert lease["ok"] is False and lease["error"]["code"] == "lease_invalid"
+    drift = gateway.invoke(EVIDENCE_SQLITE_OPERATION, {**base, **_evidence_descriptor(manifest_checksum="0" * 64)}, capability="cap")
+    assert drift["error"]["code"] == "manifest_drift"
+    privacy = gateway.invoke(EVIDENCE_SQLITE_OPERATION, {**base, **_evidence_descriptor(privacy_ceiling="R0")}, capability="cap")
+    assert privacy["error"]["code"] == "privacy_ceiling_mismatch"
+    override = gateway.invoke(EVIDENCE_SQLITE_OPERATION, {**base, **_evidence_descriptor(), "statement_display": "attacker.com/sql"}, capability="cap")
+    assert override["error"]["code"] == "undeclared_input"
+
+
+def test_gateway_adapter_repeats_query_id_scope_and_database_denial(tmp_path):
+    db = tmp_path / "canonical.sqlite"
+    _make_canonical_fixture(db)
+    gateway = PiDomainGateway(capability="cap", evidence_tool=EvidenceSqliteTool(db_path=db))
+    base = {"task_id": "t", "idempotency_key": "i", "binding": "b"}
+    unknown = gateway.invoke(EVIDENCE_SQLITE_OPERATION, {**base, **_evidence_descriptor(query_id="DROP TABLE canonical_messages")}, capability="cap")
+    assert unknown["error"]["code"] == "unknown_query"
+    scope = gateway.invoke(EVIDENCE_SQLITE_OPERATION, {**base, **_evidence_descriptor(scope={"project": "anything"})}, capability="cap")
+    assert scope["error"]["code"] == "scope_denied"
+    path = gateway.invoke(EVIDENCE_SQLITE_OPERATION, {**base, **_evidence_descriptor(database_id="../../var/db/personal_system.sqlite")}, capability="cap")
+    assert path["error"]["code"] == "database_unknown"
+    binding = gateway.invoke(EVIDENCE_SQLITE_OPERATION, {**base, **_evidence_descriptor(), "binding": None}, capability="cap")
+    assert binding["error"]["code"] == "binding_required"
+
+
+def test_gateway_routes_evidence_success_with_capability_checksum(tmp_path):
+    db = tmp_path / "canonical.sqlite"
+    _make_canonical_fixture(db)
+    gateway = PiDomainGateway(capability="cap", evidence_tool=EvidenceSqliteTool(db_path=db))
+    result = gateway.invoke(
+        EVIDENCE_SQLITE_OPERATION,
+        {"task_id": "t", "idempotency_key": "i", "binding": "b", **_evidence_descriptor()},
+        capability="cap",
+    )
+    assert result["ok"] is True and result["status"] == "success"
+    data = result["data"]
+    assert data["query_id"] == QUERY_ID
+    assert data["database_id"] == DATABASE_ID
+    assert data["capability_checksum"] == OPERATIONS[EVIDENCE_SQLITE_OPERATION]["checksum"]
+    assert data["row_count"] == 1
+    assert data["rows"][0]["message_id"] == "g-1"
+    # safe envelope never exposes physical schema or bodies
+    assert "canonical_messages" not in str(result).lower()

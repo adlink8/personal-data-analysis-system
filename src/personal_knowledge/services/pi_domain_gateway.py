@@ -6,6 +6,13 @@ import os
 from typing import Any, Mapping
 
 from personal_knowledge.services.capability_registry import load_registry, operations_for_profile
+from personal_knowledge.services.evidence_sqlite_tool import (
+    EVIDENCE_SQLITE_OPERATION,
+    LEASE_SKILL_ID,
+    PRIVACY_CEILING,
+    EvidenceSqliteTool,
+    knowledge_research_checksum,
+)
 from personal_knowledge.services.orchestration_service import GuardedOrchestrationInterface
 from personal_knowledge.services.warehouse_mutations import MUTATION_OPERATIONS, WarehouseOperationLedger
 from personal_knowledge.services.warehouse_tools import OPERATIONS as WAREHOUSE_READ_OPERATIONS, WarehouseTools
@@ -22,6 +29,16 @@ OPERATIONS: dict[str, dict[str, Any]] = {
     "domain.candidate": {"kind": "read", "allowed": {"task_id", "idempotency_key", "binding", "evidence_refs", "proposal"}, "privacy": "R1"},
     "session.preview": {"kind": "guarded_write", "allowed": {"session_id", "transition", "payload", "actor_identity_hash", "expected_sequence", "now", "task_id", "idempotency_key", "binding"}, "privacy": "R1"},
     "session.confirm": {"kind": "guarded_write", "allowed": {"preview", "confirmation_token", "confirmed", "idempotency_key", "now", "task_id", "binding"}, "privacy": "R1"},
+    "evidence.sqlite_query": {
+        "kind": "read",
+        "allowed": {
+            "task_id", "idempotency_key", "binding", "database_id", "query_id",
+            "version", "parameters", "scope", "skill_id", "supporting_skills",
+            "manifest_checksum", "privacy_ceiling",
+        },
+        "privacy": "R1",
+        "checksum": "b06b0d5ce4f762515082aebc296bd804ff18ff6875d7af552f0aa936f163227e",
+    },
 }
 
 PROJECT_OPERATIONS: dict[str, dict[str, Any]] = {
@@ -77,7 +94,8 @@ class PiDomainGateway:
                  warehouse_ledger: WarehouseOperationLedger | None = None,
                  semantic_tools: SemanticMaintenanceTools | None = None,
                  retrieval_tools: RetrievalMaintenanceTools | None = None,
-                 snapshot_tools: SnapshotReleaseTools | None = None) -> None:
+                 snapshot_tools: SnapshotReleaseTools | None = None,
+                 evidence_tool: EvidenceSqliteTool | None = None) -> None:
         self.service = service
         self.capability = capability or os.environ.get("PI_DOMAIN_CAPABILITY", DEFAULT_CAPABILITY)
         self.read_handler = read_handler
@@ -86,6 +104,7 @@ class PiDomainGateway:
         self.semantic_tools = semantic_tools
         self.retrieval_tools = retrieval_tools
         self.snapshot_tools = snapshot_tools
+        self.evidence_tool = evidence_tool
 
     def _check(self, operation: str, params: Mapping[str, Any], capability: str | None) -> None:
         canonical = canonical_project_operation(operation)
@@ -136,6 +155,22 @@ class PiDomainGateway:
                 if isinstance(data, dict):
                     data["capability_checksum"] = spec["checksum"]
                 return _ok(canonical, data)
+            if canonical == EVIDENCE_SQLITE_OPERATION:
+                # Explicit operation registration only: no dynamic callable/path.
+                # Lease, manifest checksum and privacy ceiling are validated here
+                # (before the adapter), and the adapter repeats query-ID/scope/
+                # binding denial. Never a promotion/canonical mutation route.
+                if params.get("skill_id") != LEASE_SKILL_ID:
+                    return _error(canonical, "lease_invalid")
+                if params.get("manifest_checksum") != knowledge_research_checksum():
+                    return _error(canonical, "manifest_drift")
+                if params.get("privacy_ceiling") != PRIVACY_CEILING:
+                    return _error(canonical, "privacy_ceiling_mismatch")
+                tool = self.evidence_tool or EvidenceSqliteTool()
+                data = tool.invoke({key: value for key, value in params.items() if key not in {"task_id", "idempotency_key"}})
+                if isinstance(data, dict):
+                    data["capability_checksum"] = spec.get("checksum")
+                return _ok(canonical, data)
             if spec["kind"] == "read":
                 if self.read_handler is not None:
                     return _ok(canonical, self.read_handler(canonical, params))
@@ -154,6 +189,11 @@ class PiDomainGateway:
                 "invalid_request", "provider_outcome_unknown", "preview_stale", "snapshot_binding_mismatch",
                 "watermark_binding_mismatch", "idempotency_conflict", "idempotency_mismatch", "warehouse_authority_unavailable",
                 "preview_required", "fingerprint_binding_mismatch",
+                "lease_invalid", "manifest_drift", "privacy_ceiling_mismatch",
+                "database_unknown", "unknown_query", "version_mismatch", "binding_required", "scope_denied",
+                "sql_forbidden", "parameter_invalid", "path_forbidden", "limit_exceeded",
+                "supporting_skill_rejected", "database_unavailable", "schema_gate_failed",
+                "query_timeout", "descriptor_invalid", "undeclared_input",
             }
             return _error(operation, code if code in safe_codes else "domain_unavailable")
 

@@ -1,7 +1,7 @@
 {
   "schema": "project-capability-registry-v1",
   "version": "1.0.0",
-  "checksum": "62019c79626a78708a571c7c4c85101b451e4dce216e870d286d5705122a5e7e",
+  "checksum": "419b7a7bd23951c7ad0cb610e080576f7c4c960f8cf5ad88b3795e111fe13eba",
   "operations": [
     {
       "id": "knowledge.search", "version": "1.0.0", "checksum": "e832344f51aa249fa23c8256d497fc1bb63508aad1074531b390305961eedd39",
@@ -77,6 +77,12 @@
       "title": "Resolve evidence", "description": "Read evidence references and support status without raw bodies.", "input_schema": "project_tool_input_v1", "output_schema": "project_tool_output_v1",
       "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "evidence", "side_effect_class": "none", "timeout_ms": 3000,
       "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_tool_receipt_v1", "status": "active"
+    },
+    {
+      "id": "evidence.sqlite_query", "version": "1.0.0", "checksum": "b06b0d5ce4f762515082aebc296bd804ff18ff6875d7af552f0aa936f163227e",
+      "title": "Query approved evidence SQLite", "description": "Execute an approved versioned descriptor over bounded read-only canonical conversation evidence with immutable receipts.", "input_schema": "pi_evidence_sqlite_v1", "output_schema": "pi_evidence_sqlite_v1",
+      "profiles": ["production", "operator", "test"], "privacy_ceiling": "R1", "authority_class": "evidence", "side_effect_class": "none", "timeout_ms": 3000,
+      "budget": {"max_bytes": 16384, "provider_calls": 0}, "idempotency": {"required": true, "scope": "task"}, "confirmation": {"required": false}, "receipt_schema": "pi_evidence_sqlite_receipt_v1", "status": "active"
     },
     {
       "id": "wiki.directory", "version": "1.0.0", "checksum": "de37f44c18bb02077f44cb7c67da5554bc03022e21940fe32d9c4aea06ea80f3",
