@@ -242,14 +242,17 @@ function parsePayload(intent, payload) {
   for (const key of Object.keys(payload)) {
     if (!allowed.has(key)) fail("unknown_key", key, intent);
   }
-  for (const key of spec.required) {
-    if (!(key in payload)) fail("missing_required", key, intent);
-  }
   const normalized = { schema: DESKTOP_API_SCHEMA, intent };
+  // Validate every provided key BEFORE asserting required keys: a malformed or
+  // foreign provided ID must be rejected as such (e.g. invalid_id), never
+  // masked by a generic missing_required for a different field.
   for (const key of spec.keys) {
     if (key in payload && payload[key] !== undefined) {
       normalized[key] = PAYLOAD_VALIDATORS[key](payload[key]);
     }
+  }
+  for (const key of spec.required) {
+    if (!(key in payload)) fail("missing_required", key, intent);
   }
   return normalized;
 }
