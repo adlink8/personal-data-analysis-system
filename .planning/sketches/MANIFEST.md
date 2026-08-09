@@ -16,3 +16,4 @@
 | 002 | sqlite-evidence | 只读 SQLite 查询的 SQL、结果与证据应在何处呈现，才能既可信又不打断对话？ | A | sqlite, evidence, conversation, audit |
 | 003 | personal-model | 如何呈现可证据化、多情境、可纠正的个人多维模型，而不制造虚假总分？ | C | personal-model, evidence, timeline, calibration |
 | 004 | daily-brief | 今日简报应怎样在启动后的对话中呈现同步、水位、证据与可接受的行动？ | A | daily-brief, conversation, sync, evidence |
+| 005 | review-inbox | 候选如何按风险、证据和冲突被审核、编辑、接受或延后？ | A | inbox, review, conflict, evidence |
