@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { capabilityToolNames, loadCapabilityRegistry } from "../tools/capability-registry.mjs";
+import { skillChecksum } from "../skills/registry.mjs";
 
 export const SYNTHETIC_SYSTEM_PROMPT =
   "Phase 48 synthetic containment session. Use only the registered domain tools.";
@@ -19,7 +20,81 @@ export const PHASE_48_TOOL_NAMES = Object.freeze([
 ]);
 export const PRODUCTION_SYSTEM_PROMPT = "Pi production Capability Registry tools only; use the declared domain operation and never access ambient resources.";
 
-const SYNTHETIC_MODEL = Object.freeze({
+/**
+ * The one Pi runtime resolves exactly three explicit policy profiles. Resolution
+ * is deny-by-default: unknown profiles return null and cross-profile tool names
+ * are never unioned. Allowlists are derived from the governed production
+ * Capability Registry by side-effect class, so an ordinary Conversation lease
+ * can never see or mutate Reflection/Operator authority.
+ */
+const PRODUCTION_REGISTRY = loadCapabilityRegistry({ profile: "production" });
+
+function operationsBySideEffectClass(registry, predicate) {
+  return registry.operations.filter((operation) => predicate(operation.side_effect_class)).map((operation) => operation.id);
+}
+
+export const PROFILE_DEFINITIONS = Object.freeze({
+  conversation: Object.freeze({
+    id: "conversation",
+    allowlist: Object.freeze(operationsBySideEffectClass(PRODUCTION_REGISTRY, (side) => side === "none")),
+    side_effect_class: "read_only",
+  }),
+  reflection: Object.freeze({
+    id: "reflection",
+    allowlist: Object.freeze(operationsBySideEffectClass(PRODUCTION_REGISTRY, (side) => side === "candidate")),
+    side_effect_class: "candidate",
+  }),
+  operator: Object.freeze({
+    id: "operator",
+    allowlist: Object.freeze(operationsBySideEffectClass(PRODUCTION_REGISTRY, (side) => side === "promotion" || side === "rollback" || side === "derived" || side === "canonical")),
+    side_effect_class: "mutation",
+  }),
+});
+
+/** Resolve a named profile definition; unknown profiles fail closed. */
+export function resolveProfile(profileId) {
+  return PROFILE_DEFINITIONS[profileId] ?? null;
+}
+
+/** Tool-name allowlist for a profile; unknown profiles return null. */
+export function profileToolNames(profileId) {
+  const definition = resolveProfile(profileId);
+  return definition ? [...definition.allowlist] : null;
+}
+
+/** Exact per-operation profile membership; unknown profiles fail closed. */
+export function isProfileOperation(profileId, operation) {
+  const definition = resolveProfile(profileId);
+  return definition ? definition.allowlist.includes(operation) : false;
+}
+
+/**
+ * Derive the exact active Conversation tool lease from zero/one primary Skill
+ * plus at most one bounded supporting Skill. Every selected tool must be in the
+ * read-only Conversation base and every Skill must reproduce its manifest
+ * checksum; drift, mutation or out-of-lease operations fail closed.
+ */
+export function deriveConversationLease({ primarySkill = null, supportSkill = null } = {}) {
+  const base = PROFILE_DEFINITIONS.conversation.allowlist;
+  const baseSet = new Set(base);
+  const primary = Array.isArray(primarySkill) ? primarySkill : primarySkill == null ? [] : [primarySkill];
+  const support = Array.isArray(supportSkill) ? supportSkill : supportSkill == null ? [] : [supportSkill];
+  if (primary.length > 1) return { ok: false, reason: "at_most_one_primary" };
+  if (support.length > 1) return { ok: false, reason: "at_most_one_support" };
+  const selected = [];
+  for (const skill of [...primary, ...support]) {
+    if (!skill || typeof skill !== "object" || Array.isArray(skill)) return { ok: false, reason: "skill_invalid" };
+    if (typeof skill.checksum !== "string" || skillChecksum(skill) !== skill.checksum) return { ok: false, reason: "checksum_drift" };
+    if (!Array.isArray(skill.allowed_tools) || skill.allowed_tools.length === 0) return { ok: false, reason: "skill_invalid" };
+    for (const tool of skill.allowed_tools) {
+      if (!baseSet.has(tool)) return { ok: false, reason: "not_read_only" };
+    }
+    selected.push(...skill.allowed_tools);
+  }
+  return { ok: true, active_tool_names: [...new Set([...base, ...selected])].sort() };
+}
+
+export const SYNTHETIC_MODEL = Object.freeze({
   api: "synthetic-containment",
   provider: "synthetic-containment",
   id: "phase-48-containment",
@@ -51,7 +126,7 @@ function syntheticTool(name, label) {
   });
 }
 
-function productionTool(operation, invokeTool) {
+export function productionTool(operation, invokeTool) {
   return defineTool({
     name: operation.id,
     label: operation.title,
@@ -72,7 +147,7 @@ function productionTool(operation, invokeTool) {
   });
 }
 
-function providerFreeRuntime() {
+export function providerFreeRuntime() {
   let providerCalls = 0;
   const unavailable = () => undefined;
   return {

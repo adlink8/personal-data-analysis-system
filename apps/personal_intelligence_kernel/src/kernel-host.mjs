@@ -5,7 +5,10 @@ import { dirname, resolve } from "node:path";
 
 import {
   createContainedSession,
+  deriveConversationLease,
 } from "./runtime/resource-policy.mjs";
+import { conversationSessionFactory } from "./runtime/conversation-session.mjs";
+import { runConversationTurn } from "./conversation/turn-service.mjs";
 import { EventJournal, PI_KERNEL_EVENTS_DB } from "./events/journal.mjs";
 import { createPiKernelEvent, sha256 } from "./events/schema.mjs";
 import { TaskLedger, PI_KERNEL_TASKS_DB, TaskLedgerError } from "./tasks/ledger.mjs";
@@ -81,7 +84,7 @@ function assertExactResourcePolicy(resourceLoader, session, { profile, registry,
 }
 
 export class KernelHost {
-  constructor({ journal, session, resourceLoader, modelRuntime, providerAdapter, taskLedger, sessionStore, candidateStore, decision, host, port, shutdownTimeoutMs, capabilityRegistry, runtimeControl, skillRegistry, skillEngine, domainBridge }) {
+  constructor({ journal, session, resourceLoader, modelRuntime, providerAdapter, taskLedger, sessionStore, candidateStore, decision, host, port, shutdownTimeoutMs, capabilityRegistry, runtimeControl, skillRegistry, skillEngine, domainBridge, domainBridgeOptions, conversationSessionFactory, cwd, agentDir }) {
     this.journal = journal;
     this.session = session;
     this.resourceLoader = resourceLoader;
@@ -99,6 +102,10 @@ export class KernelHost {
     this.skillRegistry = skillRegistry;
     this.skillEngine = skillEngine ?? (skillRegistry ? new SkillEngine({ registry: skillRegistry }) : null);
     this.domainBridge = domainBridge;
+    this.domainBridgeOptions = domainBridgeOptions;
+    this.conversationSessionFactory = conversationSessionFactory;
+    this.cwd = cwd;
+    this.agentDir = agentDir;
     // Provider bodies are kept only for the lifetime of this process so a
     // trusted Python adapter can finish its existing parser contract. They
     // are never written to Task/Session/Event/Candidate stores.
@@ -438,6 +445,139 @@ export class KernelHost {
     return { duplicate: false, candidate, event: { event_id: event.event.event_id, canonical_checksum: event.row.canonical_checksum } };
   }
 
+  /**
+   * Execute one real Pi-owned conversation turn. The per-turn session owns the
+   * iterative tool loop via `runConversationTurn`; this host binds durable
+   * Task/Session/Event ledger semantics, the exact checksum-bound Conversation
+   * lease, and the lease-scoped domain bridge. This path never invokes
+   * `providerAdapter.generate()` or `SkillEngine.run()` as a second outer agent
+   * loop.
+   */
+  async executeConversationTurn({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, skill_id: skillId, prompt } = {}) {
+    if (!this.taskLedger || !this.sessionStore || !this.skillRegistry || !this.conversationSessionFactory || !this.domainBridge) throw safeError("skill_runtime_unavailable");
+    assertIdentifier(idempotencyKey, "task_identity_invalid");
+    if (taskId !== undefined) assertIdentifier(taskId, "task_identity_invalid");
+    if (sessionId !== undefined) assertIdentifier(sessionId, "task_identity_invalid");
+    assertIdentifier(skillId, "skill_identity_invalid");
+    if (typeof prompt !== "string" || !prompt.trim() || Buffer.byteLength(prompt, "utf8") > MAX_PROMPT_BYTES) throw safeError("task_prompt_invalid");
+    const skill = this.skillRegistry.manifests.find((item) => item.id === skillId);
+    if (!skill) throw safeError("skill_not_found");
+
+    const lease = deriveConversationLease({ primarySkill: skill });
+    if (!lease.ok) throw safeError("conversation_lease_denied");
+
+    const actualTaskId = taskId ?? `pi_task_${sha256(idempotencyKey).slice(0, 24)}`;
+    const actualSessionId = sessionId ?? `pi_session_${sha256(`${idempotencyKey}:session`).slice(0, 24)}`;
+    const inputChecksum = sha256({ skill_id: skill.id, prompt });
+    const inputRef = { kind: "artifact", ref: `conversation-turn:${inputChecksum.slice(0, 32)}`, checksum: inputChecksum };
+    let accepted;
+    try {
+      accepted = this.taskLedger.enqueue({ task_id: actualTaskId, idempotency_key: idempotencyKey, input_ref: inputRef });
+    } catch (error) {
+      if (error instanceof TaskLedgerError) throw safeError(error.code);
+      throw safeError("task_enqueue_failed");
+    }
+    if (accepted.duplicate) {
+      return { duplicate: true, ok: true, task: accepted.task, session_id: actualSessionId, route: "conversation", turn: null, provider_calls: this.providerCalls };
+    }
+
+    const leaseBridge = this.domainBridgeOptions
+      ? createProjectDomainBridge({ ...this.domainBridgeOptions, operations: lease.active_tool_names })
+      : this.domainBridge;
+    const leaseOperations = (this.capabilityRegistry?.operations ?? [])
+      .filter((operation) => lease.active_tool_names.includes(operation.id))
+      .map((operation) => ({ ...operation }));
+
+    this.runtimeControl.register({
+      operation_id: `op:task:${actualTaskId}`, operation_kind: "kernel_session", task_id: actualTaskId, session_id: actualSessionId,
+      correlation_id: actualTaskId, idempotency_key: idempotencyKey, authority_class: "authority:kernel", side_effect_class: "none",
+      snapshot_id: "snapshot:kernel", budget: { timeout_ms: skill.timeout_ms }, reason: "conversation_turn_accepted",
+    });
+
+    let turnContext = null;
+    try {
+      if (!this.sessionStore.get(actualSessionId)) this.sessionStore.create({ session_id: actualSessionId, trajectory: [] });
+      const acceptedEvent = this.#appendLifecycle("task_accepted", { taskId: actualTaskId, idempotencyKey, checksum: inputChecksum });
+      let task = this.taskLedger.claim(actualTaskId, { owner: "pi_kernel", leaseMs: skill.timeout_ms + 5000 });
+      task = this.taskLedger.transition(actualTaskId, "running", { expectedVersion: task.version, owner: "pi_kernel", event_ref: acceptedEvent.event.event_id });
+      this.runtimeControl.resume({ operation_id: `op:task:${actualTaskId}`, expected_version: 0, idempotency_key: `${idempotencyKey}:running` });
+      const startedEvent = this.#appendLifecycle("task_started", { taskId: actualTaskId, idempotencyKey, checksum: inputChecksum, causationId: acceptedEvent.event.event_id });
+
+      turnContext = await this.conversationSessionFactory({
+        cwd: this.cwd,
+        agentDir: this.agentDir,
+        operations: leaseOperations,
+        bridge: leaseBridge,
+        invokeTool: (operation, params) => leaseBridge.invoke(operation, params),
+      });
+      if (!turnContext?.session) throw safeError("conversation_session_unavailable");
+      const result = await runConversationTurn({
+        session: turnContext.session,
+        prompt,
+        activeToolNames: lease.active_tool_names,
+        profile: "conversation",
+        taskId: actualTaskId,
+        sessionId: actualSessionId,
+        idempotencyKey,
+        skillId: skill.id,
+        skillChecksum: skill.checksum,
+        timeoutMs: skill.timeout_ms,
+      });
+      const turn = result.turn;
+      const report = {
+        schema: "pi_conversation_turn_v1",
+        task_id: actualTaskId,
+        session_id: actualSessionId,
+        skill_id: skill.id,
+        skill_checksum: skill.checksum,
+        profile: turn.profile,
+        state: turn.state,
+        success: turn.success,
+        tool_count: turn.receipts.tool_count,
+      };
+      const reportChecksum = sha256(report);
+      this.sessionStore.append(actualSessionId, { kind: "conversation_receipt", task_id: actualTaskId, skill_id: skill.id, report_checksum: reportChecksum, state: turn.state }, { receipt: { kind: "conversation", task_id: actualTaskId, skill_id: skill.id, report_checksum: reportChecksum, state: turn.state } });
+
+      if (turn.state === "settled") {
+        const completedEvent = this.#appendLifecycle("task_completed", { taskId: actualTaskId, idempotencyKey, checksum: reportChecksum, causationId: startedEvent.event.event_id });
+        task = this.taskLedger.transition(actualTaskId, "succeeded", { expectedVersion: task.version, owner: "pi_kernel", output_ref: artifactRef(reportChecksum), event_ref: completedEvent.event.event_id });
+        this.runtimeControl._transition({ operationId: `op:task:${actualTaskId}`, expectedVersion: 1, idempotencyKey: `${idempotencyKey}:succeeded`, nextState: "succeeded", reason: "conversation_settled", receiptRefs: [{ ref: `conversation:${reportChecksum.slice(0, 32)}`, checksum: reportChecksum }] });
+      } else if (turn.state === "cancelled") {
+        const cancelEvent = this.#appendLifecycle("task_cancel_requested", { taskId: actualTaskId, idempotencyKey, checksum: reportChecksum, causationId: startedEvent.event.event_id });
+        task = this.taskLedger.transition(actualTaskId, "cancel_requested", { expectedVersion: task.version, owner: "pi_kernel", event_ref: cancelEvent.event.event_id });
+        this.runtimeControl.cancel({ operation_id: `op:task:${actualTaskId}`, expected_version: 1, idempotency_key: `${idempotencyKey}:cancelled` });
+      } else if (turn.state === "outcome_unknown") {
+        const errorEvent = this.#appendLifecycle("error", { taskId: actualTaskId, idempotencyKey, checksum: reportChecksum, causationId: startedEvent.event.event_id });
+        task = this.taskLedger.transition(actualTaskId, "outcome_unknown", { expectedVersion: task.version, owner: "pi_kernel", error_code: "outcome_unknown", event_ref: errorEvent.event.event_id });
+        this.runtimeControl._transition({ operationId: `op:task:${actualTaskId}`, expectedVersion: 1, idempotencyKey: `${idempotencyKey}:outcome_unknown`, nextState: "outcome_unknown", reason: "conversation_outcome_unknown" });
+      } else {
+        const failedEvent = this.#appendLifecycle("task_failed", { taskId: actualTaskId, idempotencyKey, checksum: reportChecksum, causationId: startedEvent.event.event_id });
+        task = this.taskLedger.transition(actualTaskId, "failed", { expectedVersion: task.version, owner: "pi_kernel", error_code: "conversation_failed", event_ref: failedEvent.event.event_id });
+      }
+
+      return {
+        duplicate: false,
+        ok: true,
+        task,
+        session_id: actualSessionId,
+        route: "conversation",
+        turn: { ...turn, task_id: actualTaskId, session_id: actualSessionId },
+        provider_calls: this.providerCalls,
+      };
+    } catch (error) {
+      if (turnContext?.session) {
+        try { turnContext.session.dispose(); } catch { /* bounded disposal continues */ }
+      }
+      const code = error?.code || "conversation_turn_failed";
+      const task = this.taskLedger.get(actualTaskId);
+      if (task && !["succeeded", "failed", "outcome_unknown"].includes(task.state)) {
+        try { this.taskLedger.transition(actualTaskId, "failed", { expectedVersion: task.version, owner: "pi_kernel", error_code: code }); } catch { /* preserve terminal evidence when possible */ }
+      }
+      if (error instanceof KernelHostError) throw error;
+      throw safeError(code);
+    }
+  }
+
   async listen() {
     if (this.server.listening) return;
     await new Promise((resolveListen, rejectListen) => {
@@ -509,7 +649,7 @@ export async function createKernelHost(options = {}) {
   const sessionStore = new SessionStore(options.sessionsDatabasePath ?? resolve(dbRoot, PI_KERNEL_SESSIONS_DB.replace("var/db/", "")));
   const candidateStore = new CandidateStore(options.candidatesDatabasePath ?? resolve(dbRoot, PI_KERNEL_CANDIDATES_DB.replace("var/db/", "")));
   const providerAdapter = createConfiguredProviderAdapter({
-    mode: options.providerMode ?? process.env.PI_KERNEL_PROVIDER_MODE ?? "replay",
+    mode: options.providerMode ?? process.env.PI_KERNEL_PROVIDER_MODE,
     fetchImpl: options.fetchImpl,
   });
   let domainBridge = options.domainBridge;
@@ -538,6 +678,23 @@ export async function createKernelHost(options = {}) {
       capability: process.env.PI_DOMAIN_CAPABILITY,
       operations: contained.registry.operations.map((operation) => operation.id),
     });
+    const domainBridgeOptions = {
+      host: process.env.PI_DOMAIN_HOST ?? "127.0.0.1",
+      port: Number(process.env.PI_DOMAIN_PORT ?? 8000),
+      capability: process.env.PI_DOMAIN_CAPABILITY,
+    };
+    const defaultConversationSessionFactory = async (turnOptions = {}) => {
+      const leaseOperations = turnOptions.operations ?? contained.registry.operations;
+      const bridge = turnOptions.bridge ?? domainBridge;
+      return conversationSessionFactory({
+        cwd,
+        agentDir,
+        settingsManager: contained.settingsManager,
+        sessionManager: contained.sessionManager,
+        operations: leaseOperations,
+        invokeTool: (operation, params) => bridge.invoke(operation, params),
+      });
+    };
     hostInstance = new KernelHost({
       journal,
       session: contained.session,
@@ -556,6 +713,10 @@ export async function createKernelHost(options = {}) {
       skillRegistry,
       skillEngine: new SkillEngine({ registry: skillRegistry }),
       domainBridge,
+      domainBridgeOptions,
+      conversationSessionFactory: options.conversationSessionFactory ?? defaultConversationSessionFactory,
+      cwd,
+      agentDir,
     });
     if (!hostInstance.isReady()) throw safeError("host_not_ready");
     await hostInstance.listen();
