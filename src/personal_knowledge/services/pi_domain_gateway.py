@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import hmac
 import os
+from pathlib import Path
 from typing import Any, Mapping
 
+from personal_knowledge.core.project_paths import ROOT
 from personal_knowledge.services.capability_registry import load_registry, operations_for_profile
 from personal_knowledge.services.evidence_sqlite_tool import (
     EVIDENCE_SQLITE_OPERATION,
@@ -56,11 +58,29 @@ CONVERSATION_READ_OPERATIONS: dict[str, dict[str, Any]] = {
     },
 }
 
+# Plan 61-07: dispatcher-bound reflection staging (guarded write). The provider
+# accepts only the Plan 61-06 dispatcher-authenticated binding metadata (event
+# identity + canonical checksum/watermark + source/snapshot/two-freshness/rule
+# version + task/idempotency/binding); private payload fields can never enter.
+REFLECTION_STAGE_OPERATION = "conversation.reflection.stage"
+
+# Default metadata-only reflection ledger used by the gateway-provider path.
+DEFAULT_REFLECTION_DB = ROOT / "var" / "db" / "conversation_reflection.sqlite"
+
 OPERATIONS: dict[str, dict[str, Any]] = {
     "domain.inspect": {"kind": "read", "allowed": {"task_id", "idempotency_key", "binding"}, "privacy": "R1"},
     "domain.candidate": {"kind": "read", "allowed": {"task_id", "idempotency_key", "binding", "evidence_refs", "proposal"}, "privacy": "R1"},
     "session.preview": {"kind": "guarded_write", "allowed": {"session_id", "transition", "payload", "actor_identity_hash", "expected_sequence", "now", "task_id", "idempotency_key", "binding"}, "privacy": "R1"},
     "session.confirm": {"kind": "guarded_write", "allowed": {"preview", "confirmation_token", "confirmed", "idempotency_key", "now", "task_id", "binding"}, "privacy": "R1"},
+    REFLECTION_STAGE_OPERATION: {
+        "kind": "guarded_write",
+        "allowed": {
+            "event_id", "canonical_checksum", "watermark", "source", "snapshot",
+            "freshness", "rule_version", "scope", "publication_version", "occurred_at",
+            "task_id", "idempotency_key", "binding",
+        },
+        "privacy": "R2",
+    },
     "evidence.sqlite_query": {
         "kind": "read",
         "allowed": {
@@ -128,7 +148,8 @@ class PiDomainGateway:
                  semantic_tools: SemanticMaintenanceTools | None = None,
                  retrieval_tools: RetrievalMaintenanceTools | None = None,
                  snapshot_tools: SnapshotReleaseTools | None = None,
-                 evidence_tool: EvidenceSqliteTool | None = None) -> None:
+                 evidence_tool: EvidenceSqliteTool | None = None,
+                 reflection_adapter=None, reflection_db: Path | str | None = None) -> None:
         self.service = service
         self.capability = capability or os.environ.get("PI_DOMAIN_CAPABILITY", DEFAULT_CAPABILITY)
         self.read_handler = read_handler
@@ -138,6 +159,8 @@ class PiDomainGateway:
         self.retrieval_tools = retrieval_tools
         self.snapshot_tools = snapshot_tools
         self.evidence_tool = evidence_tool
+        self.reflection_adapter = reflection_adapter
+        self.reflection_db = reflection_db
 
     def _check(self, operation: str, params: Mapping[str, Any], capability: str | None) -> None:
         canonical = canonical_project_operation(operation)
@@ -201,6 +224,22 @@ class PiDomainGateway:
                     return _error(canonical, "privacy_ceiling_mismatch")
                 tool = self.evidence_tool or EvidenceSqliteTool()
                 data = tool.invoke({key: value for key, value in params.items() if key not in {"task_id", "idempotency_key"}})
+                if isinstance(data, dict):
+                    data["capability_checksum"] = spec.get("checksum")
+                return _ok(canonical, data)
+            if canonical == REFLECTION_STAGE_OPERATION:
+                # Explicit dispatcher-bound provider only: the adapter validates
+                # the full event/checksum/watermark/source/snapshot/freshness/
+                # rule-version/task/idempotency/binding before any inference and
+                # returns a safe staged/duplicate/rejected/failed envelope.
+                from personal_knowledge.application.conversation.harness_reflection import (
+                    HarnessReflectionAdapter,
+                )
+                adapter = self.reflection_adapter
+                if adapter is None:
+                    db = self.reflection_db or DEFAULT_REFLECTION_DB
+                    adapter = HarnessReflectionAdapter(db_path=db)
+                data = adapter.stage(**dict(params))
                 if isinstance(data, dict):
                     data["capability_checksum"] = spec.get("checksum")
                 return _ok(canonical, data)
