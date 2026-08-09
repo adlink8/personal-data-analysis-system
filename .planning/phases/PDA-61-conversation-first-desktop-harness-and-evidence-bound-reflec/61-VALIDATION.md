@@ -34,6 +34,23 @@ created: 2026-08-09
 - **Before `$gsd-verify-work`:** All mapped tests, Phase 55–60 activation/rollback regressions, and the six-step desktop UAT must pass.
 - **Max feedback latency:** 60 seconds for focused automated checks; split longer suites by affected seam.
 
+## Phase 55–60 and Provider-Mode Regression Gate
+
+Run these exact commands independently before the Phase 61 checkpoint. They use only existing deterministic temporary/replay fixtures; no command is authorized to make a live paid call, activate/promote/rollback, change a pointer, or perform a destructive operation.
+
+| Regression proof | Exact command | Required redacted closure evidence |
+|---|---|---|
+| Phase 55 capability registry | `python -m pytest tests/contract/test_project_capability_registry.py -q` | Exit code, PASS/FAIL, registry checksum, fixture ID |
+| Phase 56 warehouse denial/invariants | `python -m pytest tests/security/test_pi_warehouse_tool_containment.py -q` | Exit code, PASS/FAIL, authority fingerprint, fixture ID |
+| Phase 58 Skill lease/selection | `npm test --prefix apps/personal_intelligence_kernel -- --test-name-pattern=skill-engine` | Exit code, PASS/FAIL, Skill checksum, fixture ID |
+| Phase 58 forbidden/recovery sequence | `python -m pytest tests/integration/test_pi_skill_recovery.py -q` | Exit code, PASS/FAIL, Skill checksum or authority fingerprint, fixture ID |
+| Phase 59 Kernel control reducer | `node --test apps/personal_intelligence_kernel/test/runtime-control.test.mjs` | Exit code, PASS/FAIL, policy checksum, fixture ID |
+| Phase 59 cancel/resume/reconcile | `python -m pytest tests/integration/test_pi_runtime_control.py -q` | Exit code, PASS/FAIL, authority fingerprint, fixture ID |
+| Phase 57/60 activation and exact rollback guards | `python -m pytest tests/e2e/test_pi_snapshot_release.py tests/e2e/test_pi_capability_os_activation.py -q` | Exit code, PASS/FAIL, policy checksum and active-pointer fingerprint from temporary fixture, fixture ID |
+| Phase 61 preserved non-default provider mode (created by Plan 61-03) | `node --test apps/personal_intelligence_kernel/test/conversation-turn.test.mjs` | Exit code, PASS/FAIL, provider-mode checksum/config fingerprint, fixture ID |
+
+Record every row's command verbatim, exit code, result, applicable checksum/fingerprint, timestamp and redacted fixture ID in `apps/personal_intelligence_desktop/test/desktop-uat-record.md`. Any missing evidence, non-zero exit, unauthorized live call, activation/promotion/rollback/pointer change, or destructive operation blocks Phase 61 closure.
+
 ---
 
 ## Requirement Verification Map
@@ -114,6 +131,7 @@ created: 2026-08-09
 - [ ] Focused feedback latency remains under 60 seconds.
 - [ ] High/Critical threats are closed or the phase remains blocked.
 - [ ] Full Phase 61 suite and desktop UAT are green.
+- [ ] Each exact Phase 55–60/provider-mode regression command above has a recorded exit code 0, PASS result and applicable redacted checksum or fingerprint in the UAT record; real activation, promotion, rollback and pointers remain unchanged.
 - [ ] `nyquist_compliant: true` and `wave_0_complete: true` are set when evidence exists.
 
 **Approval:** pending
