@@ -54,7 +54,9 @@ def test_uat_covers_phase_55_to_59_and_zero_tolerance_is_clean():
 def test_registry_and_skill_surface_match_frozen_uat():
     registry = load_registry()
     operations = operations_for_profile(registry, "production")
-    assert len(operations) == 44
+    # 44 Phase 55-59 baseline operations + evidence.sqlite_query (registered by
+    # Plan 61-04); the frozen UAT evidence was re-anchored at Phase 61 close-out.
+    assert len(operations) == 45
     assert {operation["id"] for operation in operations} >= {"knowledge.search", "warehouse.inspect", "ingestion.preview", "canonical.verify", "index.build", "index.evaluate", "snapshot.prepare"}
     skills = json.loads((ROOT / "governance/manifests/ai/pi-skills.json").read_text(encoding="utf-8"))
     assert skills["schema"] == "pi-skills-v1" and len(skills["skills"]) == 11

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "src/main.mjs",
-  "description": "Pi local desktop shell (Electron) — approved dependency only; renderer/UI wiring deferred to later 61 waves.",
+  "description": "Pi local desktop shell (Electron) — conversation-first renderer wired to fixed localhost providers (Phase 61); approved dependency only (electron@43.3.0).",
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.mjs"

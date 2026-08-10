@@ -4,35 +4,288 @@
   "evidence_class": "synthetic_replay",
   "status": "PASS_DETERMINISTIC_BLOCKED_REAL",
   "run_at": "2026-08-05T00:00:00Z",
-  "preregistration_checksum": "2fb343fc4db9d7b0f1c362a8a0771f1301bd76331603f8e84fbb8b7d2df70558",
-  "registry_checksum": "62019c79626a78708a571c7c4c85101b451e4dce216e870d286d5705122a5e7e",
-  "skill_manifest_checksum": "5818d5c8b6feb3cca012d6bb394504ced5bef47a4a931bdf59bee6680b727edf",
+  "preregistration_checksum": "4bac1427f5651fd8e2ea345aa811d21155a40192bc8d4e1124fc7890a61d57f3",
+  "registry_checksum": "419b7a7bd23951c7ad0cb610e080576f7c4c960f8cf5ad88b3795e111fe13eba",
+  "skill_manifest_checksum": "ce03b0f32b581ce3161ab8fc07bc7159fb309580179037ff4ddf07f15b226e09",
   "runtime_policy_checksum": "5e495d8e911bf0623cb871e22d493205aea49fce143226a6e796fb680d655991",
   "entrypoints_checksum": "a245a02daf39b01f8598ea40de30c0324452de5d971da75d9d2a990e5dc42618",
   "case_count": 16,
   "cases": [
-    {"id":"capability_registry_read","plane":"capability_registry","status":"PASS","expected_sequence":["registry.load","registry.validate","registry.checksum"],"actual_sequence":["registry.load","registry.validate","registry.checksum"],"side_effect_count":0},
-    {"id":"project_read_tool","plane":"project_tool","status":"PASS","expected_sequence":["knowledge.search"],"actual_sequence":["knowledge.search"],"side_effect_count":0},
-    {"id":"denied_tool_containment","plane":"project_tool","status":"PASS","expected_sequence":["reject_before_handler"],"actual_sequence":["reject_before_handler"],"side_effect_count":0},
-    {"id":"warehouse_metadata_read","plane":"warehouse","status":"PASS","expected_sequence":["warehouse.inspect","warehouse.quality","warehouse.integrity"],"actual_sequence":["warehouse.inspect","warehouse.quality","warehouse.integrity"],"side_effect_count":0},
-    {"id":"ingestion_preview_commit_replay","plane":"warehouse","status":"PASS","expected_sequence":["ingestion.preview","ingestion.commit","receipt.replay"],"actual_sequence":["ingestion.preview","ingestion.commit","receipt.replay"],"side_effect_count":0},
-    {"id":"canonical_compensation_gate","plane":"warehouse","status":"PASS","expected_sequence":["canonical.preview","confirmation.required","compensation.receipt"],"actual_sequence":["canonical.preview","confirmation.required","compensation.receipt"],"side_effect_count":0},
-    {"id":"semantic_candidate_stage","plane":"semantic","status":"PASS","expected_sequence":["knowledge.extract_l1","knowledge.repair_candidates","knowledge.detect_conflicts","knowledge.backfill"],"actual_sequence":["knowledge.extract_l1","knowledge.repair_candidates","knowledge.detect_conflicts","knowledge.backfill"],"side_effect_count":0},
-    {"id":"retrieval_rebuild_eval","plane":"retrieval","status":"PASS","expected_sequence":["index.build","index.reconcile","index.evaluate"],"actual_sequence":["index.build","index.reconcile","index.evaluate"],"side_effect_count":0},
-    {"id":"snapshot_release_checkpoint","plane":"snapshot","status":"PASS","expected_sequence":["snapshot.prepare","waiting_confirmation"],"actual_sequence":["snapshot.prepare","waiting_confirmation"],"side_effect_count":0},
-    {"id":"skill_manifest_selection","plane":"skill","status":"PASS","expected_sequence":["registry.load","zero_or_one_select","checksum_validate"],"actual_sequence":["registry.load","zero_or_one_select","checksum_validate"],"side_effect_count":0},
-    {"id":"skill_receipt_recovery","plane":"skill","status":"PASS","expected_sequence":["step.receipt","outcome_unknown","reconcile","resume_next_step"],"actual_sequence":["step.receipt","outcome_unknown","reconcile","resume_next_step"],"side_effect_count":0},
-    {"id":"skill_checkpoint_no_bypass","plane":"skill","status":"PASS","expected_sequence":["l3_step","waiting_confirmation","no_model_confirmation"],"actual_sequence":["l3_step","waiting_confirmation","no_model_confirmation"],"side_effect_count":0},
-    {"id":"operation_reducer_stale","plane":"kernel_control","status":"PASS","expected_sequence":["expected_version","stale_rejected","state_unchanged"],"actual_sequence":["expected_version","stale_rejected","state_unchanged"],"side_effect_count":0},
-    {"id":"operation_unknown_reconcile","plane":"kernel_control","status":"PASS","expected_sequence":["outcome_unknown","receipt_fingerprint_reconcile","no_blind_retry"],"actual_sequence":["outcome_unknown","receipt_fingerprint_reconcile","no_blind_retry"],"side_effect_count":0},
-    {"id":"cockpit_metadata_projection","plane":"cockpit","status":"PASS","expected_sequence":["same_origin_proxy","safe_projection","ui_state"],"actual_sequence":["same_origin_proxy","safe_projection","ui_state"],"side_effect_count":0},
-    {"id":"cockpit_offline_truth","plane":"cockpit","status":"PASS","expected_sequence":["kernel_unreachable","offline","restart_kernel_hint"],"actual_sequence":["kernel_unreachable","offline","restart_kernel_hint"],"side_effect_count":0}
+    {
+      "id": "capability_registry_read",
+      "plane": "capability_registry",
+      "status": "PASS",
+      "expected_sequence": [
+        "registry.load",
+        "registry.validate",
+        "registry.checksum"
+      ],
+      "actual_sequence": [
+        "registry.load",
+        "registry.validate",
+        "registry.checksum"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "project_read_tool",
+      "plane": "project_tool",
+      "status": "PASS",
+      "expected_sequence": [
+        "knowledge.search"
+      ],
+      "actual_sequence": [
+        "knowledge.search"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "denied_tool_containment",
+      "plane": "project_tool",
+      "status": "PASS",
+      "expected_sequence": [
+        "reject_before_handler"
+      ],
+      "actual_sequence": [
+        "reject_before_handler"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "warehouse_metadata_read",
+      "plane": "warehouse",
+      "status": "PASS",
+      "expected_sequence": [
+        "warehouse.inspect",
+        "warehouse.quality",
+        "warehouse.integrity"
+      ],
+      "actual_sequence": [
+        "warehouse.inspect",
+        "warehouse.quality",
+        "warehouse.integrity"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "ingestion_preview_commit_replay",
+      "plane": "warehouse",
+      "status": "PASS",
+      "expected_sequence": [
+        "ingestion.preview",
+        "ingestion.commit",
+        "receipt.replay"
+      ],
+      "actual_sequence": [
+        "ingestion.preview",
+        "ingestion.commit",
+        "receipt.replay"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "canonical_compensation_gate",
+      "plane": "warehouse",
+      "status": "PASS",
+      "expected_sequence": [
+        "canonical.preview",
+        "confirmation.required",
+        "compensation.receipt"
+      ],
+      "actual_sequence": [
+        "canonical.preview",
+        "confirmation.required",
+        "compensation.receipt"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "semantic_candidate_stage",
+      "plane": "semantic",
+      "status": "PASS",
+      "expected_sequence": [
+        "knowledge.extract_l1",
+        "knowledge.repair_candidates",
+        "knowledge.detect_conflicts",
+        "knowledge.backfill"
+      ],
+      "actual_sequence": [
+        "knowledge.extract_l1",
+        "knowledge.repair_candidates",
+        "knowledge.detect_conflicts",
+        "knowledge.backfill"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "retrieval_rebuild_eval",
+      "plane": "retrieval",
+      "status": "PASS",
+      "expected_sequence": [
+        "index.build",
+        "index.reconcile",
+        "index.evaluate"
+      ],
+      "actual_sequence": [
+        "index.build",
+        "index.reconcile",
+        "index.evaluate"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "snapshot_release_checkpoint",
+      "plane": "snapshot",
+      "status": "PASS",
+      "expected_sequence": [
+        "snapshot.prepare",
+        "waiting_confirmation"
+      ],
+      "actual_sequence": [
+        "snapshot.prepare",
+        "waiting_confirmation"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "skill_manifest_selection",
+      "plane": "skill",
+      "status": "PASS",
+      "expected_sequence": [
+        "registry.load",
+        "zero_or_one_select",
+        "checksum_validate"
+      ],
+      "actual_sequence": [
+        "registry.load",
+        "zero_or_one_select",
+        "checksum_validate"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "skill_receipt_recovery",
+      "plane": "skill",
+      "status": "PASS",
+      "expected_sequence": [
+        "step.receipt",
+        "outcome_unknown",
+        "reconcile",
+        "resume_next_step"
+      ],
+      "actual_sequence": [
+        "step.receipt",
+        "outcome_unknown",
+        "reconcile",
+        "resume_next_step"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "skill_checkpoint_no_bypass",
+      "plane": "skill",
+      "status": "PASS",
+      "expected_sequence": [
+        "l3_step",
+        "waiting_confirmation",
+        "no_model_confirmation"
+      ],
+      "actual_sequence": [
+        "l3_step",
+        "waiting_confirmation",
+        "no_model_confirmation"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "operation_reducer_stale",
+      "plane": "kernel_control",
+      "status": "PASS",
+      "expected_sequence": [
+        "expected_version",
+        "stale_rejected",
+        "state_unchanged"
+      ],
+      "actual_sequence": [
+        "expected_version",
+        "stale_rejected",
+        "state_unchanged"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "operation_unknown_reconcile",
+      "plane": "kernel_control",
+      "status": "PASS",
+      "expected_sequence": [
+        "outcome_unknown",
+        "receipt_fingerprint_reconcile",
+        "no_blind_retry"
+      ],
+      "actual_sequence": [
+        "outcome_unknown",
+        "receipt_fingerprint_reconcile",
+        "no_blind_retry"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "cockpit_metadata_projection",
+      "plane": "cockpit",
+      "status": "PASS",
+      "expected_sequence": [
+        "same_origin_proxy",
+        "safe_projection",
+        "ui_state"
+      ],
+      "actual_sequence": [
+        "same_origin_proxy",
+        "safe_projection",
+        "ui_state"
+      ],
+      "side_effect_count": 0
+    },
+    {
+      "id": "cockpit_offline_truth",
+      "plane": "cockpit",
+      "status": "PASS",
+      "expected_sequence": [
+        "kernel_unreachable",
+        "offline",
+        "restart_kernel_hint"
+      ],
+      "actual_sequence": [
+        "kernel_unreachable",
+        "offline",
+        "restart_kernel_hint"
+      ],
+      "side_effect_count": 0
+    }
   ],
-  "zero_tolerance": {"unauthorized_write": 0, "fingerprint_corruption": 0, "privacy_leak": 0, "duplicate_side_effect": 0, "gate_bypass": 0, "split_coordinator": 0},
+  "zero_tolerance": {
+    "unauthorized_write": 0,
+    "fingerprint_corruption": 0,
+    "privacy_leak": 0,
+    "duplicate_side_effect": 0,
+    "gate_bypass": 0,
+    "split_coordinator": 0
+  },
   "provider_calls": 0,
   "authority_mutations": 0,
   "raw_bodies_committed": false,
   "primary_activated": false,
-  "real_baseline": {"status":"INCONCLUSIVE","linked_evidence":"ops/reports/evidence/pi-phase53-real-paired-baseline.json","reason_codes":["sample_below_minimum","arm_response_schema_invalid","no_retry_after_contract_failure"]},
-  "limitations": ["deterministic replay only","real paired baseline remains Phase 53 revise","no live pointer or primary activation attempted"]
+  "real_baseline": {
+    "status": "INCONCLUSIVE",
+    "linked_evidence": "ops/reports/evidence/pi-phase53-real-paired-baseline.json",
+    "reason_codes": [
+      "sample_below_minimum",
+      "arm_response_schema_invalid",
+      "no_retry_after_contract_failure"
+    ]
+  },
+  "limitations": [
+    "deterministic replay only",
+    "real paired baseline remains Phase 53 revise",
+    "no live pointer or primary activation attempted"
+  ]
 }

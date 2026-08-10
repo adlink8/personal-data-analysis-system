@@ -84,9 +84,19 @@ import json
 import os
 import sys
 import traceback
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-from urllib.parse import urlparse, parse_qs, unquote
+
+# When launched as a script (`python .../services/api_server.py`), the
+# interpreter prepends the script directory (`services/`) to sys.path; the
+# local `services/http/` package would then shadow the standard-library
+# `http.server`. Drop the script directory from sys.path before any stdlib
+# import so both direct-script and `python -m` launches behave identically.
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPT_DIR in sys.path:
+    sys.path.remove(_SCRIPT_DIR)
+
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
+from pathlib import Path  # noqa: E402
+from urllib.parse import urlparse, parse_qs, unquote  # noqa: E402
 
 # 让本模块能找到同目录依赖
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]

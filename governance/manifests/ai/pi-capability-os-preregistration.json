@@ -43,9 +43,9 @@
     "cockpit_metadata_projection": "fixture:cockpit-metadata:v1",
     "cockpit_offline_truth": "fixture:cockpit-offline:v1"
   },
-  "registry_checksum": "62019c79626a78708a571c7c4c85101b451e4dce216e870d286d5705122a5e7e",
-  "skill_manifest_checksum": "5818d5c8b6feb3cca012d6bb394504ced5bef47a4a931bdf59bee6680b727edf",
+  "registry_checksum": "419b7a7bd23951c7ad0cb610e080576f7c4c960f8cf5ad88b3795e111fe13eba",
+  "skill_manifest_checksum": "ce03b0f32b581ce3161ab8fc07bc7159fb309580179037ff4ddf07f15b226e09",
   "runtime_policy_checksum": "5e495d8e911bf0623cb871e22d493205aea49fce143226a6e796fb680d655991",
   "entrypoints_checksum": "a245a02daf39b01f8598ea40de30c0324452de5d971da75d9d2a990e5dc42618",
-  "preregistration_checksum": "2fb343fc4db9d7b0f1c362a8a0771f1301bd76331603f8e84fbb8b7d2df70558"
+  "preregistration_checksum": "4bac1427f5651fd8e2ea345aa811d21155a40192bc8d4e1124fc7890a61d57f3"
 }

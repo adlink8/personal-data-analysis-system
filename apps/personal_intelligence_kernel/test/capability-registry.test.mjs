@@ -5,9 +5,12 @@ import { loadCapabilityRegistry, capabilityByName } from "../src/tools/capabilit
 test("production capability registry loads the approved project surface", () => {
   const registry = loadCapabilityRegistry({ profile: "production" });
   assert.equal(registry.profile, "production");
-  assert.equal(registry.operations.length, 44);
+  // 44 baseline operations + evidence.sqlite_query (registered by Plan 61-04).
+  assert.equal(registry.operations.length, 45);
   assert.ok(registry.checksum.match(/^[0-9a-f]{64}$/));
   assert.equal(capabilityByName(registry, "search").id, "knowledge.search");
+  // Phase 61 evidence operation is registered in the approved production surface.
+  assert.equal(capabilityByName(registry, "evidence.sqlite_query").id, "evidence.sqlite_query");
 });
 
 test("capability aliases resolve only to canonical operations", () => {
