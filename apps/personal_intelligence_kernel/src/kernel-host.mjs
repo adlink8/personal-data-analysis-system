@@ -949,7 +949,22 @@ export async function createKernelHost(options = {}) {
       host: process.env.PI_DOMAIN_HOST ?? "127.0.0.1",
       port: Number(process.env.PI_DOMAIN_PORT ?? 8000),
       capability: process.env.PI_DOMAIN_CAPABILITY,
-      operations: contained.registry.operations.map((operation) => operation.id),
+      // The Phase 61 fixed Kernel routes (candidate.review, personal model
+      // projection, four proactive routes) dispatch through the same bridge;
+      // their named providers live in the Python PiDomainGateway registry but
+      // are not Pi-tool capability operations, so union them into the default
+      // allowlist or the fixed routes fail with skill_tool_escalation.
+      operations: [
+        ...new Set([
+          ...contained.registry.operations.map((operation) => operation.id),
+          "candidate.review",
+          MODEL_PROJECTION_OPERATION,
+          PROACTIVE_STATE_OPERATION,
+          PROACTIVE_CONTROLS_OPERATION,
+          PROACTIVE_DISMISS_OPERATION,
+          PROACTIVE_UNDO_OPERATION,
+        ]),
+      ],
     });
     const domainBridgeOptions = {
       host: process.env.PI_DOMAIN_HOST ?? "127.0.0.1",

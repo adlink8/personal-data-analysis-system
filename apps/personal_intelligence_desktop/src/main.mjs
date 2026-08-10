@@ -186,6 +186,7 @@ const ROUTE_MAP = Object.freeze({
   resume: Object.freeze({ provider: PROVIDER_ROUTES.resume, authority: "kernel", method: "POST", path: "/v1/conversations/resume" }),
   reconcile: Object.freeze({ provider: PROVIDER_ROUTES.reconcile, authority: "kernel", method: "POST", path: "/v1/conversations/reconcile" }),
   review: Object.freeze({ provider: PROVIDER_ROUTES.review, authority: "kernel", method: "POST", path: "/v1/candidates/review" }),
+  projection: Object.freeze({ provider: PROVIDER_ROUTES.projection, authority: "kernel", method: "GET", path: "/v1/personal/model-projection" }),
   "proactive-read": Object.freeze({ provider: PROVIDER_ROUTES["proactive-read"], authority: "kernel", method: "POST", path: "/v1/proactive/state" }),
   "proactive-controls": Object.freeze({ provider: PROVIDER_ROUTES["proactive-controls"], authority: "kernel", method: "POST", path: "/v1/proactive/controls" }),
   "proactive-dismiss": Object.freeze({ provider: PROVIDER_ROUTES["proactive-dismiss"], authority: "kernel", method: "POST", path: "/v1/proactive/dismiss" }),
@@ -202,8 +203,10 @@ const INPUT_FIELD_TO_PROVIDER_PARAM = Object.freeze({
   candidateId: "candidate_id",
   action: "action",
   version: "expected_version",
-  checksum: "checksum",
+  checksum: "edited_payload_checksum",
   scope: "scope",
+  text: "prompt",
+  skillId: "skill_id",
   category: "category",
   enabled: "enabled",
   quietHours: "quiet_hours",
@@ -220,18 +223,30 @@ const INPUT_FIELD_TO_PROVIDER_PARAM = Object.freeze({
 function synthesizeProviderMeta(intent, input) {
   const seed = digest(canonicalJson({ intent, input }));
   const idempotencyKey = `pi_desktop_${intent}_${seed.slice(0, 24)}`;
-  return {
+  const meta = {
     idempotency_key: idempotencyKey,
     binding: "pi_desktop_route_v1",
     task_id: `pi_task_${digest(canonicalJson({ seed, kind: "task" })).slice(0, 24)}`,
-    session_id: `pi_session_${digest(canonicalJson({ seed, kind: "session" })).slice(0, 24)}`,
   };
+  // Only the conversation-turn provider accepts a session_id; review,
+  // projection and the Python canonical providers reject undeclared fields
+  // (their fixed contracts do not include session_id).
+  if (intent === "turn") {
+    meta.session_id = `pi_session_${digest(canonicalJson({ seed, kind: "session" })).slice(0, 24)}`;
+  }
+  return meta;
 }
 
 function translateToProviderBody(intent, input) {
   const body = synthesizeProviderMeta(intent, input);
   for (const [desktopKey, providerKey] of Object.entries(INPUT_FIELD_TO_PROVIDER_PARAM)) {
     if (input[desktopKey] !== undefined) body[providerKey] = input[desktopKey];
+  }
+  // An ordinary conversation turn always runs the governed read-only
+  // knowledge.research Skill lease (Plan 61-03); the renderer cannot select a
+  // Skill, so the fixed default is applied here when none is supplied.
+  if (intent === "turn" && body.skill_id === undefined) {
+    body.skill_id = "knowledge.research";
   }
   return body;
 }
@@ -267,6 +282,18 @@ function buildRouteRequest(route, intent, input) {
     };
   }
   const base = DEFAULT_KERNEL_BASE_URL;
+  if (route.method === "GET") {
+    // The fixed projection read route takes query parameters only (no body).
+    const query = new URLSearchParams(body).toString();
+    return {
+      method: "GET",
+      url: `${base}${route.path}${query ? `?${query}` : ""}`,
+      headers: { "Cache-Control": "no-store" },
+      body: "",
+      provider: route.provider,
+      intent,
+    };
+  }
   return {
     method: route.method,
     url: `${base}${route.path}`,
