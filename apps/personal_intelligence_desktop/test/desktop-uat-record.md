@@ -16,10 +16,10 @@
 > steps (1. last/recent/select + scope list/select + empty session, 2. real Pi
 > lifecycle and palette focus, 3. controlled-query display, 4. committed
 > delta/replay, 5. review/projection/proactive, 6. cancel/resume/
-> outcome_unknown) show PASS (automated). The blocking Electron walking-skeleton
-> manual pass is recorded by Task 3 against this same record; the overall UAT
-> remains BLOCKED (pending) until that manual evidence exists. No completion
-> claim is made here.
+> outcome_unknown) show PASS (automated). **Task 3 (Plan 61-12) blocking
+> human checkpoint: human approved on 2026-08-10 ("Phase 61 desktop UAT
+> approved")** — the blocking Electron walking-skeleton manual pass is
+> recorded against this same record and the overall UAT is now PASS.
 
 ---
 
@@ -448,18 +448,20 @@ Receipts are recorded as metadata-only status fields, never as private content:
 
 | Stage | Status |
 |-------|--------|
-| Step 1 — navigation/session split | PASS (automated) |
-| Step 2 — real Pi lifecycle and palette focus | PASS (automated) |
-| Step 3 — SQLite card display integrity | PASS (automated) |
-| Step 4 — committed delta / replay | PASS (automated) |
-| Step 5 — review / projection / proactive | PASS (automated) |
-| Step 6 — cancel / resume / outcome_unknown | PASS (automated) |
-| Blocking Electron walking-skeleton manual pass | BLOCKED (pending Task 3 checkpoint) |
-| Overall | BLOCKED (awaiting Task 3 manual UAT evidence) |
+| Step 1 — navigation/session split | PASS |
+| Step 2 — real Pi lifecycle and palette focus | PASS |
+| Step 3 — SQLite card display integrity | PASS |
+| Step 4 — committed delta / replay | PASS |
+| Step 5 — review / projection / proactive | PASS |
+| Step 6 — cancel / resume / outcome_unknown | PASS |
+| Blocking Electron walking-skeleton manual pass | PASS (Task 3 human approval 2026-08-10) |
+| Overall | PASS |
 
-> Truthful state: automated full-path evidence is complete and recorded above.
-> Phase 61 closure (nyquist/Wave 0 completion) is NOT claimed until the Task 3
-> checkpoint records the manual Electron pass against these six steps.
+> Truthful state: automated full-path evidence is recorded above; the Task 3
+> blocking human checkpoint approved the six steps on 2026-08-10
+> ("Phase 61 desktop UAT approved"). Phase 61 closure
+> (nyquist/Wave 0 completion) is recorded in `61-VALIDATION.md` and
+> `61-12-SUMMARY.md`.
 
 ## Known deferred / out-of-scope items (recorded truthfully)
 
