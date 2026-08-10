@@ -31,6 +31,8 @@ const CHANNELS = Object.freeze({
   "harness:turn-reconcile": "reconcile",
   "harness:candidate-review": "review",
   "harness:model-projection": "projection",
+  "harness:settings-get": "settings-get",
+  "harness:settings-update": "settings-update",
   "harness:proactive-state": "proactive-read",
   "harness:proactive-controls": "proactive-controls",
   "harness:proactive-dismiss": "proactive-dismiss",
@@ -50,6 +52,8 @@ const BRIDGE_METHODS = Object.freeze([
   "reconcileTurn",
   "reviewCandidate",
   "getModelProjection",
+  "getSettings",
+  "updateSettings",
   "getProactiveState",
   "updateProactiveControls",
   "dismissProactive",
@@ -69,6 +73,8 @@ const BRIDGE_METHOD_TO_CHANNEL = Object.freeze({
   reconcileTurn: "harness:turn-reconcile",
   reviewCandidate: "harness:candidate-review",
   getModelProjection: "harness:model-projection",
+  getSettings: "harness:settings-get",
+  updateSettings: "harness:settings-update",
   getProactiveState: "harness:proactive-state",
   updateProactiveControls: "harness:proactive-controls",
   dismissProactive: "harness:proactive-dismiss",
@@ -122,6 +128,8 @@ const INTENT_PAYLOAD_SCHEMAS = Object.freeze({
   reconcile: Object.freeze({ keys: ["taskId"], required: ["taskId"] }),
   review: Object.freeze({ keys: ["candidateId", "action", "version", "checksum"], required: ["candidateId", "action", "version"] }),
   projection: Object.freeze({ keys: ["scope"], required: ["scope"] }),
+  "settings-get": Object.freeze({ keys: [], required: [] }),
+  "settings-update": Object.freeze({ keys: ["provider", "mode", "baseUrl", "model", "apiKey"], required: [] }),
   "proactive-read": Object.freeze({ keys: ["projectScopeId"], required: [] }),
   "proactive-controls": Object.freeze({ keys: ["scope", "category", "enabled", "quietHours"], required: ["scope", "category", "enabled"] }),
   "proactive-dismiss": Object.freeze({ keys: ["itemId", "reason"], required: ["itemId"] }),
@@ -190,7 +198,33 @@ const PAYLOAD_VALIDATORS = Object.freeze({
     if (typeof value !== "string" || value.length > 256) fail("invalid_reason", "reason");
     return value;
   },
+  provider: (value) => {
+    if (!SETTINGS_PROVIDERS.has(value)) fail("invalid_provider", "provider");
+    return value;
+  },
+  mode: (value) => {
+    if (!SETTINGS_MODES.has(value)) fail("invalid_mode", "mode");
+    return value;
+  },
+  baseUrl: (value) => {
+    if (typeof value !== "string" || value.length > 512) fail("invalid_base_url", "baseUrl");
+    let parsed;
+    try { parsed = new URL(value); } catch { fail("invalid_base_url", "baseUrl"); }
+    if (parsed.protocol !== "https:") fail("invalid_base_url", "baseUrl");
+    return value;
+  },
+  model: (value) => {
+    if (typeof value !== "string" || value.trim().length < 1 || value.length > 128) fail("invalid_model", "model");
+    return value;
+  },
+  apiKey: (value) => {
+    if (typeof value !== "string" || value.trim().length < 1 || value.length > 512) fail("invalid_api_key", "apiKey");
+    return value;
+  },
 });
+
+const SETTINGS_PROVIDERS = Object.freeze(new Set(["dashscope", "openai-compatible", "replay"]));
+const SETTINGS_MODES = Object.freeze(new Set(["replay", "aliyun", "dashscope", "openai", "openai-compatible"]));
 
 function parsePayload(intent, payload) {
   const spec = INTENT_PAYLOAD_SCHEMAS[intent];

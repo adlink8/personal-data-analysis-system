@@ -124,6 +124,16 @@ function validPayloads(intent) {
       return [{ taskId: "pi_task_conversation_turn_001" }];
     case "review":
       return [{ candidateId: "candidate_001", action: "accept", version: 2, checksum: "a".repeat(64) }];
+    case "projection":
+      return [{ scope: "global" }];
+    case "settings-get":
+      return [undefined, null, {}];
+    case "settings-update":
+      return [
+        { provider: "dashscope", mode: "aliyun", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "deepseek-v4-flash", apiKey: "sk-test-123" },
+        { provider: "openai-compatible", mode: "openai-compatible", baseUrl: "https://example.com/v1", model: "m" },
+        { provider: "replay", mode: "replay" },
+      ];
     case "proactive-read":
       return [{}, { projectScopeId: "project_scope_alpha" }];
     case "proactive-controls":
@@ -195,7 +205,12 @@ test("A5: schema-shaped inputs for every intent normalize to fixed envelopes", (
       const normalized = parseDesktopInput(channel, raw);
       assert.equal(normalized.schema, DESKTOP_API_SCHEMA);
       assert.equal(normalized.intent, intent);
-      assert.ok(!containsForbiddenFields(normalized), `${channel} normalized payload must not carry forbidden fields`);
+      // settings-update is the one intent that legitimately carries apiKey to
+      // main (DPAPI-encrypted there, never returned); the schema allowlist is
+      // the constraint. Every other intent must stay free of forbidden fields.
+      if (intent !== "settings-update") {
+        assert.ok(!containsForbiddenFields(normalized), `${channel} normalized payload must not carry forbidden fields`);
+      }
     }
   }
 });
@@ -816,4 +831,115 @@ test("D5: isDesktopEntry gates bootstrap - `electron .` and module path hit, tes
   assert.equal(mainModule.isDesktopEntry("test/main-preload.test.mjs"), false, "test import must not bootstrap");
   assert.equal(mainModule.isDesktopEntry(undefined), false, "missing argv[1] must not bootstrap");
   assert.equal(mainModule.isDesktopEntry(""), false, "empty argv[1] must not bootstrap");
+});
+
+test("E1: settings-get/update persist JSON + DPAPI secret and never echo the key", async () => {
+  assert.ok(mainModule, mainMissing());
+  const fs = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-desktop-settings-"));
+  try {
+    const encryptCalls = [];
+    const service = mainModule.createSettingsService({
+      baseDir: dir,
+      dpapiEncryptImpl: (value) => { encryptCalls.push(value); return `DPAPI:${value.length}`; },
+    });
+    // Empty config -> get returns null.
+    assert.equal(await service.get(), null);
+
+    // Update with a key: JSON written, secret DPAPI-written, key echoed back as
+    // presence only, never the plaintext.
+    const saved = await service.update({
+      provider: "openai-compatible",
+      mode: "openai-compatible",
+      baseUrl: "https://example.com/v1",
+      model: "test-model",
+      apiKey: "sk-secret-abc",
+    });
+    assert.equal(saved.ok, true);
+    assert.equal(saved.data.provider, "openai-compatible");
+    assert.equal(saved.data.api_key_present, true);
+    assert.equal(JSON.stringify(saved).includes("sk-secret-abc"), false, "plaintext key must never be echoed");
+    assert.deepEqual(encryptCalls, ["sk-secret-abc"], "key encrypted exactly once");
+
+    const config = JSON.parse(await fs.readFile(path.join(dir, "config", "pi-provider.json"), "utf8"));
+    assert.equal(config.schema, mainModule.SETTINGS_SCHEMA);
+    assert.equal(config.provider, "openai-compatible");
+    assert.equal(config.mode, "openai-compatible");
+    assert.ok(!JSON.stringify(config).includes("sk-secret-abc"), "config JSON never stores plaintext key");
+    const secretFile = await fs.readFile(path.join(dir, "secrets", "pi-provider.api.dpapi.txt"), "utf8");
+    assert.equal(secretFile, "DPAPI:13", "secret file holds only the DPAPI blob");
+
+    // get() reports presence, not the value.
+    const read = await service.get();
+    assert.equal(read.api_key_present, true);
+    assert.ok(!("api_key" in read), "get never exposes the key");
+
+    // Replay mode clears the secret and keeps JSON.
+    const replay = await service.update({ provider: "replay", mode: "replay" });
+    assert.equal(replay.ok, true);
+    assert.equal(replay.data.api_key_present, false);
+    await assert.rejects(
+      fs.readFile(path.join(dir, "secrets", "pi-provider.api.dpapi.txt"), "utf8"),
+      "replay removes the secret file entirely",
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("E2: settings IPC handlers route through settingsService with safe envelopes", async () => {
+  assert.ok(mainModule, mainMissing());
+  const fs = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-desktop-settings-ipc-"));
+  try {
+    const ipcMain = mockIpcMain();
+    mainModule.installIpcHandlers({
+      ipcMain,
+      routeProvider: null,
+      settingsService: mainModule.createSettingsService({
+        baseDir: dir,
+        dpapiEncryptImpl: (value) => `DPAPI:${value.length}`,
+      }),
+    });
+    const event = mockEvent(LOCAL_RENDERER_URL);
+    const updater = ipcMain.handlers.get("harness:settings-update");
+    const updated = await updater(event, { provider: "dashscope", mode: "aliyun", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "deepseek-v4-flash", apiKey: "sk-ipc-123" });
+    assert.equal(updated.ok, true);
+    assert.equal(updated.status, "saved");
+    assert.ok(!JSON.stringify(updated).includes("sk-ipc-123"), "IPC response never carries the plaintext key");
+
+    const getter = ipcMain.handlers.get("harness:settings-get");
+    const got = await getter(event, {});
+    assert.equal(got.ok, true);
+    assert.equal(got.data.provider, "dashscope");
+    assert.equal(got.data.api_key_present, true);
+
+    // Malformed settings input is denied by the schema layer.
+    const bad = await updater(event, { provider: "sk-..." });
+    assert.equal(bad.ok, false);
+    assert.equal(bad.status, "denied");
+    assert.ok(["unknown_key", "invalid_provider"].includes(bad.error.code));
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("E3: createMainWindow applies the default window size", () => {
+  assert.ok(mainModule, mainMissing());
+  assert.deepEqual(mainModule.DEFAULT_WINDOW_SIZE, { width: 1280, height: 800, minWidth: 1024, minHeight: 700 });
+  let captured = null;
+  class FakeBrowserWindow {
+    constructor(options) { captured = options; }
+    once() {}
+    loadFile() { return Promise.resolve(); }
+  }
+  mainModule.createMainWindow({ BrowserWindow: FakeBrowserWindow });
+  assert.equal(captured.width, 1280);
+  assert.equal(captured.height, 800);
+  assert.equal(captured.minWidth, 1024);
+  assert.equal(captured.minHeight, 700);
 });

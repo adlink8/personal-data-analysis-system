@@ -29,9 +29,10 @@
 // never imported at module scope; it is lazily imported only by the bootstrap
 // that runs when this file is executed as the Electron main entry.
 import { request as httpRequest } from "node:http";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve as pathResolve } from "node:path";
+import { execFileSync } from "node:child_process";
 
 import {
   ALLOWED_CHANNELS,
@@ -49,6 +50,7 @@ import {
   parseDesktopInput,
   PROVIDER_ROUTES,
   ROUTE_PROVIDER_UNAVAILABLE,
+  SETTINGS_RESPONSE_EXEMPT_KEYS,
   senderUrlFromEvent,
   toSafeEnvelope,
   validateIpcSender,
@@ -128,9 +130,113 @@ export function applyNoStoreHeaders(targetSession) {
 // The provider seam receives `(intent, normalizedInput)` and returns a
 // result that `toSafeEnvelope` projects onto the safe `{ok,status,error,data}`
 // view model; cancelled/outcome_unknown results can never normalize to success.
+// ===========================================================================
+// Settings service (desktop-owned provider/API configuration persistence).
+//
+// The renderer can never touch disk, so settings travel Renderer -> preload ->
+// main. This service owns the ONLY writes: a non-secret JSON at
+// var/config/pi-provider.json and a Windows DPAPI-encrypted API key at
+// var/secrets/*.dpapi.txt (same layout the Kernel `persistent-config.mjs`
+// reads, so a Kernel restart picks the config up). The plaintext key exists
+// only inside this process and is never logged, telemetry'd or written to
+// disk. `baseDir` is injectable so tests use a temporary directory.
+// ===========================================================================
+export const DEFAULT_SETTINGS_DIR = "var";
+export const PROVIDER_CONFIG_REL = "config/pi-provider.json";
+export const SECRET_REL = "secrets/pi-provider.api.dpapi.txt";
+export const SETTINGS_SCHEMA = "pi-provider-config-v1";
+
+function settingsPaths(baseDir) {
+  const dir = pathResolve(baseDir ?? DEFAULT_SETTINGS_DIR);
+  return {
+    configPath: pathResolve(dir, PROVIDER_CONFIG_REL),
+    secretPath: pathResolve(dir, SECRET_REL),
+    dir,
+  };
+}
+
+function dpapiEncrypt(value) {
+  // Windows DPAPI via pwsh, identical to Kernel readPersistedDashScopeApiKey
+  // (ConvertTo-SecureString -> ConvertFrom-SecureString). Injected for tests.
+  const script = [
+    "$value = [Console]::In.ReadToEnd().Trim()",
+    "$secure = ConvertTo-SecureString -String $value -AsPlainText -Force",
+    "[Console]::Out.Write((ConvertFrom-SecureString -SecureString $secure))",
+  ].join("; ");
+  return execFileSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    input: `${value}\n`,
+    encoding: "utf8",
+    timeout: 10000,
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "ignore"],
+  }).trim();
+}
+
+export function createSettingsService({ baseDir, dpapiEncryptImpl = dpapiEncrypt } = {}) {
+  const { configPath, secretPath, dir } = settingsPaths(baseDir);
+  return {
+    /** Read non-secret settings; returns an object or null when unset/invalid. */
+    async get() {
+      if (!existsSync(configPath)) return null;
+      try {
+        const value = JSON.parse(readFileSync(configPath, "utf8"));
+        if (!value || typeof value !== "object") return null;
+        return Object.freeze({
+          schema: String(value.schema ?? SETTINGS_SCHEMA),
+          provider: typeof value.provider === "string" ? value.provider : "replay",
+          mode: typeof value.mode === "string" ? value.mode : "replay",
+          base_url: typeof value.base_url === "string" ? value.base_url : "",
+          model: typeof value.model === "string" ? value.model : "",
+          secret_path: secretPath,
+          // Never return the API key; the renderer sees only whether one is set.
+          api_key_present: existsSync(secretPath),
+        });
+      } catch {
+        return null;
+      }
+    },
+    /**
+     * Persist provider settings. `apiKey` (when supplied and non-empty) is
+     * DPAPI-encrypted to the secret file; otherwise the existing secret is
+     * kept. mode "replay" clears the secret.
+     */
+    async update(input) {
+      if (input === null || typeof input !== "object" || Array.isArray(input)) throw new Error("settings_invalid");
+      mkdirSync(pathResolve(dir, "config"), { recursive: true });
+      mkdirSync(pathResolve(dir, "secrets"), { recursive: true });
+      const existing = await this.get();
+      const provider = typeof input.provider === "string" ? input.provider : existing?.provider ?? "replay";
+      const mode = typeof input.mode === "string" ? input.mode : existing?.mode ?? "replay";
+      const baseUrl = typeof input.baseUrl === "string" ? input.baseUrl : existing?.base_url ?? "";
+      const model = typeof input.model === "string" ? input.model : existing?.model ?? "";
+      const next = {
+        schema: SETTINGS_SCHEMA,
+        provider,
+        mode,
+        base_url: baseUrl,
+        model,
+        cost_ceiling: 30,
+        input_price_per_million: 1,
+        output_price_per_million: 2,
+        currency: "CNY",
+        secret_path: SECRET_REL,
+      };
+      writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+      if (mode === "replay") {
+        if (existsSync(secretPath)) unlinkSync(secretPath); // clear the secret entirely
+      } else if (typeof input.apiKey === "string" && input.apiKey.trim().length > 0) {
+        writeFileSync(secretPath, dpapiEncryptImpl(input.apiKey.trim()), "utf8");
+      }
+      const saved = await this.get();
+      return { ok: true, status: "saved", data: { ...saved, api_key_present: existsSync(secretPath) } };
+    },
+  };
+}
+
 function makeIpcHandler(channel, options) {
   const senderPrefix = options.senderFilePrefix;
   const routeProvider = options.routeProvider ?? null;
+  const settingsService = options.settingsService ?? null;
   return async (event, value) => {
     try {
       const senderUrl = senderUrlFromEvent(event);
@@ -139,6 +245,17 @@ function makeIpcHandler(channel, options) {
         senderPrefix === undefined ? undefined : { allowedFilePrefix: senderPrefix },
       );
       const input = parseDesktopInput(channel, value);
+      // Settings are desktop-owned persistence, not provider routes: the
+      // renderer configures the API provider via these two named intents only.
+      if (input.intent === "settings-get" || input.intent === "settings-update") {
+        if (!settingsService) return toSafeEnvelope({ ok: false, status: "error", error: { code: "settings_unavailable" } });
+        const result = input.intent === "settings-get"
+          ? { ok: true, status: "ok", data: await settingsService.get() ?? { ok: false, status: "unset" } }
+          : await settingsService.update(input);
+        // settings-update returns {ok,status,data}; keep the safe envelope
+        // projection (apiKey never crosses back).
+        return toSafeEnvelope(result, SETTINGS_RESPONSE_EXEMPT_KEYS);
+      }
       if (!routeProvider || typeof routeProvider.handle !== "function") {
         return ROUTE_PROVIDER_UNAVAILABLE;
       }
@@ -444,25 +561,32 @@ export function createRouteProvider({ transport, timeoutMs = 3000, telemetry } =
 
 // Register exactly the allowlisted named channels; no generic `send`/`invoke`
 // handler is ever registered. Returns the sorted registered channel list.
-export function installIpcHandlers({ ipcMain, routeProvider = null, senderFilePrefix } = {}) {
+export function installIpcHandlers({ ipcMain, routeProvider = null, senderFilePrefix, settingsService = null } = {}) {
   if (!ipcMain || typeof ipcMain.handle !== "function") {
     throw new TypeError("installIpcHandlers requires ipcMain");
   }
-  const options = { routeProvider, senderFilePrefix };
+  const options = { routeProvider, senderFilePrefix, settingsService };
   for (const channel of ALLOWED_CHANNELS) {
     ipcMain.handle(channel, makeIpcHandler(channel, options));
   }
   return [...ALLOWED_CHANNELS].sort();
 }
 
+// Default desktop window geometry. The conversation-first layout (232px nav +
+// 820px thread + margins) needs at least ~1100px width to render comfortably;
+// 1280x800 matches the reference desktop sizing and leaves room for the
+// settings view. minWidth/minHeight keep the dual-pane layout usable.
+export const DEFAULT_WINDOW_SIZE = Object.freeze({ width: 1280, height: 800, minWidth: 1024, minHeight: 700 });
+
 // Create a hardened local-assets BrowserWindow. The renderer index is deferred
 // to a later 61 wave; if it is not present yet the window stays blank rather
 // than loading a remote/loopback URL.
-export function createMainWindow({ BrowserWindow, session }) {
+export function createMainWindow({ BrowserWindow, session, windowSize = DEFAULT_WINDOW_SIZE }) {
   if (typeof BrowserWindow !== "function") {
     throw new TypeError("createMainWindow requires BrowserWindow");
   }
   const win = new BrowserWindow({
+    ...windowSize,
     webPreferences: createWindowConfig(),
     show: false,
     backgroundColor: "#1A2228",
@@ -487,6 +611,7 @@ export async function bootstrapDesktopApp(options = {}) {
     ipcMain,
     routeProvider: options.routeProvider ?? createRouteProvider({ timeoutMs: options.routeTimeoutMs }),
     senderFilePrefix: options.senderFilePrefix ?? SENDER_FILE_PREFIX,
+    settingsService: options.settingsService ?? createSettingsService({ baseDir: options.settingsBaseDir }),
   });
   await app.whenReady();
   const defaultSession = session.defaultSession;

@@ -48,6 +48,8 @@ export const CHANNELS = Object.freeze({
   "harness:turn-reconcile": "reconcile",
   "harness:candidate-review": "review",
   "harness:model-projection": "projection",
+  "harness:settings-get": "settings-get",
+  "harness:settings-update": "settings-update",
   "harness:proactive-state": "proactive-read",
   "harness:proactive-controls": "proactive-controls",
   "harness:proactive-dismiss": "proactive-dismiss",
@@ -94,6 +96,8 @@ export const BRIDGE_METHODS = Object.freeze([
   "reconcileTurn",
   "reviewCandidate",
   "getModelProjection",
+  "getSettings",
+  "updateSettings",
   "getProactiveState",
   "updateProactiveControls",
   "dismissProactive",
@@ -155,17 +159,18 @@ export function assertScopedId(id, kind, { allowlist } = {}) {
 const FORBIDDEN_FIELD_RE =
   /^(?:thinking|thoughts|reasoning|thought|chain_of_thought|chain-of-thought|raw|raw_body|rawBody|body|content|prompt|completion|input_json|inputJson|provider_body|providerBody|provider|tool_body|toolBody|tool_call|toolCall|tool_result|toolResult|trace|stack|stack_trace|diagnostic|diagnostics|credential|credentials|secret|secrets|token|password|api_key|apiKey|endpoint|url|uri|path|command|sql|statement|query|parameter_values|parameterValues|params|hidden|internal|model_output|modelOutput|response_body|responseBody|request_body|requestBody|receipt_body|receiptBody|session_trajectory|trajectory|output|result|response|reply|answer)$/i;
 
-export function containsForbiddenFields(value, path = "value") {
+export function containsForbiddenFields(value, path = "value", exemptKeys) {
   if (value === null || typeof value !== "object") return false;
   if (Array.isArray(value)) {
     for (const [index, child] of value.entries()) {
-      if (containsForbiddenFields(child, `${path}[${index}]`)) return true;
+      if (containsForbiddenFields(child, `${path}[${index}]`, exemptKeys)) return true;
     }
     return false;
   }
   for (const [key, child] of Object.entries(value)) {
+    if (exemptKeys && exemptKeys.has(key)) continue;
     if (FORBIDDEN_FIELD_RE.test(key)) return true;
-    if (containsForbiddenFields(child, `${path}.${key}`)) return true;
+    if (containsForbiddenFields(child, `${path}.${key}`, exemptKeys)) return true;
   }
   return false;
 }
@@ -197,6 +202,8 @@ export const INTENT_PAYLOAD_SCHEMAS = Object.freeze({
   reconcile: Object.freeze({ keys: ["taskId"], required: ["taskId"] }),
   review: Object.freeze({ keys: ["candidateId", "action", "version", "checksum"], required: ["candidateId", "action", "version"] }),
   projection: Object.freeze({ keys: ["scope"], required: ["scope"] }),
+  "settings-get": Object.freeze({ keys: [], required: [] }),
+  "settings-update": Object.freeze({ keys: ["provider", "mode", "baseUrl", "model", "apiKey"], required: [] }),
   "proactive-read": Object.freeze({ keys: ["projectScopeId"], required: [] }),
   "proactive-controls": Object.freeze({ keys: ["scope", "category", "enabled", "quietHours"], required: ["scope", "category", "enabled"] }),
   "proactive-dismiss": Object.freeze({ keys: ["itemId", "reason"], required: ["itemId"] }),
@@ -258,7 +265,38 @@ const PAYLOAD_VALIDATORS = Object.freeze({
     if (typeof value !== "string" || value.length > 256) fail("invalid_reason", "reason");
     return value;
   },
+  provider: (value) => {
+    if (!SETTINGS_PROVIDERS.has(value)) fail("invalid_provider", "provider");
+    return value;
+  },
+  mode: (value) => {
+    if (!SETTINGS_MODES.has(value)) fail("invalid_mode", "mode");
+    return value;
+  },
+  baseUrl: (value) => {
+    if (typeof value !== "string" || value.length > 512) fail("invalid_base_url", "baseUrl");
+    let parsed;
+    try { parsed = new URL(value); } catch { fail("invalid_base_url", "baseUrl"); }
+    if (parsed.protocol !== "https:") fail("invalid_base_url", "baseUrl");
+    return value;
+  },
+  model: (value) => {
+    if (typeof value !== "string" || value.trim().length < 1 || value.length > 128) fail("invalid_model", "model");
+    return value;
+  },
+  apiKey: (value) => {
+    if (typeof value !== "string" || value.trim().length < 1 || value.length > 512) fail("invalid_api_key", "apiKey");
+    return value;
+  },
 });
+
+// Provider configuration fields for the settings intent. `provider`/`baseUrl`
+// are legitimate settings-update keys even though the generic forbidden-field
+// scan treats those names as override/endpoint smuggling — the exemption is
+// scoped to the settings response envelope only; the apiKey is never returned.
+export const SETTINGS_PROVIDERS = Object.freeze(new Set(["dashscope", "openai-compatible", "replay"]));
+export const SETTINGS_MODES = Object.freeze(new Set(["replay", "aliyun", "dashscope", "openai", "openai-compatible"]));
+export const SETTINGS_RESPONSE_EXEMPT_KEYS = Object.freeze(new Set(["provider", "mode", "base_url", "model", "secret_path"]));
 
 function parsePayload(intent, payload) {
   const spec = INTENT_PAYLOAD_SCHEMAS[intent];
@@ -321,9 +359,9 @@ export function toSafeError(error) {
   return { code: "error" };
 }
 
-export function toSafeEnvelope(result) {
+export function toSafeEnvelope(result, exemptKeys) {
   record(result, "envelope");
-  if (containsForbiddenFields(result, "envelope")) fail("forbidden_inline_field", "envelope");
+  if (containsForbiddenFields(result, "envelope", exemptKeys)) fail("forbidden_inline_field", "envelope");
   const status = typeof result.status === "string" ? result.status : "ok";
   const ok = result.ok === true && !NON_SUCCESS_STATUSES.includes(status);
   const envelope = { schema: DESKTOP_API_SCHEMA, ok, status, error: null, data: null };

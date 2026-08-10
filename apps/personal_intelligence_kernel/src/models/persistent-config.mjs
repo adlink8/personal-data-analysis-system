@@ -15,7 +15,11 @@ export function readProviderConfig({ configPath = process.env.PI_PROVIDER_CONFIG
   if (!existsSync(path)) return {};
   try {
     const value = JSON.parse(readFileSync(path, "utf8"));
-    if (!value || value.schema !== "pi-provider-config-v1" || value.provider !== "dashscope") return {};
+    if (!value || value.schema !== "pi-provider-config-v1") return {};
+    // provider identity: dashscope (legacy) or a generic OpenAI-compatible
+    // endpoint. Anything else is rejected (no authority to guess).
+    const provider = String(value.provider ?? "dashscope").trim().toLowerCase();
+    if (!["dashscope", "openai-compatible"].includes(provider)) return {};
     const mode = String(value.mode || "replay").trim().toLowerCase();
     const baseUrl = String(value.base_url || "").trim();
     const model = String(value.model || "").trim();
@@ -23,10 +27,10 @@ export function readProviderConfig({ configPath = process.env.PI_PROVIDER_CONFIG
     const inputPricePerMillion = Number(value.input_price_per_million ?? 1);
     const outputPricePerMillion = Number(value.output_price_per_million ?? 2);
     const currency = String(value.currency || "CNY").trim().toUpperCase();
-    if (!["replay", "aliyun", "dashscope"].includes(mode) || !model || !Number.isFinite(costCeiling) || costCeiling < 0 || !Number.isFinite(inputPricePerMillion) || inputPricePerMillion < 0 || !Number.isFinite(outputPricePerMillion) || outputPricePerMillion < 0 || !currency) return {};
+    if (!["replay", "aliyun", "dashscope", "openai", "openai-compatible"].includes(mode) || !model || !Number.isFinite(costCeiling) || costCeiling < 0 || !Number.isFinite(inputPricePerMillion) || inputPricePerMillion < 0 || !Number.isFinite(outputPricePerMillion) || outputPricePerMillion < 0 || !currency) return {};
     return Object.freeze({
       mode,
-      provider: "dashscope",
+      provider,
       baseUrl,
       model,
       costCeiling,

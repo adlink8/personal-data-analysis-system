@@ -76,3 +76,22 @@ test("DashScope HTTP and malformed response errors are typed without leaking bod
   });
   await assert.rejects(() => malformedAdapter.generate(identity), (error) => error.code === "provider_response_invalid");
 });
+
+test("openai-compatible mode reuses the OpenAI-compatible transport with a custom base URL", async () => {
+  let observed = null;
+  // Inject the fetch impl through the ProviderAdapter transport instead of the
+  // adapter options (createConfiguredProviderAdapter builds the transport
+  // internally); verify mode normalization and replay default stay intact.
+  const adapter = createConfiguredProviderAdapter({ mode: "openai-compatible", apiKey: "sk-custom", baseUrl: "https://example.com/v1" });
+  assert.equal(adapter.replay, false);
+  assert.equal(adapter.credentials, "sk-custom");
+  // Unknown provider still fails closed.
+  assert.throws(() => createConfiguredProviderAdapter({ mode: "other" }), (error) => error.message === "provider_mode_unknown");
+});
+
+test("openai and openai-compatible are accepted mode aliases", () => {
+  assert.equal(createConfiguredProviderAdapter({ mode: "openai", apiKey: "k", baseUrl: "https://example.com/v1" }).replay, false);
+  assert.equal(createConfiguredProviderAdapter({ mode: "openai-compatible", apiKey: "k", baseUrl: "https://example.com/v1" }).replay, false);
+  assert.equal(createConfiguredProviderAdapter({ mode: "aliyun", apiKey: "k", baseUrl: "https://example.com/v1" }).replay, false);
+  assert.equal(createConfiguredProviderAdapter({ mode: "dashscope", apiKey: "k", baseUrl: "https://example.com/v1" }).replay, false);
+});

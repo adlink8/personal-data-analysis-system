@@ -854,3 +854,32 @@ test("R15: renderer source contains no generic IPC/fetch/storage transport or se
   }
   assert.ok(source.includes("window.harness") || source.includes("harness"), "renderer must reach authorities only through the named harness bridge");
 });
+
+// ---------------------------------------------------------------------------
+// R16: settings view-model projects provider settings safely.
+// ---------------------------------------------------------------------------
+test("R16: settingsViewModel projects provider settings without exposing the apiKey", () => {
+  assert.ok(appModule, viewModelMissing());
+  const view = appModule.settingsViewModel({
+    schema: "pi-provider-config-v1",
+    provider: "openai-compatible",
+    mode: "openai-compatible",
+    base_url: "https://example.com/v1",
+    model: "test-model",
+    api_key_present: true,
+    secret_path: "var/secrets/pi-provider.api.dpapi.txt",
+  });
+  assert.equal(view.ok, true);
+  assert.equal(view.provider, "openai-compatible");
+  assert.equal(view.providerLabel, "通用 OpenAI 兼容");
+  assert.equal(view.baseUrl, "https://example.com/v1");
+  assert.equal(view.model, "test-model");
+  assert.equal(view.apiKeyPresent, true);
+  assert.ok(!("apiKeyValue" in view), "view-model never carries the key value");
+
+  // Missing/unset settings fall back to replay and no key.
+  const empty = appModule.settingsViewModel(null);
+  assert.equal(empty.provider, "replay");
+  assert.equal(empty.apiKeyPresent, false);
+  assert.equal(empty.baseUrl, "");
+});

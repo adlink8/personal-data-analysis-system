@@ -690,6 +690,34 @@ export function projectionViewModel(projection) {
 }
 
 // ---------------------------------------------------------------------------
+// Settings view-model (desktop-owned provider/API configuration). Pure:
+// projects the settings envelope from the bridge onto a safe, renderer-only
+// view that never carries the apiKey value.
+// ---------------------------------------------------------------------------
+const SETTINGS_PROVIDER_LABELS = Object.freeze({
+  dashscope: "阿里 DashScope（OpenAI 兼容）",
+  "openai-compatible": "通用 OpenAI 兼容",
+  replay: "Replay（本地确定性）",
+});
+
+export function settingsViewModel(settings) {
+  const source = settings ?? {};
+  const provider = source.provider ?? "replay";
+  return {
+    schema: RENDERER_VIEW_MODEL,
+    ok: true,
+    provider,
+    providerLabel: SETTINGS_PROVIDER_LABELS[provider] ?? "未知",
+    mode: source.mode ?? "replay",
+    baseUrl: typeof source.base_url === "string" ? source.base_url : "",
+    model: typeof source.model === "string" ? source.model : "",
+    apiKeyPresent: source.api_key_present === true,
+    // The apiKey value never crosses back from main; only presence is exposed.
+    secretPath: typeof source.secret_path === "string" ? source.secret_path : "",
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Deterministic proactive view-model.
 // ---------------------------------------------------------------------------
 const PROACTIVE_CATEGORIES = Object.freeze({
@@ -1337,6 +1365,119 @@ function startRenderer(win, doc) {
     }
   }
 
+  // ---- settings view ------------------------------------------------------
+  function openSettingsView(trigger) {
+    openLayer("settings-view", trigger);
+    renderSettingsTabs();
+    loadProviderSettings();
+  }
+
+  function renderSettingsTabs() {
+    const tabs = document.querySelectorAll(".settings-tab");
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const name = tab.dataset.tab;
+        document.querySelectorAll(".settings-tab").forEach((t) => t.classList.toggle("active", t === tab));
+        document.querySelectorAll(".settings-pane").forEach((pane) => {
+          pane.hidden = pane.dataset.pane !== name;
+        });
+      });
+    });
+    const first = document.querySelector(".settings-tab");
+    if (first) first.classList.add("active");
+  }
+
+  function loadProviderSettings() {
+    harness.getSettings().then((envelope) => {
+      const view = settingsViewModel(envelope?.data);
+      const grid = $("provider-grid");
+      const form = $("provider-form");
+      if (!grid || !form) return;
+      grid.replaceChildren();
+      for (const [id, label] of Object.entries(SETTINGS_PROVIDER_LABELS)) {
+        const card = el("button", "provider-card", label);
+        card.type = "button";
+        card.dataset.provider = id;
+        if (id === view.provider) card.classList.add("selected");
+        card.addEventListener("click", () => selectProviderForm(id, view));
+        grid.append(card);
+      }
+      form.hidden = false;
+      if ($("provider-type")) $("provider-type").value = view.provider;
+      if ($("provider-base-url")) $("provider-base-url").value = view.baseUrl;
+      if ($("provider-model")) $("provider-model").value = view.model;
+      const keyInput = $("provider-api-key");
+      if (keyInput) keyInput.value = ""; // never prefill a key
+      if ($("provider-type")) {
+        $("provider-type").addEventListener("change", () => {
+          const type = $("provider-type").value;
+          $("provider-form-title").textContent = SETTINGS_PROVIDER_LABELS[type] ?? "配置 Provider";
+          const replay = type === "replay";
+          const baseUrl = $("provider-base-url");
+          const model = $("provider-model");
+          const apiKey = $("provider-api-key");
+          if (replay) {
+            baseUrl.value = ""; model.value = ""; apiKey.value = "";
+            baseUrl.disabled = model.disabled = apiKey.disabled = true;
+          } else {
+            baseUrl.disabled = model.disabled = apiKey.disabled = false;
+          }
+        });
+        $("provider-type").dispatchEvent(new Event("change"));
+      }
+      const save = $("provider-save");
+      if (save) save.addEventListener("click", () => saveProviderSettings());
+      const reset = $("provider-reset");
+      if (reset) reset.addEventListener("click", () => {
+        harness.updateSettings({ provider: "replay", mode: "replay" }).then(() => {
+          setProviderStatus("已重置为 Replay；重启 Kernel 后生效。", "ok");
+          loadProviderSettings();
+        });
+      });
+    });
+  }
+
+  function selectProviderForm(id, view) {
+    document.querySelectorAll(".provider-card").forEach((c) => c.classList.toggle("selected", c.dataset.provider === id));
+    const type = $("provider-type");
+    if (type) {
+      type.value = id;
+      type.dispatchEvent(new Event("change"));
+    }
+    const baseUrl = $("provider-base-url");
+    const model = $("provider-model");
+    const apiKey = $("provider-api-key");
+    if (baseUrl) baseUrl.value = id === "replay" ? "" : (id === "dashscope" ? "https://dashscope.aliyuncs.com/compatible-mode/v1" : (view && id === view.provider ? view.baseUrl : ""));
+    if (model) model.value = id === "replay" ? "" : (view && id === view.provider ? view.model : "");
+    if (apiKey) apiKey.value = "";
+  }
+
+  function saveProviderSettings() {
+    const type = $("provider-type")?.value ?? "replay";
+    const baseUrl = $("provider-base-url")?.value.trim() ?? "";
+    const model = $("provider-model")?.value.trim() ?? "";
+    const apiKey = $("provider-api-key")?.value ?? "";
+    const payload = { provider: type, mode: type };
+    if (baseUrl) payload.baseUrl = baseUrl;
+    if (model) payload.model = model;
+    if (type !== "replay" && apiKey.trim()) payload.apiKey = apiKey.trim();
+    harness.updateSettings(payload).then((envelope) => {
+      if (envelope?.ok) {
+        setProviderStatus("已保存；重启 Kernel 后生效。", "ok");
+      } else {
+        setProviderStatus(`保存失败：${envelope?.error?.code ?? "未知错误"}`, "error");
+      }
+    });
+  }
+
+  function setProviderStatus(text, kind) {
+    const status = $("provider-status");
+    if (status) {
+      status.textContent = text;
+      status.className = `provider-status ${kind}`;
+    }
+  }
+
   // ---- startup + event wiring --------------------------------------------
   function startup() {
     const view = navigateStartup(harness);
@@ -1415,6 +1556,10 @@ function startRenderer(win, doc) {
     const personalModel = $("personal-model");
     if (personalModel) {
       personalModel.addEventListener("click", () => openProjectionDrawer(personalModel));
+    }
+    const systemEntry = $("system");
+    if (systemEntry) {
+      systemEntry.addEventListener("click", () => openSettingsView(systemEntry));
     }
     doc.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && layers.depth() > 0) {
