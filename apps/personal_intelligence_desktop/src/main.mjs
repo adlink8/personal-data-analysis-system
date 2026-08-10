@@ -31,6 +31,7 @@
 import { request as httpRequest } from "node:http";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { resolve as pathResolve } from "node:path";
 
 import {
   ALLOWED_CHANNELS,
@@ -468,7 +469,14 @@ export async function bootstrapDesktopApp(options = {}) {
   return win;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+export function isDesktopEntry(argv1, selfFile = fileURLToPath(import.meta.url)) {
+  // `electron .` passes "." as argv[1]; direct `electron main.mjs` passes the
+  // module path. Node under `node --test` imports this module without either
+  // matching, so bootstrap stays inert there.
+  return Boolean(argv1) && (argv1 === "." || pathResolve(argv1) === selfFile);
+}
+const _isDesktopEntry = isDesktopEntry(process.argv[1]);
+if (_isDesktopEntry) {
   bootstrapDesktopApp().catch((error) => {
     process.stderr.write(`${JSON.stringify({ ok: false, error: { code: "internal_error" } })}\n`);
     process.exitCode = 1;

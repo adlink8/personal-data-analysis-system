@@ -17,6 +17,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 import {
   DESKTOP_API_SCHEMA,
@@ -803,3 +804,16 @@ test("C4: main normalizes statement_display only when the receipt checksum bindi
 
 // Keep the boundary honest: no test here may depend on a live Electron window
 // or a network provider; the whole file must finish well under 60 seconds.
+
+test("D5: isDesktopEntry gates bootstrap - `electron .` and module path hit, test imports do not", () => {
+  assert.ok(mainModule, mainMissing());
+  const selfPath = fileURLToPath(new URL("../src/main.mjs", import.meta.url));
+  // `electron .` passes "." as argv[1] (the real launch mode); direct
+  // `electron main.mjs` passes the module path. Node `--test` imports this
+  // module without either matching, so bootstrap stays inert there.
+  assert.equal(mainModule.isDesktopEntry("."), true, "electron . must bootstrap");
+  assert.equal(mainModule.isDesktopEntry(selfPath), true, "electron main.mjs must bootstrap");
+  assert.equal(mainModule.isDesktopEntry("test/main-preload.test.mjs"), false, "test import must not bootstrap");
+  assert.equal(mainModule.isDesktopEntry(undefined), false, "missing argv[1] must not bootstrap");
+  assert.equal(mainModule.isDesktopEntry(""), false, "empty argv[1] must not bootstrap");
+});
