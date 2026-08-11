@@ -173,6 +173,14 @@ def _make_source_fixture(dest: Path) -> Path:
         "INSERT INTO messages (session_id, ordinal, role, content, timestamp, is_system) "
         "VALUES ('s1',5,'system','system prompt','2026-01-01T00:00:05Z',1)"
     )
+    # s1 压缩摘要 user message（源库 role=user，但应标 system 轨）
+    cur.execute(
+        "INSERT INTO messages (session_id, ordinal, role, content, timestamp) "
+        "VALUES ('s1',6,'user',"
+        "'This session is being continued from a previous conversation that was compacted. "
+        "The summary below is the authoritative context for earlier turns. "
+        "User wanted to deploy the backend service and fix dialog saving.','2026-01-01T00:00:08Z')"
+    )
 
     # tool_call（含 input_json / result_content，这些字段不复制）
     cur.execute(
@@ -309,6 +317,29 @@ def test_evidence_scope_marking(tmp_path: Path) -> None:
     ).fetchone()
     assert side_scope is not None
     assert side_scope[0] == "sidechain"
+    con.close()
+
+
+def test_compact_summary_marked_system_scope(tmp_path: Path) -> None:
+    """源库 role=user 的压缩摘要消息 → normalized evidence_scope='system'，
+    不再以 user 身份进入抽取轨。"""
+    src = _make_source_fixture(tmp_path / "src.db")
+    dest = tmp_path / "normalized.db"
+
+    stats, final = build_normalized(src, dest_db=dest, dry_run=False)
+    assert final is not None
+    assert stats.messages_compact_summary == 1
+
+    con = sqlite3.connect(str(final))
+    row = con.execute(
+        "SELECT m.evidence_scope, m.role FROM messages m JOIN sessions s "
+        "ON m.session_id=s.session_id WHERE s.source_session_id='s1' "
+        "AND m.ordinal=6"
+    ).fetchone()
+    assert row is not None
+    assert row[0] == "system", f"压缩摘要应标记 system 轨, got {row[0]}"
+    # 正文仍保留（仅轨道标记变化，不做正文隔离）
+    assert row[1] == "user"
     con.close()
 
 

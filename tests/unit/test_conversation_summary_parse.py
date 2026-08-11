@@ -20,9 +20,13 @@ UNIFIED_SCRIPTS = ROOT / "integration" / "scripts"
 if str(UNIFIED_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(UNIFIED_SCRIPTS))
 
-import personal_knowledge.domains.conversation.build_conversation_summary as mod  # noqa: E402
+try:
+    import personal_knowledge.domains.conversation.build_conversation_summary as mod  # noqa: E402
+except ImportError:  # pragma: no cover - 模块已归档（PDA-2 旧管线关闭）
+    mod = None
 
 
+@unittest.skipIf(mod is None, "legacy build_conversation_summary 已归档至 archive/legacy-pipeline/（PDA-2 旧管线关闭）")
 class TestParseTurnSummaries(unittest.TestCase):
     """Wave 8.2.3:正则加固,4 类 LLM 输出全部正确切分。"""
 
@@ -94,6 +98,7 @@ class TestParseTurnSummaries(unittest.TestCase):
         self.assertIsInstance(parts, list)
 
 
+@unittest.skipIf(mod is None, "legacy build_conversation_summary 已归档至 archive/legacy-pipeline/（PDA-2 旧管线关闭）")
 class TestSummarizeChunkRetry(unittest.TestCase):
     """Wave 8.2.1:段数校验 + 重试机制。"""
 
@@ -152,6 +157,7 @@ class TestSummarizeChunkRetry(unittest.TestCase):
 
 
 
+@unittest.skipIf(mod is None, "legacy build_conversation_summary 已归档至 archive/legacy-pipeline/（PDA-2 旧管线关闭）")
 class TestSummaryOutputContracts(unittest.TestCase):
     """补充结构化输出契约:turn_id/message_count/markdown 重建。"""
 
@@ -188,6 +194,7 @@ class TestSummaryOutputContracts(unittest.TestCase):
         self.assertIn("## [Agent] 主题A", md)
         self.assertIn("## [GPT] 主题B", md)
 
+@unittest.skipIf(mod is None, "legacy build_conversation_summary 已归档至 archive/legacy-pipeline/（PDA-2 旧管线关闭）")
 class TestPromptConstraints(unittest.TestCase):
     """Wave 8.2.2:prompt 强化(绝对编号/段数/不合并约束)。"""
 

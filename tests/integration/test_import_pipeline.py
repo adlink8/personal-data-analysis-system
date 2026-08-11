@@ -12,7 +12,10 @@ SCRIPTS = ROOT / "integration" / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-import personal_knowledge.application.run_import_pipeline as imp  # noqa: E402
+try:
+    import personal_knowledge.application.run_import_pipeline as imp  # noqa: E402
+except ImportError:  # pragma: no cover - 模块已归档（PDA-2 旧管线关闭）
+    imp = None
 
 
 def sample_export() -> list[dict]:
@@ -44,6 +47,7 @@ def sample_export() -> list[dict]:
     ]
 
 
+@unittest.skipIf(imp is None, "legacy run_import_pipeline 已归档至 archive/legacy-pipeline/（PDA-2 旧管线关闭）")
 class ImportPipelineTests(unittest.TestCase):
     def test_gpt_conversations_sharded_filename_supported(self) -> None:
         self.assertTrue(imp.is_gpt_conversations_file(Path("conversations.json")))

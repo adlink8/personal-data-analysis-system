@@ -20,6 +20,9 @@
      message 进隔离统计且不落正文（报告只留规则名+计数，不留 match）。
   3. system/sidechain/subagent 消息保留关系元数据，标记 evidence_scope，
      默认不进入个人事实层。
+  4. 压缩摘要（LLM compact 总结，命中 ``is_compact_summary``）复用
+     evidence_scope 标记为 ``system`` 轨：即使源库 role=user，也不再以
+     user 身份进入抽取轨（eligibility 按 scope 过滤）。
 
 对外暴露：
   - :data:`NORMALIZED_SCHEMA` / :data:`SECRET_RULES`
@@ -46,6 +49,9 @@ if str(_SCRIPTS_DIR) not in sys.path:
 _THIS_DIR = _SCRIPTS_DIR  # legacy alias: scripts root for resource paths
 
 from personal_knowledge.core.project_paths import AGENTSVIEW_DB, AGENTSVIEW_NORMALIZED_DB  # noqa: E402
+from personal_knowledge.application.knowledge.eligibility import (  # noqa: E402
+    is_compact_summary,
+)
 
 # === 本地二次敏感信息扫描规则（正则，只记规则名，不留 match） ===
 # 与 AgentView secret_findings 的规则互补，覆盖常见 PII/credential 模式。
@@ -190,6 +196,7 @@ class NormalizationStats:
     messages_total: int = 0
     messages_with_content: int = 0
     messages_quarantined_local: int = 0  # 二次扫描命中正文落库数（必须=0）
+    messages_compact_summary: int = 0  # 压缩摘要消息数（标 system 轨，不进用户事实层）
     secret_session_messages_written: int = 0  # 必须为 0
     messages_skipped_secret: int = 0  # secret session 整条不写的消息数
     messages_skipped_excluded: int = 0  # excluded session 整条不写的消息数
@@ -443,6 +450,13 @@ def build_normalized(
             msg_scope = _message_evidence_scope(role, is_sys, is_side, session_scope)
 
             content = mrow["content"] or ""
+            # 压缩摘要识别（LLM compact 总结不是用户原话）：复用 evidence_scope
+            # 标记为 system 轨，使其不再以 user 身份进入抽取轨（eligibility 按
+            # scope 过滤）。
+            if is_compact_summary(content):
+                msg_scope = "system"
+                stats.messages_compact_summary += 1
+
             # 本地二次敏感信息扫描：命中则正文不落，只记规则名
             local_hits = local_secret_scan(content)
             quarantined_rules = None

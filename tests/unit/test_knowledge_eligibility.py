@@ -13,6 +13,7 @@ from pathlib import Path
 from personal_knowledge.application.knowledge.eligibility import (
     ASSISTANT_TOOL_PREFIX_PATTERNS,
     compute_eligible_messages,
+    is_compact_summary,
 )
 from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import (
     SCHEMA_SQL,
@@ -171,3 +172,87 @@ def test_alias_compat() -> None:
     assert build_knowledge_units.strip_system_injections(sample) == eligibility.strip_system_injections(sample)
     assert build_knowledge_inventory._strip_injections(sample) == eligibility.strip_system_injections(sample)
     assert build_knowledge_units.is_meaningful(sample) == eligibility.is_meaningful(sample)
+
+
+_COMPACT_SUMMARY = (
+    "This session is being continued from a previous conversation that was "
+    "compacted. The summary below is the authoritative context for earlier "
+    "turns. The user wanted to deploy the backend and fix dialog saving."
+)
+
+
+def _make_canonical_db_with_scope(dest: Path) -> Path:
+    """带 evidence_scope 列的 fixture：含压缩摘要 user 消息 + 普通 user 消息。"""
+    con = sqlite3.connect(str(dest))
+    con.execute(
+        "CREATE TABLE canonical_sessions ("
+        "canonical_session_id TEXT PRIMARY KEY, agent TEXT, started_at TEXT, "
+        "evidence_eligible INTEGER DEFAULT 1)"
+    )
+    con.execute(
+        "CREATE TABLE canonical_messages ("
+        "canonical_message_id TEXT PRIMARY KEY, canonical_session_id TEXT, "
+        "source TEXT, role TEXT, content TEXT, evidence_scope TEXT DEFAULT 'user')"
+    )
+    con.execute(
+        "INSERT INTO canonical_sessions VALUES ('cs1','codex','2026-01-01',1)"
+    )
+    con.execute(
+        "INSERT INTO canonical_messages VALUES "
+        "('cm_compact','cs1','zcode','user',?,'user'),"
+        "('cm_normal','cs1','zcode','user',?, 'user'),"
+        "('cm_system_marked','cs1','zcode','user',?,'system')",
+        (
+            _COMPACT_SUMMARY,
+            "ordinary user message with enough length to pass the gate here now",
+            "a system-scoped message that has real length but is marked system",
+        ),
+    )
+    con.commit()
+    con.close()
+    return dest
+
+
+def test_compact_summary_excluded_by_content(tmp_path: Path) -> None:
+    """content 命中压缩摘要特征 → excluded_compact_summary，不进入 eligible。"""
+    canon = _make_canonical_db_with_scope(tmp_path / "canon.db")
+    # 只验证 content 检测路径：单独构造不含 scope 标记消息的库
+    con = sqlite3.connect(str(canon))
+    con.execute(
+        "DELETE FROM canonical_messages WHERE canonical_message_id IN "
+        "('cm_system_marked')"
+    )
+    con.commit()
+    con.close()
+
+    items, stats = compute_eligible_messages(canon)
+
+    refs = {m.evidence_ref for m in items}
+    assert "cm_compact" not in refs
+    assert "cm_normal" in refs
+    assert stats["excluded_compact_summary"] == 1
+    assert stats["coarse_count"] == 2
+
+
+def test_compact_summary_excluded_by_scope_mark(tmp_path: Path) -> None:
+    """evidence_scope='system'（0.2 标记兜底）→ 排除出 eligible。"""
+    canon = _make_canonical_db_with_scope(tmp_path / "canon.db")
+    items, stats = compute_eligible_messages(canon)
+
+    refs = {m.evidence_ref for m in items}
+    assert "cm_system_marked" not in refs
+    # content 检测（cm_compact）+ scope 检测（cm_system_marked）
+    assert stats["excluded_compact_summary"] == 2
+
+
+def test_compact_summary_matches_real_feature_text() -> None:
+    """真实 AgentView 摘要特征文本命中检测。"""
+    samples = [
+        "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.",
+        "This session is being continued from a previous conversation that was compacted. The summary below is the authoritative context for earlier turns.",
+        "这是用户普通消息，不应命中",
+    ]
+    assert is_compact_summary(samples[0])
+    assert is_compact_summary(samples[1])
+    assert not is_compact_summary(samples[2])
+

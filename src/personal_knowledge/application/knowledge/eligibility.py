@@ -35,6 +35,22 @@ SYSTEM_INJECTION_PATTERNS = [
     re.compile(r"<user_info>.*?</user_info>", re.DOTALL | re.IGNORECASE),
 ]
 
+# 压缩摘要识别（AgentView compact 摘要不是用户原话，不可作为个人事实证据）。
+# 与 build_agentsview_normalized 的标记共用同一识别（0.2 把命中消息标记
+# evidence_scope='system'；此处 content 检测为主、scope 标记兜底）。
+COMPACT_SUMMARY_PATTERNS = [
+    re.compile(r"This session is being continued from a previous conversation", re.IGNORECASE),
+    re.compile(r"was compacted\.\s*The summary below is the authoritative context", re.IGNORECASE),
+]
+
+
+def is_compact_summary(text: str) -> bool:
+    """判断文本是否为 LLM compact 摘要特征。"""
+    if not text:
+        return False
+    return any(p.search(text) for p in COMPACT_SUMMARY_PATTERNS)
+
+
 # assistant 消息工具命令排除模式（13 种前缀 + Task 元数据块）
 ASSISTANT_TOOL_PREFIX_PATTERNS = [
     re.compile(r'^\[Bash\]', re.DOTALL),
@@ -116,18 +132,21 @@ def compute_eligible_messages(
 
     过滤链（与原 build_inventory 判定逐项一致）：
       1. SQL 粗筛：evidence_eligible=1 且 content 非空且 length>20 且 role IN roles
-      2. 清洗后 len(cleaned) <= 30 → excluded_short
-      3. assistant 命中工具命令前缀（exclude_assistant_tool_prefix=True 时）→ excluded_tool
-      4. content_hash 去重 → excluded_dup
-      5. 清洗后仅剩注入残骸 → excluded_injection_only
+      2. 压缩摘要（LLM compact 总结）→ excluded_compact_summary（content 检测；
+         canonical_messages 有 evidence_scope 列时，scope='system' 一并兜底排除）
+      3. 清洗后 len(cleaned) <= 30 → excluded_short
+      4. assistant 命中工具命令前缀（exclude_assistant_tool_prefix=True 时）→ excluded_tool
+      5. content_hash 去重 → excluded_dup
+      6. 清洗后仅剩注入残骸 → excluded_injection_only
 
-    stats 必含 coarse_count 与四个排除计数；另附 source_checksum /
+    stats 必含 coarse_count 与五个排除计数；另附 source_checksum /
     dataset_hash / inventory_id（供 prepare 的 after inventory 标识复用）、
     cleaned_len / ref_roles / ref_started_at（ref → 派生值，供 inventory
     分桶与 prepare 元数据复用）。全部只含 count/hash/派生值，不含原文。
     """
     stats: dict = {
         "coarse_count": 0,
+        "excluded_compact_summary": 0,
         "excluded_short": 0,
         "excluded_tool": 0,
         "excluded_dup": 0,
@@ -146,10 +165,20 @@ def compute_eligible_messages(
     con = sqlite3.connect(f"file:{canonical_db.as_posix()}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
 
+    # canonical_messages 是否有 evidence_scope 列（旧 fixture/旧库可能没有；
+    # 有则按 scope='system' 兜底排除压缩摘要，兼容 build_agentsview_normalized
+    # 0.2 起的标记）。
+    has_scope_col = any(
+        r["name"] == "evidence_scope"
+        for r in con.execute("PRAGMA table_info(canonical_messages)")
+    )
+    scope_select = ", m.evidence_scope" if has_scope_col else ""
+
     placeholders = ",".join("?" * len(roles))
     coarse_rows = con.execute(
         "SELECT m.canonical_message_id, m.canonical_session_id, m.content, "
-        "m.source, m.role, s.agent, s.started_at, s.evidence_eligible "
+        "m.source, m.role, s.agent, s.started_at, s.evidence_eligible"
+        f"{scope_select} "
         "FROM canonical_messages m JOIN canonical_sessions s "
         "ON m.canonical_session_id=s.canonical_session_id "
         "WHERE s.evidence_eligible=1 "
@@ -170,6 +199,14 @@ def compute_eligible_messages(
         raw_content = row["content"]
         cleaned = strip_system_injections(raw_content)
         has_injection = cleaned != raw_content.strip()
+
+        # 压缩摘要排除：content 命中（主）+ evidence_scope='system' 标记（兜底）。
+        # LLM compact 总结不是用户原话，抽取出来的 quote 无原文支撑。
+        if is_compact_summary(cleaned) or (
+            has_scope_col and row["evidence_scope"] == "system"
+        ):
+            stats["excluded_compact_summary"] += 1
+            continue
 
         # assistant 工具命令排除
         if (
