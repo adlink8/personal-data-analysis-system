@@ -1,8 +1,10 @@
 """Immutable metadata store for Wiki materialized projections.
 
-The store is disposable and is not an authority.  It intentionally has no
-columns for page text, source bodies, embeddings, provider output or evidence
-content.
+The store is disposable and is not an authority.  It keeps the immutable
+version/dependency/invalidation metadata tables and (since Phase 4) an
+additive ``wiki_projection_pages`` table holding deterministic, consolidated
+page bodies (aggregated claims + evidence refs only — never raw conversation
+or source body text).
 """
 from __future__ import annotations
 
@@ -50,6 +52,27 @@ class ProjectionDependency:
             "essential": self.essential,
             "order_key": self.order_key or f"{self.authority}:{self.stable_ref}",
         }
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionPage:
+    """A deterministic, consolidated wiki page body bound to a projection version.
+
+    ``page_body`` is a JSON string containing only aggregated result content
+    (subject / claims / evidence refs).  It never carries raw conversation text,
+    source bodies, or provider output.  ``freshness_status`` mirrors the bound
+    version's status so page readers can annotate stale pages without a second
+    query.
+    """
+
+    topic_id: str
+    topic_type: str
+    projection_version: str
+    page_body: str
+    page_checksum: str
+    generated_at: str
+    snapshot_bindings: Mapping[str, Any]
+    freshness_status: str | None = None
 
 
 def _json(value: Any) -> str:
@@ -123,6 +146,16 @@ def _ensure_schema(con: sqlite3.Connection) -> None:
             reason_code TEXT NOT NULL,
             generated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS wiki_projection_pages (
+            topic_id TEXT NOT NULL,
+            topic_type TEXT NOT NULL,
+            projection_version TEXT NOT NULL,
+            page_body TEXT NOT NULL,
+            page_checksum TEXT NOT NULL,
+            generated_at TEXT NOT NULL,
+            snapshot_bindings_json TEXT NOT NULL,
+            PRIMARY KEY (topic_id, projection_version)
+        );
         """
     )
     con.commit()
@@ -182,6 +215,99 @@ def _row_to_version(row: sqlite3.Row) -> ProjectionVersion:
     )
 
 
+def _row_to_page(row: sqlite3.Row) -> ProjectionPage:
+    return ProjectionPage(
+        topic_id=str(row["topic_id"]), topic_type=str(row["topic_type"]),
+        projection_version=str(row["projection_version"]), page_body=str(row["page_body"]),
+        page_checksum=str(row["page_checksum"]), generated_at=str(row["generated_at"]),
+        snapshot_bindings=json.loads(row["snapshot_bindings_json"]),
+        freshness_status=str(row["freshness_status"]) if row["freshness_status"] is not None else None,
+    )
+
+
+def insert_page(con: sqlite3.Connection, page: ProjectionPage) -> None:
+    """Insert an immutable consolidated page body bound to a version row.
+
+    ``INSERT OR REPLACE`` keeps consolidation idempotent: re-running with the
+    same input yields the same ``page_checksum`` and the write is a no-op at
+    the row level.  The version row must already exist (FK is intentionally
+    not enforced at the SQL layer so a missing version degrades to read-time
+    compute rather than a hard failure).
+    """
+    con.execute(
+        """INSERT OR REPLACE INTO wiki_projection_pages
+        (topic_id,topic_type,projection_version,page_body,page_checksum,generated_at,snapshot_bindings_json)
+        VALUES (?,?,?,?,?,?,?)""",
+        (
+            page.topic_id, page.topic_type, page.projection_version, page.page_body,
+            page.page_checksum, page.generated_at, _json(dict(page.snapshot_bindings)),
+        ),
+    )
+    con.commit()
+
+
+def latest_page(path: Path | str, topic_id: str) -> ProjectionPage | None:
+    """Return the page body for the newest projection version of a topic.
+
+    Returns ``None`` when the store is missing, the topic has no version, or
+    the topic has no consolidated page body yet — every failure mode is
+    intended to degrade to read-time compute.
+    """
+    try:
+        con = connect_ro(path)
+    except (FileNotFoundError, OSError):
+        return None
+    try:
+        row = con.execute(
+            """SELECT p.topic_id,p.topic_type,p.projection_version,p.page_body,
+                      p.page_checksum,p.generated_at,p.snapshot_bindings_json,
+                      v.freshness_status
+               FROM wiki_projection_pages p
+               JOIN wiki_projection_versions v
+                 ON v.topic_id=p.topic_id AND v.projection_version=p.projection_version
+               WHERE p.topic_id=?
+               ORDER BY v.generated_at DESC, p.projection_version DESC LIMIT 1""",
+            (topic_id,),
+        ).fetchone()
+        return _row_to_page(row) if row is not None else None
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+
+
+def list_pages(path: Path | str, *, limit: int = 500) -> list[ProjectionPage]:
+    """Return the newest consolidated page for every topic that has one.
+
+    Read-only and fail-safe: a missing store yields an empty list.
+    """
+    try:
+        con = connect_ro(path)
+    except (FileNotFoundError, OSError):
+        return []
+    try:
+        rows = con.execute(
+            """SELECT p.topic_id,p.topic_type,p.projection_version,p.page_body,
+                      p.page_checksum,p.generated_at,p.snapshot_bindings_json,
+                      v.freshness_status
+               FROM wiki_projection_pages p
+               JOIN wiki_projection_versions v
+                 ON v.topic_id=p.topic_id AND v.projection_version=p.projection_version
+               JOIN (
+                   SELECT topic_id, MAX(generated_at) AS latest_generated_at
+                   FROM wiki_projection_pages GROUP BY topic_id
+               ) latest ON latest.topic_id=p.topic_id
+               WHERE p.generated_at=latest.latest_generated_at
+               ORDER BY p.topic_id LIMIT ?""",
+            (max(1, int(limit)),),
+        ).fetchall()
+        return [_row_to_page(row) for row in rows]
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+
+
 def latest_version(path: Path | str, topic_id: str) -> tuple[ProjectionVersion | None, tuple[ProjectionDependency, ...]]:
     con = connect_ro(path)
     try:
@@ -212,6 +338,7 @@ def latest_version(path: Path | str, topic_id: str) -> tuple[ProjectionVersion |
 
 
 __all__ = [
-    "ProjectionDependency", "ProjectionVersion", "SCHEMA_VERSION",
-    "connect_ro", "connect_rw", "insert_version", "latest_version",
+    "ProjectionDependency", "ProjectionPage", "ProjectionVersion", "SCHEMA_VERSION",
+    "connect_ro", "connect_rw", "insert_page", "insert_version", "latest_page",
+    "latest_version", "list_pages",
 ]

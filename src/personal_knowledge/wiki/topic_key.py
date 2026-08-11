@@ -74,13 +74,18 @@ class TopicKey:
         project:{scope}
         goal:{domain}:{scope}:{predicate}
         decision:{recommendation_id}
+        subject:{name}
+
+    ``subject`` topics are the Phase 4 consolidated pages derived from
+    knowledge-unit buckets; they have no personal/decision authority backing
+    and resolve through the page store instead.
     """
 
     topic_type: str
     parts: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        expected = {"project": 1, "goal": 3, "decision": 1}
+        expected = {"project": 1, "goal": 3, "decision": 1, "subject": 1}
         if self.topic_type not in expected or len(self.parts) != expected[self.topic_type]:
             raise TopicProjectionError("unsupported_topic_type" if self.topic_type not in expected else "invalid_topic_key")
         for part in self.parts:
@@ -114,9 +119,9 @@ def parse_topic_key(value: str) -> TopicKey:
 
     segments = decoded.split(":")
     topic_type = segments[0]
-    if topic_type not in {"project", "goal", "decision"}:
+    if topic_type not in {"project", "goal", "decision", "subject"}:
         raise TopicProjectionError("unsupported_topic_type")
-    expected_parts = {"project": 1, "goal": 3, "decision": 1}[topic_type]
+    expected_parts = {"project": 1, "goal": 3, "decision": 1, "subject": 1}[topic_type]
     if len(segments) != expected_parts + 1:
         raise TopicProjectionError("invalid_topic_key")
     parts = tuple(segments[1:])

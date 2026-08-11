@@ -64,6 +64,9 @@ UNIFIED_DB = DB_DIR / "personal_system.sqlite"
 EXTERNAL_CONTEXT_DB = VAR_DB / "external_context.sqlite"
 CONV_GRAPH_DB = DB_DIR / "conversation_graph.duckdb"
 
+# Phase 4: wiki 最上层统合层的派生库（版本/依赖/失效 + 落盘页面正文）
+WIKI_PROJECTION_DB = VAR_DB / "personal_wiki_projection.sqlite"
+
 # 可回收归档（历史模块软归档，不删除；见 _recycle/README.md）
 RECYCLE_DIR = _prefer(ARCHIVE_DIR / "quarantine" / "_recycle", ROOT / "_recycle")
 RECYCLE_CLEANUP_20260712 = RECYCLE_DIR / "2026-07-12_structure_cleanup"

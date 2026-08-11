@@ -106,9 +106,12 @@ def topic_rest_contract(
 
     TopicProjectionService / WIKI_DERIVED_STORE 延迟从 api_server 解析,
     保持测试对 api_server.TopicProjectionService 的 monkeypatch 生效。
+    生产路径注入 page_reader，让 topic_get/topic.list 优先读统合页面正文
+    （Phase 4 wiki-first）；缺失/损坏时由服务内部回退读时现算。
     """
     import personal_knowledge.services.api_server as api_server
     from personal_knowledge.wiki.materialization import WikiMaterializer
+    from personal_knowledge.wiki.page_reader import WikiPageReader
 
     values = {key: value for key, value in params.items() if value not in {None, ""}}
     if "limit" in values:
@@ -116,5 +119,11 @@ def topic_rest_contract(
             values["limit"] = int(values["limit"])
         except (TypeError, ValueError):
             return api_server.TopicProjectionService()._envelope_error(operation, "invalid_topic_key", limitations=["limit 无效"])
-    target = service or api_server.TopicProjectionService(materializer=WikiMaterializer(api_server.WIKI_DERIVED_STORE))
+    if service is not None:
+        target = service
+    else:
+        target = api_server.TopicProjectionService(
+            materializer=WikiMaterializer(api_server.WIKI_DERIVED_STORE),
+            page_reader=WikiPageReader(api_server.WIKI_DERIVED_STORE),
+        )
     return target.invoke(operation, **values)

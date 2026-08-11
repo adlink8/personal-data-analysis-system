@@ -236,6 +236,7 @@ class TopicProjectionService:
         external_reader: Any | None = None,
         read_router: Any | None = None,
         materializer: Any | None = None,
+        page_reader: Any | None = None,
         now: Callable[[], str] | None = None,
         limit: int = 100,
     ) -> None:
@@ -243,6 +244,7 @@ class TopicProjectionService:
         self.decision_reader = decision_reader or self._default_decision_reader()
         self.external_reader = external_reader or self._default_external_reader()
         self.materializer = materializer
+        self.page_reader = page_reader
         if read_router is None:
             self.read_router = WikiReadRouter(topic_service=self)
         else:
@@ -446,11 +448,38 @@ class TopicProjectionService:
             authorities["external"] = "error"
         else:
             authorities["external"] = external_status
-        if errors and not rows:
+        # NEW: wiki-first directory — consolidated subject pages from the store
+        # are listed alongside authority-derived topics when a page reader is
+        # configured.  Fail-safe: any store problem just leaves them out.
+        subject_items: list[dict[str, Any]] = []
+        if self.page_reader is not None:
+            try:
+                for page in self.page_reader.directory():
+                    body = None
+                    try:
+                        from personal_knowledge.wiki.page_reader import parse_page_body
+                        body = parse_page_body(page)
+                    except Exception:  # noqa: BLE001 — malformed pages are skipped
+                        body = None
+                    if body is None:
+                        continue
+                    topic = body.get("topic") or {}
+                    subject_items.append({
+                        "topic_id": page.topic_id,
+                        "topic_type": "subject",
+                        "canonical_key": topic.get("canonical_key") or f"subject:{body.get('subject', '')}",
+                        "display_label": topic.get("display_label") or f"subject:{body.get('subject', '')}",
+                        "authority": "ok",
+                        "snapshot_id": None,
+                        "freshness": page.freshness_status if page.freshness_status in {"stale", "partial", "unavailable"} else "fresh",
+                    })
+            except Exception:  # noqa: BLE001 — directory failures degrade gracefully
+                subject_items = []
+        if errors and not rows and not subject_items:
             return self._envelope_error("topic.list", "authority_unavailable")
         start = 0
         if cursor:
-            ids = [opaque_topic_id(key) for key, _ in rows]
+            ids = [opaque_topic_id(key) for key, _ in rows] + [item["topic_id"] for item in subject_items]
             if cursor not in ids:
                 return self._envelope_error("topic.list", "invalid_topic_key", limitations=["游标无效"])
             start = ids.index(cursor) + 1
@@ -478,11 +507,15 @@ class TopicProjectionService:
                 "snapshot_id": snapshot,
                 "freshness": material_state,
             })
+        merged = items + subject_items
         next_cursor = opaque_topic_id(selected[-1][0]) if len(selected) == limit and start + limit < len(rows) else None
-        data = {"items": items, "total_available": len(rows), "limit": limit, "next_cursor": next_cursor}
+        if next_cursor is None and subject_items and len(merged) > limit and start + limit >= len(rows):
+            if limit <= len(subject_items):
+                next_cursor = subject_items[min(limit, len(subject_items)) - 1]["topic_id"]
+        data = {"items": merged, "total_available": len(rows) + len(subject_items), "limit": limit, "next_cursor": next_cursor}
         checksum = _canonical_checksum({"operation": "topic.list", "data": data, "authorities": authorities, "errors": errors})
         generated = self.now()
-        list_partial = bool(errors) or any(item["freshness"] != "fresh" for item in items)
+        list_partial = bool(errors) or any(item["freshness"] != "fresh" for item in merged)
         return make_wiki_envelope(
             "topic.list", ok=True, data=data, generated_at=generated,
             snapshot_bindings={}, freshness={"state": "partial" if list_partial else "fresh", "generated_at": generated},
@@ -496,6 +529,15 @@ class TopicProjectionService:
                 key = self._topic_from_key(topic_key)
             except TopicProjectionError as exc:
                 return None, None, None, None, exc.reason_code
+            # Subject topics are Phase 4 consolidated pages: they have no
+            # personal/decision authority backing and resolve via the page
+            # store only (never via read-time authority compute).
+            if key.topic_type == "subject":
+                if topic_type and topic_type != key.topic_type:
+                    return None, None, None, None, "unsupported_topic_type"
+                if self._page_exists(key):
+                    return key, None, None, None, None
+                return None, None, None, None, "topic_not_found"
             personal_status, personal, personal_error = self._personal_data()
             decision_status, decision, decision_error = self._decision_data()
             if topic_type and topic_type != key.topic_type:
@@ -512,6 +554,10 @@ class TopicProjectionService:
             return key, personal_item or decision_item, decision, personal, None
         if not topic_id or not topic_type:
             return None, None, None, None, "invalid_topic_key"
+        if topic_type == "subject":
+            if self._page_exists_by_id(topic_id):
+                return self._subject_key_from_page(topic_id) or (None, None, None, None, "topic_not_found")
+            return None, None, None, None, "topic_not_found"
         rows, _, _ = self._keys()
         for key, source in rows:
             if opaque_topic_id(key) == topic_id:
@@ -520,11 +566,49 @@ class TopicProjectionService:
                 return self._resolve(topic_type=topic_type, topic_id=None, topic_key=key.canonical)
         return None, None, None, None, "topic_not_found"
 
+    def _page_exists(self, key: TopicKey) -> bool:
+        if self.page_reader is None:
+            return False
+        topic_id = self._page_topic_id(key)
+        return self.page_reader.latest(topic_id) is not None
+
+    def _page_exists_by_id(self, topic_id: str) -> bool:
+        if self.page_reader is None:
+            return False
+        return self.page_reader.latest(topic_id) is not None
+
+    def _subject_key_from_page(self, topic_id: str) -> tuple[TopicKey | None, dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None, str | None] | None:
+        result = self.page_reader.latest_body(topic_id) if self.page_reader is not None else None
+        if result is None:
+            return None
+        _, body = result
+        canonical = (body.get("topic") or {}).get("canonical_key")
+        try:
+            key = self._topic_from_key(canonical)
+        except (TopicProjectionError, TypeError):
+            return None
+        return key, None, None, None, None
+
+    @staticmethod
+    def _page_topic_id(key: TopicKey) -> str:
+        if key.topic_type == "subject":
+            from personal_knowledge.wiki.page_reader import subject_topic_id
+            return subject_topic_id(key.parts[0])
+        return opaque_topic_id(key)
+
     def topic_get(self, *, topic_type: str | None = None, topic_id: str | None = None, topic_key: str | None = None, **_: Any) -> dict[str, Any]:
         key, source, decision, personal, error = self._resolve(topic_type=topic_type, topic_id=topic_id, topic_key=topic_key)
         if error:
             return self._envelope_error("topic.get", error)
         assert key is not None
+        # NEW: page-first read.  A consolidated page (when present, valid and
+        # not corrupted) is served directly; missing or corrupt pages fall back
+        # to the read-time compute path below.  Stale pages are served with a
+        # freshness_status annotation (wiki-first; subject pages have no
+        # authority backing to compute from anyway).
+        page_envelope = self._page_first_get(key)
+        if page_envelope is not None:
+            return page_envelope
         personal_status, personal_data, personal_error = self._personal_data()
         decision_status, decision_data, decision_error = self._decision_data()
         external_status, external_data, external_error = self._external_data()
@@ -630,6 +714,41 @@ class TopicProjectionService:
             snapshot_bindings=bindings, freshness={"state": state, "generated_at": generated},
             authorities=authorities, partial=partial, limitations=limitations,
             projection_checksum=projection_checksum, status=state,
+        )
+
+    def _page_first_get(self, key: TopicKey) -> dict[str, Any] | None:
+        """Serve a consolidated page body when the store has a valid one.
+
+        Returns ``None`` when the page reader is not configured, the page is
+        missing, or the stored body fails structural/checksum validation — the
+        caller then falls back to the existing read-time compute path.  Stale
+        pages (stored freshness_status is stale/partial) are still served but
+        carry the freshness_status annotation, so the wiki remains the primary
+        read surface.
+        """
+        if self.page_reader is None:
+            return None
+        topic_id = self._page_topic_id(key)
+        result = self.page_reader.latest_body(topic_id)
+        if result is None:
+            return None
+        page, body = result
+        state = page.freshness_status if page.freshness_status in {"stale", "partial", "unavailable"} else "fresh"
+        generated = page.generated_at or self.now()
+        data = {
+            "topic": body.get("topic") or {"topic_id": topic_id, "topic_type": key.topic_type, "canonical_key": key.canonical, "display_label": f"{key.topic_type}:{' · '.join(key.parts)}"},
+            "subject": body.get("subject"),
+            "aggregation": body.get("aggregation"),
+            "claims": body.get("claims"),
+            "evidence_refs": body.get("evidence_refs", []),
+        }
+        limitations = ["Wiki 页面由知识单元统合生成；对应底层工具可穿透访问。"] if state == "fresh" else ["Wiki 页面 freshness 为 stale/partial；底层 KU 已变化，建议重新统合。"]
+        return make_wiki_envelope(
+            "topic.get", ok=True, data=data, generated_at=generated,
+            snapshot_bindings=dict(page.snapshot_bindings),
+            freshness={"state": state, "generated_at": generated},
+            authorities={"wiki": "ok"}, partial=state != "fresh",
+            limitations=limitations, projection_checksum=page.page_checksum, status=state,
         )
 
     def topic_backlinks(self, *, topic_type: str | None = None, topic_id: str | None = None, topic_key: str | None = None, **_: Any) -> dict[str, Any]:
