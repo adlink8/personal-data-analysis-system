@@ -18,3 +18,5 @@
 | 004 | daily-brief | 今日简报应怎样在启动后的对话中呈现同步、水位、证据与可接受的行动？ | A | daily-brief, conversation, sync, evidence |
 | 005 | review-inbox | 候选如何按风险、证据和冲突被审核、编辑、接受或延后？ | A | inbox, review, conflict, evidence |
 | 006 | explore-research | 如何将项目内检索、证据型问答与可保存的研究线程组织为探索工作流？ | A | explore, search, research, evidence |
+| 007 | project-topic | 项目与跨项目主题如何以当前状态、证据历史和多对多关联呈现？ | — | project, topic, timeline, evidence |
+| 008 | composed-agent-ui | 如何直接组合 OpenCode、assistant-ui、Goose 与 AgentsView 的 UI 长处，同时保持 Codex 式低启动成本？ | C | desktop, conversation, components, opencode, assistant-ui, goose, agentsview |

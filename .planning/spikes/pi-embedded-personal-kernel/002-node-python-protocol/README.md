@@ -13,7 +13,7 @@ tags: [protocol, idempotency, cancellation, recovery]
 ## How to Run
 
 ```powershell
-cd D:\ADLINK\数据分析\.planning\spikes\pi-embedded-personal-kernel\prototype\python-domain
+cd <repo-root>\.planning\spikes\pi-embedded-personal-kernel\prototype\python-domain
 python protocol_spike.py
 ```
 

@@ -19,7 +19,7 @@ scope_note: >
 
 # Phase 36: Secure Projection and Cockpit Baseline — Verification Record
 
-**Recorded:** 2026-07-26T13:06Z (Windows PowerShell, project root `D:\ADLINK\数据分析`, branch `main`)
+**Recorded:** 2026-07-26T13:06Z (Windows PowerShell, project root `<repo-root>`, branch `main`)
 
 This document replaces the earlier `planned`/`future_execution` placeholder
 version of this file with real, re-executed evidence gathered while closing

@@ -5,9 +5,9 @@
 | Item | Value |
 |------|--------|
 | OS | Windows (PowerShell) |
-| Workspace | `D:\ADLINK\数据分析` |
-| Python | **3.14.2** (`C:\Users\li\AppData\Local\Programs\Python\Python314\python.exe`) |
-| `PYTHONPATH` | `D:\ADLINK\数据分析\src` |
+| Workspace | `<repo-root>` |
+| Python | **3.14.2** (`$HOME\AppData\Local\Programs\Python\Python314\python.exe`) |
+| `PYTHONPATH` | `<repo-root>\src` |
 | Runner | `python -m pytest` |
 | Report date | 2026-07-16 |
 | Product source changes | **None** (read-only test run) |

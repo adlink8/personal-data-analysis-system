@@ -138,7 +138,7 @@ Latest Phase 24 evidence: run `3a4b7f7b85e864b86031a79a0c017fa74c80e5b9908aa7fd7
 ## Verification snapshot
 
 ```powershell
-$env:PYTHONPATH="D:\ADLINK\数据分析\src"
+$env:PYTHONPATH="<repo-root>\src"
 python -m personal_knowledge.application.knowledge.doctor_ku --json
 python -m personal_knowledge.intelligence.proactive.cli acceptance --dry-run --metadata-only --json
 python -m pytest -q

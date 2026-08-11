@@ -17,7 +17,7 @@ tags: [pi, security, supply-chain]
 ## How to Run
 
 ```powershell
-cd D:\ADLINK\数据分析\.planning\spikes\pi-embedded-personal-kernel\prototype\agent-runtime
+cd <repo-root>\.planning\spikes\pi-embedded-personal-kernel\prototype\agent-runtime
 node runtime-containment.mjs
 npm ls @earendil-works/pi-coding-agent @earendil-works/pi-ai @earendil-works/pi-storage-sqlite-node --depth=0
 ```

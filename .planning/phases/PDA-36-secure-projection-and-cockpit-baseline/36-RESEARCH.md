@@ -168,11 +168,11 @@ This is first because the current UI already contains mutation client code; no C
 Use the existing targeted commands after implementation:
 
 ```powershell
-Set-Location D:\ADLINK\数据分析\apps\personal_decision_cockpit
+Set-Location <repo-root>\apps\personal_decision_cockpit
 npm run test
 npm run build
 
-Set-Location D:\ADLINK\数据分析
+Set-Location <repo-root>
 $env:PYTHONPATH = "$PWD\src"
 python -m pytest tests/contract/test_ui_projection.py tests/contract/test_ui_projection_state_external.py tests/contract/test_ui_projection_decision.py tests/contract/test_ui_projection_actions_proactive.py tests/contract/test_orchestration_interfaces.py -q
 ```

@@ -58,7 +58,7 @@
 
 - 治理链铁律：manifest 链完整、不硬删 knowledge 行、每批 ≤50 且逐对检视、改库前 `cp` 快照到 `var/backups/`
 - 不动运行中途的 prompt（prompt_hash 分裂会破坏缓存与可比性）；注入段作为新 prompt 版本处理
-- Vertex 调用：gemini-3.5-flash-lite + 6s 间隔 + 429 冷却 65s；`PERSONAL_DATA_GCLOUD="C:\Users\li\google-cloud-sdk\gcloud.bat"`
+- Vertex 调用：gemini-3.5-flash-lite + 6s 间隔 + 429 冷却 65s；`PERSONAL_DATA_GCLOUD="$HOME\google-cloud-sdk\gcloud.bat"`
 - python 命令加 `PYTHONIOENCODING=utf-8`
 - 新代码 import `application.*` / `evaluation.*`，不写 `domains.*`
 - 日常只抽 watermark 后 new；全量 `--start` 需 `PK_KU_ALLOW_FULL_INVENTORY_START=1`（本 phase 的对照实验如需全量，走实验库而非动 canonical）

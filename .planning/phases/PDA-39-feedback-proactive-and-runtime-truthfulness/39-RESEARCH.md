@@ -417,11 +417,11 @@ Run these only when Phase 39 is implemented; their successful result must be
 recorded in the later verification artifact rather than asserted today:
 
 ```powershell
-Set-Location D:\ADLINK\数据分析
+Set-Location <repo-root>
 $env:PYTHONPATH = "$PWD\src"
 python -m pytest tests/contract/test_ui_projection_actions_proactive.py tests/contract/test_ui_projection.py tests/contract/test_proactive_interfaces.py tests/contract/test_proactive_boundaries.py tests/contract/test_decision_interfaces.py tests/unit/test_decision_effectiveness.py -q
 
-Set-Location D:\ADLINK\数据分析\apps\personal_decision_cockpit
+Set-Location <repo-root>\apps\personal_decision_cockpit
 npm run test -- --run src/test/ActionsPage.test.tsx src/test/ProactivePage.test.tsx src/test/appSmoke.test.tsx
 npm run build
 ```

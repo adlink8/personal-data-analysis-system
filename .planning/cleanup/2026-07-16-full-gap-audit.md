@@ -2,7 +2,7 @@
 
 **Scope:** product CLI, KU incremental E2E, legacy residual, docs drift, security/SSOT, tests  
 **Method:** local code / docs / artifacts only (read-only). No promote, no watermark `--write`, no delete, no push.  
-**Workspace:** `D:\ADLINK\数据分析`  
+**Workspace:** `<repo-root>`  
 **Related:** `.planning/cleanup/2026-07-16-safe-cleanup.md`, `.planning/codebase/CONCERNS.md`, `docs/runbooks/ku-incremental.md`
 
 ---

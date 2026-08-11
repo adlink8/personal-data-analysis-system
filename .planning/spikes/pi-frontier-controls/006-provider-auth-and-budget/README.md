@@ -13,7 +13,7 @@ tags: [provider, auth, budget, fail-closed]
 ## How to Run
 
 ```powershell
-python D:\ADLINK\数据分析\.planning\spikes\pi-frontier-controls\provider_budget.py
+python <repo-root>\.planning\spikes\pi-frontier-controls\provider_budget.py
 ```
 
 ## Results

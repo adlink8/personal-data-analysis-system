@@ -276,11 +276,11 @@ The test must not contain real user goal strings, actual evidence text, secret c
 Run after implementation in a clean, controlled local environment. Record the actual command, exit status, revision and whether it used fixtures only.
 
 ```powershell
-Set-Location D:\ADLINK\数据分析\apps\personal_decision_cockpit
+Set-Location <repo-root>\apps\personal_decision_cockpit
 npm run test
 npm run build
 
-Set-Location D:\ADLINK\数据分析
+Set-Location <repo-root>
 $env:PYTHONPATH = "$PWD\src"
 python -m pytest `
   tests/contract/test_ui_projection.py `

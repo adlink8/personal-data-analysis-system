@@ -7,7 +7,7 @@
 ## 根目录：9 个区域
 
 ```
-D:\ADLINK\数据分析/
+<repo-root>/
 │
 ├── src/                    ← 产品源码（核心，git track，R2）
 ├── apps/                   ← 外部应用（ChatGPT MCP + Decision Cockpit）

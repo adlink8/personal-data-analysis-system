@@ -9,7 +9,7 @@
 
 ## External quota blocker
 
-- The authenticated executable is `C:\Users\li\google-cloud-sdk\gcloud.bat`; token probe succeeded without recording the token。
+- The authenticated executable is `$HOME\google-cloud-sdk\gcloud.bat`; token probe succeeded without recording the token。
 - A single minimal Vertex request returned HTTP `429 RESOURCE_EXHAUSTED` with `"Resource exhausted. Please try again later."`。
 - The batch was started with four workers and then stopped after no successful items and repeated retryable responses; no candidate units, Chroma writes, active-pointer changes or watermark writes were made by the failed attempt。
 - Run remains resumable as `ir_ac26ce496b48f398`; current ledger status was `abstained=4`, `pending=1976`, `in_flight=4`, `retryable=10` when paused。
@@ -35,7 +35,7 @@ The lite-model quota blocker was resolved by an explicit user-authorized switch 
 
 - `pk-sync conversations --write`: exit 0; normalized snapshot 1,159 sessions / 102,881 messages; canonical output 1,159 sessions / 95,428 messages / 110,456 tool events; `duplicate_source_links=0`.
 - Canonical stats: `merged_by_source_mapping=281`, `stable_key_matched=281`, `file_hash_confirmed=275`, `file_hash_divergent=6`, `superseded_marked=0`, `unexpected_duplicate_stable_key=0`, `review_required=0`.
-- Immediately after the rebuild, the pre-key canonical generation was fixed at `D:\ADLINK\数据分析\var\backups\agent_conversations_pre42_20260727_154215.sqlite`; read-only counts are 1,165 canonical sessions / 97,762 canonical messages, matching `var/reports/phase42_baseline.json`.
+- Immediately after the rebuild, the pre-key canonical generation was fixed at `<repo-root>\var\backups\agent_conversations_pre42_20260727_154215.sqlite`; read-only counts are 1,165 canonical sessions / 97,762 canonical messages, matching `var/reports/phase42_baseline.json`.
 - Zero-duplicate acceptance on `data/canonical/agent/structured/db/agent_conversations.sqlite`:
   - SQL A source-session-to-canonical multiplicity: `0`
   - SQL B active stable-key multiplicity: `0`
@@ -54,7 +54,7 @@ The lite-model quota blocker was resolved by an explicit user-authorized switch 
 
 ## 42-02 write and idempotence
 
-- `--write` completed with backup `D:\ADLINK\数据分析\var\backups\personal_system_20260727T075010Z.sqlite`; the single transaction updated 15 evidence rows and 15 source-ref rows, with 0 inventory rows changed. The plan-level distinct ref counts were 5 / 5 / 0 respectively.
+- `--write` completed with backup `<repo-root>\var\backups\personal_system_20260727T075010Z.sqlite`; the single transaction updated 15 evidence rows and 15 source-ref rows, with 0 inventory rows changed. The plan-level distinct ref counts were 5 / 5 / 0 respectively.
 - Immediate dry-run with the same explicit old-canonical path returned `[no_op]` and JSON `no_op=true`; no further rows were planned.
 - Residual superseded-session ref SQL (evidence/source/inventory) returned `0 / 0 / 0`. The real rebuild produced `superseded_marked=0`, so the 69 classified migration orphans are old legacy refs with no content-hash target, not refs still resolving to a current superseded session; they remain unchanged by design.
 - `pk-ku doctor --skip-ports` remains blocked only by the pre-existing source-watermark drift; all other doctor checks pass. Watermark consumption and controlled delta handling are deferred to 42-03.

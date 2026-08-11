@@ -17,7 +17,7 @@ tags: [streaming, web, metrics, privacy]
 ## How to Run
 
 ```powershell
-cd D:\ADLINK\数据分析\.planning\spikes\pi-embedded-personal-kernel\prototype
+cd <repo-root>\.planning\spikes\pi-embedded-personal-kernel\prototype
 node streaming_control.mjs
 ```
 

@@ -119,10 +119,10 @@ source: 2026-07-26 全量梳理（4 路并行架构/数据流/评估/规划核�
 ## 运维发现（2026-07-26 夜,登记勿丢）
 
 - **Chroma 依赖外部项目**：向量层的 Chroma :8001 实际是
-  `D:\ADLINK\Myproject\novel-mind\docker-compose.yml` 里的服务
+  `<sibling-repo>\docker-compose.yml` 里的服务
   （容器 novel-mind-chroma-1,数据在命名卷 chromadata）。Docker 引擎重启
   会导致本系统向量层静默离线。本项目文档此前无任何记载。
-  恢复命令:`docker compose -f D:\ADLINK\Myproject\novel-mind\docker-compose.yml up -d chroma`。
+  恢复命令:`docker compose -f <sibling-repo>\docker-compose.yml up -d chroma`。
   **治本归 Backlog 999.1**:把 Chroma 迁入本项目自己的 compose/启动脚本,
   或至少写进 docs/runbooks + start-services 健康检查。
 - 中断的向量构建残留集合 `knowledge_units_ir_13486f30c_20260726151211`

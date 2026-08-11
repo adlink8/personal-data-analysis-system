@@ -39,11 +39,11 @@
 v1.4 P0 不应为重新搭建前端而新增框架或生产依赖。复用现有依赖与服务：
 
 ```powershell
-Set-Location D:\ADLINK\数据分析\apps\personal_decision_cockpit
+Set-Location <repo-root>\apps\personal_decision_cockpit
 npm run test
 npm run build
 
-Set-Location D:\ADLINK\数据分析
+Set-Location <repo-root>
 $env:PYTHONPATH = "$PWD\src"
 python -m pytest tests/contract/test_ui_projection.py tests/contract/test_ui_projection_state_external.py tests/contract/test_ui_projection_decision.py tests/contract/test_ui_projection_actions_proactive.py -q
 ```

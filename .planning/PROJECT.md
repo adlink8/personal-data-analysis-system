@@ -151,7 +151,7 @@ v1.5 Wiki 的 Phase 44–47 已完成 P0 只读实现和授权真实浏览器 UA
 
 ## Context
 
-- 项目根目录默认运行环境是 Windows + PowerShell（工作区可为 `D:\ADLINK\数据分析` 等）。
+- 项目根目录默认运行环境是 Windows + PowerShell（工作区可为 `<repo-root>` 等）。
 - **源码布局（Phase 19–21）：** `src/personal_knowledge/`  
   - `core/` 基础（含 `llm.py`）  
   - `domains/*/` 规则/模型/常量 + facade（清理窗口 2026-08-13）  

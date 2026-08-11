@@ -17,7 +17,7 @@
 Re-scan anytime:
 
 ```powershell
-$env:PYTHONPATH="D:\ADLINK\数据分析\src"
+$env:PYTHONPATH="<repo-root>\src"
 python -m personal_knowledge.application.ku doctor --skip-ports
 ```
 

@@ -10,10 +10,10 @@
 | Field | Value |
 |-------|--------|
 | **Session id** | `019f63ff-3576-70f2-b698-e9b3c01db76e` |
-| **Rollout path** | `C:\Users\li\.codex\sessions\2026\07\15\rollout-2026-07-15T12-18-22-019f63ff-3576-70f2-b698-e9b3c01db76e.jsonl` |
-| **Visualizations dir** | `C:\Users\li\.codex\visualizations\2026\07\15\019f63ff-3576-70f2-b698-e9b3c01db76e\`（空，无 summary HTML/md） |
+| **Rollout path** | `$HOME\.codex\sessions\2026\07\15\rollout-2026-07-15T12-18-22-019f63ff-3576-70f2-b698-e9b3c01db76e.jsonl` |
+| **Visualizations dir** | `$HOME\.codex\visualizations\2026\07\15\019f63ff-3576-70f2-b698-e9b3c01db76e\`（空，无 summary HTML/md） |
 | **Started (session_meta)** | 2026-07-15T04:18:22Z（本地文件名 12-18-22 为本地时区） |
-| **Primary cwd** | `D:\ADLINK\Myproject\novel-mind` |
+| **Primary cwd** | `<sibling-repo>` |
 | **Branch / git (meta)** | `feat/phase2-wave2-embedding` · `5e0fa287…` |
 | **Originator** | Codex Desktop / vscode · model path 含 gpt-5.6-sol |
 | **Hierarchy “mind model” peak turns** | ~04:19 UI 缩放层级；~06:58 分析编排依赖；**~09:10–09:13 分层叙事记忆 + 是否重分析**；~09:24 research_architecture → `.planning/research/ARCHITECTURE.md` |
@@ -201,7 +201,7 @@ freeze sources
 
 ## 7. Artifact pointers（session-produced hierarchy design）
 
-- `D:\ADLINK\Myproject\novel-mind\.planning\research\ARCHITECTURE.md` — 分层记忆 + dry-run + retrieval 完整架构研究  
+- `<sibling-repo>\.planning\research\ARCHITECTURE.md` — 分层记忆 + dry-run + retrieval 完整架构研究  
 - Session rollout：见 §1 path（~4066 lines jsonl）  
 
 ---

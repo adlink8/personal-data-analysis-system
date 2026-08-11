@@ -37,7 +37,7 @@ own phase's PLAN/SUMMARY/VERIFICATION.
 ## Build and test (Windows PowerShell, reproducible from project root)
 
 ```powershell
-# from the project root, D:\ADLINK\数据分析 (or your own clone root)
+# from the project root, <repo-root> (or your own clone root)
 Push-Location apps\personal_decision_cockpit
 npm install
 npm run test    # vitest run — Zod DTO/vocabulary + component + orchestration-client contracts

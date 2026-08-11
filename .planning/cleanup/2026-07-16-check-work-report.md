@@ -1,7 +1,7 @@
 # Check-Work Report — Phase 22 + Ops Close-out
 
 **Date:** 2026-07-16  
-**Workspace:** `D:\ADLINK\数据分析`  
+**Workspace:** `<repo-root>`  
 **Verifier role:** independent re-verification of current tree + live ops state  
 **Scope:** GSD Phase 22 plans 01–04 execution + canary/promote/watermark ops close-out  
 
@@ -44,7 +44,7 @@ Phase 22 code bulk: `61e2004` (~2819 insertions) — modules + CLI + unit tests.
 ### Live commands re-run by verifier (2026-07-16)
 
 ```text
-PYTHONPATH=D:\ADLINK\数据分析\src
+PYTHONPATH=<repo-root>\src
 
 # Active pointer
 cat var/db/knowledge_index_active.txt

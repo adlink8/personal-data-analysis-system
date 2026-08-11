@@ -268,7 +268,7 @@ PYTHONIOENCODING=utf-8 python -m pytest tests/unit/test_history_knowledge_units.
 3. promote 默认要 eval（canary strict PASS + eval gate）；watermark 只在 promote 后推进（Gate F fail-closed）。
 4. 新代码 import `application.*` / `evaluation.*`，不写 `domains.*`。
 5. 不动运行中途的 prompt（prompt_hash 分裂破坏缓存与可比性）；注入段作为新 prompt 版本在 run 间隙切换。
-6. Vertex：gemini-3.5-flash-lite + 6s 间隔 + 429 冷却 65s；`PERSONAL_DATA_GCLOUD="C:\Users\li\google-cloud-sdk\gcloud.bat"`。
+6. Vertex：gemini-3.5-flash-lite + 6s 间隔 + 429 冷却 65s；`PERSONAL_DATA_GCLOUD="$HOME\google-cloud-sdk\gcloud.bat"`。
 7. python 命令加 `PYTHONIOENCODING=utf-8`。
 8. `inspect` 有 delta 而 `prepare` 为 `no_op` → 停（Gate B 硬规则）。
 9. 改动后跑 `pk-ku doctor`（exit=0）或相关 pytest 全绿（SPEC Acceptance 最后一条）。
