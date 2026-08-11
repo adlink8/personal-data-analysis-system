@@ -101,11 +101,12 @@ function booleanValue(...values) {
 export function buildModelRoutes({ manifest = {}, config = {}, env = process.env } = {}) {
   const configuredMode = String(env.PI_PROVIDER_MODE ?? config.mode ?? "").trim().toLowerCase();
   const vertexProviderEnabled = ["vertex_google", "vertex", "gemini"].includes(configuredMode);
-  const realProviderEnabled = ["aliyun", "dashscope"].includes(configuredMode) || vertexProviderEnabled;
+  const openaiCompatibleEnabled = ["openai", "openai-compatible"].includes(configuredMode);
+  const realProviderEnabled = ["aliyun", "dashscope"].includes(configuredMode) || openaiCompatibleEnabled || vertexProviderEnabled;
   const realModel = String(env.PI_PROVIDER_MODEL ?? (vertexProviderEnabled ? env.PERSONAL_DATA_VERTEX_MODEL : config.model) ?? (vertexProviderEnabled ? "gemini-3.5-flash" : "deepseek-v4-flash-0731")).trim() || (vertexProviderEnabled ? "gemini-3.5-flash" : "deepseek-v4-flash-0731");
   const realCostCeiling = Number(env.PI_PROVIDER_COST_CEILING ?? config.costCeiling ?? 0);
   const globalCostCeiling = Number.isFinite(realCostCeiling) && realCostCeiling >= 0 ? realCostCeiling : 0;
-  const provider = vertexProviderEnabled ? "vertex_google" : realProviderEnabled ? "dashscope" : "replay";
+  const provider = vertexProviderEnabled ? "vertex_google" : realProviderEnabled ? (openaiCompatibleEnabled ? "openai-compatible" : "dashscope") : "replay";
   const model = realProviderEnabled ? realModel : "replay-v1";
   const currency = realProviderEnabled ? (vertexProviderEnabled ? "USD" : (config.currency || "CNY")) : "CNY";
   const inputPricePerMillion = realProviderEnabled ? Number(config.inputPricePerMillion ?? 1) : 0;
