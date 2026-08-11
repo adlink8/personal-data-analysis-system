@@ -13,6 +13,11 @@ from personal_knowledge.intelligence.decision.context_binding import (
     validate_decision_context_binding,
 )
 
+from personal_knowledge.core.runtime_config import (
+    analysis_max_output_tokens,
+    analysis_temperature_max,
+)
+
 from .runs import load_policy
 from .evidence import present_evidence_reference
 from .schema import (
@@ -178,10 +183,10 @@ def build_confirmed_input(
     if (isinstance(temperature, bool) or not isinstance(temperature, (int, float))
             or not math.isfinite(float(temperature))
             or not float(sampling.get("temperature_min", 0.0)) <= float(temperature)
-            <= float(sampling.get("temperature_max", 0.3))):
+            <= float(sampling.get("temperature_max", analysis_temperature_max()))):
         raise AnalysisInputError("temperature_forbidden")
     if (isinstance(max_output_tokens, bool) or not isinstance(max_output_tokens, int)
-            or not 1 <= max_output_tokens <= int(sampling.get("max_output_tokens", 4096))):
+            or not 1 <= max_output_tokens <= int(sampling.get("max_output_tokens", analysis_max_output_tokens()))):
         raise AnalysisInputError("output_token_budget_forbidden")
     if domain not in policy.get("domain", {}).get("allow", ()):
         raise AnalysisInputError("domain_forbidden", domain)

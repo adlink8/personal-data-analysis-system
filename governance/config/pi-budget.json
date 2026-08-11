@@ -1,0 +1,13 @@
+{
+  "schema": "pi-budget-config-v1",
+  "provider": {
+    "max_temperature": 0.3,
+    "max_output_tokens": 4096,
+    "timeout_seconds": 120
+  },
+  "analysis": {
+    "max_attempts": 2,
+    "temperature_max": 0.3,
+    "max_output_tokens": 4096
+  }
+}

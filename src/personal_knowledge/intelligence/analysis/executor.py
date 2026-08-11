@@ -7,6 +7,8 @@ from typing import Any, Iterable, Mapping
 
 from personal_knowledge.intelligence.decision.context_binding import DecisionContextBinding
 
+from personal_knowledge.core.runtime_config import analysis_max_attempts
+
 from .candidates import parse_candidate_package
 from .evidence import validate_claim_evidence
 from .gates import evaluate_safety_gates
@@ -67,13 +69,17 @@ def execute_analysis(
     temperature: float = 0.0,
     max_output_tokens: int = 4096,
     timeout_seconds: float = 30.0,
-    max_attempts: int = 2,
+    max_attempts: int | None = None,
     max_total_tokens: int = 8192,
     write: bool = False,
     fault_at: str | None = None,
     now: str | None = None,
 ) -> ExecutionReceipt:
     """Execute input→provider→parse→evidence→safety→publish/abstain in order."""
+    # Retry budget default is read from configuration (env / pi-budget.json);
+    # the safe 1..3 window is unchanged.
+    if max_attempts is None:
+        max_attempts = analysis_max_attempts()
     if not 1 <= max_attempts <= 3:
         return _abstain("input", "provider_attempt_budget_invalid")
     try:

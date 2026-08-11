@@ -88,11 +88,20 @@ class ProviderRequest:
     timeout_seconds: float
 
     def __post_init__(self) -> None:
+        # Budget ceilings are read from configuration (env / pi-budget.json)
+        # so operators can tune them without code changes; defaults stay 0.3 /
+        # 4096 / 120. The checks themselves remain mandatory safety gates.
+        from personal_knowledge.core.runtime_config import (
+            provider_max_output_tokens,
+            provider_max_temperature,
+            provider_timeout_seconds,
+        )
         if not self.prompt or len(self.request_checksum) != 64:
             raise ProviderError("provider_request_invalid")
-        if not 0 <= self.temperature <= .3 or not 1 <= self.max_output_tokens <= 4096:
+        if (not 0 <= self.temperature <= provider_max_temperature()
+                or not 1 <= self.max_output_tokens <= int(provider_max_output_tokens())):
             raise ProviderError("provider_budget_invalid")
-        if not 0 < self.timeout_seconds <= 120:
+        if not 0 < self.timeout_seconds <= provider_timeout_seconds():
             raise ProviderError("provider_timeout_invalid")
 
 
@@ -210,7 +219,8 @@ class PiKernelProvider:
         if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
             raise ProviderError("provider_endpoint_invalid")
         self.capability = capability if capability is not None else os.environ.get("PI_KERNEL_INTERNAL_CAPABILITY", "")
-        self.timeout_seconds = min(max(float(timeout_seconds), 0.1), 120.0)
+        from personal_knowledge.core.runtime_config import provider_timeout_seconds
+        self.timeout_seconds = min(max(float(timeout_seconds), 0.1), provider_timeout_seconds())
         self.transport = transport
         self.calls = 0
         self.last_task_id: str | None = None

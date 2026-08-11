@@ -108,6 +108,13 @@ Thumbs.db
 !apps/**/*.html
 !apps/**/*.md
 
+# Versioned assistant-ui desktop spike sources (generated outputs stay ignored)
+!.planning/spikes/assistant-ui-desktop/prototype/package.json
+!.planning/spikes/assistant-ui-desktop/prototype/package-lock.json
+!.planning/spikes/assistant-ui-desktop/prototype/tsconfig.json
+!.planning/spikes/assistant-ui-desktop/prototype/index.html
+!.planning/spikes/assistant-ui-desktop/verification/*.png
+
 # Phase 18: machine contracts and aggregate-only governance baseline
 !governance/schema/file_inventory.schema.json
 !governance/baselines/inventory_summary.json
@@ -123,3 +130,7 @@ src/*.egg-info/
 
 !governance/baselines/preflight.json
 !apps/personal_data_chatgpt/test/widget-fixtures/*.json
+latest_logs/
+
+# Versioned provider/analysis budget configuration (operator-tunable, not code)
+!governance/config/pi-budget.json

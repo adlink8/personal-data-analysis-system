@@ -28,6 +28,24 @@ export function readProviderConfig({ configPath = process.env.PI_PROVIDER_CONFIG
     const outputPricePerMillion = Number(value.output_price_per_million ?? 2);
     const currency = String(value.currency || "CNY").trim().toUpperCase();
     if (!["replay", "aliyun", "dashscope", "openai", "openai-compatible"].includes(mode) || !model || !Number.isFinite(costCeiling) || costCeiling < 0 || !Number.isFinite(inputPricePerMillion) || inputPricePerMillion < 0 || !Number.isFinite(outputPricePerMillion) || outputPricePerMillion < 0 || !currency) return {};
+    // Optional route budget overrides. Each field is validated independently so
+    // a single malformed entry falls back to the manifest/embedded default
+    // instead of invalidating the whole provider config.
+    const maxOutputTokens = positiveNumber(value.max_output_tokens);
+    const maxAttempts = attemptsInteger(value.max_attempts);
+    const noFallback = value.no_fallback == null ? undefined : Boolean(value.no_fallback);
+    const routeOverrides = {};
+    if (value.routes && typeof value.routes === "object" && !Array.isArray(value.routes)) {
+      for (const [purpose, entry] of Object.entries(value.routes)) {
+        if (!entry || typeof entry !== "object") continue;
+        const override = {};
+        if (entry.max_output_tokens != null) { const parsed = positiveNumber(entry.max_output_tokens); if (parsed !== undefined) override.max_output_tokens = parsed; }
+        if (entry.max_attempts != null) { const parsed = attemptsInteger(entry.max_attempts); if (parsed !== undefined) override.max_attempts = parsed; }
+        if (entry.no_fallback != null) override.no_fallback = Boolean(entry.no_fallback);
+        if (entry.cost_ceiling != null) { const parsed = nonNegativeNumber(entry.cost_ceiling); if (parsed !== undefined) override.cost_ceiling = parsed; }
+        if (Object.keys(override).length > 0) routeOverrides[purpose] = Object.freeze(override);
+      }
+    }
     return Object.freeze({
       mode,
       provider,
@@ -38,10 +56,32 @@ export function readProviderConfig({ configPath = process.env.PI_PROVIDER_CONFIG
       outputPricePerMillion,
       currency,
       secretPath: absolutePath(value.secret_path, DEFAULT_PROVIDER_SECRET_PATH),
+      maxOutputTokens,
+      maxAttempts,
+      noFallback,
+      routeOverrides,
     });
   } catch {
     return {};
   }
+}
+
+/** Optional positive finite number; undefined when absent or invalid. */
+function positiveNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/** Optional integer within the safe retry window; undefined when invalid. */
+function attemptsInteger(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 3 ? parsed : undefined;
+}
+
+/** Optional non-negative finite number; undefined when invalid. */
+function nonNegativeNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 /** Decrypt a Windows DPAPI SecureString file only in memory; never logs the plaintext. */

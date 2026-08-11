@@ -36,6 +36,26 @@ def test_provider_request_budget_and_missing_replay_fail_closed():
         raise AssertionError("invalid budget accepted")
 
 
+def test_provider_request_budget_caps_are_raised_via_config(monkeypatch):
+    # Operators may raise the budget ceilings through configuration; the
+    # validation gates themselves must remain active.
+    monkeypatch.setenv("PI_PROVIDER_MAX_TEMPERATURE", "0.6")
+    monkeypatch.setenv("PI_PROVIDER_MAX_OUTPUT_TOKENS", "8192")
+    monkeypatch.setenv("PI_PROVIDER_TIMEOUT_SECONDS", "300")
+    request = ProviderRequest(
+        prompt="x", request_checksum="0" * 64,
+        temperature=0.6, max_output_tokens=8192, timeout_seconds=300,
+    )
+    assert request.temperature == 0.6
+    try:
+        ProviderRequest(prompt="x", request_checksum="0" * 64,
+                        temperature=0.7, max_output_tokens=10, timeout_seconds=1)
+    except ProviderError as exc:
+        assert exc.code == "provider_budget_invalid"
+    else:
+        raise AssertionError("over-ceiling temperature accepted")
+
+
 def test_legacy_adapter_is_rollback_only():
     provider = ReplayProvider({"answer": "ok"})
     try:

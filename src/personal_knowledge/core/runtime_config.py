@@ -5,12 +5,14 @@ discovery.  Importing this module never probes private data or mutates state.
 """
 from __future__ import annotations
 
+import json
+import math
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 
 DEFAULT_VERTEX_LOCATION = "global"
@@ -117,3 +119,106 @@ def embedding_model_path() -> Path:
 
 def semantic_api_url() -> str:
     return os.environ.get("PERSONAL_DATA_SEMANTIC_API", "http://127.0.0.1:8000/search/semantic")
+
+
+# ---------------------------------------------------------------------------
+# Provider / analysis budget limits.
+#
+# Resolution order (fail-safe): environment variable -> optional JSON budget
+# file -> built-in default. A missing or malformed budget file is ignored so
+# import and request construction never raise because of configuration.
+# Budget values may be raised through configuration (operator decision) but
+# the safety rails that prevent leaks and timeouts are NOT touched by this
+# mechanism (see the plan: evidence MAX_ROWS/MAX_BYTES/TIMEOUT_MS remain
+# hardcoded safety constants).
+# ---------------------------------------------------------------------------
+
+DEFAULT_BUDGET_CONFIG_PATH = (
+    Path(__file__).resolve().parents[3] / "governance" / "config" / "pi-budget.json"
+)
+
+
+def _load_budget_file() -> dict[str, Any]:
+    """Return the optional JSON budget document; {} when absent or invalid."""
+    path = os.environ.get("PI_BUDGET_CONFIG", "").strip()
+    try:
+        source = Path(path) if path else DEFAULT_BUDGET_CONFIG_PATH
+        value = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _budget_number(
+    section: str,
+    key: str,
+    env_name: str,
+    default: float,
+    *,
+    lower: float | None = None,
+    upper: float | None = None,
+) -> float:
+    """Env-first, config-file fallback, built-in default; never raises.
+
+    Values outside the optional ``[lower, upper]`` window are ignored so a
+    misconfigured budget fails back to the default instead of breaking request
+    construction.
+    """
+
+    def valid(parsed: float) -> bool:
+        if not math.isfinite(parsed):
+            return False
+        if lower is not None and parsed < lower:
+            return False
+        if upper is not None and parsed > upper:
+            return False
+        return True
+
+    raw = os.environ.get(env_name, "").strip()
+    if raw:
+        try:
+            parsed = float(raw)
+            if valid(parsed):
+                return parsed
+        except ValueError:
+            pass
+    section_value = _load_budget_file().get(section)
+    if isinstance(section_value, dict):
+        value = section_value.get(key)
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and valid(float(value))):
+            return float(value)
+    return default
+
+
+def provider_max_temperature() -> float:
+    """Ceiling enforced by ProviderRequest; defaults to 0.3."""
+    return _budget_number("provider", "max_temperature", "PI_PROVIDER_MAX_TEMPERATURE", 0.3, lower=0)
+
+
+def provider_max_output_tokens() -> float:
+    """Ceiling enforced by ProviderRequest; defaults to 4096."""
+    return _budget_number("provider", "max_output_tokens", "PI_PROVIDER_MAX_OUTPUT_TOKENS", 4096.0, lower=1)
+
+
+def provider_timeout_seconds() -> float:
+    """Ceiling enforced by ProviderRequest / PiKernelProvider; defaults to 120."""
+    return _budget_number("provider", "timeout_seconds", "PI_PROVIDER_TIMEOUT_SECONDS", 120.0, lower=0.1)
+
+
+def analysis_max_attempts() -> int:
+    """Default retry budget for decision-analysis execution; defaults to 2."""
+    return int(_budget_number(
+        "analysis", "max_attempts", "PI_ANALYSIS_MAX_ATTEMPTS", 2.0,
+        lower=1, upper=3,
+    ))
+
+
+def analysis_temperature_max() -> float:
+    """Default sampling temperature ceiling when the policy omits it; defaults to 0.3."""
+    return _budget_number("analysis", "temperature_max", "PI_ANALYSIS_TEMPERATURE_MAX", 0.3, lower=0)
+
+
+def analysis_max_output_tokens() -> float:
+    """Default sampling output-token ceiling when the policy omits it; defaults to 4096."""
+    return _budget_number("analysis", "max_output_tokens", "PI_ANALYSIS_MAX_OUTPUT_TOKENS", 4096.0, lower=1)
