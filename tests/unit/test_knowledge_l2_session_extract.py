@@ -101,3 +101,137 @@ def test_list_l2_sessions_chunks_long_sessions(tmp_path: Path) -> None:
     # 短会话：id 不带后缀，行为与 v1 一致
     assert [s["session_id"] for s in short_sessions] == ["short1"]
     assert short_sessions[0]["chunk_count"] == 1
+
+
+def test_dedup_key_matches_eval_metric_definition() -> None:
+    """PDA-5a: dedup key must equal extraction_quality duplication() key."""
+    from personal_knowledge.application.knowledge.extract_knowledge_units_l2_session import (
+        _dedup_key,
+    )
+
+    assert _dedup_key("project_decision", "  项目三  ", "需要新建一个issue来记录和跟踪") == (
+        "project_decision|项目三|需要新建一个issue来记录和跟踪"
+    )
+    # case/whitespace normalization + 120-char answer prefix (eval uses [:120])
+    long_answer = "答" * 200
+    assert _dedup_key("preference", "git分支", long_answer) == (
+        "preference|git分支|" + "答" * 120
+    )
+    # 大小写/首尾空白归一化（与 eval 一致：strip + lower，不折叠内部空白）
+    assert _dedup_key("preference", "Git 分支", "main") == _dedup_key(
+        "preference", "  git 分支  ", " MAIN "
+    )
+    assert _dedup_key("preference", "git分支", "main") != _dedup_key(
+        "preference", "git 分支", "main"
+    )
+    # unit_type is part of the key
+    assert _dedup_key("preference", "s", "a") != _dedup_key("habit", "s", "a")
+
+
+def test_load_session_l2_keys_only_active_same_session(tmp_path) -> None:
+    import sqlite3
+
+    from personal_knowledge.application.knowledge.extract_knowledge_units_l2_session import (
+        _dedup_key,
+        _load_session_l2_keys,
+    )
+
+    db = tmp_path / "ku.sqlite"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE knowledge_units (unit_id TEXT, unit_type TEXT, subject TEXT, "
+        "answer TEXT, source_session_id TEXT, status TEXT)"
+    )
+    con.executemany(
+        "INSERT INTO knowledge_units VALUES (?,?,?,?,?,?)",
+        [
+            ("l2|1", "project_decision", "项目三", "需要新建一个issue来记录和跟踪", "cs|s1", "current"),
+            ("l2|3", "preference", "用户", "偏好图片说明", "cs|s1", "rejected"),
+            ("l2|4", "project_decision", "项目三", "先建主干issue", "cs|s1", "current"),
+            # 同 key 只在 cs|s2 出现：跨会话同事实是合法重复知识，不去重
+            ("l2|2", "project_decision", "项目三", "需要新建一个issue来记录和跟踪", "cs|s2", "current"),
+        ],
+    )
+    con.commit()
+    keys = _load_session_l2_keys(con, "cs|s1")
+    assert _dedup_key("project_decision", "项目三", "需要新建一个issue来记录和跟踪") in keys
+    assert _dedup_key("project_decision", "项目三", "先建主干issue") in keys
+    assert _dedup_key("preference", "用户", "偏好图片说明") not in keys
+    # 去重作用域是同一真实会话：cs|s2 的同 key 单元不会出现在 cs|s1 的视图里，
+    # 但独立查询 cs|s2 能看到它（各会话独立，互相不构成重复）
+    keys_s2 = _load_session_l2_keys(con, "cs|s2")
+    assert _dedup_key("project_decision", "项目三", "需要新建一个issue来记录和跟踪") in keys_s2
+    con.close()
+
+
+def test_mark_l2_duplicates_marks_second_occurrence_only(tmp_path) -> None:
+    import sqlite3
+
+    from personal_knowledge.application.knowledge.extract_knowledge_units_l2_session import (
+        mark_l2_duplicates,
+    )
+
+    db = tmp_path / "ku.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript(
+        "CREATE TABLE knowledge_units (unit_id TEXT PRIMARY KEY, unit_type TEXT, "
+        "subject TEXT, answer TEXT, lifecycle TEXT, status TEXT, source_session_id TEXT, "
+        "supersedes_id TEXT)"
+    )
+    con.executemany(
+        "INSERT INTO knowledge_units VALUES (?,?,?,?,?,?,?,?)",
+        [
+            # duplicate pair (same session, cross-run like pilot+full)
+            ("l2|aa", "project_decision", "项目三", "需要新建一个issue来记录和跟踪", "current", "current", "cs|s1", None),
+            ("l2|bb", "project_decision", "项目三", "需要新建一个issue来记录和跟踪", "current", "current", "cs|s1", None),
+            # unique unit
+            ("l2|cc", "preference", "用户", "偏好图片说明", "current", "current", "cs|s2", None),
+            # already-deprecated dup must not be re-marked (idempotency)
+            ("l2|dd", "preference", "用户", "偏好图片说明", "deprecated", "current", "cs|s2", None),
+        ],
+    )
+    con.commit()
+    con.close()
+
+    report = mark_l2_duplicates(db, write=True)
+    assert report["duplicate_units"] == 2
+    assert report["already_deprecated"] == 1
+    assert report["to_mark"] == 1
+    assert report["writes"] == 1
+
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT lifecycle FROM knowledge_units WHERE unit_id='l2|bb'").fetchone()[0] == "deprecated"
+    assert con.execute("SELECT supersedes_id FROM knowledge_units WHERE unit_id='l2|bb'").fetchone()[0] == "l2|aa"
+    assert con.execute("SELECT lifecycle FROM knowledge_units WHERE unit_id='l2|aa'").fetchone()[0] == "current"
+    assert con.execute("SELECT lifecycle FROM knowledge_units WHERE unit_id='l2|dd'").fetchone()[0] == "deprecated"
+    con.close()
+
+
+def test_mark_l2_duplicates_dry_run_no_write(tmp_path) -> None:
+    import sqlite3
+
+    from personal_knowledge.application.knowledge.extract_knowledge_units_l2_session import (
+        mark_l2_duplicates,
+    )
+
+    db = tmp_path / "ku.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript(
+        "CREATE TABLE knowledge_units (unit_id TEXT PRIMARY KEY, unit_type TEXT, "
+        "subject TEXT, answer TEXT, lifecycle TEXT, status TEXT, source_session_id TEXT, "
+        "supersedes_id TEXT)"
+    )
+    con.executemany(
+        "INSERT INTO knowledge_units VALUES (?,?,?,?,?,?,?,?)",
+        [
+            ("l2|aa", "preference", "用户", "偏好图片说明", "current", "current", "cs|s1", None),
+            ("l2|bb", "preference", "用户", "偏好图片说明", "current", "current", "cs|s1", None),
+        ],
+    )
+    con.commit()
+    con.close()
+    report = mark_l2_duplicates(db, write=False)
+    assert report["writes"] == 0
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT lifecycle FROM knowledge_units WHERE unit_id='l2|bb'").fetchone()[0] == "current"
+    con.close()

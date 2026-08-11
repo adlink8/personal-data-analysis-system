@@ -122,6 +122,34 @@ def _best_message_for_quote(quote: str, messages: list[dict]) -> str | None:
     return supporters[0][2]
 
 
+def _dedup_key(unit_type: str, subject: str, answer: str) -> str:
+    """Exact-duplicate key, identical to extraction_quality_eval.duplication().
+
+    ``unit_type | subject.strip().lower() | answer.strip().lower()[:120]``
+    Collisions of this key are what the duplication_rate metric counts, so
+    preventing an exact same-session collision at insert time is precisely the
+    metric lever (5a.2).
+    """
+    return f"{unit_type}|{(subject or '').strip().lower()}|{(answer or '').strip().lower()[:120]}"
+
+
+def _load_session_l2_keys(con: sqlite3.Connection, source_session_id: str) -> set[str]:
+    """Active L2 dedup keys already stored for a real session (any run).
+
+    PDA-5a: same-session exact duplicate prevention. Scoped to
+    ``source_session_id`` because every observed L2 duplication (49/49) is
+    same-session (cross-run 47 + within-window 2); cross-session identical
+    facts are legitimate repeated knowledge with distinct evidence.
+    """
+    rows = con.execute(
+        "SELECT unit_type, subject, answer FROM knowledge_units "
+        "WHERE unit_id LIKE 'l2|%' AND source_session_id=? "
+        "AND status IN ('staging','current','validated')",
+        (source_session_id,),
+    ).fetchall()
+    return {_dedup_key(r[0], r[1], r[2]) for r in rows}
+
+
 def list_l2_sessions(
     canonical_db: Path = AGENT_CONVERSATIONS_DB,
     *,
@@ -417,6 +445,7 @@ def process_l2_run(
         "failed": 0,
         "units": 0,
         "units_dropped_no_evidence": 0,
+        "units_dropped_duplicate": 0,
         "cache_hits": 0,
         "workers": max(1, workers),
         "invalid_duplicate_of": 0,
@@ -513,12 +542,25 @@ def process_l2_run(
             con.commit()
             return
 
+        # PDA-5a: 落库去重。同一真实会话内已存在精确重复（unit_type+subject+
+        # answer 前缀归一化，与 extraction_quality duplication 指标同键）则跳过
+        # 本次插入；跨 run（pilot/full 重跑同 session）与同 window 内 LLM 重复
+        # 输出都会在此被拦截。幂等：同输入同 DB 状态必得同结果。
+        source_sid = session.get("source_session_id") or session_id
+        existing_keys = _load_session_l2_keys(con, source_sid)
         kept = 0
+        dropped_duplicate = 0
         for ordinal, unit in enumerate(result.units, 1):
+            dkey = _dedup_key(unit.unit_type, unit.subject, unit.answer)
+            if dkey in existing_keys:
+                stats["units_dropped_duplicate"] += 1
+                dropped_duplicate += 1
+                continue
             mid = _best_message_for_quote(unit.evidence_quote, session["messages"])
             if not mid:
                 stats["units_dropped_no_evidence"] += 1
                 continue
+            existing_keys.add(dkey)
             unit_id = "l2|" + hashlib.sha256(
                 f"{run_id}|{session_id}|{ordinal}|{unit.subject}|{unit.answer}".encode()
             ).hexdigest()[:28]
@@ -577,12 +619,25 @@ def process_l2_run(
             stats["units"] += 1
 
         if kept == 0:
-            con.execute(
-                "UPDATE knowledge_l2_session_jobs SET status='abstained', unit_count=0, "
-                "last_error=?, updated_at=? WHERE run_id=? AND session_id=?",
-                ("all units failed evidence gate", now, run_id, session_id),
-            )
-            stats["abstained"] += 1
+            if dropped_duplicate:
+                con.execute(
+                    "UPDATE knowledge_l2_session_jobs SET status='succeeded', unit_count=0, "
+                    "last_error=?, updated_at=? WHERE run_id=? AND session_id=?",
+                    (
+                        f"all {dropped_duplicate} unit(s) dropped as exact duplicates",
+                        now,
+                        run_id,
+                        session_id,
+                    ),
+                )
+                stats["succeeded"] += 1
+            else:
+                con.execute(
+                    "UPDATE knowledge_l2_session_jobs SET status='abstained', unit_count=0, "
+                    "last_error=?, updated_at=? WHERE run_id=? AND session_id=?",
+                    ("all units failed evidence gate", now, run_id, session_id),
+                )
+                stats["abstained"] += 1
         else:
             con.execute(
                 "UPDATE knowledge_l2_session_jobs SET status='succeeded', unit_count=?, "
@@ -709,6 +764,66 @@ def process_l2_run(
     return stats
 
 
+def mark_l2_duplicates(
+    db_path: Path = UNIFIED_DB,
+    *,
+    write: bool = False,
+) -> dict:
+    """PDA-5a.3: mark existing L2 duplicate units (mark, never delete).
+
+    Reproduces the extraction_quality duplication definition over active L2
+    units (status IN staging/current/validated, ORDER BY unit_id — same as
+    ``_load_units`` in extraction_quality_eval). The second+ occurrence of each
+    exact ``unit_type|subject|answer[:120]`` key is marked
+    ``lifecycle='deprecated'`` and ``supersedes_id`` is pointed at the
+    first-seen representative, preserving lineage. No rows are deleted.
+
+    Idempotent: re-running marks the same set (already-deprecated rows are
+    left untouched).
+    """
+    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    rows = con.execute(
+        "SELECT unit_id, unit_type, subject, answer, lifecycle, status, source_session_id "
+        "FROM knowledge_units WHERE unit_id LIKE 'l2|%' "
+        "AND status IN ('staging','current','validated') ORDER BY unit_id"
+    ).fetchall()
+    con.close()
+    lifecycle_by_id = {r["unit_id"]: r["lifecycle"] for r in rows}
+
+    seen: dict[str, str] = {}
+    duplicates: list[tuple[str, str]] = []  # (dup_unit_id, representative_unit_id)
+    for r in rows:
+        key = _dedup_key(r["unit_type"], r["subject"], r["answer"])
+        if key in seen:
+            duplicates.append((r["unit_id"], seen[key]))
+        else:
+            seen[key] = r["unit_id"]
+
+    already_deprecated = sum(1 for u, _ in duplicates if lifecycle_by_id.get(u) == "deprecated")
+    to_mark = [(u, rep) for u, rep in duplicates if lifecycle_by_id.get(u) != "deprecated"]
+
+    report = {
+        "scanned": len(rows),
+        "duplicate_units": len(duplicates),
+        "already_deprecated": already_deprecated,
+        "to_mark": len(to_mark),
+        "representatives": {u: rep for u, rep in duplicates},
+        "writes": 0,
+    }
+    if write and to_mark:
+        con = connect_rw(db_path)
+        con.executemany(
+            "UPDATE knowledge_units SET lifecycle='deprecated', supersedes_id=? "
+            "WHERE unit_id=?",
+            [(rep, u) for u, rep in to_mark],
+        )
+        con.commit()
+        con.close()
+        report["writes"] = len(to_mark)
+    return report
+
+
 def write_report(run_id: str, stats: dict, path: Path = REPORT_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     doc = {
@@ -732,6 +847,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--write", action="store_true", help="Start new L2 run and process")
     p.add_argument("--resume", metavar="RUN_ID", help="Resume existing L2 run")
     p.add_argument("--status", metavar="RUN_ID", help="Show job stats")
+    p.add_argument("--mark-duplicates", action="store_true", help="PDA-5a: mark existing L2 exact duplicates lifecycle=deprecated (needs --write to persist)")
     p.add_argument("--limit", type=int, default=None, help="Max sessions (newest first)")
     p.add_argument("--max-jobs", type=int, default=None, help="Max jobs this process")
     p.add_argument("--min-user-msgs", type=int, default=MIN_USER_MSGS)
@@ -753,6 +869,12 @@ def main(argv: list[str] | None = None) -> int:
         ).fetchone()[0]
         con.close()
         print(json.dumps({"run_id": args.status, "jobs": st, "units": n_units}, indent=2))
+        return 0
+
+    if args.mark_duplicates:
+        report = mark_l2_duplicates(args.db, write=args.write)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        print("[l2] use --write to persist lifecycle=deprecated marking")
         return 0
 
     min_user = args.min_user_msgs
