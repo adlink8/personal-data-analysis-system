@@ -144,7 +144,7 @@ Runbook:
 Expected profile command:
 
 ```powershell
-cd C:\Users\li\Desktop\tunnel-client
+cd $HOME\Desktop\tunnel-client
 
 .\tunnel-client.exe init `
   --profile personal-data-app `

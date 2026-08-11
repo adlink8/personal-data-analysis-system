@@ -1,3 +1,9 @@
+# =============================================================================
+# DEPRECATED — 死代码（PDA-2 旧管线关闭）
+# Compatibility shim，转发至已归档的 domains/conversation/build_gpt_conversation_summary
+# （引用已删除的 GPT 旧路径）。勿调用。
+# =============================================================================
+
 """Compatibility shim -> conversation.build_gpt_conversation_summary
 
 Legacy CLI: python integration/scripts/build_gpt_conversation_summary.py

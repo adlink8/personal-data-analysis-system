@@ -102,7 +102,7 @@ Exceptions: 232px 固定展开侧栏；344px 证据检查器；结果/上下文�
 | Success semantic | `#72C98F` | 只读查询成功、已连接、已完成；必须配文字状态 |
 | Destructive | `#EF9389` | 查询/系统错误、明确拒绝或将来真实破坏性动作；Phase 61 无删除型 CTA |
 
-Accent reserved for: composer 的“发送消息”、确认后提交的“接受候选”、当前键盘 focus ring，以及单一选中的主操作。普通导航、筛选、展开 SQL、查看证据、取消、忽略、延后均使用 secondary/outline 样式。
+Accent reserved for: composer 的“发送消息”、确认后提交的“接受候选”、当前键盘 focus ring，以及单一选中的主操作。普通导航、筛选、展开受控查询、查看证据、取消、忽略、延后均使用 secondary/outline 样式。
 
 ---
 
@@ -128,8 +128,9 @@ Accent reserved for: composer 的“发送消息”、确认后提交的“接�
 
 ### Governed SQLite evidence card
 
-- 只读查询在触发它的助手消息下方显示行内卡（Sketch 002A），默认不展开 SQL。卡头恒为 `SQLite · 只读查询`，并含文字状态，不能只用绿色圆点。
-- 卡片第一行必须显示 `查询范围`、`耗时`、`返回`；第二行提供 `展开 SQL`、`查看 N 条证据`、`查看 receipt`。SQL 展开区只可显示已执行且已脱敏的 allowlisted statement；禁止自由编辑器、运行按钮或任意 schema 浏览。
+- 该卡片是 `evidence.sqlite_query` Tool receipt 的受控展示，不是 Renderer、Preload 或 Main 直接查询 SQLite 的入口。AI 查询必须先经过 Skill lease、Capability Broker 和 Python Domain Tool；桌面固定状态 Read Model 只可提供预定义的 metadata projection，不能接受 SQL、数据库路径或模型生成查询，也不能代替 Tool receipt。
+- 只读查询在触发它的助手消息下方显示行内卡（Sketch 002A），默认不展开受控查询说明。卡头恒为 `SQLite · 只读查询`，并含文字状态，不能只用绿色圆点。
+- 卡片第一行必须显示 `查询范围`、`耗时`、`返回`；第二行提供 `展开受控查询`、`查看 N 条证据`、`查看 receipt`。展开区只可显示服务端根据已批准 descriptor 生成并经过 checksum 验证的逻辑 `statement_display`；它不是原始 SQL，不包含物理表/列名或参数值。禁止自由编辑器、运行按钮或任意 schema 浏览。
 - 同一张卡中必须同时展示：数据库/source identity、query checksum、最新同步时间、source→AgentView 与 AgentView→canonical freshness/backlog、truncation（如有）和“只代表已授权、已索引范围”的限制。
 - 空结果：`当前授权范围没有匹配记录；查询范围未扩大。`。拒绝：`查询未执行：{安全原因}。请改为在已授权范围内提问。`。服务错误：`证据索引暂不可用；没有执行写入。请重试或查看系统状态。`。三种状态均保留 receipt/错误 code，但不回显 SQL body 或私有数据。
 

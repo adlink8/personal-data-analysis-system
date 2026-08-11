@@ -1,6 +1,7 @@
 # 数据分析项目 - 工作区指令
 
 > **完整 Agent 操作手册:** [`docs/AGENTS.md`](docs/AGENTS.md)  
+> **工程结构与测试（新增功能、修 Bug、改接口时必读）:** [`docs/architecture/engineering-and-testing-contract.md`](docs/architecture/engineering-and-testing-contract.md)
 > **对话同步:** [`docs/runbooks/product-sync.md`](docs/runbooks/product-sync.md)  
 > **KU 增量:** [`docs/runbooks/ku-incremental.md`](docs/runbooks/ku-incremental.md)  
 > **产品就绪分:** [`.planning/PRODUCT-READINESS.md`](.planning/PRODUCT-READINESS.md)  
@@ -100,5 +101,7 @@ AgentsView live：**只读**，永不搬迁。
 2. 不写 `~/.agentsview/sessions.db`  
 3. 不把 memory / personal_events 当知识 SSOT  
 4. 不提交 data/var 私有库与密钥  
-5. 改动后：`pk-ku doctor` 或相关 pytest  
-6. 详见 [`docs/AGENTS.md`](docs/AGENTS.md)  
+5. 新增行为、修 Bug、改接口：先声明公开 seam，按 **Red → Green → 定向回归** 验证
+6. 一个模块只承担一个主要变化原因；触发拆分条件时先拆分，再叠加行为
+7. 改动后：`pk-ku doctor` 或相关 pytest
+8. 详见 [`docs/AGENTS.md`](docs/AGENTS.md)

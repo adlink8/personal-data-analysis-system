@@ -55,7 +55,7 @@ metrics:
 
 ## Phase 13.5 规划（2026-07-10 新建）
 
-新上游：`C:\Users\li\.agentsview\sessions.db`。该库是正在写入的 WAL SQLite，约 513 MB，包含多 Agent 会话、消息、工具和父子/subagent 关系。
+新上游：`$HOME\.agentsview\sessions.db`。该库是正在写入的 WAL SQLite，约 513 MB，包含多 Agent 会话、消息、工具和父子/subagent 关系。
 
 目标：
 

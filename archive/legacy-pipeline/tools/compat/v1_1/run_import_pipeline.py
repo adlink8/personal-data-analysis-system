@@ -1,3 +1,9 @@
+# =============================================================================
+# DEPRECATED — 死代码（PDA-2 旧管线关闭）
+# Compatibility shim，转发至已归档的 personal_knowledge.application.run_import_pipeline
+# （引用已删除的 GPT/imports 旧路径）。勿调用。
+# =============================================================================
+
 """Compatibility shim -> pipeline.run_import_pipeline
 
 Legacy CLI: python integration/scripts/run_import_pipeline.py

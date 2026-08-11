@@ -42,8 +42,18 @@ This phase proves the new product shape without replacing the existing authoriti
 
 - **D-14:** AgentView remains the supported aggregation source for Codex, ZCode, and other Agent sessions. The project consumes its unified schema rather than building new source-specific parsers in Phase 61.
 - **D-15:** The system must display source freshness honestly. Source -> AgentView and AgentView -> canonical backlog cannot be represented as current or complete.
-- **D-16:** AI may query approved underlying SQLite data through a dedicated read-only Tool. The experience is direct, but implementation remains governed: SELECT/read-only CTE only, approved database/view/column scope, bounded rows/time/bytes, no ATTACH, extension loading, write PRAGMA, or mutation.
-- **D-17:** Every SQLite result carries database/source identity, freshness/version binding, query checksum, truncation state, and a receipt suitable for evidence drilldown.
+- **D-16:** AI may query approved underlying SQLite data only through a dedicated read-only Tool in the normal Skill lease -> Capability Broker -> Domain Tool path. SQLite is a Tool resource, not a parallel AI/Desktop data lane. The experience is direct because no separate business REST read model is required for the evidence query, but the model supplies only an approved versioned query descriptor and typed parameters, never SQL or a database path. The Python adapter owns the prepared SELECT/read-only CTE, approved database/view/column scope and row/time/byte bounds; ATTACH, extension loading, write PRAGMA and mutation remain unreachable.
+- **D-17:** Every SQLite result carries database/source identity, freshness/version binding, query checksum, truncation state, and a Tool receipt suitable for evidence drilldown. The renderer only displays that validated receipt. Fixed desktop chrome such as recent-thread metadata, service health and freshness badges may use named read-model projections, but those projections cannot accept model-generated SQL, expose a database handle or substitute for `evidence.sqlite_query`.
+
+The two read paths are deliberately distinct:
+
+```text
+AI turn -> Pi Agent loop -> Skill lease -> Capability Broker
+        -> evidence.sqlite_query Tool -> Python read-only adapter -> approved SQLite
+
+Desktop fixed view -> named DesktopBridge method -> fixed read-model provider
+                   -> metadata-only projection (no arbitrary query surface)
+```
 
 ### Evidence-bound second loop
 

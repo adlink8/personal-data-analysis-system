@@ -1,0 +1,105 @@
+version: 1
+last_reviewed: "2026-08-09"
+owner: engineering-governance
+policy_id: testing-contract-v1
+scope: new_or_modified_production_behavior
+
+seams:
+  declaration_required: true
+  test_target: public_behavior
+  required_evidence:
+    - public_interface
+    - observable_behavior
+    - invariants
+    - focused_command
+  forbidden_targets:
+    - private_method
+    - internal_call_order
+    - internal_call_count
+
+tdd:
+  required_for:
+    - behavior_change
+    - bug_fix
+    - public_contract_change
+    - data_transformation_change
+    - safety_policy_change
+  sequence: [red, green, focused_regression]
+  one_vertical_slice_at_a_time: true
+  red_evidence: focused_test_fails_for_expected_behavioral_reason
+  green_evidence: same_focused_test_passes_after_minimal_implementation
+  exceptions:
+    - docs_only
+    - comments_only
+    - styling_only
+    - nonbehavioral_configuration
+  exception_evidence: build_render_lint_or_smoke_command
+
+test_layers:
+  unit: pure_rules_and_transformations
+  contract: schemas_receipts_statuses_errors_and_provider_consumer_compatibility
+  integration: real_local_adapters_temporary_sqlite_and_event_journal
+  e2e: one_complete_vertical_user_path_per_critical_capability
+
+mocking:
+  allowed_boundaries:
+    - external_api
+    - model_provider
+    - clock
+    - randomness
+    - filesystem_boundary
+  preferred_test_doubles:
+    - temporary_sqlite
+    - deterministic_replay_provider
+    - local_standin
+  forbidden_targets:
+    - internal_project_module
+    - private_method
+    - implementation_call_count
+    - implementation_call_order
+  forbidden_patterns:
+    - tautological_expected_value
+    - helper_reimplements_production_algorithm
+
+change_gates:
+  behavior_change_requires_test_or_explicit_exception: true
+  bug_fix_requires_regression_test: true
+  public_interface_change_requires:
+    - provider_contract_test
+    - consumer_contract_test
+    - real_adapter_integration_test
+  new_skip_or_xfail_requires:
+    - reason
+    - tracking_reference
+    - removal_condition
+  flaky_retry_may_not_mask_failure: true
+  focused_command_must_pass: true
+  related_regression_must_pass: true
+  git_diff_check_must_pass: true
+
+coverage:
+  role: secondary_gate_not_a_substitute_for_behavior_mapping
+  changed_line_percent: 85
+  critical_policy_branch_percent: 100
+  repository_coverage_must_not_drop: true
+  required_mapping:
+    - requirement
+    - decision
+    - negative_case
+
+critical_invariant_classes:
+  - authorization_and_lease_denial
+  - read_only_sqlite_containment
+  - freshness_truthfulness
+  - cancellation_and_unknown_outcome
+  - candidate_projection_lifecycle
+  - replay_and_idempotency
+  - authority_fingerprint_stability
+  - privacy_and_secret_redaction
+  - renderer_process_isolation
+
+test_code_quality:
+  one_public_seam_or_behavior_family_per_file: true
+  fixtures: minimal_redacted_deterministic
+  helpers: data_construction_only_no_business_decisions
+  test_names: observable_behavior_and_result

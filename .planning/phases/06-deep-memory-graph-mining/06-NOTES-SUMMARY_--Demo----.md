@@ -2,7 +2,7 @@
 
 > 实验日期:2026-06-17
 > 实验目的:对照外部记忆框架,验证本项目(数据分析/)自建记忆层的方向,识别可吸收的能力。
-> 实验场地:`C:\Users\li\Desktop\memory-bench\`(与主项目物理隔离,单向只读拉取样本)
+> 实验场地:`$HOME\Desktop\memory-bench\`(与主项目物理隔离,单向只读拉取样本)
 > 数据来源:本项目 `unified_search.py` 导出(Agent/GPT/Google 各 200 条事件 + 194 条记忆基线)
 
 ---
@@ -101,7 +101,7 @@ Phase 8  SQLite 保存会话历史 + ADD/UPDATE/DELETE 日志
 | OpenAI Dreaming V3 记忆架构,算力降到 1/5 | **用户查的资讯**,不是用户的行为 |
 | Agent terminated 原因是 MCP 工具冲突/上下文溢出 | 排障建议,跟实际崩了(#5)应合并 |
 | 用户问了最新 ChatGPT 记忆更新 | **纯查询记录**,无长期记忆价值 |
-| TuyaOpen SDK 在 WSL /home/li/TuyaOpen | 路径太碎,应挂在 TuYa 项目下面 |
+| TuyaOpen SDK 在 WSL $HOME/TuyaOpen | 路径太碎,应挂在 TuYa 项目下面 |
 
 **🔴 C 级(噪音,3 条):**
 
@@ -362,18 +362,18 @@ docker run -p 3000:3000 -p 6379:6379 falkordb/falkordb
 
 ```powershell
 # Mem0
-cd C:\Users\li\Desktop\memory-bench
+cd $HOME\Desktop\memory-bench
 .venv\Scripts\python.exe mem0_demo\demo.py --reset --ingest --limit 20
 .venv\Scripts\python.exe mem0_demo\demo.py --search "你的查询"
 
 # Graphiti
-cd C:\Users\li\Desktop\memory-bench\graphiti_demo
+cd $HOME\Desktop\memory-bench\graphiti_demo
 docker compose up -d
 cd ..
 .venv\Scripts\python.exe graphiti_demo\demo.py --setup --add "测试文本" --search "查询" --stats
 
 # 证据链验证
-cd C:\Users\li\Desktop\数据分析
+cd $HOME\Desktop\数据分析
 python integration\scripts\unified_search.py memory --subject "GSD项目管理" --neighbors 1
 ```
 

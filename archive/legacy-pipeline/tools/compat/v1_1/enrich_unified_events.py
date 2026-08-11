@@ -1,3 +1,9 @@
+# =============================================================================
+# DEPRECATED — 死代码（PDA-2 旧管线关闭）
+# Compatibility shim，转发至已归档的 personal_knowledge.application.enrich_unified_events
+# （引用已删除的 Agent 旧路径）。勿调用。
+# =============================================================================
+
 """Compatibility shim -> pipeline.enrich_unified_events
 
 Legacy CLI: python integration/scripts/enrich_unified_events.py

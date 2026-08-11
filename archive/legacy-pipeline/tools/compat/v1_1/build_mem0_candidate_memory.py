@@ -1,3 +1,9 @@
+# =============================================================================
+# DEPRECATED — 死代码（PDA-2 旧管线关闭）
+# Compatibility shim，转发至已归档的 domains/memory/build_mem0_candidate_memory
+# （mem0 实验已在 Phase 07 降级，不在主路径）。勿调用。
+# =============================================================================
+
 """Compatibility shim -> memory.build_mem0_candidate_memory
 
 Legacy CLI: python integration/scripts/build_mem0_candidate_memory.py

@@ -2,7 +2,7 @@
 
 ## Current Facts
 
-- Project root: `C:\Users\li\Desktop\数据分析`.
+- Project root: `$HOME\Desktop\数据分析`.
 - Authoritative phase history is `.gsd/phases/`; `.planning/ROADMAP.md` is absent.
 - Phase 11 added a ChatGPT-facing HTTP MCP Apps adapter and read-only memory graph widgets.
 - Current live dataset shape:

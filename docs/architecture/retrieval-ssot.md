@@ -15,7 +15,7 @@
 
 - `memory_items` 是实验层，**不得**与 KU 并列作为消费 SSOT。
 - AgentsView `insights` 为可选旁路，**不得**覆盖 KU。
-- **禁止**写入 AgentsView live DB（`C:\Users\li\.agentsview\sessions.db`）。
+- **禁止**写入 AgentsView live DB（`$HOME\.agentsview\sessions.db`）。
 
 ### 1.1 状态 API 字段
 

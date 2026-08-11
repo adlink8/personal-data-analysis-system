@@ -1,3 +1,13 @@
+# =============================================================================
+# DEPRECATED — 死代码（PDA-2 旧管线关闭）
+# -----------------------------------------------------------------------------
+# Phase 20 迁移已删除 Agent/ GPT/ 目录，本模块引用的
+# ROOT/"GPT"/"structured"/"db"/"chatgpt_data.db"、
+# ROOT/"Agent"/"structured"/"db"/"agent_data.sqlite" 已不存在，运行即报错。
+# 新管道（pk-sync conversations）走 ~/.agentsview/sessions.db。
+# 已归档至 archive/legacy-pipeline/，仅备查，勿调用。
+# =============================================================================
+
 from __future__ import annotations
 
 import html

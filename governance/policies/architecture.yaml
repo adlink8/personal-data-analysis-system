@@ -39,3 +39,18 @@ forbidden:
   - {from: knowledge, to: [pipeline, services, evaluation]}
   - {from: memory, to: [pipeline, services, evaluation]}
   - {from: graph, to: [pipeline, services, evaluation]}
+module_design:
+  one_primary_responsibility_per_module: true
+  public_surface_rule: one_primary_public_seam_with_cohesive_helpers
+  required_split_triggers:
+    - second_independent_reason_to_change
+    - second_state_machine_or_lifecycle
+    - second_authority_owner
+    - mixed_ui_transport_domain_and_persistence
+    - internal_mock_required_to_isolate_public_behavior
+  review_thresholds:
+    production_file_lines: 500
+    function_lines: 80
+    test_file_lines: 700
+  threshold_scope: new_or_modified_files
+  threshold_behavior: justify_or_split_before_adding_behavior

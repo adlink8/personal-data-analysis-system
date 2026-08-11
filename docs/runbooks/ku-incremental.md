@@ -65,7 +65,7 @@ $env:PYTHONPATH = "<project-root>\src"
 
 # Vertex extraction (existing scripts) — gcloud must work
 # If gcloud not on PATH, set:
-$env:PERSONAL_DATA_GCLOUD = "C:\Users\li\google-cloud-sdk\gcloud.bat"   # example machine path
+$env:PERSONAL_DATA_GCLOUD = "$HOME\google-cloud-sdk\gcloud.bat"   # example machine path
 
 # Verify token without printing it
 & $env:PERSONAL_DATA_GCLOUD auth print-access-token | ForEach-Object { "token_len=$($_.Length)" }
@@ -369,7 +369,7 @@ Does **not** promote active index, advance watermark, or call paid extract.
 |------|-----|
 | Vertex token | `gcloud auth print-access-token` via `PERSONAL_DATA_GCLOUD` if not on PATH |
 | Project/model defaults | `PERSONAL_DATA_GCP_PROJECT`, `PERSONAL_DATA_VERTEX_LOCATION`, `PERSONAL_DATA_VERTEX_MODEL` |
-| Machine example (do not hardcode in new scripts) | `C:\Users\li\google-cloud-sdk\gcloud.bat` was verified present; PATH may omit it |
+| Machine example (do not hardcode in new scripts) | `$HOME\google-cloud-sdk\gcloud.bat` was verified present; PATH may omit it |
 
 Do **not** rewrite extraction to another LLM provider as a “quick fix” without an explicit product decision.
 

@@ -2,7 +2,7 @@
 
 **Purpose:** Single source of instruction for AI coding agents and CLI agents working
 in this repository. Prefer this file over outdated chat memory when procedures conflict.  
-**Last updated:** 2026-07-16 (Phase 22 + facade debt clear + active promote)  
+**Last updated:** 2026-08-09 (engineering structure + testing contract)
 **Workspace root:** project root containing `src/personal_knowledge/`, `data/`, `var/`, `.planning/`.  
 **Readiness:** `.planning/PRODUCT-READINESS.md` (~89 weighted daily product-grade approach).
 
@@ -232,8 +232,9 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 7. **Planning:** multi-phase work uses `.planning/`; small fixes do not need GSD.  
 8. **Windows + PowerShell** is the default environment.  
 9. **Imports:** new code uses `application.*` / `evaluation.*` / `core.llm` only. `domains/*` is optional re-export; **application→domains debt = 0** (`pk-ku doctor`).  
-
-10. If services are down: restart via `start-services.ps1`; check all three health URLs.
+10. **Engineering contract:** before adding behavior, fixing a bug, or changing an interface, read [`architecture/engineering-and-testing-contract.md`](architecture/engineering-and-testing-contract.md). Declare the public seam, observable behavior, invariants, and focused command; then use Red → Green → focused regression.
+11. **Module cohesion:** one module has one primary reason to change. Split before adding a second independent behavior, lifecycle/state machine, authority owner, or a mixed UI/transport/domain/persistence responsibility.
+12. If services are down: restart via `start-services.ps1`; check all three health URLs.
 
 ---
 
@@ -246,6 +247,8 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 [ ] Do not write ~/.agentsview/sessions.db
 [ ] Do not run rag-pipeline for product sync
 [ ] Do not commit data/var private artifacts
+[ ] Declare the public seam and make the focused behavior test red before implementation
+[ ] Split modules that hit a required split trigger; justify or split files above review thresholds
 [ ] After code changes: smoke import + relevant tests
 [ ] Report paths, commands run, before/after counts when mutating data
 ```
@@ -286,6 +289,7 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 | [architecture/retrieval-ssot.md](architecture/retrieval-ssot.md) | Three-layer SSOT + hybrid |
 | [architecture/repository-zones.md](architecture/repository-zones.md) | data/var/archive/src zoning |
 | [architecture/domains-slimming.md](architecture/domains-slimming.md) | application vs domains layout + facade clear |
+| [architecture/engineering-and-testing-contract.md](architecture/engineering-and-testing-contract.md) | Module cohesion, public seams, Red/Green, mocking, negative tests, and change gates |
 | [../AGENTS.md](../AGENTS.md) | Workspace MCP/service short instructions |
 | [../.planning/PROJECT.md](../.planning/PROJECT.md) | Product goals & decisions |
 | [../.planning/ROADMAP.md](../.planning/ROADMAP.md) | Phase status (through Phase 22) |

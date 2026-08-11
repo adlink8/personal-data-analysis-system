@@ -2,7 +2,7 @@
 
 ## Current Facts
 
-- Project root: `C:\Users\li\Desktop\数据分析`.
+- Project root: `$HOME\Desktop\数据分析`.
 - The project uses `.gsd/phases/` as the authoritative phase history. `.planning/ROADMAP.md` is absent and `.planning/STATE.md` is stale by design.
 - Current MCP server:
   - `integration/scripts/mcp_server.py`
@@ -18,9 +18,9 @@
 - Current graph server:
   - static graph server at `http://127.0.0.1:8765`
 - Current official tunnel client:
-  - binary: `C:\Users\li\Desktop\tunnel-client\tunnel-client.exe`
+  - binary: `$HOME\Desktop\tunnel-client\tunnel-client.exe`
   - current health endpoint: `http://127.0.0.1:8080/healthz`
-  - current profile: `C:\Users\li\AppData\Roaming\tunnel-client\codexpro.yaml`
+  - current profile: `$HOME\AppData\Roaming\tunnel-client\codexpro.yaml`
   - current profile points to CodexPro at `http://127.0.0.1:8788/mcp`, not this data-analysis project.
 - Latest verified memory graph data:
   - `memory_items=194`
@@ -176,5 +176,5 @@ Build two widgets first:
 - `integration/scripts/unified_search.py` - core data access contracts.
 - `integration/scripts/query_graph.py` - existing graph loading and visualization behavior.
 - `tests/test_memory_contracts.py` - current core/CLI/REST/MCP contract test.
-- `C:\Users\li\Desktop\tunnel-client\ops\watchdog\watchdog.production.config.json` - existing tunnel watchdog pattern.
-- `C:\Users\li\AppData\Roaming\tunnel-client\codexpro.yaml` - current profile to avoid mutating.
+- `$HOME\Desktop\tunnel-client\ops\watchdog\watchdog.production.config.json` - existing tunnel watchdog pattern.
+- `$HOME\AppData\Roaming\tunnel-client\codexpro.yaml` - current profile to avoid mutating.

@@ -1,3 +1,9 @@
+# =============================================================================
+# DEPRECATED — 死代码（PDA-2 旧管线关闭）
+# Compatibility shim，转发至已归档的 personal_knowledge.application.build_integrated_system
+# （引用已删除的 Agent/GPT 旧路径）。勿调用。
+# =============================================================================
+
 """Compatibility shim -> pipeline.build_integrated_system
 
 Legacy CLI: python integration/scripts/build_integrated_system.py

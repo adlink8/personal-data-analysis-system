@@ -56,7 +56,7 @@ search_knowledge_units:
 ### D-03：对话补洞优先 View/canonical，不直连 live 写
 
 - 运行时只读：`agent_conversations` 或已发布 snapshot；可选 FTS 探针可只读 View。
-- 禁止写入 `C:\Users\li\.agentsview\sessions.db`。
+- 禁止写入 `$HOME\.agentsview\sessions.db`。
 - evidence_ref 继续 `cm|…`，与 Phase 14 一致。
 
 ### D-04：Google 不进本阶段 KU 生产
