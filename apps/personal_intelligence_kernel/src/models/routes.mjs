@@ -128,7 +128,7 @@ export function buildModelRoutes({ manifest = {}, config = {}, env = process.env
       purpose,
       provider,
       model,
-      timeout_ms: 30000,
+      timeout_ms: numberAtLeast(1000, fromConfig.timeout_ms, config.timeoutMs, fromManifest.timeout_ms, embedded.timeout_ms) ?? 30000,
       max_input_tokens: 4096,
       max_output_tokens: numberAtLeast(1, globalEnv.max_output_tokens, fromConfig.max_output_tokens, config.maxOutputTokens, fromManifest.max_output_tokens, embedded.max_output_tokens) ?? 4096,
       cost_ceiling: realProviderEnabled ? (numberAtLeast(0, fromConfig.cost_ceiling, globalCostCeiling, fromManifest.cost_ceiling, embedded.cost_ceiling) ?? 0) : 0,

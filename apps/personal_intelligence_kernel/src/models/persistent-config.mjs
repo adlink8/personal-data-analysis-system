@@ -38,6 +38,7 @@ export function readProviderConfig({ configPath = process.env.PI_PROVIDER_CONFIG
     const maxOutputTokens = positiveNumber(value.max_output_tokens);
     const maxAttempts = attemptsInteger(value.max_attempts);
     const noFallback = value.no_fallback == null ? undefined : Boolean(value.no_fallback);
+    const timeoutMs = positiveNumber(value.timeout_ms);
     const routeOverrides = {};
     if (value.routes && typeof value.routes === "object" && !Array.isArray(value.routes)) {
       for (const [purpose, entry] of Object.entries(value.routes)) {
@@ -47,6 +48,7 @@ export function readProviderConfig({ configPath = process.env.PI_PROVIDER_CONFIG
         if (entry.max_attempts != null) { const parsed = attemptsInteger(entry.max_attempts); if (parsed !== undefined) override.max_attempts = parsed; }
         if (entry.no_fallback != null) override.no_fallback = Boolean(entry.no_fallback);
         if (entry.cost_ceiling != null) { const parsed = nonNegativeNumber(entry.cost_ceiling); if (parsed !== undefined) override.cost_ceiling = parsed; }
+        if (entry.timeout_ms != null) { const parsed = positiveNumber(entry.timeout_ms); if (parsed !== undefined) override.timeout_ms = parsed; }
         if (Object.keys(override).length > 0) routeOverrides[purpose] = Object.freeze(override);
       }
     }
@@ -64,6 +66,7 @@ export function readProviderConfig({ configPath = process.env.PI_PROVIDER_CONFIG
       maxOutputTokens,
       maxAttempts,
       noFallback,
+      timeoutMs,
       routeOverrides,
     });
   } catch {
