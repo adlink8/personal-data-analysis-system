@@ -77,7 +77,19 @@ export function createDashScopeTransport({
 
     try {
       const content = raw.choices[0].message.content;
-      const payload = typeof content === "string" ? JSON.parse(content) : content;
+      // Thinking models (deepseek-v4-flash etc.) return natural-language text,
+      // not JSON. Prefer JSON when the model emits it; otherwise wrap the text
+      // so the payload stays an object (provider-adapter requires object).
+      let payload;
+      if (typeof content === "string") {
+        try {
+          payload = JSON.parse(content);
+        } catch {
+          payload = { content };
+        }
+      } else {
+        payload = content;
+      }
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("payload");
       const inputTokens = Number(raw.usage?.prompt_tokens ?? 0);
       const outputTokens = Number(raw.usage?.completion_tokens ?? 0);
