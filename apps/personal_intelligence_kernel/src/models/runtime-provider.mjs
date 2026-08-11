@@ -26,7 +26,7 @@ export function createConfiguredProviderAdapter({
     });
   }
   if (!["aliyun", "dashscope", "openai", "openai-compatible"].includes(normalizedMode)) throw new Error("provider_mode_unknown");
-  const configuredKey = apiKey ?? process.env.DASHSCOPE_API_KEY ?? readPersistedDashScopeApiKey({ secretPath: config.secretPath });
+  const configuredKey = apiKey ?? process.env.DASHSCOPE_API_KEY ?? config.apiKey ?? readPersistedDashScopeApiKey({ secretPath: config.secretPath });
   return new ProviderAdapter({
     credentials: configuredKey,
     // dashscope/aliyun and any generic OpenAI-compatible endpoint share the

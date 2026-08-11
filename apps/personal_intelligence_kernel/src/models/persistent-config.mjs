@@ -23,6 +23,10 @@ export function readProviderConfig({ configPath = process.env.PI_PROVIDER_CONFIG
     const mode = String(value.mode || "replay").trim().toLowerCase();
     const baseUrl = String(value.base_url || "").trim();
     const model = String(value.model || "").trim();
+    // Plaintext API key support (2026-08-11): the key is stored directly in the
+    // config file instead of DPAPI-encrypted secret_path. Read at construction;
+    // never included in receipts or errors.
+    const apiKey = typeof value.api_key === "string" && value.api_key.trim() ? value.api_key.trim() : undefined;
     const costCeiling = Number(value.cost_ceiling ?? 0);
     const inputPricePerMillion = Number(value.input_price_per_million ?? 1);
     const outputPricePerMillion = Number(value.output_price_per_million ?? 2);
@@ -55,6 +59,7 @@ export function readProviderConfig({ configPath = process.env.PI_PROVIDER_CONFIG
       inputPricePerMillion,
       outputPricePerMillion,
       currency,
+      apiKey,
       secretPath: absolutePath(value.secret_path, DEFAULT_PROVIDER_SECRET_PATH),
       maxOutputTokens,
       maxAttempts,
