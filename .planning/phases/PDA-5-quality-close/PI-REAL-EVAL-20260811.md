@@ -17,10 +17,13 @@
 - warehouse 类工具缺运行参数（authority_id 等）→ 失败
 - evidence.sqlite_query：修复 lease 注入后过 manifest_drift，但缺 session_id → database_unknown
 
-### 结论
-Pi skill/tool 是能力编排骨架，数据层未接真实源。
-真实数据接入 = v2.0 Phase 55-57（warehouse 工具/语义维护/guarded release）。
-真实分析（决策/知识抽取）走 Python intelligence/analysis 引擎，已通。
+### 结论（Phase 55-57 实施后，2026-08-12）
+44 工具真实数据接入完成：read_handler 分发 + warehouse metadata 真实化。
+synthetic 消除，skill 全流程工具返回真实数据：
+- daily_brief/research/decision.support/system.diagnosis/warehouse.health 全部 completed
+- knowledge.search 返回真实 unit（cu|ccea34da...）
+- warehouse.inspect 返回 175842 records / 216 failed
+- 模型真实消费：decision.support 调 deepseek-v4-flash（39/29 tokens）
 
 ## 修复提交
 - transport: 思考关闭双 flag
