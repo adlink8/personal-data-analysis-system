@@ -425,6 +425,16 @@ export class KernelHost {
           params.task_id = actualTaskId;
           params.idempotency_key = stepIdempotencyKey;
           params.binding = "pi_kernel_skill";
+          // Evidence lease binding: the fixed evidence.sqlite_query provider
+          // requires the executing skill id, its manifest checksum and the
+          // privacy ceiling to be present, or it fails closed with
+          // manifest_drift/lease_invalid. Derive from the bound skill so the
+          // declared step never needs caller-supplied lease fields.
+          if (step.tool === "evidence.sqlite_query") {
+            params.skill_id = skill.id;
+            params.manifest_checksum = skill.checksum;
+            params.privacy_ceiling = "R1";
+          }
           if (executionContext.preview && ["ingestion.quarantine", "ingestion.commit", "snapshot.activate", "snapshot.rollback"].includes(step.tool)) {
             params.preview = executionContext.preview;
             params.idempotency_key = executionContext.preview.idempotency_key;

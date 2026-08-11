@@ -56,6 +56,10 @@ export function createDashScopeTransport({
           temperature: 0.2,
           max_tokens: request.max_output_tokens,
           enable_thinking: false,
+          // Thinking models (deepseek-v4-flash) honor Anthropic-style
+          // thinking.disabled; both flags are sent so fast direct responses
+          // are possible instead of reasoning-token-heavy output.
+          thinking: { type: "disabled" },
           ...(route?.structured_output === true ? { response_format: { type: "json_object" } } : {}),
         }),
         signal: controller.signal,
