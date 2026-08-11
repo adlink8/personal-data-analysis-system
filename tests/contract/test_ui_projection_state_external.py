@@ -3,6 +3,8 @@ import threading
 import urllib.request
 from http.server import ThreadingHTTPServer
 
+import pytest
+
 # 注入含路径/密钥/Bearer/provider JSON/confirmation-HMAC 字样的异常文本,
 # 验证公开 envelope(D-36-06)绝不回显这些片段——只允许 allowlisted safe code/message。
 _POISON_MESSAGE = (
@@ -252,6 +254,7 @@ def test_rest_adapter_parity_new_operations():
         assert rest == direct
 
 
+@pytest.mark.skip(reason="FROZEN 2026-08-11: cockpit /ui/* 入口停用,该 HTTP 路由契约测试跳过;测试保留,取消冻结后恢复")
 def test_ui_routes_serve_new_endpoints():
     server = ThreadingHTTPServer(("127.0.0.1", 0), api_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

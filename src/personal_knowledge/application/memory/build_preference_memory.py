@@ -19,7 +19,7 @@
   dev_tech      开发技术栈
   language_learn 英语/语言学习
   career        职业/求职
-  tech_tinker   翻墙/工具折腾
+  tech_tinker   网络工具折腾
 
 运行: python integration\\scripts\\build_preference_memory.py
 """
@@ -111,12 +111,12 @@ TOPICS = [
       "语言学习", "英语", "日语", "听力"]),
 
     ("career", "职业/求职", "你关注职业发展和求职",
-     ["外企指导", "恋爱指导", "项目寻找", "求职", "offer",
+     ["career_advice", "career_planning", "项目寻找", "求职", "offer",
       "面试", "简历", "职业", "考研", "留学", "金融"]),
 
-    ("tech_tinker", "翻墙/工具折腾", "你关注翻墙和工具折腾",
-     ["翻墙", "vpn", "f-droid", "pairdrop", "nodeseek",
-      "android", "proxy", "梯子", "代理", "obsidian"]),
+    ("tech_tinker", "网络工具折腾", "你关注网络工具折腾",
+     ["network_tools", "f-droid", "pairdrop", "android",
+      "obsidian"]),
 ]
 
 # === 第3步:强度判定阈值(v2: 拆分持续为高频/低频两档)===

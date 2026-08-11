@@ -228,6 +228,7 @@ def test_dev_origin_mutation_still_reaches_orchestration(live_server, monkeypatc
 # --- Task 3: 静态 Cockpit 与 transport 错误的安全公开信息 --------------------
 
 
+@pytest.mark.skip(reason="FROZEN 2026-08-11: /app 静态托管停用,该路由契约测试跳过;测试保留,取消冻结后恢复")
 def test_missing_cockpit_asset_returns_safe_error_without_path_echo(live_server, monkeypatch, tmp_path):
     dist = tmp_path / "dist"
     dist.mkdir()
@@ -242,6 +243,7 @@ def test_missing_cockpit_asset_returns_safe_error_without_path_echo(live_server,
     assert "does-not-exist-1234.js" not in resp["body"].decode("utf-8")
 
 
+@pytest.mark.skip(reason="FROZEN 2026-08-11: /app 静态托管停用,该路由契约测试跳过;测试保留,取消冻结后恢复")
 def test_cockpit_not_built_returns_safe_error(live_server, monkeypatch, tmp_path):
     monkeypatch.setattr(api_server, "COCKPIT_DIST", tmp_path / "missing-dist")
     resp = _request(live_server, "GET", "/app/anything.js")

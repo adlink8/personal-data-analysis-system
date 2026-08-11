@@ -549,6 +549,7 @@ def test_rest_adapter_parity_phase39_operations():
         assert rest == direct
 
 
+@pytest.mark.skip(reason="FROZEN 2026-08-11: cockpit /ui/* 入口停用,该 HTTP 路由契约测试跳过;测试保留,取消冻结后恢复")
 def test_ui_routes_serve_phase39_endpoints():
     server = ThreadingHTTPServer(("127.0.0.1", 0), api_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

@@ -53,7 +53,7 @@ CODE_PATTERNS = [
     r"src文件夹|前缀我就直接放到",
 ]
 PROFILE_PATTERNS = [
-    r"余华|草台班子|实习焦虑|生儿育女|养老|彩礼|结婚|父母",
+    r"人生|价值观|家庭|职业|生活|个人",
     r"我的项目|github\.com/",
     r"Hermes agent|自进化",
     r"远程ssh|电脑.*手机.*平板",
@@ -70,7 +70,7 @@ GOOGLE_PATTERNS = [
 MIXED_HINTS = [
     r"Phase \d|GSD|工作目录|子代理|planner|必须读取",
     r"Assistant Rules|Available Skills|Codex agent history",
-    r"t5ai-codex|pet-hospital|novel-mind|AI-Memory",
+    r"desktop-app|prototype|project-ui",
 ]
 
 
@@ -155,22 +155,22 @@ SPOT_CHECK_OVERRIDES: dict[str, str] = {
     # frozen
     "frozen-001": "code",       # Azure ARM JSON error dump
     "frozen-002": "code",       # check Chinese docstrings in py files
-    "frozen-003": "mixed",      # novel-mind feature task (code + product)
+    "frozen-003": "mixed",      # product feature task (code + product)
     "frozen-004": "mixed",      # agent rules/skills system prompt
     "frozen-005": "mixed",      # codex review history
-    "frozen-006": "profile",    # 余华/实习/人生观 chat
+    "frozen-006": "profile",    # personal/values chat
     "frozen-007": "profile",    # personal github project
     "frozen-008": "mixed",      # product role design (user/admin/agent)
     "frozen-009": "code",       # Android Java spinner
-    "frozen-010": "mixed",      # petcare phase2 frontend agent task
+    "frozen-010": "mixed",      # fullstack app phase2 frontend agent task
     "frozen-011": "profile",    # hardware card capability question (personal context)
     "frozen-012": "code",       # package prefix / src layout
-    "frozen-013": "profile",    # family/养老 philosophy
+    "frozen-013": "profile",    # family/values philosophy
     "frozen-014": "profile",    # personal device networking (ssh tablets)
     "frozen-015": "code",       # JSONException stacktrace
     "frozen-016": "code",       # WPF C# source
     "frozen-017": "mixed",      # 信息安全 lab writeup task
-    "frozen-018": "mixed",      # GSD planner petcare phase1
+    "frozen-018": "mixed",      # GSD planner fullstack app phase1
     "frozen-019": "profile",    # which DB/vector UI to download (personal setup)
     "frozen-020": "profile",    # Hermes agent awareness
     # dev (spot-check)
@@ -179,7 +179,7 @@ SPOT_CHECK_OVERRIDES: dict[str, str] = {
     "dev-003": "mixed",         # preferences consolidate
     "dev-004": "mixed",         # turn aborted system msg
     "dev-005": "code",          # JSONException stack
-    "dev-006": "mixed",         # GSD phase5 petcare
+    "dev-006": "mixed",         # GSD phase5 fullstack app
     "dev-007": "profile",       # DB architecture questions
     "dev-008": "mixed",         # cb_summary agent context
     "dev-009": "mixed",         # roadmap issue cleanup
@@ -190,7 +190,7 @@ SPOT_CHECK_OVERRIDES: dict[str, str] = {
     "dev-014": "mixed",         # codex URL config
     "dev-015": "mixed",         # gsd research mem0 etc
     "dev-016": "mixed",         # GSD phase5 wave3
-    "dev-017": "profile",       # 彩礼/结婚 economics
+    "dev-017": "profile",       # marriage/family economics
     "dev-018": "profile",       # memory experiment roadmap
     "dev-019": "mixed",         # phase8 plan agent
     "dev-020": "profile",       # ESP32 trend chat

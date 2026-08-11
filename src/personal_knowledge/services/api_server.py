@@ -21,23 +21,27 @@ POST /search/query          精确查询(结构化条件过滤 sqlite)
 GET  /event/<event_id>      单条事件全字段
 GET  /profile               返回 AI 长期上下文文档内容(RAG 注入用)
 GET  /health                健康检查(含 knowledge.active_collection)
-GET  /ui/overview           Personal Decision Cockpit 总览投影(五权威只读聚合)
-GET  /ui/system/status      Cockpit 系统状态(端口探活 / 知识索引 / 权威 DB 可读性)
-GET  /ui/personal-state     Cockpit 个人状态投影(八域断言 / 生命周期 / 近期变化)
-GET  /ui/external/delta     Cockpit 外部数据增量投影(source / fact / delta 分类)
-GET  /ui/decision-queue     Cockpit 决策队列投影(六 stage 看板分组)
-GET  /ui/decision/workspace Cockpit 决策工作区投影(?recommendation_id=<id>,四节聚合)
-GET  /ui/actions/recent     Cockpit 近期行动投影(最近推荐的全链六阶段时间线)
-GET  /ui/proactive/summary  Cockpit 主动情报摘要(inbox 分组 + 噪声指标)
-GET  /ui/calibration/overview Cockpit 校准总览(逐 protocol verdict 摘要)
+GET  /ui/overview           Personal Decision Cockpit 总览投影(五权威只读聚合)  [FROZEN 2026-08-11]
+GET  /ui/system/status      Cockpit 系统状态(端口探活 / 知识索引 / 权威 DB 可读性)  [FROZEN 2026-08-11]
+GET  /ui/personal-state     Cockpit 个人状态投影(八域断言 / 生命周期 / 近期变化)  [FROZEN 2026-08-11]
+GET  /ui/external/delta     Cockpit 外部数据增量投影(source / fact / delta 分类)  [FROZEN 2026-08-11]
+GET  /ui/decision-queue     Cockpit 决策队列投影(六 stage 看板分组)  [FROZEN 2026-08-11]
+GET  /ui/decision/workspace Cockpit 决策工作区投影(?recommendation_id=<id>,四节聚合)  [FROZEN 2026-08-11]
+GET  /ui/actions/recent     Cockpit 近期行动投影(最近推荐的全链六阶段时间线)  [FROZEN 2026-08-11]
+GET  /ui/proactive/summary  Cockpit 主动情报摘要(inbox 分组 + 噪声指标)  [FROZEN 2026-08-11]
+GET  /ui/calibration/overview Cockpit 校准总览(逐 protocol verdict 摘要)  [FROZEN 2026-08-11]
 GET  /ui/evidence/resolve  Cockpit 只读证据解析(?subject_type=personal_state|external_fact|decision
                             &stable_id=&snapshot_id=&checksum=,personal_state 另需
-                            assertion_kind/subject/domain/scope/predicate)
-GET  /ui/topics             Wiki P0 topic.list 只读目录
-GET  /ui/topic               Wiki P0 topic.get 只读主题投影
-GET  /ui/topic/backlinks     Wiki P0 topic.backlinks 显式关系
-GET  /ui/topic/resolve       Wiki scoped read fallback provenance
-GET  /app[/<path>]          Cockpit 前端静态托管(apps/personal_decision_cockpit/dist,SPA fallback)
+                            assertion_kind/subject/domain/scope/predicate)  [FROZEN 2026-08-11]
+GET  /ui/topics             Wiki P0 topic.list 只读目录(保持可用)
+GET  /ui/topic               Wiki P0 topic.get 只读主题投影(保持可用)
+GET  /ui/topic/backlinks     Wiki P0 topic.backlinks 显式关系(保持可用)
+GET  /ui/topic/resolve       Wiki scoped read fallback provenance(保持可用)
+GET  /app[/<path>]          Cockpit 前端静态托管(apps/personal_decision_cockpit/dist,SPA fallback)  [FROZEN 2026-08-11]
+
+FROZEN 说明:2026-08-11 起 Cockpit(web)入口停用,产品方向调整为 wiki 统合层,web 不再
+是核心入口。路由定义与代码保留不删,分发处已注释(见 do_GET 内 "FROZEN 2026-08-11" 段落),
+恢复时取消对应注释即可。wiki 4 条接口不受影响。
 
 GET  接口也可改用 POST(方便前端统一处理),参数走 query string。
 POST 接口参数走 JSON body。
@@ -515,10 +519,12 @@ class Handler(BaseHTTPRequestHandler):
                     or path == "/api/pi/events"):
                 orchestration_handlers.handle_get(self, ctx)
                 return
-            # Cockpit 前端静态托管(用未 rstrip 的 url.path 区分 /app 与 /app/)
-            if url.path == "/app" or url.path.startswith("/app/"):
-                meta_handlers.serve_cockpit_static(self, ctx)
-                return
+            # --- FROZEN 2026-08-11: Cockpit 前端静态托管(/app[/<path>])停用。产品方向调整
+            # 为 wiki 统合层,web 不再是核心入口。代码保留不删,请求现在落到下方 404 未知路径。
+            # 恢复方式:取消本段注释即可恢复 apps/personal_decision_cockpit/dist 的 SPA 托管。
+            # if url.path == "/app" or url.path.startswith("/app/"):
+            #     meta_handlers.serve_cockpit_static(self, ctx)
+            #     return
             if path == "/health":
                 meta_handlers.handle_health(self, ctx)
                 return
@@ -558,14 +564,21 @@ class Handler(BaseHTTPRequestHandler):
             }:
                 agent_handlers.handle(self, ctx)
                 return
-            if path in {
-                "/ui/overview", "/ui/system/status", "/ui/personal-state",
-                "/ui/external/delta", "/ui/decision-queue", "/ui/decision/workspace",
-                "/ui/actions/recent", "/ui/proactive/summary", "/ui/calibration/overview",
-                "/ui/evidence/resolve",
-            }:
-                ui_handlers.handle(self, ctx)
-                return
+            # --- FROZEN 2026-08-11: Cockpit 专用只读投影路由停用。产品方向调整为 wiki 统合层,
+            # web 不再是核心入口。代码保留不删,请求现在落到下方 404 未知路径。
+            # 停用列表(10 条):/ui/overview /ui/system/status /ui/personal-state
+            #   /ui/external/delta /ui/decision-queue /ui/decision/workspace /ui/actions/recent
+            #   /ui/proactive/summary /ui/calibration/overview /ui/evidence/resolve
+            # 恢复方式:取消本段注释即可恢复。wiki 接口(/ui/topics /ui/topic
+            #   /ui/topic/backlinks /ui/topic/resolve)保持可用,见下方独立分发段。
+            # if path in {
+            #     "/ui/overview", "/ui/system/status", "/ui/personal-state",
+            #     "/ui/external/delta", "/ui/decision-queue", "/ui/decision/workspace",
+            #     "/ui/actions/recent", "/ui/proactive/summary", "/ui/calibration/overview",
+            #     "/ui/evidence/resolve",
+            # }:
+            #     ui_handlers.handle(self, ctx)
+            #     return
             if path in {"/ui/topics", "/ui/topic", "/ui/topic/backlinks", "/ui/topic/resolve"}:
                 topic_handlers.handle(self, ctx)
                 return
