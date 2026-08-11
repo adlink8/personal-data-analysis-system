@@ -135,6 +135,68 @@ function buildProjectionContext({ scope, binding, modelProjectionProvider }) {
 }
 
 /**
+ * Phase 6a-1: bounded conversation-history prefix builder.
+ *
+ * History is an OPTIONAL prompt-text prefix, never a session-store write and
+ * never a change to the per-turn AgentSession isolation model. Only normalized
+ * user/assistant display text is injected; tool input/result, thinking, system
+ * and secret-bearing messages are filtered out before rendering (privacy
+ * boundary). The rendered block is capped at `maxBytes` (default mirrors the
+ * kernel MAX_PROMPT_BYTES budget semantics) by dropping the OLDEST turns first
+ * and then hard-truncating to a whole UTF-8 boundary.
+ */
+export const MAX_HISTORY_CONTEXT_BYTES = 24 * 1024;
+const HISTORY_ROLES = Object.freeze(["user", "assistant"]);
+const HISTORY_BLOCK_START = "<conversation_history>";
+const HISTORY_BLOCK_END = "</conversation_history>";
+
+function normalizeHistoryTurn(turn) {
+  if (!turn || typeof turn !== "object" || Array.isArray(turn)) return null;
+  const role = typeof turn.role === "string" ? turn.role : "";
+  if (!HISTORY_ROLES.includes(role)) return null;
+  const content = typeof turn.content === "string"
+    ? turn.content
+    : (typeof turn.display_text === "string" ? turn.display_text : "");
+  if (!content) return null;
+  return { role, content };
+}
+
+/**
+ * Render normalized history turns into a bounded, clearly marked context block.
+ *
+ * @param {Array<{role: string, content: string}>} historyTurns
+ * @param {{maxBytes?: number}} [options]
+ * @returns {{text: string, turn_count: number, bytes: number, truncated: boolean}}
+ */
+export function buildHistoryContext(historyTurns, { maxBytes = MAX_HISTORY_CONTEXT_BYTES } = {}) {
+  const turns = Array.isArray(historyTurns)
+    ? historyTurns.map(normalizeHistoryTurn).filter(Boolean)
+    : [];
+  if (turns.length === 0) return { text: "", turn_count: 0, bytes: 0, truncated: false };
+  const render = (items) =>
+    `${HISTORY_BLOCK_START}\n${items.map((turn) => `<turn role="${turn.role}">${turn.content}</turn>`).join("\n")}\n${HISTORY_BLOCK_END}`;
+  let candidates = [...turns];
+  let text = render(candidates);
+  let truncated = false;
+  // Drop the OLDEST turns first until the block fits, but always keep the most
+  // recent turn (hard-truncated below) so a single oversized message still
+  // contributes context instead of vanishing entirely.
+  while (Buffer.byteLength(text, "utf8") > maxBytes && candidates.length > 1) {
+    candidates = candidates.slice(1);
+    truncated = true;
+    text = render(candidates);
+  }
+  const encoded = new TextEncoder().encode(text);
+  if (encoded.length > maxBytes) {
+    truncated = true;
+    // Decode on a whole UTF-8 boundary; an incomplete trailing sequence is
+    // replaced with U+FFFD instead of emitting an invalid byte stream.
+    text = new TextDecoder("utf-8").decode(encoded.subarray(0, maxBytes));
+  }
+  return { text, turn_count: candidates.length, bytes: Buffer.byteLength(text, "utf8"), truncated };
+}
+
+/**
  * Run one conversation turn on the supplied per-turn session.
  *
  * Returns `{ ok: true, turn }` for every terminal outcome; `turn.success` is only
@@ -154,6 +216,8 @@ export async function runConversationTurn({
   scope = null,
   binding = null,
   modelProjectionProvider = null,
+  history_turns = null,
+  history_max_bytes = MAX_HISTORY_CONTEXT_BYTES,
   signal,
   timeoutMs = 30000,
 } = {}) {
@@ -164,6 +228,12 @@ export async function runConversationTurn({
   // Plan 61-09: the governed pre-prompt context builder runs before any
   // AgentSession.prompt and never blocks the turn on an omitted projection.
   const projection = await buildProjectionContext({ scope, binding, modelProjectionProvider });
+
+  // Phase 6a-1: optional normalized history is rendered as a clearly marked,
+  // byte-bounded prefix. It is prompt text only — never persisted to any
+  // session store and never part of the per-turn session identity.
+  const history = buildHistoryContext(history_turns, { maxBytes: history_max_bytes });
+  const effectivePrompt = history.text ? `${history.text}\n\n${prompt}` : prompt;
 
   const rawEvents = [];
   const unsubscribe = typeof session.subscribe === "function"
@@ -176,7 +246,7 @@ export async function runConversationTurn({
       await session.abort?.();
     } else {
       session.setActiveToolsByName(activeToolNames);
-      await session.prompt(prompt, {
+      await session.prompt(effectivePrompt, {
         source: "rpc",
         expandPromptTemplates: false,
         ...(projection.injected.length > 0 ? { projection_context: projection.injected } : {}),
@@ -206,6 +276,7 @@ export async function runConversationTurn({
       tool_count: activeToolNames.length,
       timeout_ms: Number.isFinite(timeoutMs) ? timeoutMs : null,
       outcome: state,
+      ...(history.turn_count > 0 ? { history: { injected: history.turn_count, bytes: history.bytes, truncated: history.truncated } } : {}),
       ...(projection.receipt ? { projection: projection.receipt } : {}),
     },
   };

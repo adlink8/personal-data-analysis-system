@@ -96,6 +96,7 @@ export const SAFE_ERROR_CODES = Object.freeze([
   "action_unknown",
   "review_request_invalid",
   "projection_request_invalid",
+  "history_input_invalid",
   "category_unknown",
   "proactive_request_invalid",
   "declared_category",

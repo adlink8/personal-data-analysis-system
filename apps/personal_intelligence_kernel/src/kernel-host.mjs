@@ -28,6 +28,31 @@ export const RESOURCE_POLICY_VERSION = "pi_resource_policy_v1_exact";
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/_-]{0,255}$/;
 const MAX_PROMPT_BYTES = 48 * 1024;
 
+// Phase 6a-2: every real conversation turn runs the governed projection
+// provider before prompt; an explicit caller scope wins, otherwise the
+// whole-person `global` scope is used so projection context is injected by
+// default (unavailable/incompatible projections stay a silent omission).
+const DEFAULT_PROJECTION_SCOPE = "global";
+
+// Phase 6a-1: bounded canonical conversation-history prefix. Off by default
+// (PI_CONVERSATION_HISTORY_TURNS unset/0); opt in per call with
+// `history_turns`, `enable_history`, or the env turn-count. The env value is
+// the default recent-turn limit used when `enable_history` is true.
+const CONVERSATION_HISTORY_ENV = "PI_CONVERSATION_HISTORY_TURNS";
+const DEFAULT_HISTORY_LIMIT = 8;
+const MAX_HISTORY_LIMIT = 20;
+// Python-owned canonical conversation navigation providers (Plan 61-05) are
+// read-only gateway providers like candidate.review/projection/proactive: they
+// are not Pi-tool capability operations, so union them into the default bridge
+// allowlist or the bounded history read fails with skill_tool_escalation.
+const CONVERSATION_THREAD_OPERATIONS = Object.freeze([
+  "conversation.thread.last",
+  "conversation.thread.recent",
+  "conversation.thread.select",
+  "conversation.project_scopes.list",
+  "conversation.project_scope.select",
+]);
+
 // Plan 61-08: the fixed candidate.review route accepts exactly the review
 // request shape (capability is the loopback transport header). Private payload
 // fields, provider/operation/authority overrides, batch inputs and alternate
@@ -562,13 +587,20 @@ export class KernelHost {
    * `providerAdapter.generate()` or `SkillEngine.run()` as a second outer agent
    * loop.
    */
-  async executeConversationTurn({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, skill_id: skillId, prompt, scope = null, binding = null } = {}) {
+  async executeConversationTurn({ task_id: taskId, session_id: sessionId, idempotency_key: idempotencyKey, skill_id: skillId, prompt, scope = null, binding = null, history_turns: historyTurns = null, enable_history: enableHistory = false, history_conversation_id: historyConversationId = null } = {}) {
     if (!this.taskLedger || !this.sessionStore || !this.skillRegistry || !this.conversationSessionFactory || !this.domainBridge) throw safeError("skill_runtime_unavailable");
     assertIdentifier(idempotencyKey, "task_identity_invalid");
     if (taskId !== undefined) assertIdentifier(taskId, "task_identity_invalid");
     if (sessionId !== undefined) assertIdentifier(sessionId, "task_identity_invalid");
     assertIdentifier(skillId, "skill_identity_invalid");
     if (typeof prompt !== "string" || !prompt.trim() || Buffer.byteLength(prompt, "utf8") > MAX_PROMPT_BYTES) throw safeError("task_prompt_invalid");
+    if (historyTurns != null) {
+      if (!Array.isArray(historyTurns)
+        || historyTurns.some((turn) => !turn || typeof turn !== "object" || Array.isArray(turn) || typeof turn.role !== "string" || typeof turn.content !== "string")) {
+        throw safeError("history_input_invalid");
+      }
+    }
+    if (historyConversationId != null) assertIdentifier(historyConversationId, "history_input_invalid");
     const skill = this.skillRegistry.manifests.find((item) => item.id === skillId);
     if (!skill) throw safeError("skill_not_found");
 
@@ -589,6 +621,17 @@ export class KernelHost {
     if (accepted.duplicate) {
       return { duplicate: true, ok: true, task: accepted.task, session_id: actualSessionId, route: "conversation", turn: null, provider_calls: this.providerCalls };
     }
+
+    // Phase 6a-1: resolve bounded canonical history as an optional prompt-text
+    // prefix. A caller-supplied history_turns array wins; otherwise
+    // `enable_history` or PI_CONVERSATION_HISTORY_TURNS>0 asks the canonical
+    // thread provider for the most recent normalized user/assistant turns. An
+    // unavailable canonical read is a bounded silent no-history turn (never
+    // blocks or fails the turn) and history is never written to the Session
+    // store — the per-turn AgentSession isolation model is unchanged.
+    const historyTurnsResolved = await this.#resolveConversationHistory({
+      historyTurns, enableHistory, historyConversationId, actualTaskId, actualSessionId, idempotencyKey,
+    });
 
     const leaseBridge = this.domainBridgeOptions
       ? createProjectDomainBridge({ ...this.domainBridgeOptions, operations: lease.active_tool_names })
@@ -620,19 +663,19 @@ export class KernelHost {
         invokeTool: (operation, params) => leaseBridge.invoke(operation, params),
       });
       if (!turnContext?.session) throw safeError("conversation_session_unavailable");
-      // Plan 61-09: a real turn with an approved scope/binding asks the fixed
-      // read-only projection provider before prompt; an unavailable or
+      // Plan 61-09 + Phase 6a-2: every real turn asks the fixed read-only
+      // projection provider before prompt. An explicit caller scope wins;
+      // otherwise the turn defaults to the whole-person `global` scope so the
+      // governed projection context is injected by default. An unavailable or
       // incompatible projection is omitted (never blocks the turn).
-      const turnScope = typeof scope === "string" && scope ? scope : null;
+      const turnScope = typeof scope === "string" && scope ? scope : DEFAULT_PROJECTION_SCOPE;
       const turnBinding = typeof binding === "string" && binding ? binding : "pi_kernel_conversation_turn";
-      const projectionProvider = turnScope
-        ? (opts) => this.domainBridge.invoke(MODEL_PROJECTION_OPERATION, {
-            scope: opts.scope,
-            binding: opts.binding,
-            task_id: actualTaskId,
-            idempotency_key: `${idempotencyKey}:projection`,
-          })
-        : null;
+      const projectionProvider = (opts) => this.domainBridge.invoke(MODEL_PROJECTION_OPERATION, {
+        scope: opts.scope,
+        binding: opts.binding,
+        task_id: actualTaskId,
+        idempotency_key: `${idempotencyKey}:projection`,
+      });
       const result = await runConversationTurn({
         session: turnContext.session,
         prompt,
@@ -646,6 +689,7 @@ export class KernelHost {
         scope: turnScope,
         binding: turnBinding,
         modelProjectionProvider: projectionProvider,
+        history_turns: historyTurnsResolved,
         timeoutMs: skill.timeout_ms,
       });
       const turn = result.turn;
@@ -700,6 +744,42 @@ export class KernelHost {
       }
       if (error instanceof KernelHostError) throw error;
       throw safeError(code);
+    }
+  }
+
+  /**
+   * Phase 6a-1: resolve bounded canonical conversation history.
+   *
+   * A caller-supplied `history_turns` array wins. Otherwise, when history is
+   * enabled (`enable_history: true` or `PI_CONVERSATION_HISTORY_TURNS>0`), ask
+   * the Python canonical `conversation.thread.select` provider for the most
+   * recent normalized user/assistant messages of the conversation. Only
+   * normalized user/assistant display text is returned; tool input/result,
+   * thinking, secret and foreign message shapes never cross this boundary. Any
+   * canonical read failure is a bounded silent no-history result — the turn
+   * itself never fails on missing history.
+   */
+  async #resolveConversationHistory({ historyTurns, enableHistory, historyConversationId, actualTaskId, actualSessionId, idempotencyKey }) {
+    if (Array.isArray(historyTurns) && historyTurns.length > 0) return historyTurns;
+    const envLimit = Number.parseInt(process.env[CONVERSATION_HISTORY_ENV] ?? "", 10);
+    const envEnabled = Number.isInteger(envLimit) && envLimit > 0;
+    if (enableHistory !== true && !envEnabled) return [];
+    const limit = Math.min(envEnabled ? envLimit : DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
+    try {
+      const result = await this.domainBridge.invoke("conversation.thread.select", {
+        conversation_id: historyConversationId ?? actualSessionId,
+        limit,
+        task_id: actualTaskId,
+        idempotency_key: `${idempotencyKey}:history`,
+        binding: "pi_kernel_conversation_turn",
+      });
+      const messages = result?.data?.messages;
+      if (!Array.isArray(messages)) return [];
+      return messages
+        .filter((message) => message && (message.role === "user" || message.role === "assistant") && typeof message.display_text === "string")
+        .map((message) => ({ role: message.role, content: message.display_text }));
+    } catch {
+      return [];
     }
   }
 
@@ -963,6 +1043,7 @@ export async function createKernelHost(options = {}) {
           PROACTIVE_CONTROLS_OPERATION,
           PROACTIVE_DISMISS_OPERATION,
           PROACTIVE_UNDO_OPERATION,
+          ...CONVERSATION_THREAD_OPERATIONS,
         ]),
       ],
     });

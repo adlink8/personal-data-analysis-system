@@ -1482,3 +1482,253 @@ test("proactive routes reject foreign scope, unknown category, malformed quiet h
     assert.equal(rejected.text.includes(SENTINELS.prompt), false, `${label} must never leak request text`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Phase 6a: bounded multi-turn memory (history prefix) + projection default
+// injection.
+//
+// 6a-1 keeps the per-turn AgentSession isolation model and the privacy boundary
+// (normalized user/assistant display text only; tool input/result, thinking and
+// secret shapes never cross). History is OFF by default
+// (PI_CONVERSATION_HISTORY_TURNS unset/0) and is a prompt-text prefix only —
+// never persisted to the kernel session store.
+//
+// 6a-2 runs the governed projection provider on every real turn with a default
+// `global` scope unless an explicit scope is supplied; unavailable/incompatible
+// projections stay a silent omission.
+// ---------------------------------------------------------------------------
+
+test("6a-1 runConversationTurn injects normalized history as a prompt-text prefix on later turns", async () => {
+  const { runConversationTurn } = await importTurnService();
+
+  const double = createSessionDouble({ script: "settle" });
+  const first = await runConversationTurn({
+    session: double.session,
+    prompt: "what is the sales total?",
+    activeToolNames: ["knowledge.search"],
+    profile: "conversation",
+    taskId: "pi_task_memory_001",
+    sessionId: "pi_session_memory_001",
+    idempotencyKey: "pi-idem-memory-001",
+    timeoutMs: 1000,
+  });
+  assert.equal(first.turn.state, "settled");
+  assert.equal(double.calls.prompts[0].text, "what is the sales total?", "single-turn behavior is unchanged without history");
+  assert.equal(first.turn.receipts.history, undefined, "no history receipt when nothing is injected");
+
+  // Turn two: the same session's prior user/assistant turns are available as a
+  // marked prompt-text prefix without any real model (fixture session double).
+  const second = await runConversationTurn({
+    session: double.session,
+    prompt: "and what about this month?",
+    activeToolNames: ["knowledge.search"],
+    profile: "conversation",
+    taskId: "pi_task_memory_002",
+    sessionId: "pi_session_memory_001",
+    idempotencyKey: "pi-idem-memory-002",
+    history_turns: [
+      { role: "user", content: "what is the sales total?" },
+      { role: "assistant", content: "the total is 1284 units" },
+    ],
+    timeoutMs: 1000,
+  });
+  assert.equal(second.turn.state, "settled");
+  const promptText = double.calls.prompts[1].text;
+  assert.ok(promptText.startsWith("<conversation_history>"), "history must be marked with a clear block");
+  assert.ok(promptText.includes("what is the sales total?"), "the previous user turn must be visible");
+  assert.ok(promptText.includes("the total is 1284 units"), "the previous assistant turn must be visible");
+  assert.ok(promptText.includes("</conversation_history>"), "history block must close");
+  assert.ok(promptText.endsWith("and what about this month?"), "the new prompt follows the history block");
+  assert.equal(second.turn.receipts.history.injected, 2);
+  assert.ok(Number.isInteger(second.turn.receipts.history.bytes) && second.turn.receipts.history.bytes > 0);
+  assert.equal(second.turn.receipts.history.truncated, false);
+  assertNoPrivateLeak(second, "history-aware turn result");
+});
+
+test("6a-1 buildHistoryContext keeps only normalized user/assistant text and bounds total bytes", async () => {
+  const { buildHistoryContext, MAX_HISTORY_CONTEXT_BYTES } = await importTurnService();
+  const system = { role: "system", content: SENTINELS.credential };
+  const toolResult = { role: "tool", content: SENTINELS.toolResult, tool_call_id: "t1" };
+  const thinking = { role: "thinking", content: SENTINELS.secret };
+  const user = { role: "user", content: "keep me" };
+  const assistant = { role: "assistant", content: "kept too" };
+
+  const ctx = buildHistoryContext([system, toolResult, thinking, user, assistant]);
+  assert.equal(ctx.turn_count, 2, "tool/system/thinking messages must be filtered out");
+  assert.ok(ctx.text.includes("keep me"));
+  assert.ok(ctx.text.includes("kept too"));
+  assert.ok(!ctx.text.includes(SENTINELS.credential));
+  assert.ok(!ctx.text.includes(SENTINELS.toolResult));
+  assert.ok(!ctx.text.includes(SENTINELS.secret));
+
+  // The block is byte-bounded: oldest turns are dropped first, then a single
+  // oversized recent turn is hard-truncated on a UTF-8 boundary.
+  const huge = [];
+  for (let index = 0; index < 25; index += 1) {
+    huge.push({ role: "user", content: `m${index} `.repeat(20_000) });
+  }
+  const bounded = buildHistoryContext(huge);
+  assert.ok(Buffer.byteLength(bounded.text, "utf8") <= MAX_HISTORY_CONTEXT_BYTES);
+  assert.ok(bounded.turn_count > 0, "the most recent turn survives the byte budget");
+  assert.equal(bounded.truncated, true);
+
+  // Null/empty/malformed inputs are a no-history result.
+  assert.equal(buildHistoryContext(null).turn_count, 0);
+  assert.equal(buildHistoryContext([]).turn_count, 0);
+  assert.equal(buildHistoryContext([{ role: "user", content: "" }]).turn_count, 0);
+  assert.equal(buildHistoryContext([{ role: "user" }]).turn_count, 0);
+});
+
+test("6a-2 conversation turn injects projection by default and keeps explicit scope override", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-turn-projection-default-"));
+  const decisionPath = join(dir, "decision.json");
+  await writeFile(decisionPath, JSON.stringify({
+    schema: "pi-package-decision-v1", run_id: PHASE_48_DECISION_RUN_ID,
+    status: "accepted", accepted: true, expiry: "2099-01-01T00:00:00.000Z",
+  }), "utf8");
+  const bridgeCalls = [];
+  const projectionBridge = {
+    async invoke(operation, params) {
+      bridgeCalls.push({ operation, params });
+      if (operation !== MODEL_PROJECTION_OPERATION) {
+        return { ok: false, status: "error", error: { code: "unknown_operation" } };
+      }
+      return { ok: true, status: "success", data: projectionFixture(String(params.scope ?? "global")) };
+    },
+  };
+  const double = createSessionDouble({ script: "settle" });
+  const runtime = await startKernelServer({
+    projectRoot: process.cwd(), decisionPath, databasePath: join(dir, "events.sqlite"), controlDatabaseDirectory: dir,
+    cwd: dir, agentDir: join(dir, "agent"), host: "127.0.0.1", port: 0, providerMode: "replay",
+    domainBridge: projectionBridge,
+    conversationSessionFactory: async () => ({ session: double.session, resourceLoader: null, modelRuntime: { providerCalls: 0 } }),
+  });
+  const port = runtime.server.address().port;
+  t.after(async () => { await runtime.stop(100); await rm(dir, { recursive: true, force: true }); });
+
+  // No explicit scope: the default whole-person `global` projection is injected.
+  const body = {
+    task_id: "pi_task_proj_default_001",
+    session_id: "pi_session_proj_default_001",
+    idempotency_key: "pi-idem-proj-default-001",
+    skill_id: "knowledge.research",
+    prompt: SENTINELS.prompt,
+  };
+  const response = await requestJson(port, "POST", "/v1/conversations/turn", body);
+  assert.equal(response.status, 201);
+  assert.equal(response.json.turn.state, "settled");
+  const defaultCall = bridgeCalls.find((call) => call.operation === MODEL_PROJECTION_OPERATION);
+  assert.ok(defaultCall, "the projection provider must run even without an explicit scope");
+  assert.equal(defaultCall.params.scope, "global", "the default scope is the whole-person global scope");
+  const promptOptions = double.calls.prompts[0].options;
+  assert.ok(Array.isArray(promptOptions.projection_context) && promptOptions.projection_context.length > 0,
+    "the default projection is injected before AgentSession.prompt");
+  assert.equal(promptOptions.projection_context[0].scope, "global");
+  assert.equal(promptOptions.projection_context[0].status, "current");
+  assert.ok(response.json.turn.receipts.projection, "the receipt carries the projection summary");
+  assertNoPrivateLeak(response.json, "default-projection turn response");
+
+  // Explicit scope still overrides the default.
+  const before = bridgeCalls.length;
+  const scoped = await requestJson(port, "POST", "/v1/conversations/turn", {
+    ...body,
+    task_id: "pi_task_proj_scope_001",
+    session_id: "pi_session_proj_scope_001",
+    idempotency_key: "pi-idem-proj-scope-001",
+    scope: "/work/alpha",
+  });
+  assert.equal(scoped.status, 201);
+  const scopedCall = bridgeCalls.slice(before).find((call) => call.operation === MODEL_PROJECTION_OPERATION);
+  assert.ok(scopedCall, "the scoped turn must run the projection provider");
+  assert.equal(scopedCall.params.scope, "/work/alpha", "explicit scope overrides the default");
+  assert.equal(double.calls.prompts[1].options.projection_context[0].scope, "/work/alpha");
+  assertNoPrivateLeak(scoped.json, "scoped-projection turn response");
+});
+
+test("6a-1 enable_history fetches normalized canonical history and injects it as a bounded prompt prefix", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-turn-history-http-"));
+  const decisionPath = join(dir, "decision.json");
+  await writeFile(decisionPath, JSON.stringify({
+    schema: "pi-package-decision-v1", run_id: PHASE_48_DECISION_RUN_ID,
+    status: "accepted", accepted: true, expiry: "2099-01-01T00:00:00.000Z",
+  }), "utf8");
+  const bridgeCalls = [];
+  const threadBridge = {
+    async invoke(operation, params) {
+      bridgeCalls.push({ operation, params });
+      if (operation === MODEL_PROJECTION_OPERATION) {
+        return { ok: true, status: "success", data: projectionFixture(String(params.scope ?? "global"), { status: "unknown" }) };
+      }
+      if (operation === "conversation.thread.select") {
+        return {
+          ok: true, status: "success",
+          data: {
+            conversation_id: params.conversation_id,
+            project_scope_id: "/work/alpha",
+            messages: [
+              { message_id: "m1", role: "user", display_text: "previous question", created_at: "2026-08-10T01:00:00Z", source_ref: "", evidence_ref: "" },
+              { message_id: "m2", role: "assistant", display_text: "previous answer", created_at: "2026-08-10T01:00:01Z", source_ref: "", evidence_ref: "" },
+              { message_id: "m3", role: "tool", display_text: SENTINELS.toolResult, created_at: "2026-08-10T01:00:02Z", source_ref: "", evidence_ref: "" },
+            ],
+            pagination: { limit: 8, has_more: false, cursor: null },
+            truncated: false,
+            state: "current",
+            limitation: "fixture",
+          },
+        };
+      }
+      return { ok: false, status: "error", error: { code: "unknown_operation" } };
+    },
+  };
+  const double = createSessionDouble({ script: "settle" });
+  const runtime = await startKernelServer({
+    projectRoot: process.cwd(), decisionPath, databasePath: join(dir, "events.sqlite"), controlDatabaseDirectory: dir,
+    cwd: dir, agentDir: join(dir, "agent"), host: "127.0.0.1", port: 0, providerMode: "replay",
+    domainBridge: threadBridge,
+    conversationSessionFactory: async () => ({ session: double.session, resourceLoader: null, modelRuntime: { providerCalls: 0 } }),
+  });
+  const port = runtime.server.address().port;
+  t.after(async () => { await runtime.stop(100); await rm(dir, { recursive: true, force: true }); });
+
+  const body = {
+    task_id: "pi_task_history_http_001",
+    session_id: "pi_session_history_http_001",
+    idempotency_key: "pi-idem-history-http-001",
+    skill_id: "knowledge.research",
+    prompt: "follow-up on the total",
+    enable_history: true,
+    history_conversation_id: "canonical_conv_001",
+  };
+  const response = await requestJson(port, "POST", "/v1/conversations/turn", body);
+  assert.equal(response.status, 201);
+  assert.equal(response.json.turn.state, "settled");
+  const promptText = double.calls.prompts[0].text;
+  assert.ok(promptText.startsWith("<conversation_history>"), "history block must open the prompt");
+  assert.ok(promptText.includes("previous question"));
+  assert.ok(promptText.includes("previous answer"));
+  assert.ok(!promptText.includes(SENTINELS.toolResult), "tool messages are never injected");
+  assert.equal(response.json.turn.receipts.history.injected, 2);
+  assert.equal(response.json.turn.receipts.history.truncated, false);
+  const fetch = bridgeCalls.find((call) => call.operation === "conversation.thread.select");
+  assert.ok(fetch, "history must be fetched through conversation.thread.select");
+  assert.equal(fetch.params.conversation_id, "canonical_conv_001");
+  assert.equal(fetch.params.limit, 8, "the default history limit is 8 normalized turns");
+  assert.equal(fetch.params.binding, "pi_kernel_conversation_turn");
+  assertNoPrivateLeak(response.json, "history-aware turn response");
+
+  // A malformed history_turns array fails closed without reaching the gateway.
+  const before = bridgeCalls.length;
+  const malformed = await requestJson(port, "POST", "/v1/conversations/turn", {
+    ...body,
+    task_id: "pi_task_history_bad_001",
+    session_id: "pi_session_history_bad_001",
+    idempotency_key: "pi-idem-history-bad-001",
+    history_turns: [{ role: "user", content: 42 }],
+  });
+  assert.equal(malformed.status, 400);
+  assert.equal(malformed.json.ok, false);
+  assert.equal(malformed.json.error.code, "history_input_invalid");
+  assertNoPrivateLeak(malformed.json, "malformed history rejection");
+  assert.equal(bridgeCalls.length, before, "malformed history must never reach the Gateway bridge");
+});
+
