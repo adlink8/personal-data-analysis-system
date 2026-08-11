@@ -124,6 +124,11 @@ from personal_knowledge.services.pi_domain_gateway import (  # noqa: E402
     PI_DOMAIN_CAPABILITY_HEADER,
     PiDomainGateway,
 )
+from personal_knowledge.services.pi_read_dispatch import (  # noqa: E402
+    make_descriptive_evidence_tool,
+    make_real_warehouse_tools,
+    read_handler as pi_read_handler,
+)
 from personal_knowledge.services.warehouse_mutations import (  # noqa: E402
     SqliteWarehouseStore,
     WarehouseOperationLedger,
@@ -185,7 +190,15 @@ def _build_pi_domain_gateway() -> PiDomainGateway:
     Normal API startup keeps the existing no-authority behaviour for project
     mutations; end-to-end tests can inject a real SQLite observation point
     without touching the production warehouse.
+
+    v2.0 Phase 55-57: the read branch is wired to real data sources via
+    ``read_handler`` (pi_read_dispatch) and warehouse read tools get real
+    per-authority metadata (warehouse metadata factory). Both are fail-safe:
+    missing DBs degrade to synthetic/zero metadata instead of crashing.
     """
+    real_read_handler = pi_read_handler
+    real_warehouse_tools = make_real_warehouse_tools()
+    real_evidence_tool = make_descriptive_evidence_tool()
     ledger_path = str(os.environ.get("PI_DOMAIN_TEST_LEDGER_PATH") or "").strip()
     if ledger_path:
         store = SqliteWarehouseStore(ledger_path)
@@ -195,8 +208,15 @@ def _build_pi_domain_gateway() -> PiDomainGateway:
             semantic_tools=SemanticMaintenanceTools(ledger),
             retrieval_tools=RetrievalMaintenanceTools(ledger),
             snapshot_tools=SnapshotReleaseTools(ledger, authority=SnapshotAuthorityFixture()),
+            read_handler=real_read_handler,
+            warehouse_tools=real_warehouse_tools,
+            evidence_tool=real_evidence_tool,
         )
-    return PiDomainGateway()
+    return PiDomainGateway(
+        read_handler=real_read_handler,
+        warehouse_tools=real_warehouse_tools,
+        evidence_tool=real_evidence_tool,
+    )
 
 
 PI_DOMAIN_GATEWAY = _build_pi_domain_gateway()

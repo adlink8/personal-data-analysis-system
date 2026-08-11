@@ -1,6 +1,14 @@
 from __future__ import annotations
 
 from personal_knowledge.services.capability_registry import load_registry, operations_for_profile
+from personal_knowledge.services.evidence_sqlite_tool import (
+    DATABASE_ID,
+    DESCRIPTOR_VERSION,
+    LEASE_SKILL_ID,
+    PRIVACY_CEILING,
+    QUERY_ID,
+    knowledge_research_checksum,
+)
 from personal_knowledge.services.pi_domain_gateway import (
     PROJECT_OPERATIONS,
     PiDomainGateway,
@@ -16,6 +24,21 @@ def _params(operation: str) -> dict[str, object]:
     }
     if operation.startswith("warehouse."):
         params["authority_id"] = "knowledge"
+    if operation == "evidence.sqlite_query":
+        # evidence.sqlite_query 是 lease 契约操作：必须先携带完整 lease 描述符
+        # （skill_id / manifest_checksum / privacy_ceiling + 固定 query 描述），
+        # 否则 gateway 在调用适配器之前就以 lease_invalid 拒绝。
+        params.update({
+            "database_id": DATABASE_ID,
+            "query_id": QUERY_ID,
+            "version": DESCRIPTOR_VERSION,
+            "parameters": {"session_id": "codex:gateway-session", "after": None, "limit": 10},
+            "scope": {"session_id": "codex:gateway-session"},
+            "skill_id": LEASE_SKILL_ID,
+            "supporting_skills": [],
+            "manifest_checksum": knowledge_research_checksum(),
+            "privacy_ceiling": PRIVACY_CEILING,
+        })
     return params
 
 
