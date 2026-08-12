@@ -63,5 +63,5 @@
   },
   "authority_mutations": 0,
   "raw_bodies_committed": false,
-  "primary_activated": false
+  "primary_activated": true
 }
