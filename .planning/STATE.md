@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Pi Personal Intelligence Kernel
 status: executing
-last_updated: "2026-08-10"
-last_activity: 2026-08-10 -- Phase 61 complete (desktop harness + evidence-bound reflection loop; six-step UAT approved)
+last_updated: "2026-08-12"
+last_activity: 2026-08-12 -- Quick 260812-dug verified; legacy derived knowledge quarantined and paid rebuild blocked pending user approval
 progress:
   total_phases: 68
   completed_phases: 47
@@ -25,8 +25,8 @@ progress:
 |-------|----------------|
 | Dialogue SSOT | `data/canonical/agent/structured/db/agent_conversations.sqlite` |
 | Knowledge SSOT | `canonical_knowledge_units` + **active** Chroma collection |
-| Active KU (live) | **`knowledge_units_ir_13486f30c_20260726153705`** — 40,200 vectors（含 as| 7,818）, canary strict PASS 2026-07-27（前代 `knowledge_units_salvage_v1_b_20260726021631` 可回滚） |
-| Active serving snapshot | **`ss_470b5cb907970d1352aee145`** — 10/10 typed roles 全绑最新水位, Doctor status OK exit=0 (2026-07-27) |
+| Active KU (live) | **`knowledge_units_empty_kg_20260812T025401Z_live`** — 0 vectors；旧 collections 保留为非活动隔离代，未删除 |
+| Active serving snapshot | **`ss_916f80a497db56ccab23b0fc`** — 空白知识代，Doctor 10/10 critical、pointer/index parity clean (2026-08-12) |
 | Watermark | matches current source checksum |
 | Product CLI | `pk-sync`, `pk-ku` (inspect…promote, watermark, **reconcile**, **history**, **doctor**) |
 
@@ -64,7 +64,13 @@ progress:
 Phase: 61 — Conversation-first Desktop Harness and Evidence-bound Reflection Loop
 Plan: 12 of 12 complete (61-01..61-12)
 Status: Completed — six-step desktop UAT approved 2026-08-10; Phase 61 closed
-Last activity: 2026-08-10 -- Phase 61 complete (desktop harness + evidence-bound reflection loop; six-step UAT approved)
+Last activity: 2026-08-12 -- Quick 260812-dug verified; legacy derived knowledge quarantined and paid rebuild blocked pending user approval
+
+### Quick Tasks Completed
+
+| Quick | Description | Completed | Status |
+|-------|-------------|-----------|--------|
+| 260812-dug | Reversible legacy knowledge isolation and clean canonical rebuild preparation | 2026-08-12 | Verified; 5/5 must-haves, paid calls 0 |
 
 ## Project Reference
 
