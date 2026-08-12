@@ -445,6 +445,41 @@ def build_parser() -> argparse.ArgumentParser:
     # --- workflow help ---
     sub.add_parser("workflow", help="Print canonical daily KU workflow + forbidden paths")
 
+    # --- view-aware inspect/prepare/status (Phase 62-06; zero paid) ---
+    view_ins = sub.add_parser(
+        "view-inspect",
+        help="Event/view-aware read-only inspect (active generation, policy/view "
+             "counts, deterministic exclusions, semantic-gate replay coverage, "
+             "pending estimates). Never pays.",
+    )
+    view_ins.add_argument("--conversation-db", type=Path, default=None)
+
+    view_prep = sub.add_parser(
+        "view-prepare",
+        help="Zero-cost view/policy/evidence-bound candidate prepare (estimates "
+             "and ledger only; no provider, no paid extraction).",
+    )
+    view_prep.add_argument("--conversation-db", type=Path, default=None)
+    view_prep.add_argument(
+        "--semantic-prompt-version", default="semantic-v1",
+        help="Semantic gate prompt version bound into the run key",
+    )
+    view_prep.add_argument(
+        "--semantic-schema-version", default="schema-v1",
+        help="Semantic gate schema version bound into the run key",
+    )
+    view_prep.add_argument(
+        "--model", default="gemini-3.5-flash-lite",
+        help="Deterministic estimate model (never invoked)",
+    )
+
+    view_st = sub.add_parser(
+        "view-status",
+        help="Ledger status for a view-policy run (or legacy superseded audit).",
+    )
+    view_st.add_argument("--run", required=True, metavar="RUN_ID")
+    view_st.add_argument("--conversation-db", type=Path, default=None)
+
     return p
 
 
@@ -574,6 +609,38 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     if not run_id:
         print("[error] --run is required", file=sys.stderr)
         return 2
+
+    from personal_knowledge.application.knowledge.view_candidate_prepare import (
+        _assert_legacy_not_superseded,
+        is_view_run_id,
+    )
+    from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB
+
+    # Phase 62-06 D-31: view-policy runs are never extractable in this phase.
+    if is_view_run_id(run_id):
+        print(
+            f"[blocked] run_id={run_id!r} is a view-policy candidate run. "
+            "No paid extraction is authorized in Phase 62: a separate user cost "
+            "approval and a representative LLM pilot are required before any "
+            "extract can run.",
+            file=sys.stderr,
+        )
+        return 2
+    # D-30: legacy message-level runs are superseded and non-executable. The
+    # supersession audit lives beside the conversation authority.
+    try:
+        if _assert_legacy_not_superseded(AGENT_CONVERSATIONS_DB, run_id):
+            print(
+                f"[blocked] run_id={run_id!r} is a legacy message-level prepare "
+                "run whose queue semantics are superseded (D-30). Its audit "
+                "history is preserved but it is non-executable under the "
+                "view-policy contract.",
+                file=sys.stderr,
+            )
+            return 2
+    except Exception:
+        pass  # absent candidate ledger -> fall through to existing behavior
+
     allow_non_inc = os.environ.get("PK_KU_ALLOW_NON_INCREMENTAL_RUN", "").strip() in {
         "1",
         "true",
@@ -1014,6 +1081,62 @@ def _cmd_watermark(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_view_inspect(args: argparse.Namespace) -> int:
+    """Read-only event/view-aware inspect (never writes, never pays)."""
+    from personal_knowledge.application.knowledge.view_candidate_prepare import (
+        inspect_candidate_state,
+    )
+    from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB
+
+    conversation_db = args.conversation_db or AGENT_CONVERSATIONS_DB
+    state = inspect_candidate_state(conversation_db)
+    print(json.dumps(state, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_view_prepare(args: argparse.Namespace) -> int:
+    """Zero-cost view/policy/evidence-bound prepare (estimates only)."""
+    from personal_knowledge.application.knowledge.view_candidate_prepare import (
+        CandidatePrepareError,
+        prepare_view_candidates,
+    )
+    from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB
+
+    conversation_db = args.conversation_db or AGENT_CONVERSATIONS_DB
+    try:
+        result = prepare_view_candidates(
+            conversation_db,
+            semantic_prompt_version=args.semantic_prompt_version,
+            semantic_schema_version=args.semantic_schema_version,
+            model=args.model,
+        )
+    except CandidatePrepareError as exc:
+        print(
+            json.dumps(
+                {"ok": False, "error": str(exc), "write": False},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            file=sys.stderr,
+        )
+        return 2
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("ok") else 2
+
+
+def _cmd_view_status(args: argparse.Namespace) -> int:
+    """Ledger status for a view-policy run or legacy superseded audit."""
+    from personal_knowledge.application.knowledge.view_candidate_prepare import (
+        view_run_status,
+    )
+    from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB
+
+    conversation_db = args.conversation_db or AGENT_CONVERSATIONS_DB
+    status = view_run_status(conversation_db, args.run)
+    print(json.dumps(status, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -1051,6 +1174,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_promote_units(args)
     if args.command == "doctor":
         return _cmd_doctor(args)
+    if args.command == "view-inspect":
+        return _cmd_view_inspect(args)
+    if args.command == "view-prepare":
+        return _cmd_view_prepare(args)
+    if args.command == "view-status":
+        return _cmd_view_status(args)
 
     print(f"unknown command: {args.command}", file=sys.stderr)
     return 2
