@@ -1,11 +1,16 @@
 {
-  "schema":"pi-runtime-policy-v1",
-  "version":"54.01.1",
-  "default_mode":"legacy",
-  "allowed_modes":["legacy","shadow","canary","primary"],
-  "rollback_target":"legacy",
-  "phase53_decision":"revise",
-  "upgrade_requires_confirmation":true,
-  "automatic_action":"downgrade_only",
-  "primary_requires_all_entrypoint_receipts":true
+  "schema": "pi-runtime-policy-v1",
+  "version": "54.01.1",
+  "default_mode": "legacy",
+  "allowed_modes": [
+    "legacy",
+    "shadow",
+    "canary",
+    "primary"
+  ],
+  "rollback_target": "legacy",
+  "phase53_decision": "proceed",
+  "upgrade_requires_confirmation": true,
+  "automatic_action": "downgrade_only",
+  "primary_requires_all_entrypoint_receipts": true
 }
