@@ -11,12 +11,18 @@ from __future__ import annotations
 from pathlib import Path
 
 from personal_knowledge.adapters.conversation_sources import (
+    antigravity,
+    chatgpt,
     claude_qoder,
     codex,
     copilot,
+    cursor,
     gemini,
+    grok,
+    mimo_opencode,
     pi,
     workbuddy_kimi,
+    zcode,
 )
 from personal_knowledge.adapters.conversation_sources.contracts import (
     AdaptationResult,
@@ -36,6 +42,14 @@ _ADAPTERS: dict[str, tuple] = {
     "kimi-work": (lambda: workbuddy_kimi.capability("kimi-work"), lambda a, **k: workbuddy_kimi.detect("kimi-work", a, **k), lambda s, **k: workbuddy_kimi.adapt("kimi-work", s, **k)),
     "copilot": (copilot.capability, copilot.detect, copilot.adapt),
     "gemini": (gemini.capability, gemini.detect, gemini.adapt),
+    # Phase 62-03 families registered here (handoff documented in 62-03 SUMMARY).
+    "zcode": (zcode.capability, zcode.detect, zcode.adapt),
+    "mimo": (lambda: mimo_opencode.capability("mimo"), lambda a, **k: mimo_opencode.detect(a, **k), lambda s, **k: mimo_opencode.adapt("mimo", s, **k)),
+    "opencode": (lambda: mimo_opencode.capability("opencode"), lambda a, **k: mimo_opencode.detect(a, **k), lambda s, **k: mimo_opencode.adapt("opencode", s, **k)),
+    "antigravity": (antigravity.capability, antigravity.detect, antigravity.adapt),
+    "grok": (grok.capability, grok.detect, grok.adapt),
+    "chatgpt": (chatgpt.capability, chatgpt.detect, chatgpt.adapt),
+    "cursor": (cursor.capability, cursor.detect, cursor.adapt),
 }
 
 # Aliases resolve to the owning family (D-02: family retains its own contract).

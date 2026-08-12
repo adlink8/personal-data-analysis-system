@@ -12,6 +12,11 @@ Responsibilities:
 Explicitly NOT owned here (later Phase 62 plans): activation of the authority
 pointer, compatibility projection building, views, and extraction policy. This
 repository never changes ``ce_generation_authority``; it only reads it.
+
+Phase 62-04 additions (still no authority mutation): additive
+``ce_activation_bindings`` / ``ce_activation_log`` tables for the generation
+lifecycle owner, read-only authority/binding snapshots, and transaction-bound
+low-level writes (:func:`write_bindings` / :func:`record_activation_attempt`).
 """
 
 from __future__ import annotations
@@ -185,6 +190,16 @@ def _insert_dispositions(
         )
 
 
+_ACTIVATION_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS ce_activation_bindings (
+        kind TEXT PRIMARY KEY, generation_id TEXT NOT NULL,
+        value TEXT NOT NULL, updated_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS ce_activation_log (
+        attempt_id TEXT PRIMARY KEY, generation_id TEXT NOT NULL,
+        outcome TEXT NOT NULL, reason TEXT, attempted_at TEXT NOT NULL)""",
+)
+
+
 class EventRepository:
     """Generation-bound persistence for the canonical v2 event authority."""
 
@@ -196,6 +211,14 @@ class EventRepository:
     def create_schema(self) -> None:
         """Apply additive v2 DDL (idempotent; legacy tables untouched)."""
         create_v2_schema(self.db)
+        con = sqlite3.connect(str(self.db))
+        try:
+            con.execute("PRAGMA foreign_keys=ON")
+            for statement in _ACTIVATION_DDL:
+                con.execute(statement)
+            con.commit()
+        finally:
+            con.close()
 
     def _connect(self, *, readonly: bool = False) -> sqlite3.Connection:
         if readonly:
@@ -396,6 +419,56 @@ class EventRepository:
             return row[0] if row else None
         finally:
             con.close()
+
+    def write_bindings(
+        self, con: sqlite3.Connection, generation_id: str,
+        values: dict[str, str],
+    ) -> None:
+        """Bind projection/version/watermark/fingerprint values (transaction-bound).
+
+        The caller owns the transaction so the binding commits or rolls back
+        atomically with the authority pointer and the compatibility projection.
+        """
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for kind, value in sorted(values.items()):
+            con.execute(
+                "INSERT OR REPLACE INTO ce_activation_bindings "
+                "(kind, generation_id, value, updated_at) VALUES (?,?,?,?)",
+                (kind, generation_id, value, now),
+            )
+
+    def record_attempt_log(
+        self, generation_id: str, outcome: str, reason: str | None = None
+    ) -> None:
+        """Append a metadata-only audit record (separate transaction, best-effort).
+
+        Written outside the activation transaction so a failed activation still
+        leaves an audit trail (D-09). Never blocks or masks the activation error.
+        """
+        import hashlib
+        import uuid
+        from datetime import datetime, timezone
+
+        attempt_id = hashlib.sha256(
+            f"{generation_id}|{outcome}|{uuid.uuid4().hex}".encode("utf-8")
+        ).hexdigest()[:24]
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        try:
+            con = sqlite3.connect(str(self.db))
+            try:
+                con.execute(
+                    "INSERT INTO ce_activation_log "
+                    "(attempt_id, generation_id, outcome, reason, attempted_at) "
+                    "VALUES (?,?,?,?,?)",
+                    (attempt_id, generation_id, outcome, reason, now),
+                )
+                con.commit()
+            finally:
+                con.close()
+        except sqlite3.Error:  # pragma: no cover - audit must never block activation
+            pass
 
     def query_authority_events_by_native_locator(
         self, native_locator: str

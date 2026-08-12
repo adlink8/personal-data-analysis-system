@@ -355,10 +355,11 @@ class TestRegistry:
             assert name in families
 
     def test_every_family_has_versioned_capability(self):
+        # every registered family (stream families + 62-03 handoff) owns a
+        # versioned capability whose family resolves to the registered owner
         for name in known_families():
             cap = capability_for(name)
-            assert cap.family in ("codex", "claude", "qoder", "pi", "workbuddy",
-                                  "kimi", "kimi-work", "copilot", "gemini")
+            assert resolve_family(name) == cap.family
             assert cap.digest()
 
     def test_select_adapter_routes_fixtures(self, tmp_path_factory):

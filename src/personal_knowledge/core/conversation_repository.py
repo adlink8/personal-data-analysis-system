@@ -305,3 +305,71 @@ class ConversationRepository:
             ]
         finally:
             con.close()
+
+
+class EventAwareConversationRepository:
+    """Phase 62 D-17 事件感知 seam：读 typed active-generation 事件。
+
+    与 :class:`ConversationRepository`（读 legacy 投影契约）并列的新 provider
+    seam。所有查询都是只读的，且绑定到 authority generation：
+
+      - :meth:`iter_typed_events` / :meth:`iter_event_relations` /
+        :meth:`iter_event_dispositions` — 非扁平化 typed 事件/关系/fidelity
+      - :meth:`query_events_by_native_locator` — 按原生 locator 回查证据
+      - :meth:`active_projection` — 当前 active generation 的确定性兼容投影
+
+    它永远不能激活 generation（activation 属于 event_generations 模块），
+    也没有任何 authority 写入面。
+    """
+
+    def __init__(self, event_db: Path) -> None:
+        from personal_knowledge.application.conversation.event_repository import (
+            EventRepository,
+        )
+
+        self.event_db = Path(event_db)
+        self._event_repo = EventRepository(self.event_db)
+
+    def authority_generation_id(self) -> str | None:
+        """只读：当前 active generation id（未激活时为 None）。"""
+        return self._event_repo.authority_generation_id()
+
+    def iter_typed_events(self) -> list[dict]:
+        """当前 active generation 的 typed 事件（无 active 时为空）。"""
+        generation_id = self.authority_generation_id()
+        if generation_id is None:
+            return []
+        return self._event_repo.iter_events(generation_id)
+
+    def iter_event_relations(self) -> list[dict]:
+        generation_id = self.authority_generation_id()
+        if generation_id is None:
+            return []
+        return self._event_repo.iter_relations(generation_id)
+
+    def iter_event_dispositions(self) -> list[dict]:
+        generation_id = self.authority_generation_id()
+        if generation_id is None:
+            return []
+        return self._event_repo.iter_dispositions(generation_id)
+
+    def query_events_by_native_locator(self, native_locator: str) -> list[dict]:
+        """active 作用域的 evidence 回查（无 active 时为空）。"""
+        return self._event_repo.query_authority_events_by_native_locator(
+            native_locator
+        )
+
+    def active_projection(self) -> dict:
+        """当前 active generation 的兼容投影报告（含 generation lineage）。"""
+        from personal_knowledge.application.conversation.compatibility_projection import (
+            build_compatibility_projection,
+        )
+
+        generation_id = self.authority_generation_id()
+        if generation_id is None:
+            raise FileNotFoundError(
+                "no active v2 generation; the compatibility projection is empty"
+            )
+        return build_compatibility_projection(
+            self.event_db, generation_id=generation_id
+        ).to_dict()

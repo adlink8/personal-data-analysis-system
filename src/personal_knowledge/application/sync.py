@@ -193,9 +193,19 @@ def publish_conversation_delta_committed(
     return _delta_fail_closed(f"rejected:{code or status or 'transport_error'}")
 
 
-def _cmd_conversations(write: bool) -> int:
+def _cmd_conversations(write: bool, args) -> int:
     from personal_knowledge.application.run_pipeline import run_agentsview_stage
     from personal_knowledge.application.serving.versions import file_checksum
+
+    # Phase 62-04: explicit v2 dry-run / shadow / activation. These modes are
+    # opt-in and never change the default canonical service behavior (62-04
+    # Task 3: default stays as-is until Plan 62-08).
+    if args.v2_dry_run or args.v2_shadow or args.v2_activate:
+        from personal_knowledge.application.conversation.v2_sync import (
+            cmd_conversations_v2,
+        )
+
+        return cmd_conversations_v2(args)
 
     ok = run_agentsview_stage(write=write)
     if not ok:
@@ -424,6 +434,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Publish normalized + canonical DBs (default is dry-run)",
     )
+    # Phase 62-04: additive v2 orchestration flags. The default command
+    # behavior is unchanged; these flags are explicit and opt-in only.
+    from personal_knowledge.application.conversation.v2_sync import (
+        add_conversations_v2_args,
+    )
+
+    add_conversations_v2_args(conv)
 
     turns = sub.add_parser("turns", help="Turn summaries → conversation_turns vector publication")
     turns.add_argument("--write", action="store_true", help="Publish after build verification (default dry-run)")
@@ -464,7 +481,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "conversations":
         write = bool(args.write)
-        return _cmd_conversations(write=write)
+        return _cmd_conversations(write=write, args=args)
 
     if args.command == "turns":
         return _cmd_turns(write=bool(args.write))

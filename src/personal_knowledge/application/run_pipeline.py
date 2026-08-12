@@ -39,6 +39,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 import time
@@ -292,6 +293,22 @@ def run_agentsview_stage(write: bool = False) -> bool:
             return False
         print(f"[OK] {label}（{elapsed:.1f}s）")
     return True
+
+
+# ==============================================================================
+# Phase 62-04: v2 conversation orchestration (dry-run / shadow / activation)
+#
+# Implementation lives in :mod:`personal_knowledge.application.conversation.v2_sync`
+# (one module, one change reason). The public seam is re-exported here so the
+# sync command and tests keep a stable import path. These seams never touch the
+# live canonical ``agent_conversations.sqlite`` / ``personal_system.sqlite``.
+# ==============================================================================
+
+from personal_knowledge.application.conversation.v2_sync import (  # noqa: E402
+    activate_conversation_generation,
+    probe_conversation_sources,
+    shadow_conversation_generation,
+)
 
 
 def main() -> None:
