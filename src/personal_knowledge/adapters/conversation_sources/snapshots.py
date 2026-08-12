@@ -501,6 +501,10 @@ def _filtered_backup(
         ).fetchall():
             con.execute(f'DROP INDEX IF EXISTS "{row[0]}"')
         con.commit()
+        # DROP TABLE leaves freed pages with their original bytes; VACUUM
+        # rewrites the database so excluded credential/account/token data is
+        # not recoverable from the published artifact (D-08 byte-level).
+        con.execute("VACUUM")
         integrity = con.execute("PRAGMA integrity_check").fetchone()[0]
         if integrity != "ok":
             raise CaptureError(f"filtered snapshot integrity_check={integrity!r}")
