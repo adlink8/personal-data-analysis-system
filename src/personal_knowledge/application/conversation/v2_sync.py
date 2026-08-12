@@ -265,7 +265,11 @@ def _stage_family(
     life: GenerationLifecycle, family: str, path: Path, store: Path,
     *, byte_limit: int, count_limit: int,
 ) -> dict:
-    """Stage one family's generation and return its metadata-only entry."""
+    """Stage one family's generation and return its metadata-only entry.
+
+    Fail closed per family: an adaptation OR staging failure marks the family
+    blocked instead of aborting the whole cohort, so a single mis-shaped live
+    artifact never prevents a complete metadata-only report (D-04/D-18)."""
     blocked = {
         "status": "blocked", "reason": None, "generation_id": None,
         "snapshot_count": 1, "event_count": 0, "source_manifest_id": None,
@@ -281,24 +285,28 @@ def _stage_family(
         blocked["reason"] = f"adapt_failed:{type(exc).__name__}"
         return blocked
 
-    cap = capability_for(family)
-    generation_id = f"shadow-{family}-{result.dataset_digest[:10]}"
-    manifest_id = f"manifest-{family}-{artifact.content_hash[:12]}"
-    gen = GenerationInput(
-        family=result.family,
-        adapter_version=result.adapter_version,
-        contract_version=result.contract_version,
-        capability_digest=cap.digest(),
-        source_manifest_id=manifest_id,
-        dataset_digest=result.dataset_digest,
-        artifacts=result.artifacts,
-        sessions=result.sessions,
-        events=result.events,
-        relations=result.relations,
-        dispositions=result.field_dispositions,
-        warnings=result.warnings,
-    )
-    life.prepare(gen, generation_id)
+    try:
+        cap = capability_for(family)
+        generation_id = f"shadow-{family}-{result.dataset_digest[:10]}"
+        manifest_id = f"manifest-{family}-{artifact.content_hash[:12]}"
+        gen = GenerationInput(
+            family=result.family,
+            adapter_version=result.adapter_version,
+            contract_version=result.contract_version,
+            capability_digest=cap.digest(),
+            source_manifest_id=manifest_id,
+            dataset_digest=result.dataset_digest,
+            artifacts=result.artifacts,
+            sessions=result.sessions,
+            events=result.events,
+            relations=result.relations,
+            dispositions=result.field_dispositions,
+            warnings=result.warnings,
+        )
+        life.prepare(gen, generation_id)
+    except Exception as exc:  # noqa: BLE001 - staging write fails closed
+        blocked["reason"] = f"staging_failed:{type(exc).__name__}"
+        return blocked
     status = _status_for(result, artifact)
     return {
         "generation_id": generation_id,
