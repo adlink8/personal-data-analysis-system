@@ -1,0 +1,5 @@
+{"type":"message","session_id":"wb_s1","message_id":"m1","role":"user","content":"wb prompt","timestamp":"2026-07-01T10:00:00Z"}
+{"type":"reasoning","session_id":"wb_s1","message_id":"m2","role":"assistant","content":"thinking...","timestamp":"2026-07-01T10:00:01Z"}
+{"type":"message","session_id":"wb_s1","message_id":"m3","role":"assistant","content":"wb answer","timestamp":"2026-07-01T10:00:02Z"}
+{"type":"function_call","session_id":"wb_s1","message_id":"m4","role":"assistant","name":"bash","arguments":"ls","call_id":"wb_call_1","timestamp":"2026-07-01T10:00:03Z"}
+{"type":"function_call_result","session_id":"wb_s1","message_id":"m5","role":"function","call_id":"wb_call_1","result":"README.md","timestamp":"2026-07-01T10:00:04Z"}

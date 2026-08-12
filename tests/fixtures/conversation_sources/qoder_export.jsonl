@@ -1,0 +1,3 @@
+{"type":"user","uuid":"q1","parentUuid":null,"timestamp":"2026-07-01T10:00:00Z","content":[{"type":"text","text":"q prompt"}],"session_id":"q_s1"}
+{"type":"assistant","uuid":"q2","parentUuid":"q1","timestamp":"2026-07-01T10:00:01Z","content":[{"type":"text","text":"q answer"}],"session_id":"q_s1"}
+{"type":"user","uuid":"q3","parentUuid":"q2","isCompactSummary":true,"timestamp":"2026-07-01T10:00:02Z","content":[{"type":"text","text":"Summary of previous turns"}],"session_id":"q_s1"}

@@ -1,0 +1,6 @@
+{"type":"turn_start","session_id":"kimi_s1","task_id":"task_1","timestamp":"2026-07-01T10:00:00Z"}
+{"type":"user_prompt","session_id":"kimi_s1","task_id":"task_1","message_id":"km1","content":"kimi prompt","timestamp":"2026-07-01T10:00:01Z"}
+{"type":"assistant_message","session_id":"kimi_s1","task_id":"task_1","message_id":"km2","content":"kimi answer","timestamp":"2026-07-01T10:00:02Z"}
+{"type":"loop_iteration","session_id":"kimi_s1","task_id":"task_1","iteration":1,"timestamp":"2026-07-01T10:00:03Z"}
+{"type":"context_append","session_id":"kimi_s1","task_id":"task_1","content":"appended context","timestamp":"2026-07-01T10:00:04Z"}
+{"type":"task_complete","session_id":"kimi_s1","task_id":"task_1","timestamp":"2026-07-01T10:00:05Z"}

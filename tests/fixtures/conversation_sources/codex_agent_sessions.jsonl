@@ -1,0 +1,8 @@
+{"type":"session_meta","session_id":"sess_01","timestamp":"2026-07-01T10:00:00Z","model":"gpt-5"}
+{"type":"turn_context","session_id":"sess_01","turn_id":"turn_1","timestamp":"2026-07-01T10:00:01Z","prompt":"explain the diff"}
+{"type":"response_item","session_id":"sess_01","turn_id":"turn_1","item_id":"resp_1","role":"assistant","content":"Here is the summary.","timestamp":"2026-07-01T10:00:05Z"}
+{"type":"function_call","session_id":"sess_01","turn_id":"turn_1","call_id":"call_1","name":"bash","arguments":"ls","timestamp":"2026-07-01T10:00:06Z"}
+{"type":"function_call_output","session_id":"sess_01","turn_id":"turn_1","call_id":"call_1","output":"README.md","timestamp":"2026-07-01T10:00:07Z"}
+{"type":"turn_context","session_id":"sess_01","turn_id":"turn_2","timestamp":"2026-07-01T10:01:00Z","prompt":"now add tests"}
+{"type":"response_item","session_id":"sess_01","turn_id":"turn_2","item_id":"resp_2","role":"assistant","content":"Added tests.","timestamp":"2026-07-01T10:01:05Z"}
+{"type":"context_compacted","session_id":"sess_01","turn_id":"turn_2","timestamp":"2026-07-01T10:02:00Z","summary":"Compacted earlier turns."}

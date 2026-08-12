@@ -1,0 +1,5 @@
+{"type":"turn_start","session_id":"cp_s1","turn_id":"cp_turn_1","timestamp":"2026-07-01T10:00:00Z"}
+{"type":"assistant_message","session_id":"cp_s1","turn_id":"cp_turn_1","message_id":"cm1","content":"copilot answer","timestamp":"2026-07-01T10:00:01Z"}
+{"type":"tool_execution_start","session_id":"cp_s1","turn_id":"cp_turn_1","tool_id":"ct1","name":"edit","timestamp":"2026-07-01T10:00:02Z"}
+{"type":"tool_execution_complete","session_id":"cp_s1","turn_id":"cp_turn_1","tool_id":"ct1","timestamp":"2026-07-01T10:00:03Z"}
+{"type":"turn_end","session_id":"cp_s1","turn_id":"cp_turn_1","timestamp":"2026-07-01T10:00:04Z"}
