@@ -46,6 +46,6 @@
   "registry_checksum": "419b7a7bd23951c7ad0cb610e080576f7c4c960f8cf5ad88b3795e111fe13eba",
   "skill_manifest_checksum": "ae322e19e5554b6c403a3f1da539b42c493ad3797463874feb7e584e61006d60",
   "runtime_policy_checksum": "5e495d8e911bf0623cb871e22d493205aea49fce143226a6e796fb680d655991",
-  "entrypoints_checksum": "a245a02daf39b01f8598ea40de30c0324452de5d971da75d9d2a990e5dc42618",
-  "preregistration_checksum": "afb95990f5d9244650fc4b13417f873e9104c70c3b2450d0878b2500ed80469c"
+  "entrypoints_checksum": "6fb915c0df2946fd62fdcdcf7e4f597a55167c8a84490546b29ad22ac372c7ce",
+  "preregistration_checksum": "82b6f7cff3749828e3c7e3769d8ce801b9f470d1df7b251360ea5d919fff0642"
 }

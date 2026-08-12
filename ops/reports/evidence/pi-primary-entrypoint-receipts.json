@@ -1,0 +1,213 @@
+{
+  "schema": "pi-primary-entrypoint-receipts-v1",
+  "evidence_class": "real_authorized_entrypoint_receipts",
+  "status": "READY",
+  "run_at": "2026-08-12T00:11:53.542712+00:00",
+  "inventory_checksum": "6fb915c0df2946fd62fdcdcf7e4f597a55167c8a84490546b29ad22ac372c7ce",
+  "production_entrypoint_count": 10,
+  "archived_entrypoint_count": 2,
+  "archived_entrypoint_ids": [
+    "application.conversation.summary",
+    "application.conversation.build_gpt_conversation_summary"
+  ],
+  "entrypoint_receipts": {
+    "analysis.providers.PiKernelProvider": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "services.orchestration_service.generation_runner": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.knowledge.build_knowledge_units_prod": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.knowledge.build_knowledge_units": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.knowledge.extract_knowledge_units_l2_session": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "core.llm.make_llm_client": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.memory.extract_memory_candidates_from_bundles": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.memory.repair_memory_promotion_candidates": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.memory.build_memory_relation_candidates": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.graph.judge_graph_relations": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    }
+  },
+  "call_details": [
+    {
+      "entrypoint_id": "analysis.providers.PiKernelProvider",
+      "task_id": "pi_receipt_54a_01",
+      "session_id": "pi_session_54a_01",
+      "idempotency_key": "pi-idem-54a-01-d72d0dfed864",
+      "purpose": "generic_generation",
+      "task_state": "succeeded",
+      "upstream_provider": "dashscope",
+      "model": "deepseek-v4-flash",
+      "input_tokens": 42,
+      "output_tokens": 1,
+      "cost": 4.4e-05,
+      "currency": "CNY"
+    },
+    {
+      "entrypoint_id": "services.orchestration_service.generation_runner",
+      "task_id": "pi_receipt_54a_02",
+      "session_id": "pi_session_54a_02",
+      "idempotency_key": "pi-idem-54a-02-5afcabcf89a8",
+      "purpose": "guarded_generation",
+      "task_state": "succeeded",
+      "upstream_provider": "dashscope",
+      "model": "deepseek-v4-flash",
+      "input_tokens": 42,
+      "output_tokens": 1,
+      "cost": 4.4e-05,
+      "currency": "CNY"
+    },
+    {
+      "entrypoint_id": "application.knowledge.build_knowledge_units_prod",
+      "task_id": "pi_receipt_54a_03",
+      "session_id": "pi_session_54a_03",
+      "idempotency_key": "pi-idem-54a-03-65db89ab9e6e",
+      "purpose": "extraction_summary",
+      "task_state": "succeeded",
+      "upstream_provider": "dashscope",
+      "model": "deepseek-v4-flash",
+      "input_tokens": 45,
+      "output_tokens": 1,
+      "cost": 4.7e-05,
+      "currency": "CNY"
+    },
+    {
+      "entrypoint_id": "application.knowledge.build_knowledge_units",
+      "task_id": "pi_receipt_54a_04",
+      "session_id": "pi_session_54a_04",
+      "idempotency_key": "pi-idem-54a-04-46d12b140144",
+      "purpose": "extraction_summary",
+      "task_state": "succeeded",
+      "upstream_provider": "dashscope",
+      "model": "deepseek-v4-flash",
+      "input_tokens": 43,
+      "output_tokens": 1,
+      "cost": 4.5e-05,
+      "currency": "CNY"
+    },
+    {
+      "entrypoint_id": "application.knowledge.extract_knowledge_units_l2_session",
+      "task_id": "pi_receipt_54a_05",
+      "session_id": "pi_session_54a_05",
+      "idempotency_key": "pi-idem-54a-05-552a65300236",
+      "purpose": "extraction_summary",
+      "task_state": "succeeded",
+      "upstream_provider": "dashscope",
+      "model": "deepseek-v4-flash",
+      "input_tokens": 47,
+      "output_tokens": 1,
+      "cost": 4.9e-05,
+      "currency": "CNY"
+    },
+    {
+      "entrypoint_id": "core.llm.make_llm_client",
+      "task_id": "pi_receipt_54a_06",
+      "session_id": "pi_session_54a_06",
+      "idempotency_key": "pi-idem-54a-06-d8f072a5f94b",
+      "purpose": "generic_generation",
+      "task_state": "succeeded",
+      "upstream_provider": "dashscope",
+      "model": "deepseek-v4-flash",
+      "input_tokens": 42,
+      "output_tokens": 1,
+      "cost": 4.4e-05,
+      "currency": "CNY"
+    },
+    {
+      "entrypoint_id": "application.memory.extract_memory_candidates_from_bundles",
+      "task_id": "pi_receipt_54a_07",
+      "session_id": "pi_session_54a_07",
+      "idempotency_key": "pi-idem-54a-07-6b6f140a8729",
+      "purpose": "generic_generation",
+      "task_state": "succeeded",
+      "upstream_provider": "dashscope",
+      "model": "deepseek-v4-flash",
+      "input_tokens": 46,
+      "output_tokens": 1,
+      "cost": 4.8e-05,
+      "currency": "CNY"
+    },
+    {
+      "entrypoint_id": "application.memory.repair_memory_promotion_candidates",
+      "task_id": "pi_receipt_54a_08",
+      "session_id": "pi_session_54a_08",
+      "idempotency_key": "pi-idem-54a-08-0a63adc52cad",
+      "purpose": "generic_generation",
+      "task_state": "succeeded",
+      "upstream_provider": "dashscope",
+      "model": "deepseek-v4-flash",
+      "input_tokens": 45,
+      "output_tokens": 1,
+      "cost": 4.7e-05,
+      "currency": "CNY"
+    },
+    {
+      "entrypoint_id": "application.memory.build_memory_relation_candidates",
+      "task_id": "pi_receipt_54a_09",
+      "session_id": "pi_session_54a_09",
+      "idempotency_key": "pi-idem-54a-09-6cb2911c8382",
+      "purpose": "generic_generation",
+      "task_state": "succeeded",
+      "upstream_provider": "dashscope",
+      "model": "deepseek-v4-flash",
+      "input_tokens": 43,
+      "output_tokens": 1,
+      "cost": 4.5e-05,
+      "currency": "CNY"
+    },
+    {
+      "entrypoint_id": "application.graph.judge_graph_relations",
+      "task_id": "pi_receipt_54a_10",
+      "session_id": "pi_session_54a_10",
+      "idempotency_key": "pi-idem-54a-10-4517374de3b7",
+      "purpose": "generic_generation",
+      "task_state": "succeeded",
+      "upstream_provider": "dashscope",
+      "model": "deepseek-v4-flash",
+      "input_tokens": 40,
+      "output_tokens": 1,
+      "cost": 4.2e-05,
+      "currency": "CNY"
+    }
+  ],
+  "total_provider_calls": 10,
+  "total_cost_cny": 0.000455,
+  "authority_mutations": 0,
+  "raw_bodies_committed": false,
+  "legacy_receipt_count_total": 0,
+  "notes": "Real kernel POST /v1/tasks receipts for surviving migrated entrypoints. Archived conversation modules excluded; no synthetic receipt fabricated."
+}
