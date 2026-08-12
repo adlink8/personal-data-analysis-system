@@ -7,6 +7,8 @@ from pathlib import Path
 
 ALLOWED = {"schema", "grounding", "tool_selection", "latency", "usage_cost", "recovery", "human_usefulness"}
 
+ALLOWED_PREREGISTRATION_EVIDENCE_CLASSES = frozenset({"synthetic_replay", "real_authorized_paired_baseline"})
+
 def load(path: Path) -> dict:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict): raise ValueError("manifest_invalid")
@@ -18,7 +20,7 @@ def validate_preregistration(path: Path) -> dict:
     if not required <= set(value): raise ValueError("preregistration_missing_field")
     if value["schema"] != "pi-baseline-preregistration-v1" or value["attempts_per_arm"] != 1: raise ValueError("preregistration_policy_invalid")
     if not value["authorized_case_ids"] or set(value["authorized_case_ids"]) != set(value["input_checksums"]): raise ValueError("case_checksum_mismatch")
-    if set(value["metrics"]) != ALLOWED or value["evidence_class"] != "synthetic_replay": raise ValueError("metrics_or_evidence_invalid")
+    if set(value["metrics"]) != ALLOWED or value["evidence_class"] not in ALLOWED_PREREGISTRATION_EVIDENCE_CLASSES: raise ValueError("metrics_or_evidence_invalid")
     return {"ok": True, "status": "frozen", "evidence_class": value["evidence_class"], "case_count": len(value["authorized_case_ids"]), "provider_calls": 0}
 
 def check_real_receipts(path: Path) -> dict:
