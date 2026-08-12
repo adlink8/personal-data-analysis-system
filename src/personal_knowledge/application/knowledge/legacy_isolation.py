@@ -28,6 +28,7 @@ from personal_knowledge.application.serving.snapshots import (
     prepare_snapshot,
     validate_snapshot,
 )
+from personal_knowledge.application.serving.versions import record_publication
 from personal_knowledge.core.chroma_client import ChromaClient, Collection
 from personal_knowledge.core.sqlite import assert_foreign_key_integrity, connect_rw
 
@@ -501,8 +502,9 @@ def build_empty_snapshot_members(
     collection_name: str,
     collection_checksum: str,
     manifest_path: Path,
+    publications: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    """Replace only the three knowledge roles and retain each role's watermark."""
+    """Replace only the three knowledge roles with newly published versions."""
     members: dict[str, dict[str, Any]] = {}
     for role, raw in (current.get("members") or {}).items():
         members[str(role)] = {
@@ -518,39 +520,97 @@ def build_empty_snapshot_members(
                 members[str(role)]["metadata"] = json.loads(str(raw.get("metadata_json") or "{}"))
             except json.JSONDecodeError:
                 members[str(role)]["metadata"] = {}
-    watermarks = {
-        role: (members.get(role) or {}).get("watermark_id")
-        for role in ("canonical_knowledge", "knowledge_retrieval", "knowledge_evaluation")
-    }
-    fallback = (members.get("canonical_message") or {}).get("watermark_id")
     members["canonical_knowledge"] = {
+        "artifact_version_id": publications["canonical_knowledge"]["artifact_version_id"],
         "version": generation_id,
         "checksum": hashlib.sha256(b"[]").hexdigest(),
         "location_kind": "sqlite_table",
         "location_ref": "canonical_knowledge_units",
         "producer_run_id": generation_id,
-        "watermark_id": watermarks["canonical_knowledge"] or fallback,
+        "watermark_id": publications["canonical_knowledge"]["watermark_id"],
         "metadata": {"unit_count": 0, "mode": "empty_isolation_generation"},
     }
     members["knowledge_retrieval"] = {
+        "artifact_version_id": publications["knowledge_retrieval"]["artifact_version_id"],
         "version": f"kiv_{generation_id}",
         "checksum": collection_checksum,
         "location_kind": "chroma_collection",
         "location_ref": collection_name,
         "producer_run_id": generation_id,
-        "watermark_id": watermarks["knowledge_retrieval"] or fallback,
+        "watermark_id": publications["knowledge_retrieval"]["watermark_id"],
         "metadata": {"unit_count": 0, "canonical_build_id": generation_id},
     }
     members["knowledge_evaluation"] = {
+        "artifact_version_id": publications["knowledge_evaluation"]["artifact_version_id"],
         "version": generation_id,
         "checksum": hashlib.sha256(f"empty-evaluation:{generation_id}".encode("utf-8")).hexdigest(),
         "location_kind": "evaluation_run",
         "location_ref": str(manifest_path.resolve()),
         "producer_run_id": generation_id,
-        "watermark_id": watermarks["knowledge_evaluation"] or fallback,
+        "watermark_id": publications["knowledge_evaluation"]["watermark_id"],
         "metadata": {"status": "not_applicable_empty_generation", "unit_count": 0},
     }
     return members
+
+
+def _publish_empty_roles(
+    db_path: Path,
+    current: Mapping[str, Any],
+    *,
+    generation_id: str,
+    collection_name: str,
+    collection_checksum: str,
+    manifest_path: Path,
+) -> dict[str, dict[str, Any]]:
+    current_members = current.get("members") or {}
+    canonical_message = current_members.get("canonical_message") or {}
+    source_marker = f"{canonical_message.get('checksum') or canonical_message.get('version')}:{generation_id}"
+    empty_checksum = hashlib.sha256(b"[]").hexdigest()
+    canonical = record_publication(
+        db_path,
+        registry_id="s.knowledge_unit",
+        version=generation_id,
+        checksum=empty_checksum,
+        location_kind="sqlite_table",
+        location_ref="canonical_knowledge_units",
+        source_key="canonical_message",
+        watermark_value=source_marker,
+        producer_run_id=generation_id,
+        evidence_version_id=canonical_message.get("artifact_version_id"),
+        metadata={"unit_count": 0, "mode": "empty_isolation_generation"},
+    )
+    retrieval = record_publication(
+        db_path,
+        registry_id="r.knowledge_index",
+        version=f"kiv_{generation_id}",
+        checksum=collection_checksum,
+        location_kind="chroma_collection",
+        location_ref=collection_name,
+        source_key="canonical_knowledge",
+        watermark_value=generation_id,
+        producer_run_id=generation_id,
+        evidence_version_id=canonical["artifact_version_id"],
+        metadata={"unit_count": 0, "canonical_build_id": generation_id},
+    )
+    evaluation_checksum = hashlib.sha256(f"empty-evaluation:{generation_id}".encode("utf-8")).hexdigest()
+    evaluation = record_publication(
+        db_path,
+        registry_id="a.knowledge_evaluation",
+        version=generation_id,
+        checksum=evaluation_checksum,
+        location_kind="evaluation_run",
+        location_ref=str(manifest_path.resolve()),
+        source_key="knowledge_retrieval",
+        watermark_value=generation_id,
+        producer_run_id=generation_id,
+        evidence_version_id=retrieval["artifact_version_id"],
+        metadata={"status": "not_applicable_empty_generation", "unit_count": 0},
+    )
+    return {
+        "canonical_knowledge": canonical,
+        "knowledge_retrieval": retrieval,
+        "knowledge_evaluation": evaluation,
+    }
 
 
 def _activate_empty_snapshot(
@@ -563,12 +623,21 @@ def _activate_empty_snapshot(
     current = get_active_snapshot(db_path)
     if not current:
         raise IsolationError("active serving snapshot missing before activation")
+    publications = _publish_empty_roles(
+        db_path,
+        current,
+        generation_id=generation_id,
+        collection_name=collection_name,
+        collection_checksum=collection_checksum,
+        manifest_path=manifest_path,
+    )
     members = build_empty_snapshot_members(
         current,
         generation_id=generation_id,
         collection_name=collection_name,
         collection_checksum=collection_checksum,
         manifest_path=manifest_path,
+        publications=publications,
     )
     draft = prepare_snapshot(db_path, members, eval_gate_ref=None, write=True)
     required = set(members)

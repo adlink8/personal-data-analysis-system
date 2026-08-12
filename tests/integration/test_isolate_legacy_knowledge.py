@@ -339,7 +339,7 @@ def test_unknown_foreign_key_into_derived_state_fails_closed(tmp_path: Path) -> 
         )
 
 
-def test_empty_snapshot_members_preserve_each_roles_nonregressing_watermark(tmp_path: Path) -> None:
+def test_empty_snapshot_members_bind_each_role_to_its_new_publication(tmp_path: Path) -> None:
     current = {
         "members": {
             "canonical_message": {"watermark_id": "wm-message", "metadata_json": "{}"},
@@ -349,14 +349,19 @@ def test_empty_snapshot_members_preserve_each_roles_nonregressing_watermark(tmp_
         }
     }
 
+    publications = {
+        role: {"artifact_version_id": f"av-new-{role}", "watermark_id": f"wm-new-{role}"}
+        for role in ("canonical_knowledge", "knowledge_retrieval", "knowledge_evaluation")
+    }
     members = build_empty_snapshot_members(
         current,
         generation_id="kg_test_watermarks",
         collection_name="knowledge_units_empty_kg_test_watermarks",
         collection_checksum="empty-checksum",
         manifest_path=tmp_path / "manifest.json",
+        publications=publications,
     )
 
-    assert members["canonical_knowledge"]["watermark_id"] == "wm-knowledge"
-    assert members["knowledge_retrieval"]["watermark_id"] == "wm-retrieval"
-    assert members["knowledge_evaluation"]["watermark_id"] == "wm-evaluation"
+    for role, publication in publications.items():
+        assert members[role]["artifact_version_id"] == publication["artifact_version_id"]
+        assert members[role]["watermark_id"] == publication["watermark_id"]
