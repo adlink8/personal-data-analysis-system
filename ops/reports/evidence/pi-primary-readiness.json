@@ -2,21 +2,66 @@
   "schema": "pi-primary-readiness-v1",
   "status": "BLOCKED",
   "ready": false,
-  "run_at": "2026-08-04T23:31:31.0870793Z",
+  "run_at": "2026-08-12T00:22:10Z",
   "reason_codes": [
-    "phase53_decision_not_proceed",
-    "baseline_not_pass",
-    "baseline_sample_below_minimum",
-    "arm_response_schema_invalid",
-    "entrypoint_receipts_missing"
+    "readiness_status_not_ready"
   ],
-  "production_entrypoint_count": 12,
-  "entrypoint_receipts": {},
+  "production_entrypoint_count": 10,
+  "entrypoint_receipts": {
+    "analysis.providers.PiKernelProvider": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "services.orchestration_service.generation_runner": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.knowledge.build_knowledge_units_prod": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.knowledge.build_knowledge_units": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.knowledge.extract_knowledge_units_l2_session": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "core.llm.make_llm_client": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.memory.extract_memory_candidates_from_bundles": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.memory.repair_memory_promotion_candidates": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.memory.build_memory_relation_candidates": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    },
+    "application.graph.judge_graph_relations": {
+      "provider": "pi-kernel",
+      "receipt_count": 1,
+      "legacy_receipt_count": 0
+    }
+  },
   "linked_evidence": {
-    "inventory": "governance/manifests/ai/pi-ai-entrypoints.json",
     "baseline": "ops/reports/evidence/pi-phase53-real-paired-baseline.json",
-    "fault_matrix": "ops/reports/evidence/pi-kernel-fault-matrix.json",
-    "browser_uat": "ops/reports/evidence/pi-browser-uat.json"
+    "entrypoint_receipts": "ops/reports/evidence/pi-primary-entrypoint-receipts.json"
   },
   "authority_mutations": 0,
   "raw_bodies_committed": false,

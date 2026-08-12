@@ -10,22 +10,26 @@ from personal_knowledge.services.pi_runtime_activation import ActivationError, R
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_real_primary_readiness_remains_blocked_by_phase53_truth():
+def test_real_primary_readiness_remains_blocked_until_user_activation():
     result = validate_primary_readiness(ROOT / "ops/reports/evidence/pi-primary-readiness.json")
+    # Phase 53 PASS + entrypoint receipts 已齐，仅剩 primary 激活未执行（需用户确认）
     assert result["ready"] is False
-    assert "baseline_not_pass" in result["reason_codes"]
-    assert "baseline_sample_below_minimum" in result["reason_codes"]
-    assert "entrypoint_receipt_inventory_mismatch" in result["reason_codes"]
+    assert "readiness_status_not_ready" in result["reason_codes"]
+    assert "baseline_not_pass" not in result["reason_codes"]
+    assert "entrypoint_receipt_inventory_mismatch" not in result["reason_codes"]
 
 
-def test_primary_and_canary_cannot_prepare_from_revise_without_new_confirmation(tmp_path: Path):
+def test_primary_and_canary_cannot_prepare_from_legacy_without_new_confirmation(tmp_path: Path):
     runtime = RuntimeActivation(tmp_path / "activation.sqlite")
+    # legacy 不能直接跳 canary/primary（transition_illegal）
     with pytest.raises(ActivationError, match="transition_illegal"):
         runtime.prepare("canary", evidence_checksum="uat:synthetic")
+    # shadow 升级需 evidence
     prepared = runtime.prepare("shadow", evidence_checksum="uat:synthetic")
     runtime.confirm(prepared, confirmation_phrase=prepared["confirmation_phrase"], idempotency_key="shadow:blocked")
-    with pytest.raises(ActivationError, match="phase53_decision_not_proceed"):
-        runtime.prepare("canary", evidence_checksum="uat:synthetic")
+    # decision=proceed 后 canary 可从 shadow 升级，但需 evidence
+    with pytest.raises(ActivationError, match="evidence_required"):
+        runtime.prepare("canary", evidence_checksum="")
     assert runtime.current()["mode"] == "shadow"
     runtime.close()
 
