@@ -494,16 +494,15 @@ def _inspect_collection(name: str) -> Mapping[str, Any]:
     return {"exists": False, "name": name, "count": 0, "checksum": ""}
 
 
-def _activate_empty_snapshot(
-    db_path: Path,
+def build_empty_snapshot_members(
+    current: Mapping[str, Any],
+    *,
     generation_id: str,
     collection_name: str,
     collection_checksum: str,
     manifest_path: Path,
-) -> Mapping[str, Any]:
-    current = get_active_snapshot(db_path)
-    if not current:
-        raise IsolationError("active serving snapshot missing before activation")
+) -> dict[str, dict[str, Any]]:
+    """Replace only the three knowledge roles and retain each role's watermark."""
     members: dict[str, dict[str, Any]] = {}
     for role, raw in (current.get("members") or {}).items():
         members[str(role)] = {
@@ -519,15 +518,18 @@ def _activate_empty_snapshot(
                 members[str(role)]["metadata"] = json.loads(str(raw.get("metadata_json") or "{}"))
             except json.JSONDecodeError:
                 members[str(role)]["metadata"] = {}
-    canonical_watermark = (members.get("canonical_message") or {}).get("watermark_id")
-    empty_canonical_checksum = hashlib.sha256(b"[]").hexdigest()
+    watermarks = {
+        role: (members.get(role) or {}).get("watermark_id")
+        for role in ("canonical_knowledge", "knowledge_retrieval", "knowledge_evaluation")
+    }
+    fallback = (members.get("canonical_message") or {}).get("watermark_id")
     members["canonical_knowledge"] = {
         "version": generation_id,
-        "checksum": empty_canonical_checksum,
+        "checksum": hashlib.sha256(b"[]").hexdigest(),
         "location_kind": "sqlite_table",
         "location_ref": "canonical_knowledge_units",
         "producer_run_id": generation_id,
-        "watermark_id": canonical_watermark,
+        "watermark_id": watermarks["canonical_knowledge"] or fallback,
         "metadata": {"unit_count": 0, "mode": "empty_isolation_generation"},
     }
     members["knowledge_retrieval"] = {
@@ -536,7 +538,7 @@ def _activate_empty_snapshot(
         "location_kind": "chroma_collection",
         "location_ref": collection_name,
         "producer_run_id": generation_id,
-        "watermark_id": canonical_watermark,
+        "watermark_id": watermarks["knowledge_retrieval"] or fallback,
         "metadata": {"unit_count": 0, "canonical_build_id": generation_id},
     }
     members["knowledge_evaluation"] = {
@@ -545,9 +547,29 @@ def _activate_empty_snapshot(
         "location_kind": "evaluation_run",
         "location_ref": str(manifest_path.resolve()),
         "producer_run_id": generation_id,
-        "watermark_id": canonical_watermark,
+        "watermark_id": watermarks["knowledge_evaluation"] or fallback,
         "metadata": {"status": "not_applicable_empty_generation", "unit_count": 0},
     }
+    return members
+
+
+def _activate_empty_snapshot(
+    db_path: Path,
+    generation_id: str,
+    collection_name: str,
+    collection_checksum: str,
+    manifest_path: Path,
+) -> Mapping[str, Any]:
+    current = get_active_snapshot(db_path)
+    if not current:
+        raise IsolationError("active serving snapshot missing before activation")
+    members = build_empty_snapshot_members(
+        current,
+        generation_id=generation_id,
+        collection_name=collection_name,
+        collection_checksum=collection_checksum,
+        manifest_path=manifest_path,
+    )
     draft = prepare_snapshot(db_path, members, eval_gate_ref=None, write=True)
     required = set(members)
     validated = validate_snapshot(

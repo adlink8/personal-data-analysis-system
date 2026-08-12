@@ -11,6 +11,7 @@ from personal_knowledge.application.knowledge.legacy_isolation import (
     IsolationDependencies,
     IsolationError,
     apply_isolation,
+    build_empty_snapshot_members,
     plan_isolation,
     rollback_isolation,
 )
@@ -336,3 +337,26 @@ def test_unknown_foreign_key_into_derived_state_fails_closed(tmp_path: Path) -> 
             dependencies=FakeRuntime(pointer).dependencies(),
             generation_id="kg_test_fk",
         )
+
+
+def test_empty_snapshot_members_preserve_each_roles_nonregressing_watermark(tmp_path: Path) -> None:
+    current = {
+        "members": {
+            "canonical_message": {"watermark_id": "wm-message", "metadata_json": "{}"},
+            "canonical_knowledge": {"watermark_id": "wm-knowledge", "metadata_json": "{}"},
+            "knowledge_retrieval": {"watermark_id": "wm-retrieval", "metadata_json": "{}"},
+            "knowledge_evaluation": {"watermark_id": "wm-evaluation", "metadata_json": "{}"},
+        }
+    }
+
+    members = build_empty_snapshot_members(
+        current,
+        generation_id="kg_test_watermarks",
+        collection_name="knowledge_units_empty_kg_test_watermarks",
+        collection_checksum="empty-checksum",
+        manifest_path=tmp_path / "manifest.json",
+    )
+
+    assert members["canonical_knowledge"]["watermark_id"] == "wm-knowledge"
+    assert members["knowledge_retrieval"]["watermark_id"] == "wm-retrieval"
+    assert members["knowledge_evaluation"]["watermark_id"] == "wm-evaluation"
