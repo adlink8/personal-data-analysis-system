@@ -25,7 +25,7 @@ key-files:
   modified:
     - src/personal_knowledge/application/conversation/v2_sync.py (Rule 1/2 deviation: per-family staging fail-closed)
 key-decisions:
-  - "Human disposition is PENDING_HUMAN_APPROVAL: activation stays blocked; Task 4 (human checkpoint) was not executed."
+  - "Human disposition is APPROVED (2026-08-13): the user replied the exact resume phrase '批准 Phase 62 canonical v2 激活与回滚演练', releasing Plan 62-08 with the NOT_READY shadow disposition and live guard gap as known limitations; paid extraction remains unapproved."
   - "Shadow cohort is NOT_READY_FOR_ACTIVATION: the native-available-captured-or-blocked gate fails honestly (13 families unreachable through the flat-file shadow seam) and the D-30 old-run refusal is ineffective on live."
   - "paid_calls=0 verified; incident inc-62-07-extract-guard-fallthrough (extract guard fell through on live, 32 items marked terminal_failed) fully restored to pending; no live canonical/KU mutation."
 metrics:
@@ -36,8 +36,12 @@ metrics:
 
 # Phase 62 Plan 07: Zero-paid live shadow build + per-family fidelity evaluator
 
-**Human disposition: `PENDING_HUMAN_APPROVAL`** (Task 4 human checkpoint not
-executed by this executor). Live canonical v2 activation stays blocked.
+**Human disposition: `APPROVED`** — the user replied on 2026-08-13 with the exact
+resume signal: “批准 Phase 62 canonical v2 激活与回滚演练” (approving only the
+Plan 62-08 canonical v2 activation and rollback drill; this does NOT authorize
+paid LLM extraction). Plan 62-08 is released with the NOT_READY shadow
+disposition and the live `ce_candidate_audit` guard gap recorded as known
+limitations.
 
 **Shadow disposition: `NOT_READY_FOR_ACTIVATION`.** The live cohort produced
 honest evidence: 1 staged family (claude, partial), 3 blocked-staging families

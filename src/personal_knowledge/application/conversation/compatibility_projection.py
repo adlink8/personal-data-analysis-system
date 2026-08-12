@@ -230,7 +230,11 @@ def _project_sessions(
         )
         projected.append({
             "canonical_session_id": _norm_hash("cs", "v2", generation_id, sid),
-            "primary_source": "v2",
+            # Live canonical_sessions has CHECK(primary_source IN
+            # ('agentsview','legacy')); 'v2' is not admissible, so projection
+            # rows are tagged 'legacy' (the v2|generation session-id prefix
+            # keeps them distinguishable from legacy-era rows).
+            "primary_source": "legacy",
             "agent": family_by_session.get(sid) or None,
             "started_at": srow.get("started_at"),
             "ended_at": srow.get("ended_at"),
@@ -267,7 +271,9 @@ def _project_messages(
                     "cm", "v2", generation_id, event["event_id"]
                 ),
                 "canonical_session_id": _norm_hash("cs", "v2", generation_id, sid),
-                "source": "v2",
+                # Live CHECK(source IN ('agentsview','legacy')); 'v2' is not
+                # admissible (see _project_sessions).
+                "source": "legacy",
                 "source_message_ref": event.get("native_locator"),
                 "ordinal": ordinal,
                 "role": role,
@@ -299,7 +305,9 @@ def _project_tools(
                     "cte", "v2", generation_id, event["event_id"]
                 ),
                 "canonical_session_id": _norm_hash("cs", "v2", generation_id, sid),
-                "source": "v2",
+                # Live CHECK(source IN ('agentsview','legacy')); 'v2' is not
+                # admissible (see _project_sessions).
+                "source": "legacy",
                 "source_kind": source_kind,
                 "tool_name": summary if source_kind == "call" else None,
                 "category": None,
