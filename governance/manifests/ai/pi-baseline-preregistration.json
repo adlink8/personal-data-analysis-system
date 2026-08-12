@@ -1,8 +1,8 @@
 {
   "schema": "pi-baseline-preregistration-v1",
-  "version": "53.02.1",
+  "version": "60.01.1",
   "evidence_class": "real_authorized_paired_baseline",
-  "cohort_id": "pi-phase53-real-cohort-20260812",
+  "cohort_id": "pi-phase60-independent-source-cohort-20260812",
   "model": "deepseek-v4-flash",
   "route_purpose": "structured_analysis",
   "timeout_seconds": 120,
@@ -11,11 +11,11 @@
   "attempts_per_arm": 1,
   "authorized_case_ids": [
     "ppc_3c81da35094e5260d022f1ef",
-    "ppc_b62f0f3506ca07a074c9ed54"
+    "ppc_9cece8b49a6520cc91cc8fc4"
   ],
   "input_checksums": {
     "ppc_3c81da35094e5260d022f1ef": "3c81da35094e5260d022f1efa545812b604f48f06080403f6f18e81313bf9957",
-    "ppc_b62f0f3506ca07a074c9ed54": "b62f0f3506ca07a074c9ed54b312a91443355d7957c0198739128abc00f7a57f"
+    "ppc_9cece8b49a6520cc91cc8fc4": "9cece8b49a6520cc91cc8fc4a08af44fbd51dcd3b26d9fb040ee36977f38f87b"
   },
   "metrics": [
     "schema",
@@ -26,5 +26,5 @@
     "recovery",
     "human_usefulness"
   ],
-  "preregistration_checksum": "1872180191f8882264f93660aed6a25ce6d712d67cc8e9eb03829598ccef501a"
+  "preregistration_checksum": "59865b01c7773bba85b8196f07dc1c9f38008cd525ed466f98d070e1dc695d7e"
 }
