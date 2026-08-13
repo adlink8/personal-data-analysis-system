@@ -11,7 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from personal_knowledge.application.serving.snapshots import canonical_json, sync_registry_entries
 from personal_knowledge.core.sqlite import assert_foreign_key_integrity, connect_rw
@@ -54,8 +54,9 @@ def require_version_schema(con: sqlite3.Connection) -> None:
         )
 
 
-def record_publication(
-    db_path: Path,
+def _record_publication_in_transaction(
+    con: sqlite3.Connection,
+    registry_by_role: Mapping[str, Mapping[str, Any]],
     *,
     registry_id: str,
     version: str,
@@ -67,91 +68,151 @@ def record_publication(
     producer_run_id: str | None = None,
     evidence_version_id: str | None = None,
     metadata: Mapping[str, Any] | None = None,
+    now: str | None = None,
 ) -> dict[str, Any]:
-    """Record a successful publication atomically and idempotently.
-
-    A watermark can only reference the immutable version inserted in the same
-    transaction (or an identical pre-existing version). Repeating unchanged
-    input returns the same IDs and writes no new rows.
-    """
     values = (version.strip(), checksum.strip(), location_ref.strip(), watermark_value.strip())
     if any(not value for value in values):
         raise ValueError("version, checksum, location_ref and watermark_value are required")
+    definition = next(
+        (row for row in registry_by_role.values() if row["id"] == registry_id), None
+    )
+    if definition is None:
+        raise ValueError(f"unknown registry id: {registry_id}")
+    version_id = _stable_id("av", f"{registry_id}|{version}|{checksum}")
+    watermark_id = _stable_id(
+        "wm", f"{registry_id}|{source_key}|{watermark_value}"
+    )
+    version_exists = con.execute(
+        "SELECT 1 FROM artifact_versions WHERE artifact_version_id=?", (version_id,)
+    ).fetchone() is not None
+    watermark_exists = con.execute(
+        "SELECT 1 FROM source_watermarks WHERE watermark_id=?", (watermark_id,)
+    ).fetchone() is not None
+    recorded_at = now or _now()
+    con.execute(
+        "INSERT OR IGNORE INTO artifact_versions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            version_id,
+            registry_id,
+            version,
+            checksum,
+            location_kind,
+            location_ref,
+            "published",
+            definition["privacy"],
+            producer_run_id,
+            evidence_version_id,
+            canonical_json(dict(metadata or {})),
+            recorded_at,
+        ),
+    )
+    con.execute(
+        "INSERT OR IGNORE INTO source_watermarks VALUES (?,?,?,?,?,?)",
+        (
+            watermark_id,
+            registry_id,
+            source_key,
+            watermark_value,
+            version_id,
+            recorded_at,
+        ),
+    )
+    # A stable watermark id can pre-exist with an older artifact binding.
+    con.execute(
+        "UPDATE source_watermarks SET artifact_version_id=?, recorded_at=? "
+        "WHERE watermark_id=? AND artifact_version_id<>?",
+        (version_id, recorded_at, watermark_id, version_id),
+    )
+    return {
+        "registry_id": registry_id,
+        "artifact_version_id": version_id,
+        "watermark_id": watermark_id,
+        "version": version,
+        "checksum": checksum,
+        "created": not version_exists,
+        "watermark_created": not watermark_exists,
+    }
 
+
+def record_publications(
+    db_path: Path,
+    publications: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Record a related publication set in one SQLite transaction.
+
+    ``evidence_registry_id`` may refer to an earlier item in the same batch;
+    the immutable version id is resolved internally so callers do not need to
+    know the stable-id formula.  Any invalid item rolls back the whole batch.
+    """
     con = connect_rw(db_path, timeout=60)
     try:
         assert_foreign_key_integrity(con)
         require_version_schema(con)
         con.execute("BEGIN IMMEDIATE")
         registry_by_role = sync_registry_entries(con)
-        definition = next(
-            (row for row in registry_by_role.values() if row["id"] == registry_id), None
-        )
-        if definition is None:
-            raise ValueError(f"unknown registry id: {registry_id}")
-        version_id = _stable_id("av", f"{registry_id}|{version}|{checksum}")
-        watermark_id = _stable_id(
-            "wm", f"{registry_id}|{source_key}|{watermark_value}"
-        )
-        version_exists = con.execute(
-            "SELECT 1 FROM artifact_versions WHERE artifact_version_id=?", (version_id,)
-        ).fetchone() is not None
-        watermark_exists = con.execute(
-            "SELECT 1 FROM source_watermarks WHERE watermark_id=?", (watermark_id,)
-        ).fetchone() is not None
-        now = _now()
-        con.execute(
-            "INSERT OR IGNORE INTO artifact_versions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                version_id,
-                registry_id,
-                version,
-                checksum,
-                location_kind,
-                location_ref,
-                "published",
-                definition["privacy"],
-                producer_run_id,
-                evidence_version_id,
-                canonical_json(dict(metadata or {})),
-                now,
-            ),
-        )
-        con.execute(
-            "INSERT OR IGNORE INTO source_watermarks VALUES (?,?,?,?,?,?)",
-            (
-                watermark_id,
-                registry_id,
-                source_key,
-                watermark_value,
-                version_id,
-                now,
-            ),
-        )
-        # watermark_id 是 registry|source_key|value 的稳定哈希：同一 source 位置
-        # 重新发布（如同一 canonical build 重建索引）时，已存在的 watermark 仍指向
-        # 旧 artifact version，导致 doctor 报 watermark_version_mismatch。
-        # 这里把指向校正到本次发布的 version（幂等：指向相同则不触发）。
-        con.execute(
-            "UPDATE source_watermarks SET artifact_version_id=?, recorded_at=? "
-            "WHERE watermark_id=? AND artifact_version_id<>?",
-            (version_id, now, watermark_id, version_id),
-        )
+        recorded_at = _now()
+        results: list[dict[str, Any]] = []
+        by_registry: dict[str, dict[str, Any]] = {}
+        for publication in publications:
+            values = dict(publication)
+            evidence_registry_id = values.pop("evidence_registry_id", None)
+            if evidence_registry_id is not None:
+                evidence = by_registry.get(str(evidence_registry_id))
+                if evidence is None:
+                    raise ValueError(
+                        "evidence_registry_id must reference an earlier "
+                        f"publication in the batch: {evidence_registry_id}"
+                    )
+                values["evidence_version_id"] = evidence["artifact_version_id"]
+            result = _record_publication_in_transaction(
+                con, registry_by_role, now=recorded_at, **values
+            )
+            results.append(result)
+            by_registry[result["registry_id"]] = result
         con.commit()
-        return {
-            "registry_id": registry_id,
-            "artifact_version_id": version_id,
-            "watermark_id": watermark_id,
-            "version": version,
-            "checksum": checksum,
-            "created": not version_exists,
-            "watermark_created": not watermark_exists,
-        }
+        return results
     except Exception:
         con.rollback()
         raise
     finally:
         con.close()
+
+
+def record_publication(
+    db_path: Path,
+    **publication: Any,
+) -> dict[str, Any]:
+    """Record one publication atomically and idempotently."""
+    return record_publications(db_path, [publication])[0]
+
+
+def record_conversation_publications(
+    db_path: Path,
+    canonical_db: Path,
+) -> list[dict[str, Any]]:
+    """Atomically bind the canonical conversation store and message view."""
+    checksum = file_checksum(canonical_db)
+    return record_publications(db_path, [
+        {
+            "registry_id": "d.canonical_conversation",
+            "version": checksum,
+            "checksum": checksum,
+            "location_kind": "sqlite_store",
+            "location_ref": str(canonical_db),
+            "source_key": "agentsview",
+            "watermark_value": checksum,
+        },
+        {
+            "registry_id": "d.canonical_message",
+            "version": checksum,
+            "checksum": checksum,
+            "location_kind": "sqlite_view",
+            "location_ref": f"{canonical_db}#canonical_messages",
+            "source_key": "canonical_conversation",
+            "watermark_value": checksum,
+            "evidence_registry_id": "d.canonical_conversation",
+        },
+    ])
 
 
 def publication_status(db_path: Path) -> dict[str, Any]:

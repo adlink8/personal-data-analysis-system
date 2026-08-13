@@ -43,31 +43,11 @@ _SHA256_HEX = re.compile(r"^[a-f0-9]{64}$")
 
 
 def _record_conversation_versions() -> list[dict]:
-    from personal_knowledge.application.serving.versions import file_checksum, record_publication
+    from personal_knowledge.application.serving.versions import (
+        record_conversation_publications,
+    )
 
-    checksum = file_checksum(AGENT_CONVERSATIONS_DB)
-    canonical = record_publication(
-        UNIFIED_DB,
-        registry_id="d.canonical_conversation",
-        version=checksum,
-        checksum=checksum,
-        location_kind="sqlite_store",
-        location_ref=str(AGENT_CONVERSATIONS_DB),
-        source_key="agentsview",
-        watermark_value=checksum,
-    )
-    message = record_publication(
-        UNIFIED_DB,
-        registry_id="d.canonical_message",
-        version=checksum,
-        checksum=checksum,
-        location_kind="sqlite_view",
-        location_ref=f"{AGENT_CONVERSATIONS_DB}#canonical_messages",
-        source_key="canonical_conversation",
-        watermark_value=checksum,
-        evidence_version_id=canonical["artifact_version_id"],
-    )
-    return [canonical, message]
+    return record_conversation_publications(UNIFIED_DB, AGENT_CONVERSATIONS_DB)
 
 
 def _now_utc_iso() -> str:

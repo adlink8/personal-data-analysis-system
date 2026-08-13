@@ -211,7 +211,7 @@ class EventRepository:
     def create_schema(self) -> None:
         """Apply additive v2 DDL (idempotent; legacy tables untouched)."""
         create_v2_schema(self.db)
-        con = sqlite3.connect(str(self.db))
+        con = sqlite3.connect(str(self.db), timeout=30)
         try:
             con.execute("PRAGMA foreign_keys=ON")
             for statement in _ACTIVATION_DDL:
@@ -224,7 +224,7 @@ class EventRepository:
         if readonly:
             con = sqlite3.connect(f"file:{self.db.as_posix()}?mode=ro", uri=True)
         else:
-            con = sqlite3.connect(str(self.db))
+            con = sqlite3.connect(str(self.db), timeout=30)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA foreign_keys=ON")
         return con
@@ -239,8 +239,33 @@ class EventRepository:
         Any validation/FK failure rolls back the whole transaction, so a
         partial generation is never left behind.
         """
+        return self.write_generation_cohort(
+            (gen,), generation_id=generation_id,
+            source_manifest_id=gen.source_manifest_id,
+            dataset_digest=gen.dataset_digest,
+        )
+
+    def write_generation_cohort(
+        self,
+        generations: tuple[GenerationInput, ...],
+        *,
+        generation_id: str,
+        source_manifest_id: str,
+        dataset_digest: str,
+    ) -> str:
+        """Stage multiple family runs under one atomic authority generation.
+
+        A conversation authority generation is a cohort, not a family pointer.
+        All runs, sessions, events and relations commit together; any family
+        failure rolls the complete cohort back.
+        """
         from datetime import datetime, timezone
 
+        if not generations:
+            raise EventRepositoryError("generation cohort must contain a family run")
+        families = [gen.family for gen in generations]
+        if len(families) != len(set(families)):
+            raise EventRepositoryError("generation cohort has duplicate family runs")
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         con = self._connect()
         try:
@@ -249,29 +274,41 @@ class EventRepository:
                 "INSERT OR IGNORE INTO ce_event_generations "
                 "(generation_id, status, source_manifest_id, dataset_digest, created_at) "
                 "VALUES (?, 'staged', ?, ?, ?)",
-                (generation_id, gen.source_manifest_id, gen.dataset_digest, now),
+                (generation_id, source_manifest_id, dataset_digest, now),
             )
-            _insert_artifacts(con, gen, generation_id)
-            con.execute(
-                "INSERT OR IGNORE INTO ce_adapter_runs "
-                "(run_id, generation_id, family, adapter_version, contract_version, "
-                " capability_digest, warnings, created_at) VALUES (?,?,?,?,?,?,?,?)",
-                (
-                    f"run-{generation_id}",
-                    generation_id,
-                    gen.family,
-                    gen.adapter_version,
-                    gen.contract_version,
-                    gen.capability_digest,
-                    json.dumps(list(gen.warnings), sort_keys=True),
-                    now,
-                ),
-            )
-            _insert_sessions(con, gen, generation_id)
-            _insert_events(con, gen, generation_id)
-            _insert_relations(con, gen, generation_id)
-            _insert_dispositions(con, gen, generation_id)
+            row = con.execute(
+                "SELECT source_manifest_id, dataset_digest FROM ce_event_generations "
+                "WHERE generation_id=?", (generation_id,),
+            ).fetchone()
+            if row is None or tuple(row) != (source_manifest_id, dataset_digest):
+                raise EventRepositoryError(
+                    "generation id already exists with different manifest or digest"
+                )
+            for gen in generations:
+                _insert_artifacts(con, gen, generation_id)
+                con.execute(
+                    "INSERT OR IGNORE INTO ce_adapter_runs "
+                    "(run_id, generation_id, family, adapter_version, contract_version, "
+                    " capability_digest, warnings, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        f"run-{generation_id}-{gen.family}",
+                        generation_id,
+                        gen.family,
+                        gen.adapter_version,
+                        gen.contract_version,
+                        gen.capability_digest,
+                        json.dumps(list(gen.warnings), sort_keys=True),
+                        now,
+                    ),
+                )
+                _insert_sessions(con, gen, generation_id)
+                _insert_events(con, gen, generation_id)
+                _insert_relations(con, gen, generation_id)
+                _insert_dispositions(con, gen, generation_id)
             con.commit()
+        except EventRepositoryError:
+            con.rollback()
+            raise
         except sqlite3.IntegrityError as exc:
             con.rollback()
             raise EventRepositoryError(
@@ -280,6 +317,76 @@ class EventRepository:
         finally:
             con.close()
         return generation_id
+
+    def import_generation(self, source_db: Path, generation_id: str) -> dict:
+        """Copy one already-validated generation into this repository.
+
+        The copy is one transaction, preserves immutable row values, follows
+        FK order, and verifies generation-scoped counts before commit.  It is
+        the promotion seam from a shadow database into the live canonical DB;
+        it does not activate authority or overwrite compatibility rows.
+        """
+        source = Path(source_db).resolve()
+        target = self.db.resolve()
+        if source == target:
+            return self.validate_generation(generation_id)
+        self.create_schema()
+        tables = (
+            "ce_event_generations", "ce_adapter_runs", "ce_sessions",
+            "ce_events", "ce_event_relations", "ce_field_dispositions",
+        )
+        con = self._connect()
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute("ATTACH DATABASE ? AS shadow", (str(source),))
+            header = con.execute(
+                "SELECT 1 FROM shadow.ce_event_generations WHERE generation_id=?",
+                (generation_id,),
+            ).fetchone()
+            if header is None:
+                raise EventRepositoryError("import source generation is absent")
+            con.execute(
+                "INSERT OR IGNORE INTO ce_source_artifacts SELECT a.* FROM "
+                "shadow.ce_source_artifacts a WHERE a.artifact_id IN ("
+                "SELECT artifact_id FROM shadow.ce_sessions WHERE generation_id=?)",
+                (generation_id,),
+            )
+            for table in tables:
+                con.execute(
+                    f"INSERT OR IGNORE INTO {table} SELECT * FROM shadow.{table} "
+                    "WHERE generation_id=?",
+                    (generation_id,),
+                )
+            source_counts = {
+                table: int(con.execute(
+                    f"SELECT COUNT(*) FROM shadow.{table} WHERE generation_id=?",
+                    (generation_id,),
+                ).fetchone()[0])
+                for table in tables
+            }
+            target_counts = {
+                table: int(con.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE generation_id=?",
+                    (generation_id,),
+                ).fetchone()[0])
+                for table in tables
+            }
+            if source_counts != target_counts:
+                raise EventRepositoryError(
+                    "import count mismatch; transaction was not promoted"
+                )
+            con.commit()
+            return {
+                "ok": True, "generation_id": generation_id,
+                "counts": target_counts,
+            }
+        except (sqlite3.Error, EventRepositoryError) as exc:
+            con.rollback()
+            if isinstance(exc, EventRepositoryError):
+                raise
+            raise EventRepositoryError(f"generation import failed: {exc}") from exc
+        finally:
+            con.close()
 
     # --------------------------------------------------------------- validate
 

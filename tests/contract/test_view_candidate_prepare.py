@@ -473,6 +473,45 @@ def test_legacy_run_extract_blocked_at_cli(
     assert code == 2
 
 
+def test_unclassified_legacy_run_extract_blocked_at_cli(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An ``ir_*`` run is non-executable even without a live audit table."""
+    import sys
+    import types
+
+    from personal_knowledge.application.ku import main as ku_main
+    from personal_knowledge.core import project_paths
+
+    monkeypatch.setattr(
+        project_paths,
+        "AGENT_CONVERSATIONS_DB",
+        tmp_path / "authority-without-candidate-ledger.sqlite",
+    )
+
+    paid_executor = types.ModuleType(
+        "personal_knowledge.application.knowledge.build_knowledge_units_prod"
+    )
+
+    def _must_not_run(_argv: list[str]) -> int:
+        raise AssertionError("legacy run reached the paid extraction executor")
+
+    paid_executor.DEFAULT_MIN_REQUEST_INTERVAL = 0.0
+    paid_executor.DEFAULT_WORKERS = 1
+    paid_executor.main = _must_not_run
+    monkeypatch.setitem(
+        sys.modules,
+        "personal_knowledge.application.knowledge.build_knowledge_units_prod",
+        paid_executor,
+    )
+
+    code = ku_main(
+        ["extract", "--run", "ir_unclassified-live", "--max-items", "1"]
+    )
+    assert code == 2
+
+
 def test_view_subcommands_exist_on_parser() -> None:
     from personal_knowledge.application.ku import build_parser
 

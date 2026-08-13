@@ -43,6 +43,12 @@ ALLOWED_COLUMNS: dict[str, tuple[str, ...]] = {
     "steps": ("id", "trajectory_id", "seq", "kind", "content", "created_at"),
     "subtrajectories": ("id", "step_id", "parent_trajectory_id", "content", "created_at"),
 }
+LIVE_ALLOWED_TABLES: tuple[str, ...] = ("trajectory_meta", "steps", "parent_references")
+LIVE_ALLOWED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "trajectory_meta": ("trajectory_id", "cascade_id", "trajectory_type", "source"),
+    "steps": ("idx", "step_type", "status", "has_subtrajectory", "metadata", "error_details", "permissions", "task_details", "render_info", "step_payload", "step_format"),
+    "parent_references": ("idx", "data"),
+}
 
 _COMPLETE = {
     FidelityDimension.SOURCE_AVAILABILITY: FidelityLevel.COMPLETE,
@@ -96,7 +102,8 @@ def detect(artifact: SourceArtifact, *, artifact_root: Path) -> bool:
         con = sqlite3.connect(f"file:{artifact_root / artifact.artifact_id}?mode=ro", uri=True)
         try:
             rows = con.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='trajectories'"
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name IN ('trajectories','trajectory_meta')"
             ).fetchall()
         finally:
             con.close()
@@ -137,6 +144,11 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         con = sqlite3.connect(f"file:{artifact_root / artifact.artifact_id}?mode=ro", uri=True)
         con.row_factory = sqlite3.Row
         try:
+            tables = {r[0] for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )}
+            if "trajectory_meta" in tables:
+                return _adapt_live_store(con, artifact)
             trajectories = con.execute("SELECT * FROM trajectories").fetchall()
             steps = con.execute("SELECT * FROM steps").fetchall()
             sub_flows = con.execute("SELECT * FROM subtrajectories").fetchall()
@@ -238,4 +250,66 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL if unknown else FidelityLevel.COMPLETE,
                            RELATION_COMPLETENESS=FidelityLevel.PARTIAL if not relations else FidelityLevel.COMPLETE),
         sessions=tuple(sessions), relations=tuple(relations), warnings=tuple(warnings),
+    )
+
+
+def _adapt_live_store(
+    con: sqlite3.Connection, artifact: SourceArtifact
+) -> AdaptationResult:
+    """Preserve the observed protobuf-backed schema without inventing payloads."""
+    trajectories = con.execute("SELECT * FROM trajectory_meta").fetchall()
+    steps = con.execute("SELECT * FROM steps ORDER BY idx").fetchall()
+    sessions: list[AdaptedSession] = []
+    events: list[TypedEvent] = []
+    partial = _fidelity(
+        STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
+        RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
+        CONTENT_AVAILABILITY=FidelityLevel.UNAVAILABLE,
+        COMPACTION_VISIBILITY=FidelityLevel.UNKNOWN,
+    )
+    for trajectory in trajectories:
+        native_session = str(trajectory["trajectory_id"])
+        session_id = make_event_id(
+            FAMILY, artifact.artifact_id, CONTRACT_VERSION, native_session,
+            kind=EventKind.SESSION_LIFECYCLE,
+        )
+        locator = f"{artifact.relative_path}#trajectory:{native_session}"
+        provenance = _provenance(
+            artifact, locator, session=native_session, native_id=native_session
+        )
+        sessions.append(AdaptedSession(
+            session_id=session_id, provenance=provenance,
+            fidelity=partial, native_session_id=native_session,
+        ))
+        events.append(_event(
+            artifact, session_id=session_id,
+            kind=EventKind.SESSION_LIFECYCLE, locator=locator,
+            native_id=native_session, fidelity=partial,
+            native_session=native_session,
+        ))
+        for step in steps:
+            step_id = f"{native_session}:step:{step['idx']}"
+            step_locator = f"{artifact.relative_path}#step:{step['idx']}"
+            events.append(TypedEvent(
+                event_id=make_event_id(
+                    FAMILY, artifact.artifact_id, CONTRACT_VERSION, step_id,
+                    kind=EventKind.UNKNOWN_NATIVE, session_id=session_id,
+                ),
+                session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
+                provenance=_provenance(
+                    artifact, step_locator, session=native_session,
+                    native_id=step_id,
+                ),
+                fidelity=partial, ordinal=int(step["idx"]),
+                native_payload_ref=f"{artifact.artifact_id}:{step_locator}",
+                summary=f"step_type={step['step_type']};status={step['status']}",
+            ))
+    return AdaptationResult(
+        family=FAMILY, adapter_version="1.1.0",
+        contract_version=CONTRACT_VERSION, artifacts=(artifact,),
+        sessions=tuple(sessions), events=tuple(events), relations=(),
+        fidelity=partial,
+        warnings=(
+            "protobuf step payloads are preserved by reference; semantic decode unavailable",
+        ),
     )

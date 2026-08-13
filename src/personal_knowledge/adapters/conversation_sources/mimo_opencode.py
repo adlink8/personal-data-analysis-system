@@ -11,6 +11,7 @@ primitives but keep separate capability contracts and detection.
 from __future__ import annotations
 
 import sqlite3
+import json
 from pathlib import Path
 
 from personal_knowledge.adapters.conversation_sources.contracts import (
@@ -43,6 +44,13 @@ ALLOWED_COLUMNS: dict[str, tuple[str, ...]] = {
     "message_parts": ("id", "message_id", "part_type", "content", "created_at"),
 }
 
+LIVE_ALLOWED_TABLES: tuple[str, ...] = ("session", "message", "part")
+LIVE_ALLOWED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "session": ("id", "parent_id", "title", "time_created", "time_updated", "time_compacting"),
+    "message": ("id", "session_id", "time_created", "time_updated", "data"),
+    "part": ("id", "message_id", "session_id", "time_created", "time_updated", "data"),
+}
+
 _COMPLETE = {
     FidelityDimension.SOURCE_AVAILABILITY: FidelityLevel.COMPLETE,
     FidelityDimension.STRUCTURE_COMPLETENESS: FidelityLevel.COMPLETE,
@@ -57,6 +65,9 @@ _PART_KINDS = {
     "reasoning": EventKind.REASONING,
     "tool": EventKind.TOOL_CALL,
     "compaction": EventKind.COMPACTION_SUMMARY,
+    "step-start": EventKind.TURN_BOUNDARY,
+    "step-finish": EventKind.TURN_BOUNDARY,
+    "file": EventKind.FILE_CONTEXT,
 }
 
 
@@ -96,7 +107,8 @@ class _Family:
             con = sqlite3.connect(f"file:{artifact_root / artifact.artifact_id}?mode=ro", uri=True)
             try:
                 rows = con.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'"
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name IN ('messages','message')"
                 ).fetchall()
             finally:
                 con.close()
@@ -130,9 +142,19 @@ class _Family:
             con = sqlite3.connect(f"file:{artifact_root / artifact.artifact_id}?mode=ro", uri=True)
             con.row_factory = sqlite3.Row
             try:
-                sessions_rows = con.execute("SELECT * FROM sessions").fetchall()
-                messages = con.execute("SELECT * FROM messages").fetchall()
-                parts = con.execute("SELECT * FROM message_parts").fetchall()
+                tables = {r[0] for r in con.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )}
+                live = {"session", "message", "part"} <= tables
+                sessions_rows = con.execute(
+                    "SELECT * FROM session" if live else "SELECT * FROM sessions"
+                ).fetchall()
+                messages = con.execute(
+                    "SELECT * FROM message" if live else "SELECT * FROM messages"
+                ).fetchall()
+                parts = con.execute(
+                    "SELECT * FROM part" if live else "SELECT * FROM message_parts"
+                ).fetchall()
             finally:
                 con.close()
         except sqlite3.Error as exc:
@@ -156,25 +178,30 @@ class _Family:
                     native_locator=f"{artifact.relative_path}#session:{sid}",
                     native_session_id=sid, native_event_id=sid, contract_version=CONTRACT_VERSION,
                 ),
-                fidelity=_fidelity(), native_session_id=sid, started_at=row["created_at"],
+                fidelity=_fidelity(
+                    COMPACTION_VISIBILITY=FidelityLevel.PARTIAL if live else FidelityLevel.COMPLETE
+                ), native_session_id=sid,
+                started_at=row["time_created"] if live else row["created_at"],
             ))
             events.append(self._event(artifact, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
                                       locator=f"{artifact.relative_path}#session:{sid}", native_id=sid,
-                                      occurred_at=row["created_at"],
+                                      occurred_at=row["time_created"] if live else row["created_at"],
                                       summary=str(row["title"] or "")[:256] or None, native_session=sid))
 
         for msg in messages:
             sid = str(msg["session_id"])
             session_id = make_event_id(self.family, artifact.artifact_id, CONTRACT_VERSION,
                                        sid, kind=EventKind.SESSION_LIFECYCLE)
-            role = msg["role"]
+            data = _json_object(msg["data"]) if live else dict(msg)
+            role = data.get("role")
             kind = EventKind.USER_MESSAGE if role == "user" else (
                 EventKind.ASSISTANT_MESSAGE if role == "assistant" else None)
             locator = f"{artifact.relative_path}#message:{msg['id']}"
             if kind is None:
                 unknown += 1
                 ev = self._event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
-                                 locator=locator, native_id=msg["id"], occurred_at=msg["created_at"],
+                                 locator=locator, native_id=msg["id"],
+                                 occurred_at=msg["time_created"] if live else msg["created_at"],
                                  fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
                                                     RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
                                                     CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
@@ -183,8 +210,10 @@ class _Family:
                 by_message[str(msg["id"])] = ev
                 continue
             ev = self._event(artifact, session_id=session_id, kind=kind, locator=locator,
-                             native_id=msg["id"], occurred_at=msg["created_at"],
-                             summary=str(msg["content"] or "")[:2048] or None, native_session=sid)
+                             native_id=msg["id"],
+                             occurred_at=msg["time_created"] if live else msg["created_at"],
+                             summary=(None if live else str(msg["content"] or "")[:2048] or None),
+                             native_session=sid)
             events.append(ev)
             by_message[str(msg["id"])] = ev
 
@@ -192,14 +221,21 @@ class _Family:
             parent = by_message.get(str(part["message_id"]))
             if parent is None:
                 continue
-            kind = _PART_KINDS.get(part["part_type"])
+            part_data = _json_object(part["data"]) if live else dict(part)
+            part_type = part_data.get("type") if live else part["part_type"]
+            kind = _PART_KINDS.get(part_type)
+            if live and part_type == "text":
+                kind = parent.kind
             if kind is None:
                 unknown += 1
                 kind = EventKind.UNKNOWN_NATIVE
             ev = self._event(artifact, session_id=parent.session_id, kind=kind,
                              locator=f"{artifact.relative_path}#part:{part['id']}",
-                             native_id=part["id"], occurred_at=part["created_at"],
-                             summary=str(part["content"] or "")[:2048] or None,
+                             native_id=part["id"],
+                             occurred_at=part["time_created"] if live else part["created_at"],
+                             summary=str(
+                                 part_data.get("text") or part_data.get("content") or ""
+                             )[:2048] or None,
                              native_session=parent.provenance.native_session_id)
             events.append(ev)
             relations.append(EventRelation(
@@ -218,6 +254,14 @@ class _Family:
             fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL if unknown else FidelityLevel.COMPLETE),
             sessions=tuple(sessions), relations=tuple(relations), warnings=tuple(warnings),
         )
+
+
+def _json_object(value) -> dict:
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else value
+    except ValueError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 _FAMILIES = {

@@ -10,6 +10,7 @@ synthetic shapes observed in local artifacts (62-RESEARCH format matrix).
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 import pytest
 
@@ -236,6 +237,27 @@ class TestPi:
         assert result.warnings
         assert result.fidelity.has_loss()
 
+    def test_observed_session_message_wire_format(self, tmp_path):
+        src = tmp_path / "pi_live.jsonl"
+        src.write_text(
+            '\n'.join((
+                json.dumps({"type": "session", "id": "s-live", "timestamp": "t0"}),
+                json.dumps({"type": "message", "id": "m1", "parentId": None,
+                            "timestamp": "t1", "message": {"role": "user", "content": "u"}}),
+                json.dumps({"type": "message", "id": "m2", "parentId": "m1",
+                            "timestamp": "t2", "message": {"role": "assistant", "content": "a"}}),
+            )) + '\n', encoding="utf-8",
+        )
+        artifact, blob = capture_file(
+            src, tmp_path / "capture", relative_path=src.name,
+            byte_limit=100_000, count_limit=1,
+        )
+        assert pi.detect(artifact, artifact_root=blob.parent)
+        result = pi.adapt(SourceArtifactSet((artifact,)), artifact_root=blob.parent)
+        assert {EventKind.USER_MESSAGE, EventKind.ASSISTANT_MESSAGE} <= {
+            event.kind for event in result.events
+        }
+
 
 # ------------------------------------------------------------------------- Workbuddy
 
@@ -288,6 +310,29 @@ class TestKimi:
         assert EventKind.USER_MESSAGE in kinds
         assert EventKind.ASSISTANT_MESSAGE in kinds
 
+    def test_observed_dotted_wire_protocol(self, tmp_path):
+        src = tmp_path / "wire.jsonl"
+        rows = (
+            {"type": "metadata", "created_at": "t0", "protocol_version": 1},
+            {"type": "turn.prompt", "time": "t1", "content": "prompt"},
+            {"type": "context.append_loop_event", "time": "t2",
+             "event": {"type": "tool.call", "id": "call-1"}},
+            {"type": "context.append_loop_event", "time": "t3",
+             "event": {"type": "tool.result", "id": "call-1"}},
+            {"type": "usage.record", "time": "t4"},
+        )
+        src.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+        artifact, blob = capture_file(
+            src, tmp_path / "capture", relative_path=src.name,
+            byte_limit=100_000, count_limit=1,
+        )
+        assert detect_family("kimi", artifact, artifact_root=blob.parent)
+        result = adapt_for("kimi", SourceArtifactSet((artifact,)), artifact_root=blob.parent)
+        kinds = {event.kind for event in result.events}
+        assert {EventKind.USER_MESSAGE, EventKind.TOOL_CALL,
+                EventKind.TOOL_RESULT, EventKind.USAGE} <= kinds
+        assert any(r.relation_kind is RelationKind.CALL_RESULT for r in result.relations)
+
 
 # -------------------------------------------------------------------------- Copilot
 
@@ -321,6 +366,44 @@ class TestCopilot:
         assert any("no completion" in w for w in result.warnings)
         assert result.fidelity.has_loss()
         assert result.fidelity.level(FidelityDimension.RELATION_COMPLETENESS) is FidelityLevel.PARTIAL
+
+    def test_observed_dotted_event_stream(self, tmp_path):
+        src = tmp_path / "events.jsonl"
+        rows = (
+            {"type": "session.start", "id": "s", "timestamp": "t0", "data": {"sessionId": "s"}},
+            {"type": "user.message", "id": "u", "timestamp": "t1", "data": {"content": "u"}},
+            {"type": "assistant.message", "id": "a", "timestamp": "t2", "data": {"content": "a"}},
+            {"type": "session.shutdown", "id": "end", "timestamp": "t3", "data": {}},
+        )
+        src.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+        artifact, blob = capture_file(
+            src, tmp_path / "capture", relative_path=src.name,
+            byte_limit=100_000, count_limit=1,
+        )
+        assert copilot.detect(artifact, artifact_root=blob.parent)
+        result = copilot.adapt(SourceArtifactSet((artifact,)), artifact_root=blob.parent)
+        assert {EventKind.USER_MESSAGE, EventKind.ASSISTANT_MESSAGE} <= {
+            event.kind for event in result.events
+        }
+
+    def test_observed_vscode_requests_json(self, tmp_path):
+        src = tmp_path / "chat.json"
+        src.write_text(json.dumps({
+            "sessionId": "vs-1", "creationDate": "t0",
+            "requests": [{"requestId": "r1", "responseId": "a1",
+                          "timestamp": "t1", "message": {"text": "u"},
+                          "response": [{"value": "a"}]}],
+        }), encoding="utf-8")
+        artifact, blob = capture_file(
+            src, tmp_path / "capture", relative_path=src.name,
+            byte_limit=100_000, count_limit=1,
+        )
+        assert copilot.detect(artifact, artifact_root=blob.parent)
+        result = copilot.adapt(SourceArtifactSet((artifact,)), artifact_root=blob.parent)
+        assert len(result.sessions) == 1
+        assert {EventKind.USER_MESSAGE, EventKind.ASSISTANT_MESSAGE} <= {
+            event.kind for event in result.events
+        }
 
 
 # --------------------------------------------------------------------------- Gemini

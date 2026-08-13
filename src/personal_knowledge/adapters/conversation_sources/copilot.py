@@ -10,6 +10,7 @@ contract with an alias for vscode-copilot.
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from personal_knowledge.adapters.conversation_sources.contracts import (
     AdaptationResult,
@@ -54,6 +55,12 @@ _KINDS = {
     "assistant_message": EventKind.ASSISTANT_MESSAGE,
     "tool_execution_start": EventKind.TOOL_CALL,
     "tool_execution_complete": EventKind.TOOL_RESULT,
+    "session.start": EventKind.SESSION_LIFECYCLE,
+    "session.shutdown": EventKind.SESSION_LIFECYCLE,
+    "user.message": EventKind.USER_MESSAGE,
+    "assistant.turn_start": EventKind.TURN_BOUNDARY,
+    "assistant.message": EventKind.ASSISTANT_MESSAGE,
+    "assistant.turn_end": EventKind.TURN_BOUNDARY,
 }
 
 
@@ -83,15 +90,23 @@ def capability() -> CapabilityDescriptor:
 
 
 def detect(artifact: SourceArtifact, *, artifact_root: Path) -> bool:
-    if not (artifact.relative_path or "").lower().endswith(".jsonl"):
+    suffix = Path(artifact.relative_path or "").suffix.lower()
+    if suffix not in (".jsonl", ".json"):
         return False
     try:
-        with (artifact_root / artifact.artifact_id).open("r", encoding="utf-8") as h:
+        path = artifact_root / artifact.artifact_id
+        if suffix == ".json":
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            return isinstance(doc, dict) and isinstance(doc.get("requests"), list)
+        with path.open("r", encoding="utf-8") as h:
             for raw in h:
                 line = raw.strip()
                 if not line:
                     continue
-                return '"turn_start"' in line or '"tool_execution_start"' in line
+                return (
+                    '"turn_start"' in line or '"tool_execution_start"' in line
+                    or '"assistant.turn_start"' in line or '"session.start"' in line
+                )
     except OSError:
         return False
     return False
@@ -101,7 +116,8 @@ def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=N
            summary=None, fidelity=None, native_session=None) -> TypedEvent:
     return TypedEvent(
         event_id=make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
-                               native_id or locator, kind=kind, session_id=session_id),
+                               native_id or locator, kind=kind, session_id=session_id,
+                               native_locator=locator),
         session_id=session_id, kind=kind,
         provenance=Provenance(
             artifact_id=artifact.artifact_id, artifact_hash=artifact.content_hash,
@@ -115,8 +131,14 @@ def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=N
 def _adapt_record(record: dict, artifact, *, session_id, locator) -> TypedEvent | None:
     kind = _KINDS.get(record.get("type"))
     ts = record.get("timestamp")
-    sid = record.get("session_id")
-    native_id = record.get("tool_id") or record.get("message_id") or record.get("turn_id")
+    data = record.get("data") if isinstance(record.get("data"), dict) else record
+    sid = record.get("session_id") or data.get("sessionId")
+    native_id = (
+        record.get("id") or data.get("toolId") or record.get("tool_id")
+        or data.get("messageId") or record.get("message_id")
+        or data.get("turnId") or record.get("turn_id")
+        or data.get("interactionId")
+    )
     if kind is None:
         return _event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
                       locator=locator, native_id=record.get("id"), occurred_at=ts,
@@ -124,13 +146,14 @@ def _adapt_record(record: dict, artifact, *, session_id, locator) -> TypedEvent 
                                          RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
                                          CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
                       native_session=sid)
-    if kind is EventKind.TOOL_RESULT and record.get("tool_id"):
+    tool_id = record.get("tool_id") or data.get("toolId")
+    if kind is EventKind.TOOL_RESULT and tool_id:
         # start and complete share the native tool_id; make_event_id omits
         # kind when a native id is present, so disambiguate the completion.
-        native_id = f"{record['tool_id']}#complete"
+        native_id = f"{tool_id}#complete"
     return _event(artifact, session_id=session_id, kind=kind, locator=locator,
                   native_id=native_id, occurred_at=ts,
-                  summary=str(record.get("content") or record.get("name") or "")[:2048] or None,
+                  summary=str(data.get("content") or data.get("name") or "")[:2048] or None,
                   native_session=sid)
 
 
@@ -141,16 +164,27 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             f"{FAMILY} adapter requires exactly one artifact, got {len(artifact_set.artifacts)}"
         )
     artifact = artifact_set.artifacts[0]
-    records = list(iter_jsonl_lines(artifact_root / artifact.artifact_id))
+    records, malformed = _load_records(
+        artifact_root / artifact.artifact_id, artifact.relative_path
+    )
 
     session_id = make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
                                None, kind=EventKind.SESSION_LIFECYCLE, native_locator="session")
     events: list[TypedEvent] = []
     relations: list[EventRelation] = []
     warnings: list[str] = []
+    if malformed:
+        warnings.append(f"{malformed} malformed/native-corrupt record(s) skipped")
     tool_starts: dict[str, TypedEvent] = {}
     tool_ends: dict[str, TypedEvent] = {}
-    native_session = next((r.get("session_id") for r in records if r.get("session_id")), None)
+    native_session = next((
+        r.get("session_id")
+        or ((r.get("data") or {}).get("sessionId") if isinstance(r.get("data"), dict) else None)
+        for r in records
+        if r.get("session_id") or (
+            isinstance(r.get("data"), dict) and (r.get("data") or {}).get("sessionId")
+        )
+    ), Path(artifact.relative_path).stem)
 
     for lineno, record in enumerate(records, start=1):
         ev = _adapt_record(record, artifact, session_id=session_id,
@@ -158,7 +192,8 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         if ev is None:
             continue
         events.append(ev)
-        tool_id = record.get("tool_id")
+        data = record.get("data") if isinstance(record.get("data"), dict) else {}
+        tool_id = record.get("tool_id") or data.get("toolId")
         if not tool_id:
             continue
         if ev.kind is EventKind.TOOL_CALL:
@@ -205,3 +240,51 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         ),
         sessions=tuple(sessions), relations=tuple(relations), warnings=tuple(warnings),
     )
+
+
+def _load_records(path: Path, relative_path: str) -> tuple[list[dict], int]:
+    if Path(relative_path).suffix.lower() == ".jsonl":
+        values = list(iter_jsonl_lines(path, strict=False))
+        nonblank = sum(1 for line in path.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines() if line.strip("\x00 \t\r\n"))
+        return values, max(0, nonblank - len(values))
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise EventContractError(f"{FAMILY} JSON artifact unreadable: {exc}") from exc
+    if not isinstance(doc, dict) or not isinstance(doc.get("requests"), list):
+        raise EventContractError(f"{FAMILY} JSON export has no requests list")
+    sid = str(doc.get("sessionId") or Path(relative_path).stem)
+    records: list[dict] = [{
+        "type": "session.start", "id": sid,
+        "timestamp": doc.get("creationDate"), "data": {"sessionId": sid},
+    }]
+    for index, request in enumerate(doc["requests"]):
+        if not isinstance(request, dict):
+            continue
+        message = request.get("message")
+        if isinstance(message, dict):
+            message = message.get("text")
+        request_id = str(request.get("requestId") or f"request-{index}")
+        records.append({
+            "type": "user.message", "id": request_id,
+            "timestamp": request.get("timestamp"),
+            "data": {"sessionId": sid, "messageId": request_id, "content": message},
+        })
+        response_parts = request.get("response")
+        text_parts: list[str] = []
+        if isinstance(response_parts, list):
+            for part in response_parts:
+                if isinstance(part, dict) and isinstance(part.get("value"), str):
+                    text_parts.append(part["value"])
+        response_id = str(request.get("responseId") or f"{request_id}:response")
+        records.append({
+            "type": "assistant.message", "id": response_id,
+            "timestamp": request.get("timestamp"),
+            "data": {
+                "sessionId": sid, "messageId": response_id,
+                "content": "\n".join(text_parts),
+            },
+        })
+    return records, 0

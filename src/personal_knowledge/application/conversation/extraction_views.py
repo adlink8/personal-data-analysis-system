@@ -272,6 +272,13 @@ def _by_event_id(graph: EventGraph) -> dict[str, TypedEvent]:
     return {e.event_id: e for e in graph.events}
 
 
+def _events_by_session(graph: EventGraph) -> dict[str, list[TypedEvent]]:
+    grouped: dict[str, list[TypedEvent]] = {}
+    for event in graph.events:
+        grouped.setdefault(event.session_id, []).append(event)
+    return grouped
+
+
 def _session_events(graph: EventGraph, session_id: str) -> list[TypedEvent]:
     return [e for e in graph.events if e.session_id == session_id]
 
@@ -294,6 +301,13 @@ def _outgoing(
         r for r in graph.relations
         if r.source_event_id == event_id and r.relation_kind in kinds
     )
+
+
+def _outgoing_index(graph: EventGraph) -> dict[str, list[EventRelation]]:
+    grouped: dict[str, list[EventRelation]] = {}
+    for relation in graph.relations:
+        grouped.setdefault(relation.source_event_id, []).append(relation)
+    return grouped
 
 
 def _evidence_refs(events: list[TypedEvent]) -> tuple[str, ...]:
@@ -368,7 +382,8 @@ def _aggregate_fidelity(
 
 
 def _contradictions_for_session(
-    graph: EventGraph, session_id: str, by_id: dict[str, TypedEvent]
+    graph: EventGraph, session_id: str, by_id: dict[str, TypedEvent],
+    *, session_events: list[TypedEvent] | None = None,
 ) -> tuple[ContradictionSlot, ...]:
     """Deterministic contradiction slots inside one session (D-24)."""
     slots: list[ContradictionSlot] = []
@@ -394,7 +409,7 @@ def _contradictions_for_session(
             )
     # 2. same native id mapped to two different canonical event ids
     by_native: dict[str, str] = {}
-    for e in _session_events(graph, session_id):
+    for e in session_events if session_events is not None else _session_events(graph, session_id):
         if e.provenance.native_event_id:
             prior = by_native.get(e.provenance.native_event_id)
             if prior is not None and prior != e.event_id:
@@ -424,11 +439,12 @@ def build_turn_views(graph: EventGraph) -> tuple[TurnView, ...]:
     ]
     views: list[TurnView] = []
     seen: set[tuple[str, ...]] = set()
+    outgoing = _outgoing_index(graph)
     for anchor in _sorted_events(anchors):
         member_ids = {anchor.event_id}
-        for rel in _outgoing(
-            graph, anchor.event_id, frozenset({RelationKind.TURN_MEMBERSHIP})
-        ):
+        for rel in outgoing.get(anchor.event_id, ()):
+            if rel.relation_kind is not RelationKind.TURN_MEMBERSHIP:
+                continue
             member_ids.add(rel.target_event_id)
         members = [by_id[i] for i in sorted(member_ids)]
         evidence = _evidence_refs(members)
@@ -481,28 +497,27 @@ def build_native_trace_views(graph: EventGraph) -> tuple[NativeTraceView, ...]:
     ]
     views: list[NativeTraceView] = []
     seen: set[str] = set()
+    events_by_native: dict[str, list[TypedEvent]] = {}
+    outgoing = _outgoing_index(graph)
+    for event in graph.events:
+        if event.provenance.native_event_id:
+            events_by_native.setdefault(
+                event.provenance.native_event_id, []
+            ).append(event)
     for anchor in _sorted_events(anchors):
         native_id = anchor.provenance.native_event_id or ""
         member_ids = {anchor.event_id}
-        for rel in _outgoing(
-            graph,
-            anchor.event_id,
-            frozenset(
-                {
-                    RelationKind.TURN_MEMBERSHIP,
-                    RelationKind.BRANCH,
-                    RelationKind.PARENT_CHILD,
-                    RelationKind.SUBAGENT,
-                    RelationKind.SIDECHAIN,
-                }
-            ),
-        ):
+        allowed = frozenset({
+            RelationKind.TURN_MEMBERSHIP, RelationKind.BRANCH,
+            RelationKind.PARENT_CHILD, RelationKind.SUBAGENT,
+            RelationKind.SIDECHAIN,
+        })
+        for rel in outgoing.get(anchor.event_id, ()):
+            if rel.relation_kind not in allowed:
+                continue
             member_ids.add(rel.target_event_id)
-        for e in graph.events:
-            if (
-                e.provenance.native_event_id == native_id
-                and e.event_id != anchor.event_id
-            ):
+        for e in events_by_native.get(native_id, ()):
+            if e.event_id != anchor.event_id:
                 member_ids.add(e.event_id)
         members = [by_id[i] for i in sorted(member_ids)]
         evidence = _evidence_refs(members)
@@ -547,19 +562,21 @@ def build_episode_views(graph: EventGraph) -> tuple[EpisodeView, ...]:
     if not session_ids:
         session_ids = sorted({e.session_id for e in graph.events})
     views: list[EpisodeView] = []
+    events_by_session = _events_by_session(graph)
+    relation_sessions: set[str] = set()
+    event_session = {e.event_id: e.session_id for e in graph.events}
+    for relation in graph.relations:
+        if relation.relation_kind in _EPISODE_RELATIONS:
+            if relation.source_event_id in event_session:
+                relation_sessions.add(event_session[relation.source_event_id])
+            if relation.target_event_id in event_session:
+                relation_sessions.add(event_session[relation.target_event_id])
     for session_id in session_ids:
-        session_events = _session_events(graph, session_id)
+        session_events = events_by_session.get(session_id, [])
         if not session_events:
             continue
         session_event_ids = {e.event_id for e in session_events}
-        has_episode_link = any(
-            r.relation_kind in _EPISODE_RELATIONS
-            and (
-                r.source_event_id in session_event_ids
-                or r.target_event_id in session_event_ids
-            )
-            for r in graph.relations
-        )
+        has_episode_link = session_id in relation_sessions
         if has_episode_link:
             components = _relation_components(graph, session_events)
             fallback = False
@@ -655,18 +672,17 @@ def build_compaction_window_views(graph: EventGraph) -> tuple[CompactionWindowVi
         e for e in graph.events if e.kind is EventKind.COMPACTION_SUMMARY
     ]
     views: list[CompactionWindowView] = []
+    outgoing = _outgoing_index(graph)
     for summary in _sorted_events(summaries):
         compacted = [
             rel.target_event_id
-            for rel in _outgoing(
-                graph, summary.event_id, frozenset({RelationKind.COMPACTED_RANGE})
-            )
+            for rel in outgoing.get(summary.event_id, ())
+            if rel.relation_kind is RelationKind.COMPACTED_RANGE
         ]
         retained = [
             rel.target_event_id
-            for rel in _outgoing(
-                graph, summary.event_id, frozenset({RelationKind.RETAINED_FROM})
-            )
+            for rel in outgoing.get(summary.event_id, ())
+            if rel.relation_kind is RelationKind.RETAINED_FROM
         ]
         compacted = sorted(set(compacted))
         retained = sorted(set(retained))
@@ -724,20 +740,23 @@ def build_session_views(
     if not session_ids:
         session_ids = sorted({e.session_id for e in graph.events})
     views: list[SessionView] = []
+    events_by_session = _events_by_session(graph)
+    views_by_session: dict[str, list[str]] = {}
+    for view in member_views:
+        if view.session_id is not None:
+            views_by_session.setdefault(view.session_id, []).append(view.view_id)
     for session_id in session_ids:
-        session_events = _session_events(graph, session_id)
+        session_events = events_by_session.get(session_id, [])
         evidence = _evidence_refs(session_events)
-        member_view_ids = tuple(
-            sorted(
-                v.view_id for v in member_views if v.session_id == session_id
-            )
-        )
+        member_view_ids = tuple(sorted(views_by_session.get(session_id, ())))
         # lineage entries are raw identifiers: view ids already carry the
         # ``view:`` prefix and event ids are content hashes, so no extra prefix
         # is needed and member view/event lineage stays directly comparable.
         lineage = list(member_view_ids)
         lineage.extend(evidence)
-        slots = _contradictions_for_session(graph, session_id, by_id)
+        slots = _contradictions_for_session(
+            graph, session_id, by_id, session_events=session_events
+        )
         views.append(
             SessionView(
                 view_id=make_view_id(
@@ -783,7 +802,7 @@ def build_topic_views(graph: EventGraph) -> tuple[TopicView, ...]:
     """
     by_id = _by_event_id(graph)
     topics: dict[str, dict] = {}
-    _register_topic_anchors(graph, by_id, topics)
+    _register_topic_anchors(graph, by_id, topics, _outgoing_index(graph))
 
     views: list[TopicView] = []
     for topic_key in sorted(topics):
@@ -818,6 +837,7 @@ def _register_topic_anchors(
     graph: EventGraph,
     by_id: dict[str, TypedEvent],
     topics: dict[str, dict],
+    outgoing: dict[str, list[EventRelation]],
 ) -> None:
     """Populate the topic registry from summary and file-context anchors."""
 
@@ -843,6 +863,7 @@ def _register_topic_anchors(
                 graph,
                 summary,
                 by_id,
+                outgoing,
                 frozenset(
                     {
                         RelationKind.COMPACTED_RANGE,
@@ -864,6 +885,7 @@ def _register_topic_anchors(
                 graph,
                 fc,
                 by_id,
+                outgoing,
                 frozenset(
                     {
                         RelationKind.PARENT_CHILD,
@@ -880,12 +902,14 @@ def _topic_members(
     graph: EventGraph,
     anchor: TypedEvent,
     by_id: dict[str, TypedEvent],
+    outgoing: dict[str, list[EventRelation]],
     relation_kinds: frozenset[RelationKind],
 ) -> list[TypedEvent]:
     """Anchor plus every relation-linked member used by a topic view."""
     member_ids = {
         rel.target_event_id
-        for rel in _outgoing(graph, anchor.event_id, relation_kinds)
+        for rel in outgoing.get(anchor.event_id, ())
+        if rel.relation_kind in relation_kinds
     }
     member_ids.add(anchor.event_id)
     return [by_id[i] for i in member_ids if i in by_id]

@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
@@ -132,7 +133,19 @@ def _publish_blob(dest_dir: Path, data: bytes) -> str:
         # write atomically: temp + rename so a crash never leaves a partial blob
         tmp = blob_dir / f".tmp-{uuid.uuid4().hex}"
         tmp.write_bytes(data)
-        os.replace(tmp, blob)
+        for attempt in range(4):
+            try:
+                os.replace(tmp, blob)
+                break
+            except PermissionError:
+                # Windows antivirus/indexers can briefly hold either path.
+                # Accept only a byte-identical winner; otherwise retry briefly.
+                if blob.exists() and _sha256_bytes(blob.read_bytes()) == content_hash:
+                    tmp.unlink(missing_ok=True)
+                    break
+                if attempt == 3:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
     return artifact_id
 
 
@@ -413,7 +426,7 @@ def capture_sqlite(
     staging = staging_dir / f"backup-{uuid.uuid4().hex}.sqlite"
     try:
         schema_digest, filtered_bytes = _filtered_backup(
-            source, staging, allowed_tables
+            source, staging, allowed_tables, allowed_columns
         )
         if len(filtered_bytes) > byte_limit:
             raise CaptureError(
@@ -478,10 +491,17 @@ def _validate_sqlite_capability(
 
 
 def _filtered_backup(
-    source: Path, staging: Path, allowed_tables: tuple[str, ...]
+    source: Path,
+    staging: Path,
+    allowed_tables: tuple[str, ...],
+    allowed_columns: dict[str, tuple[str, ...]],
 ) -> tuple[str, bytes]:
-    """Online-backup ``source`` into ``staging``, drop non-allowlisted tables,
-    and return ``(schema_digest, filtered_bytes)``."""
+    """Online-backup then project only declared tables *and* columns.
+
+    The initial online backup is the WAL-consistent read point.  A fresh
+    sanitized database is then populated from that backup, avoiding residual
+    pages and ensuring undeclared columns from an allowed table cannot leak.
+    """
     src = _read_only_connect(source)
     dst = sqlite3.connect(str(staging))
     try:
@@ -491,27 +511,45 @@ def _filtered_backup(
         dst.close()
         src.close()
 
-    con = sqlite3.connect(str(staging))
+    filtered = staging.with_name(f"filtered-{uuid.uuid4().hex}.sqlite")
+    source_con = sqlite3.connect(str(staging))
+    target_con = sqlite3.connect(str(filtered))
     try:
-        present = _table_names(con)
-        for table in sorted(present - set(allowed_tables)):
-            con.execute(f'DROP TABLE IF EXISTS "{table}"')
-        for row in con.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL"
-        ).fetchall():
-            con.execute(f'DROP INDEX IF EXISTS "{row[0]}"')
-        con.commit()
-        # DROP TABLE leaves freed pages with their original bytes; VACUUM
-        # rewrites the database so excluded credential/account/token data is
-        # not recoverable from the published artifact (D-08 byte-level).
-        con.execute("VACUUM")
-        integrity = con.execute("PRAGMA integrity_check").fetchone()[0]
+        target_con.execute("PRAGMA journal_mode=DELETE")
+        for table in allowed_tables:
+            declared = allowed_columns[table]
+            info = {
+                row[1]: (row[2] or "BLOB")
+                for row in source_con.execute(f'PRAGMA table_info("{table}")')
+            }
+            column_defs = ",".join(
+                f'"{column}" {info[column]}' for column in declared
+            )
+            target_con.execute(f'CREATE TABLE "{table}" ({column_defs})')
+            column_sql = ",".join(f'"{column}"' for column in declared)
+            read = source_con.execute(f'SELECT {column_sql} FROM "{table}"')
+            placeholders = ",".join("?" for _ in declared)
+            while True:
+                rows = read.fetchmany(1000)
+                if not rows:
+                    break
+                target_con.executemany(
+                    f'INSERT INTO "{table}" ({column_sql}) VALUES ({placeholders})',
+                    rows,
+                )
+        target_con.commit()
+        target_con.execute("VACUUM")
+        integrity = target_con.execute("PRAGMA integrity_check").fetchone()[0]
         if integrity != "ok":
             raise CaptureError(f"filtered snapshot integrity_check={integrity!r}")
-        schema_digest = _schema_digest(con, set(allowed_tables))
+        schema_digest = _schema_digest(target_con, set(allowed_tables))
     finally:
-        con.close()
-    return schema_digest, staging.read_bytes()
+        target_con.close()
+        source_con.close()
+    try:
+        return schema_digest, filtered.read_bytes()
+    finally:
+        filtered.unlink(missing_ok=True)
 
 
 def _cleanup_staging(staging: Path) -> None:

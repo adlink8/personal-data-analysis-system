@@ -41,6 +41,7 @@ from personal_knowledge.application.run_pipeline import (
     probe_conversation_sources,
     shadow_conversation_generation,
 )
+from personal_knowledge.application.conversation.v2_sync import ACTIVATION_APPROVAL
 from personal_knowledge.application.sync import build_parser, main
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "conversation_sources"
@@ -124,6 +125,7 @@ def test_activation_delegates_and_writes_projection(tmp_path: Path) -> None:
     result = activate_conversation_generation(
         db=db, generation_id=gen_id, report=report,
         expected_adapter_families=("codex",),
+        approval=ACTIVATION_APPROVAL,
     )
     life = GenerationLifecycle(db)
     assert life.authority_generation_id() == gen_id
@@ -140,6 +142,7 @@ def test_activation_blocks_unknown_family(tmp_path: Path) -> None:
         activate_conversation_generation(
             db=db, generation_id=gen_id, report=report,
             expected_adapter_families=("codex", "ghost-family"),
+            approval=ACTIVATION_APPROVAL,
         )
     assert GenerationLifecycle(db).authority_generation_id() is None
 
@@ -151,6 +154,7 @@ def test_activation_blocks_missing_family_coverage(tmp_path: Path) -> None:
         activate_conversation_generation(
             db=db, generation_id=gen_id, report=report,
             expected_adapter_families=("codex", "pi"),
+            approval=ACTIVATION_APPROVAL,
         )
     assert GenerationLifecycle(db).authority_generation_id() is None
 
@@ -160,10 +164,11 @@ def test_activation_blocks_source_drift_stale_manifest(tmp_path: Path) -> None:
     gen_id = report["generations"]["codex"]["generation_id"]
     # source changed between shadow and activation: manifest no longer matches
     report["generations"]["codex"]["source_manifest_id"] = "stale-manifest"
-    with pytest.raises(GenerationActivationError, match="stale_source_manifest"):
+    with pytest.raises(GenerationActivationError, match="report digest mismatch"):
         activate_conversation_generation(
             db=db, generation_id=gen_id, report=report,
             expected_adapter_families=("codex",),
+            approval=ACTIVATION_APPROVAL,
         )
     assert GenerationLifecycle(db).authority_generation_id() is None
 
@@ -177,6 +182,7 @@ def test_activation_blocks_privacy_gate(tmp_path: Path) -> None:
         activate_conversation_generation(
             db=db, generation_id=gen_id, report=report,
             expected_adapter_families=("codex",),
+            approval=ACTIVATION_APPROVAL,
         )
     assert GenerationLifecycle(db).authority_generation_id() is None
 
@@ -190,6 +196,7 @@ def test_activation_blocks_uncovered_sources(tmp_path: Path) -> None:
         activate_conversation_generation(
             db=db, generation_id=gen_id, report=report,
             expected_adapter_families=("codex",),
+            approval=ACTIVATION_APPROVAL,
         )
     assert GenerationLifecycle(db).authority_generation_id() is None
 
@@ -207,6 +214,7 @@ def test_activation_delta_fires_only_after_success(tmp_path: Path) -> None:
     result = activate_conversation_generation(
         db=db, generation_id=gen_id, report=report,
         expected_adapter_families=("codex",), delta_publisher=delta_publisher,
+        approval=ACTIVATION_APPROVAL,
     )
     assert result["delta"]["published"] is True
     assert len(calls) == 1
@@ -218,8 +226,38 @@ def test_activation_delta_fires_only_after_success(tmp_path: Path) -> None:
         activate_conversation_generation(
             db=db, generation_id=gen_id, report=blocked_report,
             expected_adapter_families=("codex",), delta_publisher=delta_publisher,
+            approval=ACTIVATION_APPROVAL,
         )
     assert len(calls) == 1  # no extra delta for the failed attempt
+
+
+def test_activation_publication_failure_restores_pre_v2_state(
+    tmp_path: Path,
+) -> None:
+    """A cross-store publication failure removes the just-activated v2 state."""
+    report, db, _src, _rp = _shadow(tmp_path)
+    gen_id = report["generations"]["codex"]["generation_id"]
+
+    def fail_publication() -> list[dict]:
+        raise RuntimeError("publication registry unavailable")
+
+    with pytest.raises(GenerationActivationError, match="prior state restored=True"):
+        activate_conversation_generation(
+            db=db,
+            generation_id=gen_id,
+            report=report,
+            expected_adapter_families=("codex",),
+            approval=ACTIVATION_APPROVAL,
+            publication_publisher=fail_publication,
+        )
+
+    assert GenerationLifecycle(db).authority_generation_id() is None
+    con = __import__("sqlite3").connect(str(db))
+    assert con.execute(
+        "SELECT COUNT(*) FROM canonical_sessions WHERE canonical_session_id LIKE 'v2|%'"
+    ).fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM ce_activation_bindings").fetchone()[0] == 0
+    con.close()
 
 
 # ------------------------------------------------------------- CLI wiring
@@ -249,6 +287,7 @@ def test_cli_v2_activation_and_blocked_privacy(tmp_path: Path) -> None:
         "conversations", "--v2-activate", gen_id,
         "--v2-db", str(db), "--v2-report", str(report_path),
         "--v2-families", "codex",
+        "--v2-approval", ACTIVATION_APPROVAL,
     ]) == 0
     assert GenerationLifecycle(db).authority_generation_id() == gen_id
     # a blocked privacy gate makes the CLI fail closed
@@ -259,6 +298,7 @@ def test_cli_v2_activation_and_blocked_privacy(tmp_path: Path) -> None:
         "conversations", "--v2-activate", gen_id,
         "--v2-db", str(db), "--v2-report", str(report_path),
         "--v2-families", "codex",
+        "--v2-approval", ACTIVATION_APPROVAL,
     ]) != 0
 
 

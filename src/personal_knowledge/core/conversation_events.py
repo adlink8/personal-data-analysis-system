@@ -25,6 +25,7 @@ Deterministic local types only: no I/O, no network, no provider calls (D-31).
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping
@@ -162,6 +163,46 @@ class FidelityProfile:
     def has_loss(self) -> bool:
         return any(l is not FidelityLevel.COMPLETE for l in self.levels)
 
+    @classmethod
+    def worst(cls, *profiles: "FidelityProfile") -> "FidelityProfile":
+        """Roll child fidelity up without allowing a lossy child to disappear.
+
+        ``partial`` means some evidence is known, ``unknown`` means the adapter
+        cannot determine the dimension, and ``unavailable`` means the native
+        evidence is absent.  The aggregate therefore keeps the most severe
+        level for every dimension.
+        """
+        if not profiles:
+            return cls.complete()
+        severity = {
+            FidelityLevel.COMPLETE: 0,
+            FidelityLevel.PARTIAL: 1,
+            FidelityLevel.UNKNOWN: 2,
+            FidelityLevel.UNAVAILABLE: 3,
+        }
+        return cls.from_levels({
+            dim: max(
+                (profile.level(dim) for profile in profiles),
+                key=severity.__getitem__,
+            )
+            for dim in FidelityDimension
+        })
+
+    def with_at_least(
+        self, dim: FidelityDimension, level: FidelityLevel
+    ) -> "FidelityProfile":
+        """Return a copy degraded to at least ``level`` for one dimension."""
+        levels = {d: self.level(d) for d in FidelityDimension}
+        severity = {
+            FidelityLevel.COMPLETE: 0,
+            FidelityLevel.PARTIAL: 1,
+            FidelityLevel.UNKNOWN: 2,
+            FidelityLevel.UNAVAILABLE: 3,
+        }
+        if severity[level] > severity[levels[dim]]:
+            levels[dim] = level
+        return FidelityProfile.from_levels(levels)
+
     def to_dict(self) -> dict:
         return {d.value: l.value for d, l in zip(self.dimensions, self.levels)}
 
@@ -215,6 +256,13 @@ def make_event_id(
         )
     if native_event_id:
         identity = f"{family}|{contract_version}|{artifact_id}|{native_event_id}"
+        # Some native streams reuse a logical id across multiple physical
+        # records (for example an assistant message and its tool-call block).
+        # A caller that knows this can supply the immutable source locator as
+        # an additional collision domain.  This is not the mutable canonical
+        # ordinal; it is the record locator inside a content-addressed artifact.
+        if native_locator:
+            identity += f"|{native_locator}"
     else:
         if not native_locator and not session_id:
             raise EventContractError(
@@ -333,13 +381,78 @@ def dataset_digest(
     ``AdaptationResult.dataset_digest``. Stable for identical inputs regardless
     of insertion order (everything is sorted before hashing).
     """
-    parts = [
-        family,
-        adapter_version,
-        contract_version,
-        "|".join(sorted(a.artifact_id for a in artifacts)),
-        "|".join(sorted(s.session_id for s in sessions)),
-        "|".join(sorted(e.event_id for e in events)),
-        "|".join(sorted(r.relation_id for r in relations)),
-    ]
-    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+    def fidelity(profile: FidelityProfile) -> dict[str, str]:
+        return profile.to_dict()
+
+    def provenance(value: Provenance) -> dict[str, str | None]:
+        return {
+            "artifact_id": value.artifact_id,
+            "artifact_hash": value.artifact_hash,
+            "native_locator": value.native_locator,
+            "native_session_id": value.native_session_id,
+            "native_event_id": value.native_event_id,
+            "contract_version": value.contract_version,
+        }
+
+    def dispositions(values) -> list[dict[str, str]]:
+        return sorted(
+            ({
+                "field_name": value.field_name,
+                "disposition": value.disposition.value,
+                "reason": value.reason,
+            } for value in values),
+            key=lambda item: (
+                item["field_name"], item["disposition"], item["reason"]
+            ),
+        )
+
+    # The digest is the identity of the *adapted meaning*, not merely the row
+    # identities.  Native event ids legitimately survive adapter improvements;
+    # therefore hashing only ids would allow a changed event kind/fidelity to
+    # be mistaken for an idempotent replay of an older generation.
+    payload = {
+        "family": family,
+        "adapter_version": adapter_version,
+        "contract_version": contract_version,
+        "artifacts": sorted(({
+            "artifact_id": value.artifact_id,
+            "family": value.family,
+            "source_kind": value.source_kind,
+            "content_hash": value.content_hash,
+            "relative_path": value.relative_path,
+            "byte_size": value.byte_size,
+            "schema_digest": value.schema_digest,
+            "privacy_dispositions": sorted(value.privacy_dispositions),
+        } for value in artifacts), key=lambda item: item["artifact_id"]),
+        "sessions": sorted(({
+            "session_id": value.session_id,
+            "native_session_id": value.native_session_id,
+            "started_at": value.started_at,
+            "ended_at": value.ended_at,
+            "provenance": provenance(value.provenance),
+            "fidelity": fidelity(value.fidelity),
+            "field_dispositions": dispositions(value.field_dispositions),
+        } for value in sessions), key=lambda item: item["session_id"]),
+        "events": sorted(({
+            "event_id": value.event_id,
+            "session_id": value.session_id,
+            "kind": value.kind.value,
+            "occurred_at": value.occurred_at,
+            "ordinal": value.ordinal,
+            "native_payload_ref": value.native_payload_ref,
+            "summary": value.summary,
+            "provenance": provenance(value.provenance),
+            "fidelity": fidelity(value.fidelity),
+            "field_dispositions": dispositions(value.field_dispositions),
+        } for value in events), key=lambda item: item["event_id"]),
+        "relations": sorted(({
+            "relation_id": value.relation_id,
+            "source_event_id": value.source_event_id,
+            "target_event_id": value.target_event_id,
+            "relation_kind": value.relation_kind.value,
+        } for value in relations), key=lambda item: item["relation_id"]),
+    }
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()

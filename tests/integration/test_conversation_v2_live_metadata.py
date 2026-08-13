@@ -337,6 +337,13 @@ def test_activation_gates_pass_for_healthy_cohort(tmp_path):
     assert evaluated.paid_calls == 0
 
 
+def test_consumer_evidence_deduplicates_registered_aliases(tmp_path):
+    report, db, store, _src = _shadow(tmp_path)
+    evaluated = _evaluate(report, db, store, inventory={"codex": 1})
+    evidence = evaluated.consumer_evidence
+    assert evidence["projected_sessions"] == evidence["consumer_read_sessions"]
+
+
 def test_gate_flags_missing_native_available_sessions(tmp_path):
     """A native-available session that is neither captured nor blocked fails."""
     report, db, store, _src = _shadow(tmp_path)
@@ -346,6 +353,28 @@ def test_gate_flags_missing_native_available_sessions(tmp_path):
     assert gates["overall"] is False
     violations = gates["native_available_captured_or_blocked"]["violations"]
     assert any("codex" in v for v in violations)
+
+
+def test_chatgpt_metadata_observation_does_not_fabricate_native_sessions(tmp_path):
+    """One explicit unavailable observation covers pathless ChatGPT inventory."""
+    from personal_knowledge.evaluation.conversation.adapter_fidelity import (
+        _native_available_gate,
+    )
+    from personal_knowledge.evaluation.conversation.adapter_fidelity import (
+        FamilyFidelityEntry,
+    )
+    entry = FamilyFidelityEntry(
+        family="chatgpt", status="partial", capability={},
+        discovered_sessions=104, captured_artifacts=1, captured_sessions=1,
+        adapted_events=1, adapted_relations=0, dataset_digest="d",
+        replay_digest="d", replay_stable=True,
+        dispositions={}, disposition_coverage=0.0, unresolved_provenance=0,
+        source_refs_sample=("agentsview#metadata",), projection_parity={},
+        view_counts={}, fidelity={"source_availability": "unavailable"},
+    )
+    result = _native_available_gate({"chatgpt": entry}, {"chatgpt": 104})
+    assert result["ok"] is True
+    assert result["violations"] == []
 
 
 def test_gate_flags_unresolved_provenance(tmp_path):

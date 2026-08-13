@@ -77,7 +77,8 @@ def _record_kind(record: dict) -> EventKind | None:
 
 def _text_content(record: dict) -> str | None:
     """Text from content blocks; tool blocks are not treated as prose."""
-    blocks = record.get("content")
+    message = record.get("message") if isinstance(record.get("message"), dict) else {}
+    blocks = record.get("content", message.get("content"))
     if isinstance(blocks, str):
         return blocks[:2048] or None
     if isinstance(blocks, list):
@@ -146,7 +147,7 @@ class _Family:
     def _adapt_record(self, record: dict, artifact, *, session_id, locator) -> TypedEvent | None:
         kind = _record_kind(record)
         ts = record.get("timestamp")
-        sid = record.get("session_id")
+        sid = record.get("session_id") or record.get("sessionId")
         if kind is None:
             return self._event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
                                locator=locator, native_id=record.get("uuid"), occurred_at=ts,
@@ -173,7 +174,10 @@ class _Family:
         warnings: list[str] = []
         by_uuid: dict[str, TypedEvent] = {}
         parent_links: list[tuple[TypedEvent, str, bool]] = []
-        native_session = next((r.get("session_id") for r in records if r.get("session_id")), None)
+        native_session = next((
+            r.get("session_id") or r.get("sessionId")
+            for r in records if r.get("session_id") or r.get("sessionId")
+        ), Path(artifact.relative_path).stem)
 
         for lineno, record in enumerate(records, start=1):
             ev = self._adapt_record(record, artifact, session_id=session_id,
@@ -233,7 +237,14 @@ class _Family:
         return AdaptationResult(
             family=self.family, adapter_version=ADAPTER_VERSION, contract_version=CONTRACT_VERSION,
             artifacts=(artifact,), events=tuple(events),
-            fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL if unknown else FidelityLevel.COMPLETE),
+            fidelity=_fidelity(
+                STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL if unknown else FidelityLevel.COMPLETE,
+                RELATION_COMPLETENESS=(
+                    FidelityLevel.PARTIAL
+                    if parent_links and len(relations) < len(parent_links)
+                    else FidelityLevel.COMPLETE
+                ),
+            ),
             sessions=tuple(sessions), relations=tuple(relations), warnings=tuple(warnings),
         )
 

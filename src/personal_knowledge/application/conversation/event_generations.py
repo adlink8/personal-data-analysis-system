@@ -102,6 +102,23 @@ class GenerationLifecycle:
         self._repo.create_schema()
         return self._repo.write_generation(gen, generation_id)
 
+    def prepare_cohort(
+        self,
+        generations: tuple[GenerationInput, ...],
+        *,
+        generation_id: str,
+        source_manifest_id: str,
+        dataset_digest: str,
+    ) -> str:
+        """Stage one multi-family authority generation atomically."""
+        self._repo.create_schema()
+        return self._repo.write_generation_cohort(
+            generations,
+            generation_id=generation_id,
+            source_manifest_id=source_manifest_id,
+            dataset_digest=dataset_digest,
+        )
+
     def authority_generation_id(self) -> str | None:
         """Read-only: the currently active generation, if any."""
         return self._repo.authority_generation_id()
@@ -317,6 +334,33 @@ class GenerationLifecycle:
                 generation_id=generation_id, reason="rollback_target_absent",
             )
         return self._commit(generation_id, hooks=hooks)
+
+    def deactivate(self) -> dict:
+        """Restore the pre-v2 state when no prior generation existed.
+
+        Staged event generations remain recoverable, while the active pointer,
+        v2 compatibility rows and activation bindings are removed together.
+        Pre-existing legacy canonical rows are preserved by the projection
+        cleanup contract.
+        """
+        prior = self._repo.authority_generation_id()
+        con = sqlite3.connect(str(self.db))
+        try:
+            con.execute("BEGIN")
+            clear_compatibility_projection(con)
+            con.execute("UPDATE ce_generation_authority SET active=0 WHERE active=1")
+            con.execute("DELETE FROM ce_activation_bindings")
+            con.commit()
+        except Exception as exc:  # noqa: BLE001 - fail closed with exact rollback
+            con.rollback()
+            raise GenerationActivationError(
+                f"deactivation failed and prior state restored: {exc}",
+                generation_id=prior or "none",
+                reason=f"deactivation_failed:{type(exc).__name__}",
+            ) from exc
+        finally:
+            con.close()
+        return {"prior_generation_id": prior, "active_generation_id": None}
 
     # ---------------------------------------------------------- commit block
 

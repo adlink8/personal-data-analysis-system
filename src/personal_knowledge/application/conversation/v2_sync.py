@@ -18,6 +18,7 @@ live canonical stores (D-15/D-31); staging goes to a caller-supplied shadow db.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +43,9 @@ from personal_knowledge.application.conversation.event_generations import (
 from personal_knowledge.application.conversation.event_repository import (
     GenerationInput,
 )
+from personal_knowledge.core.conversation_events import FidelityProfile
+
+ACTIVATION_APPROVAL = "APPROVE_PHASE62_ACTIVATION"
 
 
 # --------------------------------------------------------------------- probe
@@ -208,6 +212,16 @@ def shadow_conversation_generation(
             "no_source": sum(1 for g in generations.values() if g["status"] == "no_source"),
         },
     }
+    report["gates"] = {
+        "uncovered_sources": not uncovered,
+        "detected_families_unblocked": all(
+            item["status"] != "blocked"
+            for item in generations.values()
+            if item["status"] != "no_source"
+        ),
+    }
+    report["gates"]["overall"] = all(report["gates"].values())
+    report["report_digest"] = _report_digest(report)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(
         json.dumps(report, sort_keys=True, ensure_ascii=False),
@@ -231,34 +245,131 @@ def _stage_all_families(
     byte_limit: int,
     count_limit: int,
 ) -> dict[str, dict]:
-    """Stage one generation per known family and return metadata-only entries."""
-    generations: dict[str, dict] = {}
-    for name in known_families():
-        owner = resolve_family(name)
+    """Stage all detected owners as one atomic multi-family cohort."""
+    owner_entries: dict[str, dict] = {}
+    generation_inputs: list[GenerationInput] = []
+    all_digests: list[str] = []
+    all_hashes: list[str] = []
+
+    for owner in sorted(set(resolve_family(name) for name in known_families())):
         matches = by_family.get(owner, [])
-        base = {
-            "family": owner,
-            "status": "no_source",
-            "snapshot_count": len(matches),
-            "event_count": 0,
-            "generation_id": None,
-            "source_manifest_id": None,
-            "artifact_hashes": [],
-            "dataset_digest": None,
-            "fidelity": None,
-            "privacy_blocked": False,
-            "reason": None,
+        entry = {
+            "family": owner, "status": "no_source",
+            "snapshot_count": len(matches), "event_count": 0,
+            "generation_id": None, "source_manifest_id": None,
+            "artifact_hashes": [], "dataset_digest": None,
+            "fidelity": None, "privacy_blocked": False, "reason": None,
         }
         if matches:
-            base["status"] = "blocked"
-            base["reason"] = "unsupported_artifact_set"
-            if len(matches) == 1:
-                base.update(_stage_family(
-                    life, owner, matches[0], store,
-                    byte_limit=byte_limit, count_limit=count_limit,
+            try:
+                results: list[AdaptationResult] = []
+                for path in matches:
+                    artifact, result = _adapt_source_file(
+                        path, store, byte_limit=byte_limit,
+                        count_limit=count_limit, family=owner,
+                    )
+                    results.append(result)
+                    all_hashes.append(artifact.content_hash)
+                merged = _merge_family_results(owner, results)
+                cap = capability_for(owner)
+                family_manifest = _digest("manifest", *sorted(
+                    a.content_hash for a in merged.artifacts
                 ))
-        generations[name] = base
-    return generations
+                generation_inputs.append(GenerationInput(
+                    family=merged.family,
+                    adapter_version=merged.adapter_version,
+                    contract_version=merged.contract_version,
+                    capability_digest=cap.digest(),
+                    source_manifest_id=family_manifest,
+                    dataset_digest=merged.dataset_digest,
+                    artifacts=merged.artifacts,
+                    sessions=merged.sessions,
+                    events=merged.events,
+                    relations=merged.relations,
+                    dispositions=merged.field_dispositions,
+                    warnings=merged.warnings,
+                ))
+                all_digests.append(merged.dataset_digest)
+                status = "partial" if merged.fidelity.has_loss() or merged.warnings else "full"
+                entry.update({
+                    "status": status,
+                    "event_count": len(merged.events),
+                    "artifact_hashes": sorted(a.content_hash for a in merged.artifacts),
+                    "artifact_refs": [
+                        {"artifact_id": a.artifact_id,
+                         "family": a.family,
+                         "content_hash": a.content_hash,
+                         "relative_path": a.relative_path,
+                         "source_kind": a.source_kind,
+                         "byte_size": a.byte_size,
+                         "schema_digest": a.schema_digest,
+                         "privacy_dispositions": list(a.privacy_dispositions)}
+                        for a in sorted(merged.artifacts, key=lambda a: a.artifact_id)
+                    ],
+                    "family_dataset_digest": merged.dataset_digest,
+                    "fidelity": merged.fidelity.to_dict(),
+                    "reason": None,
+                })
+            except Exception as exc:  # noqa: BLE001 - family fails closed
+                entry.update({
+                    "status": "blocked",
+                    "privacy_blocked": True,
+                    "reason": f"adapt_failed:{type(exc).__name__}",
+                })
+        owner_entries[owner] = entry
+
+    if generation_inputs:
+        cohort_digest = _digest("cohort", *sorted(all_digests))
+        manifest_id = _digest("manifest-cohort", *sorted(all_hashes))
+        generation_id = f"shadow-cohort-{cohort_digest[:12]}"
+        life.prepare_cohort(
+            tuple(generation_inputs), generation_id=generation_id,
+            source_manifest_id=manifest_id, dataset_digest=cohort_digest,
+        )
+        for entry in owner_entries.values():
+            if entry["status"] in ("full", "partial"):
+                entry.update({
+                    "generation_id": generation_id,
+                    "source_manifest_id": manifest_id,
+                    "dataset_digest": cohort_digest,
+                })
+
+    return {
+        name: dict(owner_entries[resolve_family(name)])
+        for name in known_families()
+    }
+
+
+def _digest(prefix: str, *values: str) -> str:
+    return hashlib.sha256("|".join((prefix, *values)).encode("utf-8")).hexdigest()
+
+
+def _report_digest(report: dict) -> str:
+    payload = {k: v for k, v in report.items() if k != "report_digest"}
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def _merge_family_results(
+    family: str, results: list[AdaptationResult]
+) -> AdaptationResult:
+    """Merge repeated native artifacts for one family without flattening them."""
+    first = results[0]
+    return AdaptationResult(
+        family=family,
+        adapter_version=first.adapter_version,
+        contract_version=first.contract_version,
+        artifacts=tuple(a for result in results for a in result.artifacts),
+        sessions=tuple(s for result in results for s in result.sessions),
+        events=tuple(e for result in results for e in result.events),
+        relations=tuple(r for result in results for r in result.relations),
+        field_dispositions=tuple(
+            d for result in results for d in result.field_dispositions
+        ),
+        warnings=tuple(w for result in results for w in result.warnings),
+        fidelity=FidelityProfile.worst(*(result.fidelity for result in results)),
+    )
 
 
 def _stage_family(
@@ -331,7 +442,9 @@ def activate_conversation_generation(
     generation_id: str,
     report: dict,
     expected_adapter_families: tuple[str, ...],
+    approval: str | None = None,
     hooks=None,
+    publication_publisher=None,
     delta_publisher=None,
 ) -> dict:
     """Explicit activation: delegates ONLY to the generation lifecycle.
@@ -353,9 +466,26 @@ def activate_conversation_generation(
             f"uncovered_sources prevent activation: {uncovered}",
             generation_id=generation_id, reason="uncovered_sources",
         )
+    if report.get("report_digest") != _report_digest(report):
+        raise GenerationActivationError(
+            "shadow report digest mismatch",
+            generation_id=generation_id, reason="report_digest_mismatch",
+        )
+    if not (report.get("gates") or {}).get("overall"):
+        raise GenerationActivationError(
+            "shadow report gates are not ready",
+            generation_id=generation_id, reason="shadow_gates_not_ready",
+        )
+    if approval != ACTIVATION_APPROVAL:
+        raise GenerationActivationError(
+            "exact human activation approval is required",
+            generation_id=generation_id, reason="human_approval_required",
+        )
 
     families = expected_adapter_families or (entry["family"],)
+    _validate_cohort_report(report, generation_id, tuple(families))
     life = GenerationLifecycle(db)
+    prior_generation_id = life.authority_generation_id()
     result = life.activate(
         generation_id,
         source_manifest_id=entry["source_manifest_id"],
@@ -363,6 +493,28 @@ def activate_conversation_generation(
         expected_adapter_families=tuple(families),
         hooks=hooks,
     )
+    publications: list[dict] = []
+    if publication_publisher is not None:
+        try:
+            publications = list(publication_publisher())
+        except Exception as exc:  # noqa: BLE001 - compensate cross-store failure
+            restored = False
+            try:
+                if prior_generation_id is None:
+                    life.deactivate()
+                else:
+                    life.rollback_to(prior_generation_id)
+                restored = True
+            except Exception:
+                restored = False
+            raise GenerationActivationError(
+                "publication binding failed after canonical activation; "
+                f"prior state restored={restored}: {exc}",
+                generation_id=generation_id,
+                reason=f"publication_failed:{type(exc).__name__}",
+                restored=restored,
+            ) from exc
+    result["publications"] = publications
     delta = {"published": False, "reason": "v2_delta_not_configured"}
     if delta_publisher is not None:
         delta = delta_publisher({
@@ -374,6 +526,37 @@ def activate_conversation_generation(
         })
     result["delta"] = delta
     return result
+
+
+def _validate_cohort_report(
+    report: dict, generation_id: str, families: tuple[str, ...]
+) -> None:
+    entries = report.get("generations") or {}
+    for family in families:
+        item = entries.get(family)
+        if item is None:
+            try:
+                owner = resolve_family(family)
+            except KeyError as exc:
+                raise GenerationActivationError(
+                    f"unknown_adapter:{family}", generation_id=generation_id,
+                    reason=f"unknown_adapter:{family}",
+                ) from exc
+            item = next(
+                (value for value in entries.values() if value.get("family") == owner),
+                None,
+            )
+        if item is None or item.get("generation_id") != generation_id:
+            raise GenerationActivationError(
+                f"missing_family_coverage:{family} is not bound to cohort "
+                f"{generation_id}", generation_id=generation_id,
+                reason=f"missing_family_coverage:{family}",
+            )
+        if item.get("status") not in ("full", "partial"):
+            raise GenerationActivationError(
+                f"family {family} is not activatable: {item.get('status')}",
+                generation_id=generation_id, reason="cohort_family_blocked",
+            )
 
 
 def _report_entry(report: dict, generation_id: str) -> dict:
@@ -445,6 +628,11 @@ def add_conversations_v2_args(parser: argparse.ArgumentParser) -> None:
         help="Phase 62 v2: comma-separated expected adapter families for "
              "activation (default: the generation's own family)",
     )
+    parser.add_argument(
+        "--v2-approval",
+        default=None,
+        help="Exact local human checkpoint phrase required for v2 activation",
+    )
 
 
 def cmd_conversations_v2(args) -> int:
@@ -482,11 +670,27 @@ def cmd_conversations_v2(args) -> int:
             f.strip() for f in (args.v2_families or "").split(",") if f.strip()
         ) or None
         try:
+            publication_publisher = None
+            from personal_knowledge.core.project_paths import (
+                AGENT_CONVERSATIONS_DB,
+                UNIFIED_DB,
+            )
+
+            if Path(args.v2_db).resolve() == AGENT_CONVERSATIONS_DB.resolve():
+                from personal_knowledge.application.serving.versions import (
+                    record_conversation_publications,
+                )
+
+                publication_publisher = lambda: record_conversation_publications(
+                    UNIFIED_DB, AGENT_CONVERSATIONS_DB
+                )
             result = activate_conversation_generation(
                 db=args.v2_db,
                 generation_id=args.v2_activate,
                 report=report,
                 expected_adapter_families=tuple(families) if families else (),
+                approval=args.v2_approval,
+                publication_publisher=publication_publisher,
             )
         except Exception as exc:  # noqa: BLE001 - fail closed on the command line
             print(f"[error] v2 activation blocked: {exc}")
@@ -500,6 +704,7 @@ def cmd_conversations_v2(args) -> int:
 
 __all__ = [
     "activate_conversation_generation",
+    "ACTIVATION_APPROVAL",
     "add_conversations_v2_args",
     "cmd_conversations_v2",
     "probe_conversation_sources",

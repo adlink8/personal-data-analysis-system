@@ -129,6 +129,55 @@ class TestForbiddenTables:
         blob_bytes = blob.read_bytes()
         assert CANARY.encode() not in blob_bytes
 
+    def test_undeclared_column_on_allowed_table_is_not_published(self, tmp_path):
+        db = tmp_path / "columns.db"
+        con = sqlite3.connect(db)
+        con.execute(
+            "CREATE TABLE conversations "
+            "(id TEXT PRIMARY KEY, body TEXT, vendor_private TEXT)"
+        )
+        con.execute(
+            "INSERT INTO conversations VALUES ('c1', 'safe', ?)", (CANARY,)
+        )
+        con.commit()
+        con.close()
+        _artifact, blob = capture_sqlite(
+            db, tmp_path / "capture", allowed_tables=("conversations",),
+            allowed_columns={"conversations": ("id", "body")},
+            byte_limit=1_000_000, count_limit=4,
+        )
+        con = sqlite3.connect(blob)
+        columns = {row[1] for row in con.execute("PRAGMA table_info(conversations)")}
+        con.close()
+        assert columns == {"id", "body"}
+        assert CANARY.encode() not in blob.read_bytes()
+
+    def test_autoincrement_system_table_is_scrubbed_not_dropped(self, tmp_path):
+        db = tmp_path / "auto.db"
+        con = sqlite3.connect(db)
+        con.execute("CREATE TABLE conversations (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)")
+        con.execute("CREATE TABLE cache_rows (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)")
+        con.execute("INSERT INTO conversations(body) VALUES ('safe')")
+        con.execute("INSERT INTO cache_rows(body) VALUES (?)", (CANARY,))
+        con.commit()
+        con.close()
+        _artifact, blob = capture_sqlite(
+            db, tmp_path / "capture", allowed_tables=("conversations",),
+            allowed_columns={"conversations": ("id", "body")},
+            byte_limit=1_000_000, count_limit=4,
+        )
+        con = sqlite3.connect(blob)
+        has_sequence = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='sqlite_sequence'"
+        ).fetchone()
+        sequence_names = (
+            {row[0] for row in con.execute("SELECT name FROM sqlite_sequence")}
+            if has_sequence else set()
+        )
+        con.close()
+        assert sequence_names <= {"conversations"}
+        assert CANARY.encode() not in blob.read_bytes()
+
 
 class TestPathAndWAL:
     def test_path_escape_rejected(self, tmp_path):

@@ -611,10 +611,9 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         return 2
 
     from personal_knowledge.application.knowledge.view_candidate_prepare import (
-        _assert_legacy_not_superseded,
+        is_legacy_run_id,
         is_view_run_id,
     )
-    from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB
 
     # Phase 62-06 D-31: view-policy runs are never extractable in this phase.
     if is_view_run_id(run_id):
@@ -626,20 +625,19 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    # D-30: legacy message-level runs are superseded and non-executable. The
-    # supersession audit lives beside the conversation authority.
-    try:
-        if _assert_legacy_not_superseded(AGENT_CONVERSATIONS_DB, run_id):
-            print(
-                f"[blocked] run_id={run_id!r} is a legacy message-level prepare "
-                "run whose queue semantics are superseded (D-30). Its audit "
-                "history is preserved but it is non-executable under the "
-                "view-policy contract.",
-                file=sys.stderr,
-            )
-            return 2
-    except Exception:
-        pass  # absent candidate ledger -> fall through to existing behavior
+    # D-30: every ``ir_*`` run uses the superseded message-level queue
+    # contract.  The audit table is useful evidence, but it must never be the
+    # authority for the spend guard: a missing/corrupt ledger must fail closed
+    # before the paid executor is imported.
+    if is_legacy_run_id(run_id):
+        print(
+            f"[blocked] run_id={run_id!r} is a legacy message-level prepare "
+            "run whose queue semantics are superseded (D-30). Its audit "
+            "history is preserved but it is non-executable under the "
+            "view-policy contract.",
+            file=sys.stderr,
+        )
+        return 2
 
     allow_non_inc = os.environ.get("PK_KU_ALLOW_NON_INCREMENTAL_RUN", "").strip() in {
         "1",

@@ -160,6 +160,19 @@ def test_event_id_includes_family_artifact_contract_collision_domains() -> None:
     assert make_event_id("codex", "art-a", "2", "native-42") != base  # contract v
 
 
+def test_event_id_can_disambiguate_reused_native_id_by_immutable_locator() -> None:
+    first = make_event_id(
+        "codex", "art-a", "1", "reused", native_locator="rollout.jsonl#L10"
+    )
+    second = make_event_id(
+        "codex", "art-a", "1", "reused", native_locator="rollout.jsonl#L11"
+    )
+    assert first != second
+    assert first == make_event_id(
+        "codex", "art-a", "1", "reused", native_locator="rollout.jsonl#L10"
+    )
+
+
 # --------------------------------------------------------------------------
 # unknown-native preservation / explicit dispositions
 # --------------------------------------------------------------------------
@@ -360,6 +373,42 @@ def test_result_cannot_look_complete_when_an_event_is_lossy() -> None:
     assert event.fidelity.is_complete() is False
 
 
+def test_result_rejects_duplicate_event_identity_instead_of_silent_loss() -> None:
+    prov = _prov("same")
+    duplicate = _event(
+        make_event_id("codex", "art-a", "1", "same"),
+        EventKind.UNKNOWN_NATIVE,
+        prov,
+    )
+    with pytest.raises(EventContractError, match="duplicate event"):
+        _result((duplicate, duplicate), artifacts=(_artifact(),))
+
+
+def test_result_automatically_rolls_up_child_loss_and_warnings() -> None:
+    prov = _prov("e1")
+    event = _event(
+        make_event_id("codex", "art-a", "1", "e1"),
+        EventKind.UNKNOWN_NATIVE,
+        prov,
+        fidelity=FidelityProfile.complete().with_at_least(
+            FidelityDimension.CONTENT_AVAILABILITY, FidelityLevel.UNKNOWN
+        ),
+    )
+    result = AdaptationResult(
+        family="codex", adapter_version="1", contract_version="1",
+        artifacts=(_artifact(),), events=(event,),
+        fidelity=FidelityProfile.complete(),
+        warnings=("native relation was not recoverable",),
+    )
+    assert result.fidelity.level(
+        FidelityDimension.CONTENT_AVAILABILITY
+    ) is FidelityLevel.UNKNOWN
+    assert result.fidelity.level(
+        FidelityDimension.STRUCTURE_COMPLETENESS
+    ) is FidelityLevel.PARTIAL
+    assert result.fidelity.is_complete() is False
+
+
 # --------------------------------------------------------------------------
 # dataset digest + capability descriptor
 # --------------------------------------------------------------------------
@@ -374,6 +423,27 @@ def test_dataset_digest_is_deterministic_and_input_sensitive() -> None:
     assert r1.dataset_digest == r2.dataset_digest
     r3 = _result((e1,), artifacts=(_artifact(),))
     assert r3.dataset_digest != r1.dataset_digest
+
+
+def test_dataset_digest_changes_when_semantics_change_but_native_id_does_not() -> None:
+    prov = _prov("stable-native-id")
+    event_id = make_event_id("codex", "art-a", "1", "stable-native-id")
+    original = _event(event_id, EventKind.UNKNOWN_NATIVE, prov)
+    remapped = _event(event_id, EventKind.TOOL_CALL, prov)
+    assert _result((original,), artifacts=(_artifact(),)).dataset_digest != (
+        _result((remapped,), artifacts=(_artifact(),)).dataset_digest
+    )
+
+    lossy = _event(
+        event_id, EventKind.UNKNOWN_NATIVE, prov,
+        fidelity=FidelityProfile.complete().with_at_least(
+            FidelityDimension.STRUCTURE_COMPLETENESS,
+            FidelityLevel.PARTIAL,
+        ),
+    )
+    assert _result((original,), artifacts=(_artifact(),)).dataset_digest != (
+        _result((lossy,), artifacts=(_artifact(),)).dataset_digest
+    )
 
 
 def test_capability_descriptor_is_versioned_and_digested() -> None:

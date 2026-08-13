@@ -43,6 +43,7 @@ from personal_knowledge.application.conversation.event_schema import (
 )
 from personal_knowledge.application.conversation.event_repository import (
     EventRepository,
+    EventRepositoryError,
     GenerationInput,
 )
 
@@ -61,6 +62,26 @@ def _artifact() -> SourceArtifact:
         content_hash="h" * 8, capture_method="sha256",
         relative_path="rollout.jsonl", byte_size=10,
     )
+
+
+def test_v2_schema_has_family_scale_read_path_indexes(tmp_path: Path) -> None:
+    db = tmp_path / "indexed.sqlite"
+    create_v2_schema(db)
+    con = sqlite3.connect(db)
+    try:
+        names = {
+            row[0] for row in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='index'"
+            )
+        }
+    finally:
+        con.close()
+    assert {
+        "ce_sessions_generation_family",
+        "ce_events_generation_session",
+        "ce_relations_generation_source",
+        "ce_dispositions_generation_event",
+    } <= names
 
 
 def _session() -> AdaptedSession:
@@ -188,6 +209,37 @@ def test_idempotent_replay_no_duplicates(repo: EventRepository) -> None:
     assert len(repo.iter_events("gen-1")) == 2
 
 
+def test_multi_family_cohort_is_one_atomic_generation(repo: EventRepository) -> None:
+    codex = _gen(_events(2))
+    pi_dict = codex.__dict__.copy()
+    pi_dict.update({
+        "family": "pi",
+        "adapter_version": "2",
+        "capability_digest": "cap-pi",
+        "artifacts": (),
+        "sessions": (),
+        "events": (),
+    })
+    repo.write_generation_cohort(
+        (codex, GenerationInput(**pi_dict)),
+        generation_id="cohort-1",
+        source_manifest_id="manifest-cohort",
+        dataset_digest="digest-cohort",
+    )
+    con = sqlite3.connect(str(repo.db))
+    families = {
+        row[0] for row in con.execute(
+            "SELECT family FROM ce_adapter_runs WHERE generation_id='cohort-1'"
+        )
+    }
+    headers = con.execute(
+        "SELECT COUNT(*) FROM ce_event_generations WHERE generation_id='cohort-1'"
+    ).fetchone()[0]
+    con.close()
+    assert families == {"codex", "pi"}
+    assert headers == 1
+
+
 def test_generation_isolation_between_generations(repo: EventRepository) -> None:
     gen_a = _gen(_events(2, base_locator=1), generation_id="gen-a")
     gen_b = _gen(_events(2, base_locator=100), generation_id="gen-b")
@@ -198,6 +250,29 @@ def test_generation_isolation_between_generations(repo: EventRepository) -> None
     ids_a = {e["event_id"] for e in repo.iter_events("gen-a")}
     ids_b = {e["event_id"] for e in repo.iter_events("gen-b")}
     assert not (ids_a & ids_b)
+
+
+def test_import_generation_promotes_exact_shadow_rows_without_activation(
+    tmp_path: Path,
+) -> None:
+    shadow = EventRepository(tmp_path / "shadow.sqlite")
+    shadow.create_schema()
+    shadow.write_generation(_gen(_events(3)), generation_id="verified-gen")
+    live = EventRepository(tmp_path / "live.sqlite")
+    result = live.import_generation(shadow.db, "verified-gen")
+    assert result["ok"] is True
+    assert result["counts"]["ce_events"] == 3
+    assert live.validate_generation("verified-gen")["ok"] is True
+    assert live.authority_generation_id() is None
+
+
+def test_import_generation_fails_closed_when_source_is_absent(tmp_path: Path) -> None:
+    source = EventRepository(tmp_path / "source.sqlite")
+    source.create_schema()
+    live = EventRepository(tmp_path / "live.sqlite")
+    with pytest.raises(EventRepositoryError, match="absent"):
+        live.import_generation(source.db, "missing")
+    assert live.validate_generation("missing")["ok"] is False
 
 
 def test_native_locator_lookup_within_generation(repo: EventRepository) -> None:

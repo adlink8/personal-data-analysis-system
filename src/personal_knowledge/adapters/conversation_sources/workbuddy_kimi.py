@@ -142,7 +142,8 @@ class _Family:
                occurred_at=None, summary=None, fidelity=None, native_session=None) -> TypedEvent:
         return TypedEvent(
             event_id=make_event_id(self.family, artifact.artifact_id, CONTRACT_VERSION,
-                                   native_id or locator, kind=kind, session_id=session_id),
+                                   native_id or locator, kind=kind, session_id=session_id,
+                                   native_locator=locator),
             session_id=session_id, kind=kind,
             provenance=Provenance(
                 artifact_id=artifact.artifact_id, artifact_hash=artifact.content_hash,
@@ -163,20 +164,48 @@ class _Family:
                 return EventKind.FILE_CONTEXT
             return _WORKBUDDY_KINDS.get(rtype)
         rtype = record.get("type")
+        nested = record.get("event") if isinstance(record.get("event"), dict) else {}
+        nested_type = nested.get("type")
         return {
+            "metadata": EventKind.SESSION_LIFECYCLE,
             "turn_start": EventKind.TURN_BOUNDARY,
+            "turn.prompt": EventKind.USER_MESSAGE,
+            "turn.cancel": EventKind.TURN_BOUNDARY,
             "user_prompt": EventKind.USER_MESSAGE,
             "assistant_message": EventKind.ASSISTANT_MESSAGE,
             "loop_iteration": EventKind.LOOP_BOUNDARY,
             "context_append": EventKind.FILE_CONTEXT,
+            "context.append_message": EventKind.FILE_CONTEXT,
+            "context.append_loop_event": {
+                "step.begin": EventKind.LOOP_BOUNDARY,
+                "step.end": EventKind.LOOP_BOUNDARY,
+                "content.part": EventKind.ASSISTANT_MESSAGE,
+                "tool.call": EventKind.TOOL_CALL,
+                "tool.result": EventKind.TOOL_RESULT,
+            }.get(nested_type, EventKind.UNKNOWN_NATIVE),
+            "usage.record": EventKind.USAGE,
+            "full_compaction.begin": EventKind.COMPACTION_SUMMARY,
+            "context.apply_compaction": EventKind.COMPACTION_SUMMARY,
+            "full_compaction.complete": EventKind.COMPACTION_SUMMARY,
+            "task.started": EventKind.LOOP_BOUNDARY,
+            "task.terminated": EventKind.LOOP_BOUNDARY,
+            "turn.steer": EventKind.TURN_BOUNDARY,
+            "goal.create": EventKind.LOOP_BOUNDARY,
+            "goal.update": EventKind.LOOP_BOUNDARY,
+            "goal.clear": EventKind.LOOP_BOUNDARY,
             "task_complete": EventKind.TURN_BOUNDARY,
         }.get(rtype)
 
     def _adapt_record(self, record: dict, artifact, *, session_id, locator) -> TypedEvent | None:
         kind = self._record_kind(record)
         ts = _timestamp(record.get("timestamp"))
+        nested = record.get("event") if isinstance(record.get("event"), dict) else {}
+        message = record.get("message") if isinstance(record.get("message"), dict) else {}
         sid = record.get("session_id") or record.get("sessionId")
-        mid = record.get("message_id") or record.get("task_id") or record.get("id")
+        mid = (
+            record.get("message_id") or record.get("task_id") or record.get("id")
+            or nested.get("id") or nested.get("call_id") or nested.get("callId")
+        )
         if kind is None:
             return self._event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
                                locator=locator, native_id=mid, occurred_at=ts,
@@ -184,9 +213,27 @@ class _Family:
                                                   RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
                                                   CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
                                native_session=sid)
+        if kind is EventKind.TOOL_RESULT and mid:
+            mid = f"{mid}#result"
         summary = str(record.get("result") or "")[:2048] or None
         if summary is None:
             summary = _text_blocks(record.get("content"))
+        if summary is None:
+            summary = _text_blocks(message.get("content"))
+        if summary is None:
+            summary = _text_blocks(nested.get("content"))
+        if summary is None and isinstance(nested.get("text"), str):
+            summary = nested["text"][:2048] or None
+        if kind is EventKind.COMPACTION_SUMMARY:
+            summary = str(
+                record.get("summary") or record.get("contextSummary") or ""
+            )[:2048] or summary
+        if record.get("type") == "context.append_message":
+            role = message.get("role")
+            if role == "user":
+                kind = EventKind.USER_MESSAGE
+            elif role == "assistant":
+                kind = EventKind.ASSISTANT_MESSAGE
         return self._event(artifact, session_id=session_id, kind=kind, locator=locator,
                            native_id=mid, occurred_at=ts, summary=summary, native_session=sid)
 
@@ -206,7 +253,7 @@ class _Family:
         by_call_id: dict[str, tuple[TypedEvent | None, TypedEvent | None]] = {}
         native_session = next(
             (r.get("session_id") or r.get("sessionId") for r in records if r.get("session_id") or r.get("sessionId")),
-            None,
+            Path(artifact.relative_path).stem,
         )
 
         for lineno, record in enumerate(records, start=1):
@@ -223,8 +270,17 @@ class _Family:
                         by_call_id[call_id] = (ev, _end)
                     elif ev.kind is EventKind.TOOL_RESULT:
                         by_call_id[call_id] = (start, ev)
+            elif record.get("type") == "context.append_loop_event":
+                nested = record.get("event") if isinstance(record.get("event"), dict) else {}
+                call_id = nested.get("call_id") or nested.get("callId") or nested.get("id")
+                if call_id:
+                    start, end = by_call_id.setdefault(str(call_id), (None, None))
+                    if ev.kind is EventKind.TOOL_CALL:
+                        by_call_id[str(call_id)] = (ev, end)
+                    elif ev.kind is EventKind.TOOL_RESULT:
+                        by_call_id[str(call_id)] = (start, ev)
 
-        if self.family == "workbuddy":
+        if self.family == "workbuddy" or by_call_id:
             for call_id, (start, end) in by_call_id.items():
                 if start is None or end is None:
                     warnings.append(f"call {call_id!r} missing start/result (partial)")
@@ -256,15 +312,22 @@ class _Family:
         return AdaptationResult(
             family=self.family, adapter_version=ADAPTER_VERSION, contract_version=CONTRACT_VERSION,
             artifacts=(artifact,), events=tuple(events),
-            fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL if unknown else FidelityLevel.COMPLETE),
+            fidelity=_fidelity(
+                STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL if unknown else FidelityLevel.COMPLETE,
+                RELATION_COMPLETENESS=(
+                    FidelityLevel.PARTIAL
+                    if by_call_id and len(relations) != len(by_call_id)
+                    else FidelityLevel.COMPLETE
+                ),
+            ),
             sessions=tuple(sessions), relations=tuple(relations), warnings=tuple(warnings),
         )
 
 
 _FAMILIES = {
     "workbuddy": _Family("workbuddy", markers=("function_call_result",), kinds=_WORKBUDDY_KINDS),
-    "kimi": _Family("kimi", markers=("loop_iteration", "context_append", "task_complete"), kinds=None),
-    "kimi-work": _Family("kimi-work", markers=("loop_iteration", "context_append", "task_complete"), kinds=None),
+    "kimi": _Family("kimi", markers=("loop_iteration", "context_append", "task_complete", "context.append_loop_event", "turn.prompt"), kinds=None),
+    "kimi-work": _Family("kimi-work", markers=("loop_iteration", "context_append", "task_complete", "context.append_loop_event", "turn.prompt"), kinds=None),
 }
 
 

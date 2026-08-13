@@ -13,6 +13,7 @@ membership relations.
 from __future__ import annotations
 
 import sqlite3
+import json
 from pathlib import Path
 
 from personal_knowledge.adapters.conversation_sources.contracts import (
@@ -45,6 +46,12 @@ ALLOWED_COLUMNS: dict[str, tuple[str, ...]] = {
     "conversation_parts": ("part_id", "trace_id", "turn_id", "part_type",
                            "role", "content", "created_at"),
 }
+LIVE_ALLOWED_TABLES: tuple[str, ...] = ("session", "message", "part")
+LIVE_ALLOWED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "session": ("id", "parent_id", "title", "time_created", "time_updated", "time_compacting", "trace_id"),
+    "message": ("id", "session_id", "time_created", "time_updated", "data", "sequence"),
+    "part": ("id", "message_id", "session_id", "time_created", "time_updated", "data", "sequence"),
+}
 
 _COMPLETE = {
     FidelityDimension.SOURCE_AVAILABILITY: FidelityLevel.COMPLETE,
@@ -62,6 +69,9 @@ _PART_KINDS = {
     "tool": EventKind.TOOL_CALL,
     "step": EventKind.TURN_BOUNDARY,
     "compaction": EventKind.COMPACTION_SUMMARY,
+    "step-start": EventKind.TURN_BOUNDARY,
+    "step-finish": EventKind.TURN_BOUNDARY,
+    "file": EventKind.FILE_CONTEXT,
 }
 
 
@@ -98,7 +108,8 @@ def detect(artifact: SourceArtifact, *, artifact_root: Path) -> bool:
         con = sqlite3.connect(f"file:{artifact_root / artifact.artifact_id}?mode=ro", uri=True)
         try:
             rows = con.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_parts'"
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name IN ('conversation_parts','part')"
             ).fetchall()
         finally:
             con.close()
@@ -141,8 +152,17 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         con = sqlite3.connect(f"file:{blob}?mode=ro", uri=True)
         con.row_factory = sqlite3.Row
         try:
-            traces = con.execute("SELECT * FROM conversation_traces").fetchall()
-            parts = con.execute("SELECT * FROM conversation_parts").fetchall()
+            tables = {r[0] for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )}
+            live = {"session", "message", "part"} <= tables
+            traces = con.execute(
+                "SELECT * FROM session" if live else "SELECT * FROM conversation_traces"
+            ).fetchall()
+            messages = con.execute("SELECT * FROM message").fetchall() if live else []
+            parts = con.execute(
+                "SELECT * FROM part" if live else "SELECT * FROM conversation_parts"
+            ).fetchall()
         finally:
             con.close()
     except sqlite3.Error as exc:
@@ -156,56 +176,74 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
     unknown = 0
 
     for trace in traces:
-        sid = str(trace["trace_id"])
+        sid = str(trace["id"] if live else trace["trace_id"])
         session_id = make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
                                    sid, kind=EventKind.SESSION_LIFECYCLE)
         sessions.append(AdaptedSession(
             session_id=session_id,
             provenance=_provenance(artifact, f"{artifact.relative_path}#trace:{sid}",
                                    session=sid, native_id=sid),
-            fidelity=_fidelity(), native_session_id=sid,
-            started_at=trace["created_at"],
+            fidelity=_fidelity(
+                RELATION_COMPLETENESS=FidelityLevel.PARTIAL if live else FidelityLevel.COMPLETE
+            ), native_session_id=sid,
+            started_at=trace["time_created"] if live else trace["created_at"],
         ))
         events.append(_event(artifact, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
                              locator=f"{artifact.relative_path}#trace:{sid}", native_id=sid,
-                             occurred_at=trace["created_at"],
+                             occurred_at=trace["time_created"] if live else trace["created_at"],
                              summary=str(trace["title"] or "")[:256] or None, native_session=sid))
 
+    message_roles = {}
+    if live:
+        for message in messages:
+            data = _json_object(message["data"])
+            message_roles[str(message["id"])] = data.get("role")
+
     for part in parts:
-        sid = str(part["trace_id"])
+        sid = str(part["session_id"] if live else part["trace_id"])
         session_id = make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
                                    sid, kind=EventKind.SESSION_LIFECYCLE)
-        ptype = part["part_type"]
+        data = _json_object(part["data"]) if live else dict(part)
+        ptype = data.get("type") if live else part["part_type"]
         kind = _PART_KINDS.get(ptype)
-        locator = f"{artifact.relative_path}#part:{part['part_id']}"
+        part_id = str(part["id"] if live else part["part_id"])
+        locator = f"{artifact.relative_path}#part:{part_id}"
         if kind is None:
             if ptype == "text":
-                role = part["role"]
+                role = message_roles.get(str(part["message_id"])) if live else part["role"]
                 kind = EventKind.USER_MESSAGE if role == "user" else (
                     EventKind.ASSISTANT_MESSAGE if role == "assistant" else None)
             if kind is None:
                 unknown += 1
                 ev = _event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
-                            locator=locator, native_id=part["part_id"],
-                            occurred_at=part["created_at"],
+                            locator=locator, native_id=part_id,
+                            occurred_at=part["time_created"] if live else part["created_at"],
                             fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
                                                RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
                                                CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
                             native_session=sid)
                 events.append(ev)
-                by_part[part["part_id"]] = ev
+                by_part[part_id] = ev
                 continue
         ev = _event(artifact, session_id=session_id, kind=kind, locator=locator,
-                    native_id=part["part_id"], occurred_at=part["created_at"],
-                    summary=str(part["content"] or "")[:2048] or None, native_session=sid)
+                    native_id=part["id"] if live else part["part_id"],
+                    occurred_at=part["time_created"] if live else part["created_at"],
+                    summary=str(
+                        data.get("text") or data.get("content") or ""
+                    )[:2048] or None, native_session=sid)
         events.append(ev)
-        by_part[part["part_id"]] = ev
+        by_part[str(part["id"] if live else part["part_id"])] = ev
 
     # Turn membership: parts of the same native turn link to one another (the
     # first part of the turn is the anchor).
     turn_groups: dict[str, list[str]] = {}
     for part in parts:
-        turn_groups.setdefault(str(part["turn_id"]), []).append(str(part["part_id"]))
+        turn_key = (
+            str(part["message_id"]) if live else str(part["turn_id"])
+        )
+        turn_groups.setdefault(turn_key, []).append(
+            str(part["id"] if live else part["part_id"])
+        )
     for turn_parts in turn_groups.values():
         anchor = next((by_part[p] for p in turn_parts if p in by_part), None)
         if anchor is None:
@@ -229,3 +267,11 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL if unknown else FidelityLevel.COMPLETE),
         sessions=tuple(sessions), relations=tuple(relations), warnings=tuple(warnings),
     )
+
+
+def _json_object(value) -> dict:
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else value
+    except ValueError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}

@@ -84,7 +84,9 @@ def detect(artifact: SourceArtifact, *, artifact_root: Path) -> bool:
                 line = raw.strip()
                 if not line:
                     continue
-                return '"type"' in line and '"conversation"' in line
+                return '"type"' in line and (
+                    '"conversation"' in line or '"session"' in line
+                )
     except OSError:
         return False
     return False
@@ -113,6 +115,29 @@ def _adapt_record(record: dict, artifact, *, session_id, locator, native_session
         return _event(artifact, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
                       locator=locator, native_id=record.get("id"), occurred_at=ts,
                       summary=str(record.get("title") or "")[:256] or None, native_session=native_session)
+    if kind == "session":
+        return _event(artifact, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
+                      locator=locator, native_id=record.get("id"), occurred_at=ts,
+                      native_session=native_session)
+    if kind == "message":
+        message = record.get("message") if isinstance(record.get("message"), dict) else {}
+        role = message.get("role")
+        message_kind = (
+            EventKind.USER_MESSAGE if role == "user" else
+            EventKind.ASSISTANT_MESSAGE if role == "assistant" else
+            EventKind.SYSTEM_MESSAGE if role == "system" else
+            EventKind.UNKNOWN_NATIVE
+        )
+        return _event(
+            artifact, session_id=session_id, kind=message_kind,
+            locator=locator, native_id=record.get("id"), occurred_at=ts,
+            summary=_message_text(message.get("content")),
+            fidelity=(None if message_kind is not EventKind.UNKNOWN_NATIVE else _fidelity(
+                STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
+                RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
+            )),
+            native_session=native_session,
+        )
     if kind == "user_message":
         return _event(artifact, session_id=session_id, kind=EventKind.USER_MESSAGE,
                       locator=locator, native_id=mid, occurred_at=ts,
@@ -123,8 +148,17 @@ def _adapt_record(record: dict, artifact, *, session_id, locator, native_session
                       summary=str(record.get("content") or "")[:2048] or None, native_session=native_session)
     if kind == "compaction":
         return _event(artifact, session_id=session_id, kind=EventKind.COMPACTION_SUMMARY,
-                      locator=locator, native_id=mid, occurred_at=ts,
+                      locator=locator, native_id=mid or record.get("id"), occurred_at=ts,
                       summary=str(record.get("summary") or "")[:2048] or None, native_session=native_session)
+    if kind in ("model_change", "thinking_level_change"):
+        return _event(
+            artifact, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
+            locator=locator, native_id=record.get("id"), occurred_at=ts,
+            fidelity=_fidelity(
+                STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
+                CONTENT_AVAILABILITY=FidelityLevel.PARTIAL,
+            ), native_session=native_session,
+        )
     return _event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
                   locator=locator, native_id=mid, occurred_at=ts,
                   fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
@@ -147,7 +181,10 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
     events: list[TypedEvent] = []
     relations: list[EventRelation] = []
     warnings: list[str] = []
-    native_session = next((r.get("conversation_id") for r in records if r.get("conversation_id")), None)
+    native_session = next(
+        (r.get("conversation_id") for r in records if r.get("conversation_id")),
+        next((r.get("id") for r in records if r.get("type") == "session"), None),
+    )
     by_mid: dict[str, TypedEvent] = {}
 
     for lineno, record in enumerate(records, start=1):
@@ -197,3 +234,17 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL if unknown else FidelityLevel.COMPLETE),
         sessions=tuple(sessions), relations=tuple(relations), warnings=tuple(warnings),
     )
+
+
+def _message_text(content) -> str | None:
+    if isinstance(content, str):
+        return content[:2048] or None
+    if isinstance(content, list):
+        values = []
+        for item in content:
+            if isinstance(item, dict):
+                value = item.get("text") or item.get("content")
+                if value:
+                    values.append(str(value))
+        return " ".join(values)[:2048] or None
+    return None

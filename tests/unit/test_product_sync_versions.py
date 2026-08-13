@@ -4,8 +4,15 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
-from personal_knowledge.application.serving.versions import publication_status, record_publication
+from personal_knowledge.application.serving.versions import (
+    publication_status,
+    record_conversation_publications,
+    record_publication,
+    record_publications,
+)
 from personal_knowledge.application.sync import build_parser, main as sync_main
 
 
@@ -61,6 +68,56 @@ def test_failed_publication_rolls_back_version_and_watermark(tmp_path: Path) -> 
     con = sqlite3.connect(db)
     assert con.execute("SELECT COUNT(*) FROM artifact_versions").fetchone()[0] == 0
     assert con.execute("SELECT COUNT(*) FROM source_watermarks").fetchone()[0] == 0
+    con.close()
+
+
+def test_publication_batch_rolls_back_every_item(tmp_path: Path) -> None:
+    db = _db(tmp_path)
+    with pytest.raises(ValueError, match="unknown registry id"):
+        record_publications(db, [
+            {
+                "registry_id": "d.canonical_conversation",
+                "version": "v1",
+                "checksum": "checksum-1",
+                "location_kind": "sqlite_store",
+                "location_ref": "canonical.sqlite",
+                "source_key": "agentsview",
+                "watermark_value": "source-1",
+            },
+            {
+                "registry_id": "missing.artifact",
+                "version": "v1",
+                "checksum": "checksum-2",
+                "location_kind": "sqlite_view",
+                "location_ref": "canonical.sqlite#messages",
+                "source_key": "canonical_conversation",
+                "watermark_value": "source-2",
+            },
+        ])
+    con = sqlite3.connect(db)
+    assert con.execute("SELECT COUNT(*) FROM artifact_versions").fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM source_watermarks").fetchone()[0] == 0
+    con.close()
+
+
+def test_conversation_publications_share_one_checksum_and_lineage(
+    tmp_path: Path,
+) -> None:
+    db = _db(tmp_path)
+    canonical = tmp_path / "canonical.sqlite"
+    canonical.write_bytes(b"canonical-v2")
+    rows = record_conversation_publications(db, canonical)
+    assert [r["registry_id"] for r in rows] == [
+        "d.canonical_conversation",
+        "d.canonical_message",
+    ]
+    assert rows[0]["checksum"] == rows[1]["checksum"]
+    con = sqlite3.connect(db)
+    evidence = con.execute(
+        "SELECT evidence_version_id FROM artifact_versions WHERE registry_id=?",
+        ("d.canonical_message",),
+    ).fetchone()
+    assert evidence == (rows[0]["artifact_version_id"],)
     con.close()
 
 

@@ -38,6 +38,7 @@ CONTRACT_VERSION = "1"
 
 # Declared allowlist for the directory capture (D-08): conversation files only.
 ALLOWED_RELATIVE_PATHS: tuple[str, ...] = (
+    "summary.json",
     "summary.md",
     "chat_history.jsonl",
     "events.jsonl",
@@ -90,13 +91,18 @@ def detect(artifact: SourceArtifact, *, artifact_root: Path) -> bool:
     """True when the artifact set contains the Grok summary marker."""
     if artifact.source_kind != "file":
         return False
-    if artifact.relative_path not in ("summary.md", "chat_history.jsonl"):
+    if Path(artifact.relative_path).name not in (
+        "summary.json", "summary.md", "chat_history.jsonl"
+    ):
         return False
     try:
         head = (artifact_root / artifact.artifact_id).read_text(encoding="utf-8")[:512]
     except OSError:
         return False
-    return "# Summary" in head or "grok_session" in head or '"role"' in head
+    return (
+        "# Summary" in head or "grok_session" in head or '"role"' in head
+        or '"session_summary"' in head
+    )
 
 
 def _provenance(artifact: SourceArtifact, locator: str, *, session: str | None, native_id: str | None) -> Provenance:
@@ -142,7 +148,7 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
     if not artifact_set.artifacts:
         raise EventContractError(f"{FAMILY} adapter requires at least one artifact")
     artifacts = artifact_set.artifacts
-    by_path = {a.relative_path: a for a in artifacts}
+    by_path = {Path(a.relative_path).name: a for a in artifacts}
 
     session_id = make_event_id(FAMILY, artifacts[0].artifact_id, CONTRACT_VERSION,
                                None, kind=EventKind.SESSION_LIFECYCLE, native_locator="session")
@@ -161,6 +167,41 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         events.append(_event(summary_artifact, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
                              locator="summary.md#doc", native_id="summary",
                              summary=summary_text[:2048] or None, native_session=native_session))
+
+    summary_json = by_path.get("summary.json")
+    if summary_json is not None:
+        try:
+            doc = json.loads(
+                (artifact_root / summary_json.artifact_id).read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            doc = {}
+        info = doc.get("info") if isinstance(doc.get("info"), dict) else {}
+        native_session = str(info.get("id") or Path(summary_json.relative_path).parent.name)
+        session_id = make_event_id(
+            FAMILY, summary_json.artifact_id, CONTRACT_VERSION, native_session,
+            kind=EventKind.SESSION_LIFECYCLE,
+        )
+        events.append(_event(
+            summary_json, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
+            locator=f"{summary_json.relative_path}#info", native_id=native_session,
+            occurred_at=doc.get("created_at"), native_session=native_session,
+        ))
+        if doc.get("session_summary"):
+            events.append(_event(
+                summary_json, session_id=session_id,
+                kind=EventKind.COMPACTION_SUMMARY,
+                locator=f"{summary_json.relative_path}#session_summary",
+                native_id=f"{native_session}:summary",
+                occurred_at=doc.get("updated_at"),
+                summary=str(doc.get("session_summary"))[:2048],
+                fidelity=_fidelity(
+                    CONTENT_AVAILABILITY=FidelityLevel.PARTIAL,
+                    STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
+                    RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
+                ),
+                native_session=native_session,
+            ))
 
     chat = by_path.get("chat_history.jsonl")
     if chat is not None:
@@ -236,6 +277,22 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
                                    session=native_session, native_id="summary"),
             fidelity=_fidelity(CONTENT_AVAILABILITY=content_level),
             native_session_id=native_session,
+        ))
+    elif summary_json is not None:
+        sessions.append(AdaptedSession(
+            session_id=session_id,
+            provenance=_provenance(
+                summary_json, f"{summary_json.relative_path}#info",
+                session=native_session, native_id=native_session,
+            ),
+            fidelity=_fidelity(
+                CONTENT_AVAILABILITY=FidelityLevel.PARTIAL,
+                STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
+                RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
+            ),
+            native_session_id=native_session,
+            started_at=doc.get("created_at") if isinstance(doc, dict) else None,
+            ended_at=doc.get("updated_at") if isinstance(doc, dict) else None,
         ))
 
     return AdaptationResult(

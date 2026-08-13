@@ -154,12 +154,28 @@ _DDL: tuple[str, ...] = (
         updated_at    TEXT
     )
     """,
+    """
+    CREATE INDEX IF NOT EXISTS ce_sessions_generation_family
+        ON ce_sessions(generation_id, family, session_id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS ce_events_generation_session
+        ON ce_events(generation_id, session_id, ordinal, event_id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS ce_relations_generation_source
+        ON ce_event_relations(generation_id, source_event_id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS ce_dispositions_generation_event
+        ON ce_field_dispositions(generation_id, event_id)
+    """,
 )
 
 
 def create_v2_schema(db: Path) -> None:
     """Apply the additive v2 DDL. Safe to call repeatedly (IF NOT EXISTS)."""
-    con = sqlite3.connect(str(db))
+    con = sqlite3.connect(str(db), timeout=30)
     try:
         con.execute("PRAGMA foreign_keys=ON")
         for statement in _DDL:

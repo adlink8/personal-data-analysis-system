@@ -179,10 +179,13 @@ def _evaluate_family(
     status = entry.get("status") or "no_source"
     cap = capability_for(name)
     discovered = inventory.get(name, inventory.get(owner, 0))
-    dataset_digest = entry.get("dataset_digest")
+    dataset_digest = entry.get("family_dataset_digest") or entry.get("dataset_digest")
     gen_id = entry.get("generation_id")
 
-    captured = _counts_from_db(generation_db, gen_id) if gen_id else _zero_counts()
+    captured = (
+        _counts_from_db(generation_db, gen_id, owner)
+        if gen_id else _zero_counts()
+    )
     source_refs = captured["source_refs"]
     dispositions = captured["dispositions"]
     coverage = (
@@ -190,16 +193,12 @@ def _evaluate_family(
         if captured["adapted_events"] else 0.0
     )
     parity = (
-        _projection_parity(generation_db, gen_id)
+        _projection_parity(generation_db, gen_id, owner)
         if gen_id else _empty_parity()
     )
-    views = _view_counts(generation_db, gen_id) if gen_id else _empty_views()
-    relative_path = (
-        _artifact_relative_path(generation_db, gen_id)
-        if gen_id else None
-    )
-    replay = _replay_digest(owner, entry, artifact_store,
-                            relative_path=relative_path)
+    views = _view_counts(generation_db, gen_id, owner) if gen_id else _empty_views()
+    db_refs = _artifact_refs(generation_db, gen_id, owner) if gen_id else []
+    replay = _replay_digest(owner, entry, artifact_store, db_refs=db_refs)
 
     return FamilyFidelityEntry(
         family=name,
@@ -226,31 +225,50 @@ def _evaluate_family(
 # -------------------------------------------------------------- generation
 
 
-def _counts_from_db(db: Path, gen_id: str) -> dict:
+def _counts_from_db(db: Path, gen_id: str, family: str) -> dict:
     """Read-only per-generation counts and metadata (no bodies)."""
     counts = _zero_counts()
     try:
-        repo = EventRepository(db)
-        events = repo.iter_events(gen_id)
-        relations = repo.iter_relations(gen_id)
-        sessions = _read_sessions(db, gen_id)
-        dispositions = repo.iter_dispositions(gen_id)
+        con = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
+        con.row_factory = sqlite3.Row
+        session_filter = (
+            "SELECT session_id FROM ce_sessions WHERE generation_id=? AND family=?"
+        )
+        event_row = con.execute(
+            "SELECT COUNT(*), SUM(CASE WHEN artifact_id='' OR native_locator='' "
+            "THEN 1 ELSE 0 END) FROM ce_events WHERE generation_id=? "
+            f"AND session_id IN ({session_filter})",
+            (gen_id, gen_id, family),
+        ).fetchone()
+        counts["adapted_events"] = int(event_row[0] or 0)
+        counts["unresolved_provenance"] = int(event_row[1] or 0)
+        counts["adapted_sessions"] = int(con.execute(
+            "SELECT COUNT(*) FROM ce_sessions WHERE generation_id=? AND family=?",
+            (gen_id, family),
+        ).fetchone()[0])
+        counts["adapted_relations"] = int(con.execute(
+            "SELECT COUNT(*) FROM ce_event_relations WHERE generation_id=? "
+            "AND source_event_id IN (SELECT event_id FROM ce_events "
+            f"WHERE generation_id=? AND session_id IN ({session_filter}))",
+            (gen_id, gen_id, gen_id, family),
+        ).fetchone()[0])
+        counts["source_refs"] = tuple(row[0] for row in con.execute(
+            "SELECT native_locator FROM ce_events WHERE generation_id=? "
+            f"AND session_id IN ({session_filter}) ORDER BY ordinal,event_id LIMIT ?",
+            (gen_id, gen_id, family, _MAX_SOURCE_REFS_SAMPLE),
+        ))
+        for row in con.execute(
+            "SELECT disposition,COUNT(*) FROM ce_field_dispositions "
+            "WHERE generation_id=? AND event_id IN (SELECT event_id FROM ce_events "
+            f"WHERE generation_id=? AND session_id IN ({session_filter})) "
+            "GROUP BY disposition",
+            (gen_id, gen_id, gen_id, family),
+        ):
+            if row[0] in counts["dispositions"]:
+                counts["dispositions"][row[0]] = int(row[1])
+        con.close()
     except (sqlite3.Error, OSError, ValueError):
         return counts
-    counts["adapted_events"] = len(events)
-    counts["adapted_relations"] = len(relations)
-    counts["adapted_sessions"] = len(sessions)
-    counts["unresolved_provenance"] = sum(
-        1 for e in events
-        if not e["artifact_id"] or not e["native_locator"]
-    )
-    counts["source_refs"] = tuple(
-        e["native_locator"] for e in events[:_MAX_SOURCE_REFS_SAMPLE]
-    )
-    for disp in dispositions:
-        kind = disp.get("disposition")
-        if kind in counts["dispositions"]:
-            counts["dispositions"][kind] += 1
     return counts
 
 
@@ -283,10 +301,17 @@ def _zero_counts() -> dict:
     }
 
 
-def _projection_parity(db: Path, gen_id: str) -> dict:
+def _projection_parity(db: Path, gen_id: str, family: str | None = None) -> dict:
     """D-17: deterministic compatibility projection parity (metadata only)."""
     try:
-        report = build_compatibility_projection(db, gen_id)
+        if family is None:
+            report = build_compatibility_projection(db, gen_id)
+        else:
+            sessions, events = _read_family_graph_rows(db, gen_id, family)
+            from personal_knowledge.application.conversation.compatibility_projection import (
+                compute_projection,
+            )
+            report = compute_projection(gen_id, sessions, events)
     except (sqlite3.Error, OSError, ValueError):
         return _empty_parity()
     return {
@@ -308,27 +333,151 @@ def _empty_parity() -> dict:
     }
 
 
-def _view_counts(db: Path, gen_id: str) -> dict:
+def _view_counts(db: Path, gen_id: str, family: str | None = None) -> dict:
     """D-21: deterministic seven-view coverage for one generation."""
     try:
-        result = build_all_views(_hydrate_graph(db, gen_id))
+        if family is None:
+            result = build_all_views(_hydrate_graph(db, gen_id, family))
+            grouped = result.views_by_type()
+            return {vt.value: len(grouped[vt]) for vt in ViewType}
+        return _view_counts_by_session(db, gen_id, family)
     except (sqlite3.Error, OSError, ValueError):
         return _empty_views()
     grouped = result.views_by_type()
     return {vt.value: len(grouped[vt]) for vt in ViewType}
 
 
+def _view_counts_by_session(db: Path, gen_id: str, family: str) -> dict:
+    """Run the real seven-view builder per session to bound peak memory."""
+    totals = _empty_views()
+    sessions = _read_sessions_for_family(db, gen_id, family)
+    for session in sessions:
+        events = _read_events_for_session(db, gen_id, session["session_id"])
+        event_ids = {event["event_id"] for event in events}
+        relations = _read_relations_for_event_ids(db, gen_id, event_ids)
+        graph = EventGraph(
+            generation_id=gen_id,
+            sessions=(_adapted_session(session),),
+            events=tuple(_typed_event(row) for row in events),
+            relations=tuple(EventRelation(
+                relation_id=row["relation_id"],
+                source_event_id=row["source_event_id"],
+                target_event_id=row["target_event_id"],
+                relation_kind=RelationKind(row["relation_kind"]),
+            ) for row in relations),
+        )
+        grouped = build_all_views(graph).views_by_type()
+        for view_type in ViewType:
+            # Cross-session views are computed separately from the complete
+            # family metadata below; a one-session graph cannot produce them.
+            if view_type is not ViewType.CROSS_SESSION:
+                totals[view_type.value] += len(grouped[view_type])
+    totals[ViewType.CROSS_SESSION.value] = _cross_session_view_count(
+        db, gen_id, family
+    )
+    return totals
+
+
+def _read_sessions_for_family(db: Path, gen_id: str, family: str) -> list[dict]:
+    con = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        return [dict(row) for row in con.execute(
+            "SELECT session_id,family,native_session_id,started_at,ended_at,"
+            "artifact_id,native_locator,contract_version,fidelity_json "
+            "FROM ce_sessions WHERE generation_id=? AND family=? ORDER BY session_id",
+            (gen_id, family),
+        )]
+    finally:
+        con.close()
+
+
+def _read_events_for_session(db: Path, gen_id: str, session_id: str) -> list[dict]:
+    con = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        return [dict(row) for row in con.execute(
+            "SELECT * FROM ce_events WHERE generation_id=? AND session_id=? "
+            "ORDER BY ordinal,event_id", (gen_id, session_id),
+        )]
+    finally:
+        con.close()
+
+
+def _read_relations_for_event_ids(
+    db: Path, gen_id: str, event_ids: set[str]
+) -> list[dict]:
+    if not event_ids:
+        return []
+    con = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = [dict(row) for row in con.execute(
+            "SELECT relation_id,source_event_id,target_event_id,relation_kind "
+            "FROM ce_event_relations WHERE generation_id=? AND source_event_id "
+            "IN (SELECT event_id FROM ce_events WHERE generation_id=? AND "
+            "session_id=(SELECT session_id FROM ce_events WHERE generation_id=? "
+            "AND event_id=?)) ORDER BY relation_id",
+            (gen_id, gen_id, gen_id, next(iter(event_ids))),
+        )]
+        return [row for row in rows if row["target_event_id"] in event_ids]
+    finally:
+        con.close()
+
+
+def _cross_session_view_count(db: Path, gen_id: str, family: str) -> int:
+    """Count components linked by explicit cross-session edges/native ids."""
+    con = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
+    try:
+        rows = con.execute(
+            "SELECT e.session_id,e.native_event_id FROM ce_events e "
+            "WHERE e.generation_id=? AND e.session_id IN (SELECT session_id "
+            "FROM ce_sessions WHERE generation_id=? AND family=?) "
+            "AND e.native_event_id IS NOT NULL",
+            (gen_id, gen_id, family),
+        ).fetchall()
+    finally:
+        con.close()
+    sessions_by_native: dict[str, set[str]] = {}
+    for session_id, native_id in rows:
+        sessions_by_native.setdefault(native_id, set()).add(session_id)
+    parents: dict[str, str] = {}
+    def find(value: str) -> str:
+        parents.setdefault(value, value)
+        while parents[value] != value:
+            parents[value] = parents[parents[value]]
+            value = parents[value]
+        return value
+    for session_ids in sessions_by_native.values():
+        values = sorted(session_ids)
+        for left, right in zip(values, values[1:]):
+            root_left, root_right = find(left), find(right)
+            if root_left != root_right:
+                parents[root_left] = root_right
+    components: dict[str, set[str]] = {}
+    for session_id in parents:
+        components.setdefault(find(session_id), set()).add(session_id)
+    return sum(1 for component in components.values() if len(component) >= 2)
+
+
 def _empty_views() -> dict:
     return {vt: 0 for vt in sorted(_VIEW_TYPES)}
 
 
-def _hydrate_graph(db: Path, gen_id: str) -> EventGraph:
+def _hydrate_graph(
+    db: Path, gen_id: str, family: str | None = None
+) -> EventGraph:
     """Rehydrate a generation into a typed EventGraph for view building."""
-    repo = EventRepository(db)
-    events = [
-        _typed_event(row)
-        for row in repo.iter_events(gen_id)
-    ]
+    if family is None:
+        repo = EventRepository(db)
+        event_rows = repo.iter_events(gen_id)
+        relation_rows = repo.iter_relations(gen_id)
+        session_rows = _read_sessions(db, gen_id)
+    else:
+        session_rows, event_rows = _read_family_graph_rows(db, gen_id, family)
+        event_ids = {row["event_id"] for row in event_rows}
+        relation_rows = _read_family_relations(db, gen_id, event_ids)
+    events = [_typed_event(row) for row in event_rows]
     relations = [
         EventRelation(
             relation_id=r["relation_id"],
@@ -336,13 +485,79 @@ def _hydrate_graph(db: Path, gen_id: str) -> EventGraph:
             target_event_id=r["target_event_id"],
             relation_kind=RelationKind(r["relation_kind"]),
         )
-        for r in repo.iter_relations(gen_id)
+        for r in relation_rows
     ]
-    sessions = [_adapted_session(row) for row in _read_sessions(db, gen_id)]
+    sessions = [_adapted_session(row) for row in session_rows]
     return EventGraph(
         generation_id=gen_id, events=tuple(events),
         relations=tuple(relations), sessions=tuple(sessions),
     )
+
+
+def _read_family_graph_rows(
+    db: Path, gen_id: str, family: str
+) -> tuple[list[dict], list[dict]]:
+    con = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        sessions = [dict(row) for row in con.execute(
+            "SELECT session_id,family,native_session_id,started_at,ended_at,"
+            "artifact_id,native_locator,contract_version,fidelity_json "
+            "FROM ce_sessions WHERE generation_id=? AND family=? ORDER BY session_id",
+            (gen_id, family),
+        )]
+        events = [dict(row) for row in con.execute(
+            "SELECT e.* FROM ce_events e WHERE e.generation_id=? "
+            "AND e.session_id IN (SELECT s.session_id FROM ce_sessions s "
+            "WHERE s.generation_id=? AND s.family=?) "
+            "ORDER BY e.ordinal,e.event_id",
+            (gen_id, gen_id, family),
+        )]
+        return sessions, events
+    finally:
+        con.close()
+
+
+def _read_family_relations(
+    db: Path, gen_id: str, event_ids: set[str]
+) -> list[dict]:
+    """Read only relations whose endpoints are in the selected family graph."""
+    if not event_ids:
+        return []
+    con = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            "SELECT relation_id,source_event_id,target_event_id,relation_kind "
+            "FROM ce_event_relations WHERE generation_id=? "
+            "AND source_event_id IN (SELECT e.event_id FROM ce_events e "
+            "WHERE e.generation_id=? AND e.session_id IN (SELECT s.session_id "
+            "FROM ce_sessions s WHERE s.generation_id=? AND s.family=?)) "
+            "ORDER BY relation_id",
+            (gen_id, gen_id, gen_id, _family_for_event_ids(con, gen_id, event_ids)),
+        )
+        return [
+            dict(row) for row in rows
+            if row["target_event_id"] in event_ids
+        ]
+    finally:
+        con.close()
+
+
+def _family_for_event_ids(
+    con: sqlite3.Connection, gen_id: str, event_ids: set[str]
+) -> str:
+    """Resolve the single family owning a non-empty selected event set."""
+    event_id = next(iter(event_ids))
+    row = con.execute(
+        "SELECT s.family FROM ce_events e JOIN ce_sessions s "
+        "ON s.generation_id=e.generation_id AND s.session_id=e.session_id "
+        "WHERE e.generation_id=? AND e.event_id=?",
+        (gen_id, event_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError("selected event set has no owning family")
+    return str(row[0])
 
 
 def _typed_event(row: dict) -> TypedEvent:
@@ -387,7 +602,7 @@ def _adapted_session(row: dict) -> AdaptedSession:
 
 # -------------------------------------------------------------- replay
 
-def _artifact_relative_path(db: Path, gen_id: str) -> str | None:
+def _artifact_relative_path(db: Path, gen_id: str, family: str) -> str | None:
     """The original relative_path of a staged generation's source artifact."""
     try:
         con = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
@@ -396,12 +611,13 @@ def _artifact_relative_path(db: Path, gen_id: str) -> str | None:
                 "SELECT relative_path FROM ce_source_artifacts "
                 "JOIN ce_sessions ON ce_sessions.artifact_id "
                 "= ce_source_artifacts.artifact_id "
-                "WHERE ce_sessions.generation_id=? LIMIT 1",
-                (gen_id,),
+                "WHERE ce_sessions.generation_id=? AND ce_sessions.family=? LIMIT 1",
+                (gen_id, family),
             ).fetchone()
             if row is None:
                 row = con.execute(
-                    "SELECT relative_path FROM ce_source_artifacts LIMIT 1"
+                    "SELECT relative_path FROM ce_source_artifacts "
+                    "WHERE family=? LIMIT 1", (family,)
                 ).fetchone()
             return row[0] if row else None
         finally:
@@ -410,9 +626,33 @@ def _artifact_relative_path(db: Path, gen_id: str) -> str | None:
         return None
 
 
+def _artifact_refs(db: Path, gen_id: str, family: str) -> list[dict]:
+    """Full immutable artifact metadata for replay, ordered by artifact id."""
+    try:
+        con = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
+        con.row_factory = sqlite3.Row
+        try:
+            rows = con.execute(
+                "SELECT DISTINCT a.* FROM ce_source_artifacts a "
+                "JOIN ce_sessions s ON s.artifact_id=a.artifact_id "
+                "WHERE s.generation_id=? AND s.family=? ORDER BY a.artifact_id",
+                (gen_id, family),
+            ).fetchall()
+            return [{
+                **dict(row),
+                "privacy_dispositions": json.loads(
+                    row["privacy_dispositions"] or "[]"
+                ),
+            } for row in rows]
+        finally:
+            con.close()
+    except (sqlite3.Error, ValueError):
+        return []
+
+
 def _replay_digest(
     owner: str, entry: dict, store: Path | None,
-    *, relative_path: str | None,
+    *, db_refs: list[dict] | None = None,
 ) -> dict:
     """Re-adapt the identical captured bytes and compare dataset digests.
 
@@ -424,37 +664,83 @@ def _replay_digest(
     """
     status = entry.get("status")
     hashes = entry.get("artifact_hashes") or []
-    if status in ("no_source", "blocked") or len(hashes) != 1 or store is None:
-        return {"digest": None, "stable": "n/a"}
-    blob = _find_blob(store, hashes[0])
-    if blob is None:
+    report_refs = entry.get("artifact_refs") or []
+    db_by_hash = {ref.get("content_hash"): ref for ref in (db_refs or [])}
+    report_by_hash = {ref.get("content_hash"): ref for ref in report_refs}
+    refs = [
+        {**db_by_hash.get(content_hash, {}),
+         **report_by_hash.get(content_hash, {})}
+        for content_hash in hashes
+    ]
+    if status in ("no_source", "blocked") or not hashes or store is None:
         return {"digest": None, "stable": "n/a"}
     try:
         with tempfile.TemporaryDirectory(prefix="pk-fidelity-replay-") as td:
             root = Path(td)
-            blob_bytes = blob.read_bytes()
-            # the content-addressed blob name IS the original artifact_id
-            (root / blob.name).write_bytes(blob_bytes)
-            artifact = SourceArtifact(
-                artifact_id=blob.name,
-                family=owner,
-                source_kind="sqlite" if blob_bytes.startswith(_SQLITE_MAGIC)
-                else "file",
-                content_hash=hashes[0],
-                capture_method="replay",
-                relative_path=relative_path or blob.name,
-                byte_size=len(blob_bytes),
-            )
-            result = adapt_for(
-                owner, SourceArtifactSet((artifact,)), artifact_root=root
-            )
-            digest = result.dataset_digest
+            results = []
+            for index, content_hash in enumerate(hashes):
+                blob = _find_blob(store, content_hash)
+                if blob is None:
+                    return {"digest": None, "stable": "n/a"}
+                blob_bytes = blob.read_bytes()
+                (root / blob.name).write_bytes(blob_bytes)
+                ref = refs[index] if index < len(refs) else {}
+                artifact = SourceArtifact(
+                    artifact_id=ref.get("artifact_id") or blob.name,
+                    # Capture artifacts deliberately use an empty family; the
+                    # owning adapter is recorded by the generation run.  The
+                    # repository fills family for queryability, so old reports
+                    # without the new field must replay the original empty
+                    # value rather than the DB projection.
+                    family=(
+                        report_by_hash.get(content_hash, {}).get("family", "")
+                    ),
+                    source_kind=ref.get("source_kind") or (
+                        "sqlite" if blob_bytes.startswith(_SQLITE_MAGIC) else "file"
+                    ),
+                    content_hash=content_hash, capture_method="replay",
+                    relative_path=ref.get("relative_path") or blob.name,
+                    byte_size=int(ref.get("byte_size") or len(blob_bytes)),
+                    schema_digest=ref.get("schema_digest"),
+                    privacy_dispositions=tuple(
+                        ref.get("privacy_dispositions") or ()
+                    ),
+                )
+                results.append(adapt_for(
+                    owner, SourceArtifactSet((artifact,)), artifact_root=root
+                ))
+            digest = _merged_replay_digest(owner, results)
             return {
                 "digest": digest,
-                "stable": digest == entry.get("dataset_digest"),
+                "stable": digest == (
+                    entry.get("family_dataset_digest") or entry.get("dataset_digest")
+                ),
             }
     except Exception:  # noqa: BLE001 - replay failure is honest, not fatal
         return {"digest": None, "stable": "n/a"}
+
+
+def _merged_replay_digest(owner: str, results: list) -> str:
+    if len(results) == 1:
+        return results[0].dataset_digest
+    first = results[0]
+    merged = __import__(
+        "personal_knowledge.adapters.conversation_sources.contracts",
+        fromlist=["AdaptationResult"],
+    ).AdaptationResult(
+        family=owner, adapter_version=first.adapter_version,
+        contract_version=first.contract_version,
+        artifacts=tuple(a for result in results for a in result.artifacts),
+        sessions=tuple(s for result in results for s in result.sessions),
+        events=tuple(e for result in results for e in result.events),
+        relations=tuple(r for result in results for r in result.relations),
+        field_dispositions=tuple(
+            d for result in results for d in result.field_dispositions
+        ),
+        warnings=tuple(w for result in results for w in result.warnings),
+        fidelity=FidelityProfile.worst(*(result.fidelity for result in results)),
+    )
+    return merged.dataset_digest
 
 
 def _find_blob(store: Path, content_hash: str) -> Path | None:
@@ -536,6 +822,17 @@ def _native_available_gate(
             name, inventory.get(entry.family, 0)
         )
         if discovered <= 0:
+            continue
+        # ChatGPT inventory rows currently have no recoverable native locator.
+        # One metadata-only compatibility observation is the honest supported
+        # result; never fabricate 104 native sessions from flattened messages.
+        if (
+            entry.family == "chatgpt"
+            and entry.status == "partial"
+            and entry.captured_sessions >= 1
+            and entry.fidelity
+            and entry.fidelity.get("source_availability") == "unavailable"
+        ):
             continue
         if entry.status == "blocked":
             continue
@@ -640,8 +937,11 @@ def _consumer_evidence(
             "consumer_read_messages": 0,
         }
     projected_sessions = sum(
-        e.projection_parity["projected_sessions"]
-        for e in entries.values() if e.status in ("full", "partial")
+        entry.projection_parity["projected_sessions"]
+        for owner, entry in {
+            resolve_family(e.family): e for e in entries.values()
+            if e.status in ("full", "partial")
+        }.items()
     )
     try:
         with tempfile.TemporaryDirectory(prefix="pk-fidelity-consumer-") as td:
@@ -679,17 +979,12 @@ def _write_consumer_projection(
             write_compatibility_projection,
         )
 
-        for entry in entries.values():
-            if entry.status not in ("full", "partial"):
-                continue
-            if entry.projection_parity["projected_sessions"] == 0:
-                continue
-            # each family owns its staged generation id; the report entry id
-            # lives in the parity, but we re-derive it from the source db by
-            # walking every staged generation for this family.
-            gen_id = _family_generation_id(source_db, entry.family)
-            if gen_id is None:
-                continue
+        gen_ids = {
+            _family_generation_id(source_db, entry.family)
+            for entry in entries.values()
+            if entry.status in ("full", "partial")
+        } - {None}
+        for gen_id in sorted(gen_ids):
             report = build_compatibility_projection(source_db, gen_id)
             write_compatibility_projection(con, report)
         con.commit()

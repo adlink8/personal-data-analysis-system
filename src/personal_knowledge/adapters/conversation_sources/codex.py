@@ -98,10 +98,13 @@ def capability() -> CapabilityDescriptor:
             EventKind.USER_MESSAGE,
             EventKind.ASSISTANT_MESSAGE,
             EventKind.DEVELOPER_MESSAGE,
+            EventKind.REASONING,
             EventKind.TOOL_CALL,
             EventKind.TOOL_RESULT,
             EventKind.COMPACTION_SUMMARY,
             EventKind.TURN_BOUNDARY,
+            EventKind.USAGE,
+            EventKind.FILE_CONTEXT,
             EventKind.UNKNOWN_NATIVE,
         ),
         supported_relation_kinds=(
@@ -151,6 +154,7 @@ def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=N
         event_id=make_event_id(
             FAMILY, artifact.artifact_id, CONTRACT_VERSION,
             native_id or locator, kind=kind, session_id=session_id,
+            native_locator=locator,
         ),
         session_id=session_id,
         kind=kind,
@@ -176,6 +180,7 @@ def _adapt_record(record: dict, artifact, *, session_id, locator) -> TypedEvent 
                       locator=locator, native_id=inner.get("turn_id"), occurred_at=ts,
                       summary=str(inner.get("prompt") or "")[:512] or None, native_session=sid)
     if kind == "response_item":
+        item_type = inner.get("type")
         role = inner.get("role")
         ev = EventKind.ASSISTANT_MESSAGE if role == "assistant" else (
             EventKind.USER_MESSAGE if role == "user" else (
@@ -184,10 +189,54 @@ def _adapt_record(record: dict, artifact, *, session_id, locator) -> TypedEvent 
             return _event(artifact, session_id=session_id, kind=ev, locator=locator,
                           native_id=inner.get("id") or inner.get("item_id"), occurred_at=ts,
                           summary=_text(record), native_session=sid)
+        if item_type in ("function_call", "custom_tool_call", "tool_search_call"):
+            return _event(
+                artifact, session_id=session_id, kind=EventKind.TOOL_CALL,
+                locator=locator, native_id=inner.get("call_id") or inner.get("id"),
+                occurred_at=ts, summary=str(inner.get("name") or item_type)[:256],
+                native_session=sid,
+            )
+        if item_type in (
+            "function_call_output", "custom_tool_call_output", "tool_search_output"
+        ):
+            call_id = inner.get("call_id") or inner.get("id")
+            return _event(
+                artifact, session_id=session_id, kind=EventKind.TOOL_RESULT,
+                locator=locator, native_id=f"{call_id}#output",
+                occurred_at=ts, native_session=sid,
+            )
+        if item_type == "reasoning":
+            return _event(
+                artifact, session_id=session_id, kind=EventKind.REASONING,
+                locator=locator, native_id=inner.get("id"), occurred_at=ts,
+                summary=_summary_text(inner.get("summary")), native_session=sid,
+            )
     if kind == "event_msg":
         # loop hints are first-class episode hints; other event messages stay
         # unknown native records rather than guessed content.
         hint = inner.get("type")
+        if hint == "context_compacted":
+            return _event(
+                artifact, session_id=session_id,
+                kind=EventKind.COMPACTION_SUMMARY, locator=locator,
+                native_id=inner.get("turn_id") or f"compact:{locator}",
+                occurred_at=ts, summary=str(inner.get("summary") or "")[:2048] or None,
+                native_session=sid,
+            )
+        if hint == "user_message":
+            return _event(
+                artifact, session_id=session_id, kind=EventKind.USER_MESSAGE,
+                locator=locator, native_id=inner.get("id"), occurred_at=ts,
+                summary=str(inner.get("message") or "")[:2048] or None,
+                native_session=sid,
+            )
+        if hint == "token_count":
+            return _event(
+                artifact, session_id=session_id, kind=EventKind.USAGE,
+                locator=locator, native_id=inner.get("turn_id"), occurred_at=ts,
+                fidelity=_fidelity(CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
+                native_session=sid,
+            )
         if hint in _LOOP_HINTS:
             return _event(artifact, session_id=session_id, kind=EventKind.TURN_BOUNDARY,
                           locator=locator, native_id=inner.get("turn_id") or hint,
@@ -217,6 +266,13 @@ def _adapt_record(record: dict, artifact, *, session_id, locator) -> TypedEvent 
         return _event(artifact, session_id=session_id, kind=EventKind.COMPACTION_SUMMARY,
                       locator=locator, native_id=inner.get("turn_id"), occurred_at=ts,
                       summary=str(inner.get("summary") or "")[:2048] or None, native_session=sid)
+    if kind == "world_state":
+        return _event(
+            artifact, session_id=session_id, kind=EventKind.FILE_CONTEXT,
+            locator=locator, native_id=inner.get("id"), occurred_at=ts,
+            fidelity=_fidelity(CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
+            native_session=sid,
+        )
     return _event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
                   locator=locator, native_id=record.get("id") or inner.get("id"),
                   occurred_at=ts, fidelity=_fidelity(
@@ -224,6 +280,20 @@ def _adapt_record(record: dict, artifact, *, session_id, locator) -> TypedEvent 
                       RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
                       CONTENT_AVAILABILITY=FidelityLevel.PARTIAL,
                   ), native_session=sid)
+
+
+def _summary_text(value) -> str | None:
+    if isinstance(value, str):
+        return value[:2048] or None
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            if isinstance(item, dict):
+                text = item.get("text") or item.get("summary")
+                if text:
+                    parts.append(str(text))
+        return " ".join(parts)[:2048] or None
+    return None
 
 
 def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> AdaptationResult:

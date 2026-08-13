@@ -14,7 +14,13 @@ evidence_artifacts:
 
 # Phase 62 Plan 07: Requirement and Security Validation Matrix
 
-**Conclusion: `NOT_READY_FOR_ACTIVATION`.** The live shadow cohort produced honest
+> **Superseded 2026-08-13:** This pre-hardening shadow audit is retained as
+> historical evidence. The blockers below were closed by the full native-file
+> adapter/capture pass and live cohort activation. The current verdict is in
+> `62-VERIFICATION.md` (`status: passed`, generation
+> `live-cohort-3ca0d9721bed2fde`).
+
+**Historical conclusion: `NOT_READY_FOR_ACTIVATION`.** The live shadow cohort produced honest
 per-family evidence but **not** full 17-family capture coverage: 13 families had
 no flat-file native source reachable through the v2 CLI shadow seam, and 3 file
 families (codex / gemini / workbuddy) failed staging on live record shapes that

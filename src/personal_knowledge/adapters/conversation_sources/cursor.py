@@ -10,6 +10,7 @@ single observed family is represented without inventing native semantics.
 from __future__ import annotations
 
 import sqlite3
+import json
 from pathlib import Path
 
 from personal_knowledge.adapters.conversation_sources.contracts import (
@@ -92,6 +93,15 @@ def _probe_schema(db: Path) -> tuple[str | None, set[str]]:
 
 def detect(artifact: SourceArtifact, *, artifact_root: Path) -> bool:
     """True for a Cursor store whose schema matches a supported probe version."""
+    if artifact.source_kind == "file" and artifact.relative_path.lower().endswith(".jsonl"):
+        try:
+            with (artifact_root / artifact.artifact_id).open("r", encoding="utf-8") as handle:
+                first = next((json.loads(line) for line in handle if line.strip()), {})
+            return first.get("role") in ("user", "assistant") and isinstance(
+                first.get("message"), (dict, str)
+            )
+        except (OSError, ValueError):
+            return False
     if artifact.source_kind != "sqlite":
         return False
     version, _tables = _probe_schema(artifact_root / artifact.artifact_id)
@@ -106,8 +116,10 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             f"{FAMILY} adapter requires exactly one artifact, got {len(artifact_set.artifacts)}"
         )
     artifact = artifact_set.artifacts[0]
+    if artifact.source_kind == "file":
+        return _adapt_jsonl(artifact, artifact_root=artifact_root)
     if artifact.source_kind != "sqlite":
-        raise EventContractError(f"{FAMILY} adapter requires a sqlite artifact")
+        raise EventContractError(f"{FAMILY} adapter requires sqlite or JSONL")
 
     version, tables = _probe_schema(artifact_root / artifact.artifact_id)
     if version is None:
@@ -213,4 +225,89 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         family=FAMILY, adapter_version=ADAPTER_VERSION, contract_version=CONTRACT_VERSION,
         artifacts=(artifact,), events=tuple(events), fidelity=_fidelity(),
         sessions=tuple(sessions), relations=(), warnings=(),
+    )
+
+
+def _adapt_jsonl(artifact: SourceArtifact, *, artifact_root: Path) -> AdaptationResult:
+    rows: list[dict] = []
+    try:
+        for line in (artifact_root / artifact.artifact_id).read_text(
+            encoding="utf-8"
+        ).splitlines():
+            if line.strip():
+                value = json.loads(line)
+                if isinstance(value, dict):
+                    rows.append(value)
+    except (OSError, ValueError) as exc:
+        raise EventContractError(f"{FAMILY} JSONL artifact unreadable: {exc}") from exc
+
+    native_session = Path(artifact.relative_path).stem
+    session_id = make_event_id(
+        FAMILY, artifact.artifact_id, CONTRACT_VERSION, native_session,
+        kind=EventKind.SESSION_LIFECYCLE,
+    )
+    partial = _fidelity(
+        RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
+        COMPACTION_VISIBILITY=FidelityLevel.UNKNOWN,
+        NATIVE_ID_STABILITY=FidelityLevel.PARTIAL,
+    )
+    session_locator = f"{artifact.relative_path}#session"
+    provenance = Provenance(
+        artifact_id=artifact.artifact_id, artifact_hash=artifact.content_hash,
+        native_locator=session_locator, native_session_id=native_session,
+        native_event_id=native_session, contract_version=CONTRACT_VERSION,
+    )
+    events = [TypedEvent(
+        event_id=session_id, session_id=session_id,
+        kind=EventKind.SESSION_LIFECYCLE, provenance=provenance,
+        fidelity=partial,
+    )]
+    unknown = 0
+    for index, row in enumerate(rows, start=1):
+        role = row.get("role")
+        kind = (
+            EventKind.USER_MESSAGE if role == "user" else
+            EventKind.ASSISTANT_MESSAGE if role == "assistant" else
+            EventKind.TURN_BOUNDARY if row.get("type") == "turn_ended" else
+            EventKind.UNKNOWN_NATIVE
+        )
+        if kind is EventKind.UNKNOWN_NATIVE:
+            unknown += 1
+        message = row.get("message")
+        if isinstance(message, dict):
+            summary = str(message.get("content") or "")[:2048] or None
+        else:
+            summary = str(message or "")[:2048] or None
+        locator = f"{artifact.relative_path}#L{index}"
+        events.append(TypedEvent(
+            event_id=make_event_id(
+                FAMILY, artifact.artifact_id, CONTRACT_VERSION, None,
+                kind=kind, session_id=session_id, native_locator=locator,
+            ),
+            session_id=session_id, kind=kind,
+            provenance=Provenance(
+                artifact_id=artifact.artifact_id,
+                artifact_hash=artifact.content_hash,
+                native_locator=locator, native_session_id=native_session,
+                contract_version=CONTRACT_VERSION,
+            ),
+            fidelity=partial if kind is EventKind.UNKNOWN_NATIVE else _fidelity(
+                RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
+                COMPACTION_VISIBILITY=FidelityLevel.UNKNOWN,
+                NATIVE_ID_STABILITY=FidelityLevel.PARTIAL,
+            ),
+            ordinal=index, summary=summary,
+            native_payload_ref=f"{artifact.artifact_id}:{locator}",
+        ))
+    warnings = (
+        (f"{unknown} unknown native record(s) preserved",) if unknown else ()
+    )
+    return AdaptationResult(
+        family=FAMILY, adapter_version="1.1.0",
+        contract_version=CONTRACT_VERSION, artifacts=(artifact,),
+        sessions=(AdaptedSession(
+            session_id=session_id, provenance=provenance,
+            fidelity=partial, native_session_id=native_session,
+        ),), events=tuple(events), relations=(), fidelity=partial,
+        warnings=warnings,
     )

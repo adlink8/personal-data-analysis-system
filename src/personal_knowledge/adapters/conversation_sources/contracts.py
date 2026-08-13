@@ -25,6 +25,7 @@ from personal_knowledge.core.conversation_events import (
     EventRelation,
     FieldDispositionRecord,
     FidelityDimension,
+    FidelityLevel,
     FidelityProfile,
     Provenance,
     RelationKind,
@@ -138,6 +139,24 @@ class AdaptationResult:
             raise EventContractError(
                 "adaptation result requires family, adapter and contract versions"
             )
+        event_ids = [event.event_id for event in self.events]
+        duplicate_events = len(event_ids) - len(set(event_ids))
+        if duplicate_events:
+            raise EventContractError(
+                f"adaptation result contains {duplicate_events} duplicate event id(s)"
+            )
+        session_ids = [session.session_id for session in self.sessions]
+        duplicate_sessions = len(session_ids) - len(set(session_ids))
+        if duplicate_sessions:
+            raise EventContractError(
+                f"adaptation result contains {duplicate_sessions} duplicate session id(s)"
+            )
+        relation_ids = [relation.relation_id for relation in self.relations]
+        duplicate_relations = len(relation_ids) - len(set(relation_ids))
+        if duplicate_relations:
+            raise EventContractError(
+                f"adaptation result contains {duplicate_relations} duplicate relation id(s)"
+            )
         for event in self.events:
             if not event.provenance.resolvable():
                 raise EventContractError(
@@ -155,6 +174,16 @@ class AdaptationResult:
                 )
         if not isinstance(self.fidelity, FidelityProfile):
             raise EventContractError("adaptation result requires a fidelity profile")
+        children = tuple(e.fidelity for e in self.events) + tuple(
+            s.fidelity for s in self.sessions
+        )
+        rolled_up = FidelityProfile.worst(self.fidelity, *children)
+        if self.warnings:
+            rolled_up = rolled_up.with_at_least(
+                FidelityDimension.STRUCTURE_COMPLETENESS,
+                FidelityLevel.PARTIAL,
+            )
+        object.__setattr__(self, "fidelity", rolled_up)
 
     @property
     def dataset_digest(self) -> str:
