@@ -535,14 +535,14 @@ Plans:
 **Plans:** 8 plans
 
 Plans:
-- [ ] 62-01-PLAN.md — typed event/fidelity contracts, immutable snapshots, and generation-bound v2 repository
-- [ ] 62-02-PLAN.md — JSONL/DAG/loop adapters for ten stream-oriented agent families
-- [ ] 62-03-PLAN.md — SQLite/directory/partial adapters and credential-adjacent privacy boundary for seven families
-- [ ] 62-04-PLAN.md — canonical compatibility projection, `pk-sync` integration, atomic activation and rollback state machine
-- [ ] 62-05-PLAN.md — replaceable turn/trace/episode/compaction/session/topic/cross-session views and extraction policy
-- [ ] 62-06-PLAN.md — deterministic-first semantic admission and zero-cost view candidate preparation
-- [ ] 62-07-PLAN.md — all-family live shadow fidelity validation and blocking human activation review
-- [ ] 62-08-PLAN.md — approved live canonical v2 activation, compatibility verification, and rollback/reactivation drill
+- [x] 62-01-PLAN.md — typed event/fidelity contracts, immutable snapshots, and generation-bound v2 repository
+- [x] 62-02-PLAN.md — JSONL/DAG/loop adapters for ten stream-oriented agent families
+- [x] 62-03-PLAN.md — SQLite/directory/partial adapters and credential-adjacent privacy boundary for seven families
+- [x] 62-04-PLAN.md — canonical compatibility projection, `pk-sync` integration, atomic activation and rollback state machine
+- [x] 62-05-PLAN.md — replaceable turn/trace/episode/compaction/session/topic/cross-session views and extraction policy
+- [x] 62-06-PLAN.md — deterministic-first semantic admission and zero-cost view candidate preparation
+- [x] 62-07-PLAN.md — all-family live shadow fidelity validation and blocking human activation review
+- [x] 62-08-PLAN.md — approved live canonical v2 activation, compatibility verification, and rollback/reactivation drill
 
 ---
 *Updated 2026-08-05 after consolidating the Capability OS on the Pi SDK Kernel and removing the Local Pi Agent; real activation remains explicitly gated*

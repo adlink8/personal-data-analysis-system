@@ -162,26 +162,26 @@ v1.4 的 Phase 40 UAT 已由用户在 2026-07-28 确认通过；验收记录保�
 
 ### Native evidence capture and adapters
 
-- [ ] **CONV-01**: Every agent family currently observed in the live inventory has an explicit versioned adapter capability contract, native locator/schema gate, redacted fixture, and fail-closed unsupported/partial result; no family is silently flattened into a complete-looking transcript.
-- [ ] **CONV-02**: Allowlisted native conversation artifacts are captured as content-addressed immutable evidence before adaptation; live SQLite/WAL sources use online backup, and adjacent credential/account/token/auth tables and columns are never copied, queried, logged, or exposed.
+- [x] **CONV-01**: Every agent family currently observed in the live inventory has an explicit versioned adapter capability contract, native locator/schema gate, redacted fixture, and fail-closed unsupported/partial result; no family is silently flattened into a complete-looking transcript.
+- [x] **CONV-02**: Allowlisted native conversation artifacts are captured as content-addressed immutable evidence before adaptation; live SQLite/WAL sources use online backup, and adjacent credential/account/token/auth tables and columns are never copied, queried, logged, or exposed.
 
 ### Typed event authority and fidelity
 
-- [ ] **CONV-03**: The canonical v2 model preserves typed session, message, reasoning, tool, usage, compaction, boundary, branch/subagent, context, and unknown-native events plus first-class relations, stable native/source identity, artifact provenance, and resolvable references for safe unmodeled payloads.
-- [ ] **CONV-04**: Every adapter run, session, and event reports explicit source/structure/order/relation/content/compaction/identity fidelity; missing native artifacts, unknown fields, redaction, ambiguity, and unsupported versions remain `partial`, `unknown`, or `unavailable` rather than being reported complete.
+- [x] **CONV-03**: The canonical v2 model preserves typed session, message, reasoning, tool, usage, compaction, boundary, branch/subagent, context, and unknown-native events plus first-class relations, stable native/source identity, artifact provenance, and resolvable references for safe unmodeled payloads.
+- [x] **CONV-04**: Every adapter run, session, and event reports explicit source/structure/order/relation/content/compaction/identity fidelity; missing native artifacts, unknown fields, redaction, ambiguity, and unsupported versions remain `partial`, `unknown`, or `unavailable` rather than being reported complete.
 
 ### Canonical evolution and compatibility
 
-- [ ] **CONV-05**: The existing canonical database, `pk-sync conversations`, publication registry, watermark, rollback, and `ConversationRepository` seams are reused while v2 event generations are staged and atomically activated; current session/message/tool tables remain deterministic compatibility projections until all registered consumers pass contract parity.
+- [x] **CONV-05**: The existing canonical database, `pk-sync conversations`, publication registry, watermark, rollback, and `ConversationRepository` seams are reused while v2 event generations are staged and atomically activated; current session/message/tool tables remain deterministic compatibility projections until all registered consumers pass contract parity.
 
 ### Replaceable extraction views and gates
 
-- [ ] **CONV-06**: Versioned Turn, NativeTrace, Episode, CompactionWindow, Session, Topic, and CrossSession views are rebuildable from canonical events and preserve view lineage plus stable evidence-event references; extraction priority is controlled by a versioned policy rather than adapter code or permanent trace-first semantics.
-- [ ] **CONV-07**: Candidate admission runs deterministic privacy/secret/injection/structure/evidence checks before an abstention-capable semantic-value gate, and a summary/view claim cannot pass without resolvable supporting events, contradiction handling, and recorded reject/abstain reasons.
+- [x] **CONV-06**: Versioned Turn, NativeTrace, Episode, CompactionWindow, Session, Topic, and CrossSession views are rebuildable from canonical events and preserve view lineage plus stable evidence-event references; extraction priority is controlled by a versioned policy rather than adapter code or permanent trace-first semantics.
+- [x] **CONV-07**: Candidate admission runs deterministic privacy/secret/injection/structure/evidence checks before an abstention-capable semantic-value gate, and a summary/view claim cannot pass without resolvable supporting events, contradiction handling, and recorded reject/abstain reasons.
 
 ### Validation, isolation, and cost control
 
-- [ ] **CONV-08**: Redacted per-family reference fixtures, replay/idempotency tests, schema-drift/privacy negative tests, compatibility parity, source-to-event coverage reports, and activation/rollback fault injection pass while old KU generations stay quarantined, active KU stays empty, old 24,487-call queues remain unexecuted, and paid provider calls remain zero without a separate user approval checkpoint.
+- [x] **CONV-08**: Redacted per-family reference fixtures, replay/idempotency tests, schema-drift/privacy negative tests, compatibility parity, source-to-event coverage reports, and activation/rollback fault injection pass while old KU generations stay quarantined, active KU stays empty, old 24,487-call queues remain unexecuted, and paid provider calls remain zero without a separate user approval checkpoint.
 
 ## v2.0 Out of Scope
 
@@ -212,7 +212,7 @@ v1.4 的 Phase 40 UAT 已由用户在 2026-07-28 确认通过；验收记录保�
 | OPS-02 | Phase 59 | Verified 2026-08-05 |
 | EVAL-03, ACT-03 | Phase 60 | EVAL-03 deterministic pass; ACT-03 blocked by Phase 53 revise and human checkpoint |
 | HARNESS-01..08 | Phase 61 | Pending |
-| CONV-01..08 | Phase 62 | Pending |
+| CONV-01..08 | Phase 62 | Done (62-01..62-08) |
 
 **Coverage:** v2.0 原 34 项 requirements 保持映射；Phase 61 的 HARNESS-01..08 与 Phase 62 的 CONV-01..08 均已完整映射。
 
