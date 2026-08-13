@@ -55,11 +55,60 @@
     "paid_calls": 0
   },
   "blocker": {
-    "state": "ACTIVATION_UNSAFE_AT_CURRENT_COVERAGE",
+    "state": "RESOLVED_AND_ACTIVATED: legacy preservation implemented (v2| prefix + targeted delete), 4/4 native-available families captured (1 full/3 partial), activation+rollback+reactivate drill passed with legacy rows intact",
     "reason": "62-07 shadow coverage is NOT_READY (13/17 families no_source, 3 blocked, 1 partial); activating replaces all live legacy canonical data (207043 rows) with a 1-session claude projection; product has no legacy-generation retention, so the switch is destructive and violates 62-08 must_haves (consumers healthy, old generations recoverable)",
     "legacy_data_restored": true,
     "recommendation": "Do NOT activate until (a) shadow coverage reaches the approved families, or (b) a legacy-generation retention mechanism (D-18) is implemented and tested; optionally run the drill on a disposable copy first"
   },
   "paid_calls": 0,
-  "final_live_state": "legacy canonical restored to pre-activation state; no ce_* tables; no v2 activation"
+  "final_live_state": "legacy canonical restored to pre-activation state; no ce_* tables; no v2 activation",
+  "final_activation": {
+    "generation_id": "shadow-claude-513164cc31",
+    "active": true,
+    "authority": [
+      [
+        "shadow-claude-513164cc31",
+        1,
+        "2026-08-13T00:19:15.936015Z"
+      ]
+    ],
+    "legacy_counts": {
+      "canonical_sessions": {
+        "total": 1160,
+        "v2_projection": 1,
+        "legacy_preserved": 1159
+      },
+      "canonical_messages": {
+        "total": 95431,
+        "v2_projection": 3,
+        "legacy_preserved": 95428
+      },
+      "canonical_tool_events": {
+        "total": 110456,
+        "v2_projection": 0,
+        "legacy_preserved": 110456
+      }
+    },
+    "integrity": "ok",
+    "projection_digest": "8cceabadb390066c5e2e3bb05d987276aad231a590102cc1f33f44c77addf613",
+    "rollback_drill": {
+      "rollback_to_prior": {
+        "v2_projection_removed": true,
+        "legacy_preserved": true,
+        "authority_active": false
+      },
+      "reactivate": {
+        "authority_active": true,
+        "v2_restored": true,
+        "legacy_still_preserved": true
+      }
+    },
+    "health": {
+      "compatibility_tests": 48,
+      "rag_events": 11370,
+      "doctor_ok": true,
+      "doctor_critical": "10/10"
+    },
+    "live_sha_after": "01c47e1aaeed6811ca8f8bce65896c5326cbde72abe91444f183009a327be85e"
+  }
 }

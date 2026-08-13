@@ -162,6 +162,81 @@ curl.exe --noproxy "*" http://127.0.0.1:8000/health
 curl.exe --noproxy "*" http://127.0.0.1:8789/health
 ```
 
+## Canonical conversation v2 (Phase 62)
+
+The canonical conversation authority now supports typed v2 events alongside the
+legacy `canonical_sessions/messages/tool_events` rows. v2 projection rows carry
+a `v2|` id prefix and `source='legacy'` (the live CHECK constraint only admits
+`agentsview|legacy`); activation **preserves** pre-existing legacy rows and
+replaces only the v2 projection of the switched generation.
+
+### Dry-run / shadow (zero paid calls, D-31)
+
+```powershell
+# probe every family capability + snapshot/event estimate (metadata-only)
+pk-sync conversations --v2-dry-run --v2-source <source-root>
+
+# capture + adapt + stage NON-active generations + metadata-only report
+pk-sync conversations --v2-shadow --write --v2-source <source-root>
+# shadow DB default: data/staging/v2 (never the live canonical store)
+# explicit shadow target:  --v2-db <path>
+```
+
+Shadow output is metadata-only: 17-family counts/fidelity, artifact/generation
+digests, compatibility parity, view counts, deterministic-gate counts, cost
+estimate, old-run supersession readiness, source fingerprints, exact rollback
+target. Never activates, never advances watermarks, never calls a provider.
+
+### Fidelity report and activation gate
+
+`pk-sync conversations --event-v2-shadow --report ...` (62-07) produces the
+per-family fidelity evidence and the activation recommendation. Activation is
+permitted only after an explicit human approval recorded in
+62-07-SUMMARY/62-VALIDATION; `paid_calls=0` and every native-available session
+is captured or explicitly blocked.
+
+### Activate / status / rollback
+
+```powershell
+# 1) stage into the live canonical DB (non-active)
+pk-sync conversations --v2-shadow --write --v2-source <source-root> `
+    --v2-db data/canonical/agent/structured/db/agent_conversations.sqlite
+
+# 2) activate the approved generation (delegates to event_generations only)
+pk-sync conversations --v2-activate <generation-id> --write `
+    --v2-db data/canonical/agent/structured/db/agent_conversations.sqlite
+
+# 3) health
+pk-sync status --json
+pk-ku doctor --json
+rag-search stats --json
+python -m pytest -q tests/contract/test_conversation_v2_compatibility.py `
+    tests/integration/test_conversation_v2_sync.py
+
+# 4) rollback (clears the v2 projection rows + demotes authority; legacy kept)
+python -c "import sqlite3; from personal_knowledge.application.conversation.compatibility_projection import clear_compatibility_projection; \
+con=sqlite3.connect('data/canonical/agent/structured/db/agent_conversations.sqlite'); clear_compatibility_projection(con); \
+con.execute('UPDATE ce_generation_authority SET active=0 WHERE active=1'); con.commit(); con.close()"
+```
+
+### Partial-family interpretation
+
+- `no_source` = no native artifact discovered for that family in the cohort
+  (not an error; the `native_available_captured_or_blocked` gate only counts
+  families with discovered sessions).
+- `partial` = adapted with honest fidelity loss (e.g. claude staged from a
+  live export with unknown record kinds preserved as `unknown_native`).
+- `blocked` = capture or staging failed closed; fix the adapter/staging error
+  and re-run shadow before activation.
+
+### Old-run supersession and paid extraction
+
+The two legacy message-level prepare runs (3,224 user + 21,263 assistant
+items) remain **audit-only/non-executable**; `pk-ku extract` refuses them
+(`LegacyRunSupersededError`). Any future paid semantic pilot requires a
+separate explicit user cost-approval checkpoint — the v2 activation approval
+does NOT authorize paid LLM extraction.
+
 ## Related docs
 
 - Agent operating manual: [../AGENTS.md](../AGENTS.md)
