@@ -229,7 +229,7 @@ def _project_sessions(
             1 for m in msgs if MESSAGE_KINDS[EventKind(m["kind"])] == "user"
         )
         projected.append({
-            "canonical_session_id": _norm_hash("cs", "v2", generation_id, sid),
+            "canonical_session_id": _norm_hash("v2|cs", "v2", generation_id, sid),
             # Live canonical_sessions has CHECK(primary_source IN
             # ('agentsview','legacy')); 'v2' is not admissible, so projection
             # rows are tagged 'legacy' (the v2|generation session-id prefix
@@ -268,9 +268,9 @@ def _project_messages(
             role = MESSAGE_KINDS[EventKind(event["kind"])]
             projected.append({
                 "canonical_message_id": _norm_hash(
-                    "cm", "v2", generation_id, event["event_id"]
+                    "v2|cm", "v2", generation_id, event["event_id"]
                 ),
-                "canonical_session_id": _norm_hash("cs", "v2", generation_id, sid),
+                "canonical_session_id": _norm_hash("v2|cs", "v2", generation_id, sid),
                 # Live CHECK(source IN ('agentsview','legacy')); 'v2' is not
                 # admissible (see _project_sessions).
                 "source": "legacy",
@@ -302,9 +302,9 @@ def _project_tools(
             summary = event.get("summary") or None
             projected.append({
                 "canonical_tool_id": _norm_hash(
-                    "cte", "v2", generation_id, event["event_id"]
+                    "v2|cte", "v2", generation_id, event["event_id"]
                 ),
-                "canonical_session_id": _norm_hash("cs", "v2", generation_id, sid),
+                "canonical_session_id": _norm_hash("v2|cs", "v2", generation_id, sid),
                 # Live CHECK(source IN ('agentsview','legacy')); 'v2' is not
                 # admissible (see _project_sessions).
                 "source": "legacy",
@@ -423,12 +423,16 @@ def clear_compatibility_projection(con: sqlite3.Connection) -> None:
     """Delete every compatibility row produced by any v2 projection.
 
     Used by the activation owner during rollback to restore the prior
-    projection. Never deletes the tables themselves (D-19).
+    projection. Deletes ONLY rows whose canonical id carries the ``v2|``
+    projection prefix, so pre-existing legacy-era rows (``agentsview`` /
+    ``legacy`` sources) are preserved — activation must never discard the
+    product's existing canonical conversation data (D-18/D-19). Never deletes
+    the tables themselves (D-19).
     """
     _ensure_tables(con)
-    con.execute("DELETE FROM canonical_tool_events")
-    con.execute("DELETE FROM canonical_messages")
-    con.execute("DELETE FROM canonical_sessions")
+    con.execute("DELETE FROM canonical_tool_events WHERE canonical_tool_id LIKE 'v2|%'")
+    con.execute("DELETE FROM canonical_messages WHERE canonical_message_id LIKE 'v2|%'")
+    con.execute("DELETE FROM canonical_sessions WHERE canonical_session_id LIKE 'v2|%'")
 
 
 def _row_for_insert(row: dict, columns: tuple[str, ...]) -> tuple:

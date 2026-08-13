@@ -1,11 +1,19 @@
 """Phase 62-02: Codex JSONL event-stream adapter (family ``codex``).
 
-Maps Codex's top-level JSONL event stream (``session_meta``,
-``turn_context``, ``response_item``, ``function_call``,
-``function_call_output``, ``context_compacted``) into typed events,
-relations and fidelity (62-RESEARCH format matrix). Native turn IDs and
-call/result links survive as typed relations; compaction boundaries become
-compaction events, never user messages. Corrupt streams fail closed.
+Maps Codex's top-level JSONL event stream into typed events, relations and
+fidelity (62-RESEARCH format matrix). Two native shapes are supported:
+
+  - synthetic: ``{"type": "session_meta", "session_id": ..., ...}`` with flat
+    fields (contract fixtures);
+  - real export: fields nested under a ``payload`` object
+    (``session_meta.payload.id``, ``turn_context.payload.turn_id``,
+    ``response_item.payload.{role, content:[{type,text}]}``) and
+    ``event_msg.payload.type`` loop hints.
+
+Native turn IDs and call/result links survive as typed relations; compaction
+boundaries become compaction events, never user messages. Unknown record
+kinds stay ``unknown_native``; a missing native session never fabricates a
+complete-looking session (D-04/D-11).
 """
 
 from __future__ import annotations
@@ -36,7 +44,7 @@ from personal_knowledge.core.conversation_events import (
 )
 
 FAMILY = "codex"
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "1.1.0"
 CONTRACT_VERSION = "1"
 
 _COMPLETE = {
@@ -49,6 +57,9 @@ _COMPLETE = {
     FidelityDimension.NATIVE_ID_STABILITY: FidelityLevel.COMPLETE,
 }
 
+# event_msg payload loop hints that act as turn boundaries.
+_LOOP_HINTS = ("task_started", "turn_started", "agent_message", "agent_turn_started")
+
 
 def _fidelity(**overrides) -> FidelityProfile:
     levels = dict(_COMPLETE)
@@ -57,15 +68,36 @@ def _fidelity(**overrides) -> FidelityProfile:
     return FidelityProfile.from_levels(levels)
 
 
+def _inner(record: dict) -> dict:
+    """Real Codex exports nest fields under ``payload``; synthetic fixtures
+    are flat. Both shapes share the top-level ``type``/``timestamp``."""
+    return record.get("payload") if isinstance(record.get("payload"), dict) else record
+
+
+def _text(record: dict) -> str | None:
+    """Text from a content block list (real shape) or a flat string."""
+    content = _inner(record).get("content")
+    if isinstance(content, str):
+        return content[:2048] or None
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") in ("text", "input_text"):
+                text = str(block.get("text") or "")
+                if text:
+                    parts.append(text)
+        return (" ".join(parts))[:2048] or None
+    return None
+
+
 def capability() -> CapabilityDescriptor:
     return CapabilityDescriptor(
-        family=FAMILY,
-        adapter_version=ADAPTER_VERSION,
-        contract_version=CONTRACT_VERSION,
+        family=FAMILY, adapter_version=ADAPTER_VERSION, contract_version=CONTRACT_VERSION,
         supported_event_kinds=(
             EventKind.SESSION_LIFECYCLE,
             EventKind.USER_MESSAGE,
             EventKind.ASSISTANT_MESSAGE,
+            EventKind.DEVELOPER_MESSAGE,
             EventKind.TOOL_CALL,
             EventKind.TOOL_RESULT,
             EventKind.COMPACTION_SUMMARY,
@@ -79,6 +111,7 @@ def capability() -> CapabilityDescriptor:
         fidelity_dimensions=tuple(FidelityDimension),
         capabilities={
             "native_shape": "jsonl_event_stream",
+            "nested_payload": "true",
             "compaction": "top_level_context_compacted",
             "call_result": "call_id_pairing",
         },
@@ -101,7 +134,7 @@ def detect(artifact: SourceArtifact, *, artifact_root: Path) -> bool:
     return False
 
 
-def _provenance(artifact: SourceArtifact, locator: str, *, session: str, native_id: str | None) -> Provenance:
+def _provenance(artifact: SourceArtifact, locator: str, *, session: str | None, native_id: str | None) -> Provenance:
     return Provenance(
         artifact_id=artifact.artifact_id,
         artifact_hash=artifact.content_hash,
@@ -131,42 +164,61 @@ def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=N
 def _adapt_record(record: dict, artifact, *, session_id, locator) -> TypedEvent | None:
     """Map one Codex record to a typed event; unknown kinds stay unknown_native."""
     kind = record.get("type")
-    ts = record.get("timestamp")
-    sid = record.get("session_id")
+    inner = _inner(record)
+    ts = record.get("timestamp") or inner.get("timestamp")
+    sid = record.get("session_id") or inner.get("session_id") or inner.get("id")
     if kind == "session_meta":
         return _event(artifact, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
-                      locator=locator, native_id=record.get("session_id"),
-                      occurred_at=ts, native_session=sid)
+                      locator=locator, native_id=inner.get("id"), occurred_at=ts,
+                      native_session=sid)
     if kind == "turn_context":
         return _event(artifact, session_id=session_id, kind=EventKind.TURN_BOUNDARY,
-                      locator=locator, native_id=record.get("turn_id"),
-                      occurred_at=ts, summary=str(record.get("prompt") or "")[:512] or None,
-                      native_session=sid)
+                      locator=locator, native_id=inner.get("turn_id"), occurred_at=ts,
+                      summary=str(inner.get("prompt") or "")[:512] or None, native_session=sid)
     if kind == "response_item":
-        role = record.get("role")
-        ev = EventKind.ASSISTANT_MESSAGE if role == "assistant" else EventKind.USER_MESSAGE if role == "user" else None
+        role = inner.get("role")
+        ev = EventKind.ASSISTANT_MESSAGE if role == "assistant" else (
+            EventKind.USER_MESSAGE if role == "user" else (
+                EventKind.DEVELOPER_MESSAGE if role == "developer" else None))
         if ev is not None:
             return _event(artifact, session_id=session_id, kind=ev, locator=locator,
-                          native_id=record.get("item_id"), occurred_at=ts,
-                          summary=str(record.get("content") or "")[:2048] or None,
+                          native_id=inner.get("id") or inner.get("item_id"), occurred_at=ts,
+                          summary=_text(record), native_session=sid)
+    if kind == "event_msg":
+        # loop hints are first-class episode hints; other event messages stay
+        # unknown native records rather than guessed content.
+        hint = inner.get("type")
+        if hint in _LOOP_HINTS:
+            return _event(artifact, session_id=session_id, kind=EventKind.TURN_BOUNDARY,
+                          locator=locator, native_id=inner.get("turn_id") or hint,
+                          occurred_at=ts, summary=str(inner.get("message") or "")[:256] or None,
                           native_session=sid)
+        return _event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
+                      locator=locator, native_id=inner.get("turn_id") or hint or inner.get("id"),
+                      occurred_at=ts, fidelity=_fidelity(
+                          STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
+                          RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
+                          CONTENT_AVAILABILITY=FidelityLevel.PARTIAL,
+                      ), native_session=sid)
     if kind == "function_call":
         return _event(artifact, session_id=session_id, kind=EventKind.TOOL_CALL,
-                      locator=locator, native_id=record.get("call_id"), occurred_at=ts,
-                      summary=str(record.get("name") or "")[:256] or None, native_session=sid)
+                      locator=locator, native_id=inner.get("call_id") or inner.get("id"),
+                      occurred_at=ts, summary=str(inner.get("name") or "")[:256] or None,
+                      native_session=sid)
     if kind == "function_call_output":
-        # Codex shares call_id between call and output; make_event_id omits kind
-        # when a native id is present, so disambiguate the output's native id.
+        # Codex shares call_id between call and output; make_event_id omits
+        # kind when a native id is present, so disambiguate the output's id.
+        call_id = inner.get("call_id") or inner.get("id")
         return _event(artifact, session_id=session_id, kind=EventKind.TOOL_RESULT,
-                      locator=locator, native_id=f"{record.get('call_id')}#output",
-                      occurred_at=ts, summary=str(record.get("output") or "")[:2048] or None,
+                      locator=locator, native_id=f"{call_id}#output",
+                      occurred_at=ts, summary=str(inner.get("output") or "")[:2048] or None,
                       native_session=sid)
     if kind == "context_compacted":
         return _event(artifact, session_id=session_id, kind=EventKind.COMPACTION_SUMMARY,
-                      locator=locator, native_id=record.get("turn_id"), occurred_at=ts,
-                      summary=str(record.get("summary") or "")[:2048] or None, native_session=sid)
+                      locator=locator, native_id=inner.get("turn_id"), occurred_at=ts,
+                      summary=str(inner.get("summary") or "")[:2048] or None, native_session=sid)
     return _event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
-                  locator=locator, native_id=record.get("id") or record.get("item_id"),
+                  locator=locator, native_id=record.get("id") or inner.get("id"),
                   occurred_at=ts, fidelity=_fidelity(
                       STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
                       RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
@@ -188,16 +240,24 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
     events: list[TypedEvent] = []
     relations: list[EventRelation] = []
     warnings: list[str] = []
-    native_session = next((r.get("session_id") for r in records if r.get("session_id")), None)
     turn_of: dict[str, str] = {}  # event_id -> native turn id
+    native_session = None
+    for record in records:
+        inner = _inner(record)
+        sid = record.get("session_id") or inner.get("session_id") or (
+            inner.get("id") if record.get("type") == "session_meta" else None)
+        if sid:
+            native_session = sid
+            break
 
     for lineno, record in enumerate(records, start=1):
         ev = _adapt_record(record, artifact, session_id=session_id,
                            locator=f"{artifact.relative_path}#L{lineno}")
         if ev is not None:
             events.append(ev)
-            if record.get("turn_id"):
-                turn_of[ev.event_id] = record["turn_id"]
+            tid = _inner(record).get("turn_id")
+            if tid:
+                turn_of[ev.event_id] = tid
 
     # Turn membership: events carrying a native turn id link to its boundary.
     boundaries = {e.provenance.native_event_id: e for e in events if e.kind is EventKind.TURN_BOUNDARY}

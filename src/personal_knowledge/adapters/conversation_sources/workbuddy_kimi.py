@@ -65,6 +65,33 @@ def _fidelity(**overrides) -> FidelityProfile:
     return FidelityProfile.from_levels(levels)
 
 
+def _timestamp(value) -> str | None:
+    """Normalize epoch-millisecond timestamps (real exports) or passthrough."""
+    if value is None:
+        return None
+    if isinstance(value, int) and value > 1_000_000_000_000:
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(value / 1000, tz=timezone.utc).isoformat()
+    return str(value)
+
+
+def _text_blocks(value) -> str | None:
+    """Text from a content block list or a flat string."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value[:2048] or None
+    if isinstance(value, list):
+        parts = []
+        for block in value:
+            if isinstance(block, dict) and block.get("type") in ("text", "input_text"):
+                text = str(block.get("text") or "")
+                if text:
+                    parts.append(text)
+        return (" ".join(parts))[:2048] or None
+    return None
+
+
 class _Family:
     """Shared JSONL adapter machinery for one family of this module."""
 
@@ -131,6 +158,9 @@ class _Family:
             if rtype == "message":
                 return EventKind.USER_MESSAGE if record.get("role") == "user" else (
                     EventKind.ASSISTANT_MESSAGE if record.get("role") == "assistant" else None)
+            if rtype == "file-history-snapshot":
+                # ambient file/context event, not a user/assistant message
+                return EventKind.FILE_CONTEXT
             return _WORKBUDDY_KINDS.get(rtype)
         rtype = record.get("type")
         return {
@@ -144,9 +174,9 @@ class _Family:
 
     def _adapt_record(self, record: dict, artifact, *, session_id, locator) -> TypedEvent | None:
         kind = self._record_kind(record)
-        ts = record.get("timestamp")
-        sid = record.get("session_id")
-        mid = record.get("message_id") or record.get("task_id")
+        ts = _timestamp(record.get("timestamp"))
+        sid = record.get("session_id") or record.get("sessionId")
+        mid = record.get("message_id") or record.get("task_id") or record.get("id")
         if kind is None:
             return self._event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
                                locator=locator, native_id=mid, occurred_at=ts,
@@ -154,7 +184,9 @@ class _Family:
                                                   RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
                                                   CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
                                native_session=sid)
-        summary = str(record.get("content") or record.get("result") or "")[:2048] or None
+        summary = str(record.get("result") or "")[:2048] or None
+        if summary is None:
+            summary = _text_blocks(record.get("content"))
         return self._event(artifact, session_id=session_id, kind=kind, locator=locator,
                            native_id=mid, occurred_at=ts, summary=summary, native_session=sid)
 
@@ -172,7 +204,10 @@ class _Family:
         relations: list[EventRelation] = []
         warnings: list[str] = []
         by_call_id: dict[str, tuple[TypedEvent | None, TypedEvent | None]] = {}
-        native_session = next((r.get("session_id") for r in records if r.get("session_id")), None)
+        native_session = next(
+            (r.get("session_id") or r.get("sessionId") for r in records if r.get("session_id") or r.get("sessionId")),
+            None,
+        )
 
         for lineno, record in enumerate(records, start=1):
             ev = self._adapt_record(record, artifact, session_id=session_id,
@@ -181,7 +216,7 @@ class _Family:
                 continue
             events.append(ev)
             if self.family == "workbuddy":
-                call_id = record.get("call_id")
+                call_id = record.get("call_id") or record.get("callId")
                 if call_id:
                     start, _end = by_call_id.setdefault(call_id, (None, None))
                     if ev.kind is EventKind.TOOL_CALL:

@@ -119,7 +119,7 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
     session_id = make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
                                None, kind=EventKind.SESSION_LIFECYCLE, native_locator="session")
     events: list[TypedEvent] = []
-    native_session = doc.get("session_id") or doc.get("id")
+    native_session = doc.get("session_id") or doc.get("sessionId") or doc.get("id")
 
     events.append(_event(
         artifact, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
@@ -132,8 +132,9 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
     for index, message in enumerate(doc["messages"]):
         if not isinstance(message, dict):
             continue
-        role = message.get("role")
-        kind = EventKind.USER_MESSAGE if role == "user" else EventKind.ASSISTANT_MESSAGE if role == "model" else None
+        role = message.get("role") or message.get("type")
+        kind = EventKind.USER_MESSAGE if role in ("user", "human") else (
+            EventKind.ASSISTANT_MESSAGE if role in ("model", "assistant", "ai") else None)
         locator = f"{artifact.relative_path}#messages[{index}]"
         if kind is None:
             events.append(_event(
@@ -170,6 +171,6 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         artifacts=(artifact,), events=tuple(events),
         fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL if unknown else FidelityLevel.COMPLETE),
         sessions=tuple(sessions), relations=(), warnings=(
-            f"{unknown} unknown message role(s) preserved" if unknown else ()
+            (f"{unknown} unknown message role(s) preserved",) if unknown else ()
         ),
     )

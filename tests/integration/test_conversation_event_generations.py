@@ -407,3 +407,76 @@ def test_repository_has_no_activation_surface(live) -> None:
     repo = EventRepository(db)
     public = [n for n in dir(repo) if not n.startswith("_")]
     assert not any("activate" in n.lower() for n in public)
+
+
+def test_activation_preserves_legacy_rows(tmp_path: Path) -> None:
+    """Activation must never discard pre-existing legacy-era canonical rows
+    (D-18/D-19): only v2 projection rows are replaced. Regression for the
+    62-08 incident where activation cleared the live legacy tables."""
+    db = tmp_path / "conversations.sqlite"
+    life = GenerationLifecycle(db)
+    # Preload one legacy-era session + message with non-v2 ids.
+    con = sqlite3.connect(str(db))
+    try:
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS canonical_sessions ("
+            " canonical_session_id TEXT PRIMARY KEY, primary_source TEXT NOT NULL,"
+            " agent TEXT, started_at TEXT, ended_at TEXT, message_count INTEGER,"
+            " user_message_count INTEGER, file_hash TEXT, parent_canonical_id TEXT,"
+            " relationship_type TEXT, cwd TEXT, git_branch TEXT, model TEXT,"
+            " evidence_eligible INTEGER NOT NULL DEFAULT 1,"
+            " evidence_scope TEXT NOT NULL DEFAULT 'user',"
+            " merged INTEGER NOT NULL DEFAULT 0,"
+            " lifecycle TEXT NOT NULL DEFAULT 'active',"
+            " superseded_by_canonical_id TEXT)"
+        )
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS canonical_messages ("
+            " canonical_message_id TEXT PRIMARY KEY, canonical_session_id TEXT,"
+            " source TEXT NOT NULL, source_message_ref TEXT, ordinal INTEGER,"
+            " role TEXT, content TEXT, content_length INTEGER, timestamp TEXT,"
+            " model TEXT, is_system INTEGER, is_sidechain INTEGER,"
+            " content_hash TEXT, evidence_scope TEXT)"
+        )
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS canonical_tool_events ("
+            " canonical_tool_id TEXT PRIMARY KEY, canonical_session_id TEXT,"
+            " source TEXT NOT NULL, source_kind TEXT, tool_name TEXT, category TEXT,"
+            " status TEXT, input TEXT, output TEXT, tool_use_ordinal INTEGER,"
+            " evidence_scope TEXT)"
+        )
+        con.execute(
+            "INSERT INTO canonical_sessions (canonical_session_id, primary_source,"
+            " message_count, user_message_count) VALUES ('legacy-session-1',"
+            " 'legacy', 1, 1)"
+        )
+        con.execute(
+            "INSERT INTO canonical_messages (canonical_message_id, canonical_session_id,"
+            " source, role, content) VALUES ('legacy-msg-1', 'legacy-session-1',"
+            " 'legacy', 'user', 'pre-existing legacy message')"
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    gen_a = _generation("ds-a", "hello from generation one")
+    life.prepare(gen_a, "gen-1")
+    _activate(life, "gen-1", digest=gen_a.dataset_digest)
+
+    con = sqlite3.connect(str(db))
+    try:
+        sessions = con.execute(
+            "SELECT canonical_session_id, primary_source FROM canonical_sessions"
+        ).fetchall()
+        messages = con.execute(
+            "SELECT canonical_message_id, content FROM canonical_messages"
+        ).fetchall()
+    finally:
+        con.close()
+
+    legacy_sessions = [r for r in sessions if not r[0].startswith("v2|")]
+    legacy_msgs = [r for r in messages if not r[0].startswith("v2|")]
+    v2_msgs = [r for r in messages if r[0].startswith("v2|")]
+    assert legacy_sessions == [("legacy-session-1", "legacy")]
+    assert legacy_msgs == [("legacy-msg-1", "pre-existing legacy message")]
+    assert v2_msgs, "v2 projection rows must be written alongside legacy rows"
