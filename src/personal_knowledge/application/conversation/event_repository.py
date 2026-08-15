@@ -44,6 +44,77 @@ class EventRepositoryError(RuntimeError):
     """A v2 generation write or read violated the event-authority contract."""
 
 
+_IMPORT_COLUMNS: dict[str, tuple[str, ...]] = {
+    "ce_source_artifacts": (
+        "artifact_id", "family", "source_kind", "content_hash",
+        "capture_method", "relative_path", "byte_size", "schema_digest",
+        "privacy_dispositions",
+    ),
+    "ce_event_generations": (
+        "generation_id", "status", "source_manifest_id", "dataset_digest",
+        "created_at",
+    ),
+    "ce_adapter_runs": (
+        "run_id", "generation_id", "family", "adapter_version",
+        "contract_version", "capability_digest", "warnings", "created_at",
+    ),
+    "ce_sessions": (
+        "generation_id", "session_id", "family", "native_session_id",
+        "started_at", "ended_at", "artifact_id", "native_locator",
+        "contract_version", "fidelity_json",
+    ),
+    "ce_events": (
+        "generation_id", "event_id", "session_id", "kind", "artifact_id",
+        "native_locator", "native_event_id", "occurred_at", "ordinal",
+        "native_payload_ref", "content", "summary", "contract_version",
+        "fidelity_json",
+    ),
+    "ce_event_relations": (
+        "generation_id", "relation_id", "source_event_id", "target_event_id",
+        "relation_kind",
+    ),
+    "ce_field_dispositions": (
+        "generation_id", "event_id", "field_name", "disposition", "reason",
+    ),
+}
+
+
+def _import_columns_sql(table: str) -> str:
+    """Return the audited column list for a cross-database import."""
+
+    return ", ".join(_IMPORT_COLUMNS[table])
+
+
+def _import_source_columns_sql(
+    con: sqlite3.Connection, table: str, *, alias: str,
+) -> str:
+    """Map a source schema to the current import contract explicitly.
+
+    ``content`` is the sole additive v2.1 event column and is nullable, so an
+    older v2.0 source projects it as SQL NULL.  Any other missing column is a
+    schema error rather than a positional or implicit import.
+    """
+
+    present = {
+        row["name"]
+        for row in con.execute(f'PRAGMA shadow.table_info("{table}")')
+    }
+    expected = _IMPORT_COLUMNS[table]
+    missing = set(expected) - present
+    allowed_missing = {"content"} if table == "ce_events" else set()
+    unsupported = missing - allowed_missing
+    if unsupported:
+        raise EventRepositoryError(
+            f"import source {table} is missing columns: {sorted(unsupported)}"
+        )
+    return ", ".join(
+        f'NULL AS "{column}"'
+        if column in missing
+        else f'{alias}."{column}"'
+        for column in expected
+    )
+
+
 @dataclass(frozen=True)
 class GenerationInput:
     """One complete, validated adaptation result ready to stage as a generation."""
@@ -121,8 +192,8 @@ def _insert_events(
             "INSERT OR IGNORE INTO ce_events "
             "(generation_id, event_id, session_id, kind, artifact_id, "
             " native_locator, native_event_id, occurred_at, ordinal, "
-            " native_payload_ref, summary, contract_version, fidelity_json) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " native_payload_ref, content, summary, contract_version, fidelity_json) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 generation_id,
                 event.event_id,
@@ -134,6 +205,7 @@ def _insert_events(
                 event.occurred_at,
                 event.ordinal,
                 event.native_payload_ref,
+                event.content,
                 event.summary,
                 event.provenance.contract_version or gen.contract_version,
                 _fidelity_json(event.fidelity),
@@ -345,16 +417,26 @@ class EventRepository:
             ).fetchone()
             if header is None:
                 raise EventRepositoryError("import source generation is absent")
+            artifact_columns = _import_columns_sql("ce_source_artifacts")
+            artifact_source_columns = _import_source_columns_sql(
+                con, "ce_source_artifacts", alias="a"
+            )
             con.execute(
-                "INSERT OR IGNORE INTO ce_source_artifacts SELECT a.* FROM "
-                "shadow.ce_source_artifacts a WHERE a.artifact_id IN ("
+                "INSERT OR IGNORE INTO ce_source_artifacts "
+                f"({artifact_columns}) SELECT {artifact_source_columns} FROM "
+                "shadow.ce_source_artifacts AS a WHERE a.artifact_id IN ("
                 "SELECT artifact_id FROM shadow.ce_sessions WHERE generation_id=?)",
                 (generation_id,),
             )
             for table in tables:
+                columns = _import_columns_sql(table)
+                source_columns = _import_source_columns_sql(
+                    con, table, alias="s"
+                )
                 con.execute(
-                    f"INSERT OR IGNORE INTO {table} SELECT * FROM shadow.{table} "
-                    "WHERE generation_id=?",
+                    f"INSERT OR IGNORE INTO {table} ({columns}) "
+                    f"SELECT {source_columns} FROM shadow.{table} AS s "
+                    "WHERE s.generation_id=?",
                     (generation_id,),
                 )
             source_counts = {
@@ -451,7 +533,7 @@ class EventRepository:
                 for r in con.execute(
                     "SELECT event_id, session_id, kind, artifact_id, native_locator, "
                     "native_event_id, occurred_at, ordinal, native_payload_ref, "
-                    "summary, contract_version, fidelity_json "
+                    "content, summary, contract_version, fidelity_json "
                     "FROM ce_events WHERE generation_id=? ORDER BY ordinal, event_id",
                     (generation_id,),
                 )
@@ -504,7 +586,8 @@ class EventRepository:
                 dict(r)
                 for r in con.execute(
                     "SELECT event_id, session_id, kind, artifact_id, native_locator, "
-                    "native_event_id, occurred_at, ordinal, native_payload_ref, summary "
+                    "native_event_id, occurred_at, ordinal, native_payload_ref, "
+                    "content, summary "
                     "FROM ce_events WHERE generation_id=? AND native_locator=? "
                     "ORDER BY ordinal",
                     (generation_id, native_locator),

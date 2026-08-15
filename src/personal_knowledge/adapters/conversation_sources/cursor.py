@@ -218,7 +218,10 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             ),
             fidelity=_fidelity(),
             occurred_at=message["created_at"] if "created_at" in message.keys() else None,
-            summary=str(message["content"] if "content" in message.keys() else "")[:2048] or None,
+            content=(
+                None if "content" not in message.keys() or message["content"] is None
+                else str(message["content"])
+            ),
         ))
 
     return AdaptationResult(
@@ -275,9 +278,11 @@ def _adapt_jsonl(artifact: SourceArtifact, *, artifact_root: Path) -> Adaptation
             unknown += 1
         message = row.get("message")
         if isinstance(message, dict):
-            summary = str(message.get("content") or "")[:2048] or None
+            source_content = message.get("content")
         else:
-            summary = str(message or "")[:2048] or None
+            source_content = message
+        exact_content = None if source_content is None else str(source_content)
+        is_message = kind in (EventKind.USER_MESSAGE, EventKind.ASSISTANT_MESSAGE)
         locator = f"{artifact.relative_path}#L{index}"
         events.append(TypedEvent(
             event_id=make_event_id(
@@ -296,7 +301,11 @@ def _adapt_jsonl(artifact: SourceArtifact, *, artifact_root: Path) -> Adaptation
                 COMPACTION_VISIBILITY=FidelityLevel.UNKNOWN,
                 NATIVE_ID_STABILITY=FidelityLevel.PARTIAL,
             ),
-            ordinal=index, summary=summary,
+            ordinal=index,
+            content=exact_content if is_message else None,
+            summary=None if is_message else (
+                exact_content[:2048] or None if exact_content is not None else None
+            ),
             native_payload_ref=f"{artifact.artifact_id}:{locator}",
         ))
     warnings = (

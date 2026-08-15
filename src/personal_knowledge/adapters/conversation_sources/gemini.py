@@ -89,13 +89,15 @@ def _provenance(artifact: SourceArtifact, locator: str, *, session: str | None, 
 
 
 def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=None,
-           summary=None, fidelity=None, native_session=None, payload_ref=None) -> TypedEvent:
+           content=None, summary=None, fidelity=None, native_session=None,
+           payload_ref=None) -> TypedEvent:
     return TypedEvent(
         event_id=make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
                                native_id or locator, kind=kind, session_id=session_id),
         session_id=session_id, kind=kind,
         provenance=_provenance(artifact, locator, session=native_session, native_id=native_id),
-        fidelity=fidelity or _fidelity(), occurred_at=occurred_at, summary=summary,
+        fidelity=fidelity or _fidelity(), occurred_at=occurred_at,
+        content=content, summary=summary,
         native_payload_ref=payload_ref,
     )
 
@@ -151,7 +153,10 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             artifact, session_id=session_id, kind=kind, locator=locator,
             native_id=message.get("id") or f"msg-{index}",
             occurred_at=message.get("timestamp"),
-            summary=str(message.get("content") or "")[:2048] or None,
+            content=(
+                None if message.get("content") is None
+                else str(message.get("content"))
+            ),
             native_session=native_session, payload_ref=locator,
         ))
 

@@ -264,7 +264,14 @@ def _project_messages(
         for ordinal, event in enumerate(sorted(
             events, key=lambda e: (e.get("ordinal") or 0, e.get("event_id") or "")
         ), start=1):
-            content = event.get("summary") or None
+            # ``content`` is the exact mapped source body.  ``None`` means an
+            # older adapter did not emit the optional field, so the bounded
+            # summary remains a backward-compatible fallback.  An explicit
+            # empty string is a legitimate tool-only/empty native message and
+            # must not be replaced with summary prose.
+            content = event.get("content")
+            if content is None:
+                content = event.get("summary") or None
             role = MESSAGE_KINDS[EventKind(event["kind"])]
             projected.append({
                 "canonical_message_id": _norm_hash(
@@ -370,7 +377,7 @@ def _read_generation(db: Path, generation_id: str) -> tuple[list[dict], list[dic
             dict(r) for r in con.execute(
                 "SELECT event_id, session_id, kind, artifact_id, native_locator, "
                 "native_event_id, occurred_at, ordinal, native_payload_ref, "
-                "summary, contract_version, fidelity_json "
+                "content, summary, contract_version, fidelity_json "
                 "FROM ce_events WHERE generation_id=? "
                 "ORDER BY ordinal, event_id",
                 (generation_id,),

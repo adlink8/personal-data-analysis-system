@@ -121,13 +121,14 @@ def _provenance(artifact: SourceArtifact, locator: str, *, session: str | None, 
 
 
 def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=None,
-           summary=None, fidelity=None, native_session=None) -> TypedEvent:
+           content=None, summary=None, fidelity=None, native_session=None) -> TypedEvent:
     return TypedEvent(
         event_id=make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
                                native_id or locator, kind=kind, session_id=session_id),
         session_id=session_id, kind=kind,
         provenance=_provenance(artifact, locator, session=native_session, native_id=native_id),
-        fidelity=fidelity or _fidelity(), occurred_at=occurred_at, summary=summary,
+        fidelity=fidelity or _fidelity(), occurred_at=occurred_at,
+        content=content, summary=summary,
     )
 
 
@@ -200,9 +201,15 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             events.append(ev)
             by_step[str(step["id"])] = ev
             continue
+        source_content = step["content"]
+        exact_content = None if source_content is None else str(source_content)
+        is_message = kind in (EventKind.USER_MESSAGE, EventKind.ASSISTANT_MESSAGE)
         ev = _event(artifact, session_id=session_id, kind=kind, locator=locator,
                     native_id=step["id"], occurred_at=step["created_at"],
-                    summary=str(step["content"] or "")[:2048] or None, native_session=sid)
+                    content=exact_content if is_message else None,
+                    summary=None if is_message else (exact_content[:2048] or None)
+                    if exact_content is not None else None,
+                    native_session=sid)
         events.append(ev)
         by_step[str(step["id"])] = ev
 

@@ -203,9 +203,23 @@ class TestZCode:
         turn_rels = [r for r in result.relations if r.relation_kind is RelationKind.TURN_MEMBERSHIP]
         assert len(turn_rels) >= 1
 
+    def test_exact_message_content_is_not_stored_as_summary(self, adapted):
+        result, _a, _r = adapted
+        message = next(
+            event for event in result.events
+            if event.kind is EventKind.USER_MESSAGE
+        )
+        assert message.content == "zcode prompt"
+        assert message.summary is None
+
     def test_canary_never_in_events(self, adapted):
         result, _a, _r = adapted
-        blob_text = " ".join(e.summary or "" for e in result.events)
+        blob_text = " ".join(
+            value
+            for event in result.events
+            for value in (event.content, event.summary)
+            if value
+        )
         assert CANARY_VALUE not in blob_text
 
     def test_privacy_dispositions_record_exclusions(self, adapted):
@@ -258,9 +272,23 @@ class TestMimoOpenCode:
         assert EventKind.ASSISTANT_MESSAGE in kinds
         assert EventKind.REASONING in kinds
 
+    def test_exact_message_content_is_not_stored_as_summary(self, adapted):
+        result, _a, _family = adapted
+        message = next(
+            event for event in result.events
+            if event.kind is EventKind.USER_MESSAGE
+        )
+        assert message.content == "mimo prompt"
+        assert message.summary is None
+
     def test_canary_never_in_events(self, adapted):
         result, _a, _f = adapted
-        blob_text = " ".join(e.summary or "" for e in result.events)
+        blob_text = " ".join(
+            value
+            for event in result.events
+            for value in (event.content, event.summary)
+            if value
+        )
         assert CANARY_VALUE not in blob_text
 
 
@@ -301,9 +329,22 @@ class TestAntigravity:
         rels = {r.relation_kind for r in result.relations}
         assert RelationKind.PARENT_CHILD in rels
 
+    def test_exact_message_content_is_not_stored_as_summary(self, adapted):
+        message = next(
+            event for event in adapted.events
+            if event.kind is EventKind.USER_MESSAGE
+        )
+        assert message.content == "antigravity prompt"
+        assert message.summary is None
+
     def test_canary_never_in_events(self, adapted):
         result = adapted
-        blob_text = " ".join(e.summary or "" for e in result.events)
+        blob_text = " ".join(
+            value
+            for event in result.events
+            for value in (event.content, event.summary)
+            if value
+        )
         assert CANARY_VALUE not in blob_text
 
 
@@ -371,6 +412,14 @@ class TestGrok:
         result = adapted
         assert result.fidelity.level(FidelityDimension.CONTENT_AVAILABILITY) is FidelityLevel.COMPLETE
 
+    def test_exact_message_content_is_not_stored_as_summary(self, adapted):
+        message = next(
+            event for event in adapted.events
+            if event.kind is EventKind.USER_MESSAGE
+        )
+        assert message.content == "grok prompt"
+        assert message.summary is None
+
     def test_summary_only_is_partial(self, tmp_path):
         src = tmp_path / "src"
         src.mkdir()
@@ -390,11 +439,41 @@ class TestChatGPT:
     @pytest.fixture(scope="class")
     def adapted(self, tmp_path_factory):
         tmp = tmp_path_factory.mktemp("chatgpt")
-        src = tmp / "agentsview_snapshot.json"
-        src.write_text('{"rows":[{"session":"x","text":"compat"}]}', encoding="utf-8")
-        artifact, blob = capture_file(
-            src, tmp, relative_path="agentsview_snapshot.json",
-            byte_limit=1_000_000, count_limit=1,
+        src = tmp / "sessions.db"
+        con = sqlite3.connect(src)
+        try:
+            con.executescript(
+                """
+                CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY, agent TEXT, started_at TEXT,
+                    ended_at TEXT, deleted_at TEXT, file_path TEXT
+                );
+                CREATE TABLE messages (
+                    id TEXT PRIMARY KEY, session_id TEXT, ordinal INTEGER,
+                    role TEXT, content TEXT, timestamp TEXT,
+                    is_system INTEGER, is_sidechain INTEGER
+                );
+                """
+            )
+            con.execute(
+                "INSERT INTO sessions VALUES (?,?,?,?,?,?)",
+                ("chat-1", "chatgpt", "2026-07-01T10:00:00Z", None, None, None),
+            )
+            con.execute(
+                "INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    "message-1", "chat-1", 1, "user", "chatgpt prompt",
+                    "2026-07-01T10:00:01Z", 0, 0,
+                ),
+            )
+            con.commit()
+        finally:
+            con.close()
+        artifact, blob = capture_sqlite(
+            src, tmp,
+            allowed_tables=chatgpt.LIVE_ALLOWED_TABLES,
+            allowed_columns=chatgpt.LIVE_ALLOWED_COLUMNS,
+            byte_limit=1_000_000, count_limit=2,
         )
         return chatgpt.adapt(SourceArtifactSet(artifacts=(artifact,)), artifact_root=blob.parent)
 
@@ -404,24 +483,46 @@ class TestChatGPT:
 
     def test_detect_binds_to_agentsview(self, tmp_path_factory):
         tmp = tmp_path_factory.mktemp("chatgpt-detect")
-        src = tmp / "agentsview_snapshot.json"
-        src.write_text('{"rows":[]}', encoding="utf-8")
-        artifact, blob = capture_file(
-            src, tmp, relative_path="agentsview_snapshot.json",
-            byte_limit=1_000_000, count_limit=1,
+        src = tmp / "sessions.db"
+        con = sqlite3.connect(src)
+        try:
+            con.executescript(
+                """
+                CREATE TABLE sessions (
+                    id TEXT, agent TEXT, started_at TEXT, ended_at TEXT,
+                    deleted_at TEXT, file_path TEXT
+                );
+                CREATE TABLE messages (
+                    id TEXT, session_id TEXT, ordinal INTEGER, role TEXT,
+                    content TEXT, timestamp TEXT, is_system INTEGER,
+                    is_sidechain INTEGER
+                );
+                """
+            )
+            con.commit()
+        finally:
+            con.close()
+        artifact, blob = capture_sqlite(
+            src, tmp,
+            allowed_tables=chatgpt.LIVE_ALLOWED_TABLES,
+            allowed_columns=chatgpt.LIVE_ALLOWED_COLUMNS,
+            byte_limit=1_000_000, count_limit=2,
         )
         assert chatgpt.detect(artifact, artifact_root=blob.parent) is True
 
     def test_native_reconstruction_unavailable(self, adapted):
         result = adapted
-        assert result.fidelity.level(FidelityDimension.SOURCE_AVAILABILITY) is FidelityLevel.UNAVAILABLE
-        assert result.fidelity.level(FidelityDimension.STRUCTURE_COMPLETENESS) is FidelityLevel.UNAVAILABLE
+        assert result.fidelity.level(FidelityDimension.SOURCE_AVAILABILITY) is FidelityLevel.PARTIAL
+        assert result.fidelity.level(FidelityDimension.STRUCTURE_COMPLETENESS) is FidelityLevel.PARTIAL
         assert any("native reconstruction unavailable" in w for w in result.warnings)
 
-    def test_no_fabricated_transcript(self, adapted):
+    def test_pathless_session_and_exact_compatibility_message(self, adapted):
         result = adapted
-        kinds = {e.kind for e in result.events}
-        assert kinds == {EventKind.SESSION_LIFECYCLE}
+        assert len(result.sessions) == 1
+        assert result.sessions[0].native_session_id == "chat-1"
+        message = next(event for event in result.events if event.kind is EventKind.USER_MESSAGE)
+        assert message.content == "chatgpt prompt"
+        assert message.summary is None
 
 
 # -------------------------------------------------------------------------- Cursor
@@ -482,6 +583,14 @@ class TestCursor:
         assert EventKind.SESSION_LIFECYCLE in kinds
         assert EventKind.USER_MESSAGE in kinds
         assert EventKind.ASSISTANT_MESSAGE in kinds
+
+    def test_exact_message_content_is_not_stored_as_summary(self, adapted):
+        message = next(
+            event for event in adapted.events
+            if event.kind is EventKind.USER_MESSAGE
+        )
+        assert message.content == "cursor prompt"
+        assert message.summary is None
 
     def test_attribution_only_store_fails_closed(self, tmp_path):
         db = tmp_path / "attribution.db"

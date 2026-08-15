@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -197,6 +198,50 @@ def test_projection_no_compact_summary_as_user_fact(v2_db) -> None:
     roles = {m["role"] for m in report.messages}
     assert "user" in roles
     assert "assistant" in roles
+
+
+def test_projection_prefers_exact_message_content_over_summary(tmp_path: Path) -> None:
+    db = tmp_path / "conversations.sqlite"
+    repo = EventRepository(db)
+    repo.create_schema()
+    gen, _kinds = _mixed_generation()
+    exact_body = "verbatim source body\nwith preserved spacing"
+    events = tuple(
+        replace(event, content=exact_body, summary="bounded synopsis")
+        if event.kind is EventKind.USER_MESSAGE else event
+        for event in gen.events
+    )
+    repo.write_generation(
+        replace(gen, events=events, dataset_digest="content-bearing-generation"),
+        generation_id="gen-content",
+    )
+
+    report = build_compatibility_projection(db, generation_id="gen-content")
+
+    user = next(message for message in report.messages if message["role"] == "user")
+    assert user["content"] == exact_body
+
+
+def test_projection_preserves_explicit_empty_message_content(tmp_path: Path) -> None:
+    db = tmp_path / "conversations.sqlite"
+    repo = EventRepository(db)
+    repo.create_schema()
+    gen, _kinds = _mixed_generation()
+    events = tuple(
+        replace(event, content="", summary="must not fabricate message text")
+        if event.kind is EventKind.USER_MESSAGE else event
+        for event in gen.events
+    )
+    repo.write_generation(
+        replace(gen, events=events, dataset_digest="explicit-empty-generation"),
+        generation_id="gen-empty",
+    )
+
+    report = build_compatibility_projection(db, generation_id="gen-empty")
+
+    user = next(message for message in report.messages if message["role"] == "user")
+    assert user["content"] == ""
+    assert user["content_length"] == 0
 
 
 def test_projection_no_double_counting(v2_db) -> None:

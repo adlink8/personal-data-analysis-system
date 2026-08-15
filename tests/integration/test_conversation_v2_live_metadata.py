@@ -355,8 +355,8 @@ def test_gate_flags_missing_native_available_sessions(tmp_path):
     assert any("codex" in v for v in violations)
 
 
-def test_chatgpt_metadata_observation_does_not_fabricate_native_sessions(tmp_path):
-    """One explicit unavailable observation covers pathless ChatGPT inventory."""
+def test_chatgpt_compatibility_observation_counts_each_pathless_session(tmp_path):
+    """Every pathless ChatGPT session is represented without a native claim."""
     from personal_knowledge.evaluation.conversation.adapter_fidelity import (
         _native_available_gate,
     )
@@ -365,12 +365,13 @@ def test_chatgpt_metadata_observation_does_not_fabricate_native_sessions(tmp_pat
     )
     entry = FamilyFidelityEntry(
         family="chatgpt", status="partial", capability={},
-        discovered_sessions=104, captured_artifacts=1, captured_sessions=1,
-        adapted_events=1, adapted_relations=0, dataset_digest="d",
+        discovered_sessions=104, captured_artifacts=1, captured_sessions=104,
+        adapted_events=4033, adapted_relations=0, dataset_digest="d",
         replay_digest="d", replay_stable=True,
         dispositions={}, disposition_coverage=0.0, unresolved_provenance=0,
-        source_refs_sample=("agentsview#metadata",), projection_parity={},
-        view_counts={}, fidelity={"source_availability": "unavailable"},
+        source_refs_sample=("sqlite:sessions.db#sessions:chat-1",),
+        projection_parity={}, view_counts={},
+        fidelity={"source_availability": "partial"},
     )
     result = _native_available_gate({"chatgpt": entry}, {"chatgpt": 104})
     assert result["ok"] is True
@@ -421,15 +422,48 @@ def test_gate_current_consumers_pass_against_projection(tmp_path):
 
 def test_gate_partial_chatgpt_cursor_disclosed(tmp_path):
     """ChatGPT/Cursor partial limitations are disclosed, not hidden (D-14)."""
-    src = tmp_path / "sources"
-    src.mkdir(exist_ok=True)
-    shutil.copy2(FIXTURES / "codex_agent_sessions.jsonl", src / "codex.jsonl")
-    # a ChatGPT observation marker detected only by the chatgpt adapter
-    (src / "agentsview_observation.jsonl").write_text(
-        json.dumps({"id": "obs-1", "role": "user", "content": _BODY_MARKER}),
-        encoding="utf-8",
+    from personal_knowledge.application.conversation.live_native_shadow import (
+        build_live_native_shadow,
     )
-    report, db, store, _src = _shadow(tmp_path, src)
+
+    agentsview_db = tmp_path / "sessions.db"
+    con = sqlite3.connect(agentsview_db)
+    try:
+        con.executescript(
+            """
+            CREATE TABLE sessions (
+                id TEXT, agent TEXT, started_at TEXT, ended_at TEXT,
+                deleted_at TEXT, file_path TEXT
+            );
+            CREATE TABLE messages (
+                id TEXT, session_id TEXT, ordinal INTEGER, role TEXT,
+                content TEXT, timestamp TEXT, is_system INTEGER,
+                is_sidechain INTEGER
+            );
+            """
+        )
+        con.execute(
+            "INSERT INTO sessions VALUES (?,?,?,?,?,?)",
+            ("chat-1", "chatgpt", "2026-08-01T00:00:00Z", None, None, None),
+        )
+        con.execute(
+            "INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)",
+            (
+                "message-1", "chat-1", 1, "user", _BODY_MARKER,
+                "2026-08-01T00:00:01Z", 0, 0,
+            ),
+        )
+        con.commit()
+    finally:
+        con.close()
+    db = tmp_path / "v2.sqlite"
+    store = tmp_path / "artifacts"
+    report = build_live_native_shadow(
+        agentsview_db=agentsview_db,
+        db=db,
+        artifact_store=store,
+        report_path=tmp_path / "report.json",
+    )
     evaluated = _evaluate(report, db, store)
     chatgpt = evaluated.families["chatgpt"]
     assert chatgpt.status in ("partial", "blocked")

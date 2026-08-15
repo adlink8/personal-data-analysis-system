@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB  # noqa: E402
+from personal_knowledge.core.canonical_visibility import (  # noqa: E402
+    canonical_projection_predicate,
+)
 
 EVIDENCE_SQLITE_OPERATION = "evidence.sqlite_query"
 EVIDENCE_SQLITE_SCHEMA = "pi_evidence_sqlite_v1"
@@ -261,6 +264,16 @@ class EvidenceSqliteTool:
             con.execute("PRAGMA query_only=ON")
             con.row_factory = sqlite3.Row
             schema_checksum = self._schema_gate(con)
+            projection_filter, projection_params = canonical_projection_predicate(
+                con, "canonical_session_id"
+            )
+            visible_session = con.execute(
+                "SELECT 1 FROM canonical_sessions "
+                f"WHERE canonical_session_id=? AND {projection_filter} LIMIT 1",
+                (typed["session_id"], *projection_params),
+            ).fetchone()
+            if visible_session is None:
+                raise EvidenceSqliteError("scope_denied")
             latest_ts = self._latest_message_timestamp(con)
 
             def _progress() -> int:
@@ -274,10 +287,14 @@ class EvidenceSqliteTool:
             sql = (
                 "SELECT canonical_message_id, canonical_session_id, ordinal, role, "
                 "timestamp, source_message_ref FROM canonical_messages "
-                "WHERE canonical_session_id = ? AND timestamp >= ? "
+                "WHERE canonical_session_id = ? AND "
+                f"{projection_filter} AND timestamp >= ? "
                 "ORDER BY ordinal ASC LIMIT ?"
             )
-            bound = (typed["session_id"], typed["after"] or "", limit + 1)
+            bound = (
+                typed["session_id"], *projection_params,
+                typed["after"] or "", limit + 1,
+            )
             try:
                 rows = con.execute(sql, bound).fetchall()
             except sqlite3.OperationalError:
@@ -427,7 +444,14 @@ class EvidenceSqliteTool:
         return hashlib.sha256("\n;;;".join(ddl).encode("utf-8")).hexdigest()[:16]
 
     def _latest_message_timestamp(self, con: sqlite3.Connection) -> str:
-        row = con.execute("SELECT MAX(timestamp) FROM canonical_messages").fetchone()
+        projection_filter, projection_params = canonical_projection_predicate(
+            con, "canonical_session_id"
+        )
+        row = con.execute(
+            "SELECT MAX(timestamp) FROM canonical_messages "
+            f"WHERE {projection_filter}",
+            projection_params,
+        ).fetchone()
         return row[0] or ""
 
 

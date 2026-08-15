@@ -858,6 +858,7 @@ def load_event_graph(db: Path, generation_id: str):
                 occurred_at=row["occurred_at"],
                 ordinal=row["ordinal"],
                 native_payload_ref=row["native_payload_ref"],
+                content=row["content"],
                 summary=row["summary"],
             )
         )

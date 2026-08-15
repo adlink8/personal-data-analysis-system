@@ -17,6 +17,7 @@ no var/, no network, no provider calls (D-31).
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -209,6 +210,23 @@ def test_idempotent_replay_no_duplicates(repo: EventRepository) -> None:
     assert len(repo.iter_events("gen-1")) == 2
 
 
+def test_repository_round_trips_exact_message_content(repo: EventRepository) -> None:
+    event = replace(
+        _events(1)[0],
+        content="verbatim body\nwith exact spacing",
+        summary="bounded synopsis",
+    )
+    repo.write_generation(_gen((event,)), generation_id="gen-content")
+
+    row = repo.iter_events("gen-content")[0]
+    assert row["content"] == "verbatim body\nwith exact spacing"
+    assert row["summary"] == "bounded synopsis"
+    located = repo.lookup_by_native_locator(
+        "jsonl:1", generation_id="gen-content"
+    )
+    assert located[0]["content"] == "verbatim body\nwith exact spacing"
+
+
 def test_multi_family_cohort_is_one_atomic_generation(repo: EventRepository) -> None:
     codex = _gen(_events(2))
     pi_dict = codex.__dict__.copy()
@@ -383,3 +401,116 @@ def test_write_generation_rolls_back_on_failure(repo: EventRepository) -> None:
 def test_schema_version_is_versioned(repo: EventRepository) -> None:
     assert isinstance(SCHEMA_VERSION, str)
     assert SCHEMA_VERSION.startswith("v2.")
+
+
+def test_schema_migration_adds_optional_content_without_replacing_existing_events(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "old-v2.sqlite"
+    con = sqlite3.connect(db)
+    try:
+        con.execute(
+            """CREATE TABLE ce_events (
+                generation_id TEXT NOT NULL, event_id TEXT NOT NULL,
+                session_id TEXT NOT NULL, kind TEXT NOT NULL,
+                artifact_id TEXT NOT NULL, native_locator TEXT NOT NULL,
+                native_event_id TEXT, occurred_at TEXT, ordinal INTEGER,
+                native_payload_ref TEXT, summary TEXT,
+                contract_version TEXT NOT NULL, fidelity_json TEXT NOT NULL,
+                PRIMARY KEY (generation_id, event_id)
+            )"""
+        )
+        con.execute(
+            "INSERT INTO ce_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "gen-old", "event-old", "session-old", "user_message",
+                "artifact-old", "jsonl:1", "native-old", None, 1, None,
+                "legacy summary", "1", "{}",
+            ),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    create_v2_schema(db)
+    create_v2_schema(db)
+
+    con = sqlite3.connect(db)
+    try:
+        columns = {row[1] for row in con.execute("PRAGMA table_info(ce_events)")}
+        row = con.execute(
+            "SELECT event_id, content, summary FROM ce_events WHERE event_id='event-old'"
+        ).fetchone()
+    finally:
+        con.close()
+    assert "content" in columns
+    assert row == ("event-old", None, "legacy summary")
+
+
+def test_import_generation_maps_columns_across_v20_migration_order(
+    tmp_path: Path,
+) -> None:
+    source_db = tmp_path / "fresh-v21.sqlite"
+    source = EventRepository(source_db)
+    source.create_schema()
+    event = replace(
+        _events(1)[0], content="exact imported body", summary="imported summary"
+    )
+    source.write_generation(_gen((event,)), generation_id="gen-import")
+
+    target_db = tmp_path / "migrated-v20.sqlite"
+    con = sqlite3.connect(target_db)
+    try:
+        con.execute(
+            """CREATE TABLE ce_events (
+                generation_id TEXT NOT NULL, event_id TEXT NOT NULL,
+                session_id TEXT NOT NULL, kind TEXT NOT NULL,
+                artifact_id TEXT NOT NULL, native_locator TEXT NOT NULL,
+                native_event_id TEXT, occurred_at TEXT, ordinal INTEGER,
+                native_payload_ref TEXT, summary TEXT,
+                contract_version TEXT NOT NULL, fidelity_json TEXT NOT NULL,
+                PRIMARY KEY (generation_id, event_id)
+            )"""
+        )
+        con.commit()
+    finally:
+        con.close()
+    target = EventRepository(target_db)
+
+    target.import_generation(source_db, "gen-import")
+
+    row = target.iter_events("gen-import")[0]
+    assert row["content"] == "exact imported body"
+    assert row["summary"] == "imported summary"
+    assert row["contract_version"] == "1"
+    assert row["fidelity_json"] == source.iter_events("gen-import")[0][
+        "fidelity_json"
+    ]
+
+
+def test_import_generation_maps_missing_optional_content_from_v20_source(
+    tmp_path: Path,
+) -> None:
+    source_db = tmp_path / "legacy-v20-source.sqlite"
+    source = EventRepository(source_db)
+    source.create_schema()
+    event = replace(
+        _events(1)[0], content=None, summary="legacy source summary"
+    )
+    source.write_generation(_gen((event,)), generation_id="gen-legacy")
+    expected_fidelity = source.iter_events("gen-legacy")[0]["fidelity_json"]
+    con = sqlite3.connect(source_db)
+    try:
+        con.execute("ALTER TABLE ce_events DROP COLUMN content")
+        con.commit()
+    finally:
+        con.close()
+
+    target = EventRepository(tmp_path / "fresh-v21-target.sqlite")
+    target.import_generation(source_db, "gen-legacy")
+
+    row = target.iter_events("gen-legacy")[0]
+    assert row["content"] is None
+    assert row["summary"] == "legacy source summary"
+    assert row["contract_version"] == "1"
+    assert row["fidelity_json"] == expected_fidelity

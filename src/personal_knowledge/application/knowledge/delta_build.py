@@ -24,6 +24,9 @@ from personal_knowledge.core.project_paths import (
 from personal_knowledge.application.knowledge.eligibility import (
     compute_eligible_messages,
 )
+from personal_knowledge.core.canonical_visibility import (
+    canonical_projection_predicate,
+)
 
 
 def _utc_now() -> str:
@@ -46,11 +49,25 @@ def compute_source_checksum(canonical_db: Path = AGENT_CONVERSATIONS_DB) -> str:
         "AND name NOT LIKE '%fts%' ESCAPE '\\' ORDER BY name"
     ).fetchall()
     schema_text = "\n;;;".join(sql or "" for _name, sql in ddl)
-    session_count = con.execute("SELECT COUNT(*) FROM canonical_sessions").fetchone()[0]
-    message_count = con.execute("SELECT COUNT(*) FROM canonical_messages").fetchone()[0]
+    session_filter, session_params = canonical_projection_predicate(
+        con, "canonical_session_id"
+    )
+    message_filter, message_params = canonical_projection_predicate(
+        con, "canonical_session_id"
+    )
+    session_count = con.execute(
+        f"SELECT COUNT(*) FROM canonical_sessions WHERE {session_filter}",
+        session_params,
+    ).fetchone()[0]
+    message_count = con.execute(
+        f"SELECT COUNT(*) FROM canonical_messages WHERE {message_filter}",
+        message_params,
+    ).fetchone()[0]
     # content hash: ordered (ref, content_hash) pairs
     content_rows = con.execute(
-        "SELECT canonical_message_id, content FROM canonical_messages ORDER BY canonical_message_id"
+        "SELECT canonical_message_id, content FROM canonical_messages "
+        f"WHERE {message_filter} ORDER BY canonical_message_id",
+        message_params,
     ).fetchall()
     content_blob = "\n".join(f"{row[0]}|{_compute_content_hash(row[1] or '')}" for row in content_rows)
     content_hash = hashlib.sha256(content_blob.encode()).hexdigest()[:16]
@@ -169,8 +186,13 @@ def _load_canonical_refs(canonical_db: Path) -> dict[str, str]:
     if not canonical_db.exists():
         return {}
     con = sqlite3.connect(f"file:{canonical_db.as_posix()}?mode=ro", uri=True)
+    projection_filter, projection_params = canonical_projection_predicate(
+        con, "canonical_session_id"
+    )
     rows = con.execute(
-        "SELECT canonical_message_id, content FROM canonical_messages"
+        "SELECT canonical_message_id, content FROM canonical_messages "
+        f"WHERE {projection_filter}",
+        projection_params,
     ).fetchall()
     con.close()
     return {row[0]: _compute_content_hash(row[1] or "") for row in rows}
@@ -1079,12 +1101,18 @@ def prepare_production_delta(
                         ccon = sqlite3.connect(
                             f"file:{canonical_db.as_posix()}?mode=ro", uri=True
                         )
+                    projection_filter, projection_params = (
+                        canonical_projection_predicate(
+                            ccon, "m.canonical_session_id"
+                        )
+                    )
                     row = ccon.execute(
                         "SELECT m.role, s.started_at FROM canonical_messages m "
                         "JOIN canonical_sessions s "
                         "ON m.canonical_session_id=s.canonical_session_id "
-                        "WHERE m.canonical_message_id=?",
-                        (ref,),
+                        "WHERE m.canonical_message_id=? AND "
+                        f"{projection_filter}",
+                        (ref, *projection_params),
                     ).fetchone()
                     if row:
                         ref_role_fallback_count += 1

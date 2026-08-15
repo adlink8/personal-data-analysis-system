@@ -5,21 +5,23 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 from personal_knowledge.adapters.conversation_sources import (
-    antigravity, chatgpt, mimo_opencode, zcode,
+    antigravity, mimo_opencode, zcode,
 )
 from personal_knowledge.adapters.conversation_sources.contracts import (
-    AdaptationResult, SourceArtifact, SourceArtifactSet,
+    AdaptationResult, SourceArtifactSet,
 )
 from personal_knowledge.adapters.conversation_sources.registry import (
     adapt_for, capability_for, known_families, resolve_family,
 )
 from personal_knowledge.adapters.conversation_sources.snapshots import (
     capture_file, capture_sqlite,
+)
+from personal_knowledge.application.conversation.agentsview_unavailable_snapshot import (
+    capture_pathless_agent_snapshot,
 )
 from personal_knowledge.application.conversation.event_generations import GenerationLifecycle
 from personal_knowledge.application.conversation.event_repository import GenerationInput
@@ -41,9 +43,10 @@ def build_live_native_shadow(
 ) -> dict:
     """Capture every unique available native file and stage one cohort.
 
-    ChatGPT has no native path in the observed inventory; its missing sessions
-    remain an explicit ``no_source`` result.  No AgentsView message bodies are
-    read and no provider is called.
+    Pathless ChatGPT and Grok rows are captured through immutable, family- and
+    column-filtered AgentsView observations. Native artifacts retain authority;
+    the filtered SQLite rows remain honest compatibility observations. No
+    provider is called.
     """
     rows = read_native_inventory(agentsview_db)
     inventory = inventory_summary(rows)
@@ -55,8 +58,22 @@ def build_live_native_shadow(
         family: sorted(set(paths), key=lambda p: str(p).lower())
         for family, paths in by_family.items()
     }
+    unavailable_session_ids: dict[str, tuple[str, ...]] = {
+        family: tuple(sorted(
+            row.session_id for row in rows
+            if row.family == family and not row.source_exists
+        ))
+        for family in ("chatgpt", "grok")
+    }
 
-    chatgpt_result = _chatgpt_observation(agentsview_db, artifact_store)
+    pathless_results = {
+        family: _pathless_observation(
+            agentsview_db, artifact_store, family=family,
+            session_ids=unavailable_session_ids[family],
+        )
+        for family in ("chatgpt", "grok")
+        if unavailable_session_ids[family]
+    }
 
     inputs: list[GenerationInput] = []
     entries: dict[str, dict] = {}
@@ -66,6 +83,9 @@ def build_live_native_shadow(
         item = {
             "family": owner, "status": "no_source",
             "snapshot_count": 0, "event_count": 0, "session_count": 0,
+            "native_snapshot_count": 0,
+            "compatibility_observation_count": 0,
+            "compatibility_observation_session_count": 0,
             "generation_id": None, "source_manifest_id": None,
             "artifact_hashes": [], "dataset_digest": None,
             "family_dataset_digest": None, "fidelity": None,
@@ -77,7 +97,14 @@ def build_live_native_shadow(
         }
         if paths:
             try:
-                results = [_capture_adapt(owner, path, artifact_store) for path in paths]
+                native_results = [
+                    _capture_adapt(owner, path, artifact_store) for path in paths
+                ]
+                observation = pathless_results.get(owner)
+                results = [
+                    *native_results,
+                    *((observation,) if observation is not None else ()),
+                ]
                 merged = _merge(owner, results)
                 family_results[owner] = merged
                 cap = capability_for(owner)
@@ -97,6 +124,15 @@ def build_live_native_shadow(
                 item.update({
                     "status": "partial" if merged.fidelity.has_loss() or merged.warnings else "full",
                     "snapshot_count": len(merged.artifacts),
+                    "native_snapshot_count": sum(
+                        len(result.artifacts) for result in native_results
+                    ),
+                    "compatibility_observation_count": (
+                        len(observation.artifacts) if observation is not None else 0
+                    ),
+                    "compatibility_observation_session_count": (
+                        len(observation.sessions) if observation is not None else 0
+                    ),
                     "event_count": len(merged.events),
                     "session_count": len(merged.sessions),
                     "artifact_hashes": sorted(a.content_hash for a in merged.artifacts),
@@ -119,8 +155,8 @@ def build_live_native_shadow(
                     "status": "blocked", "privacy_blocked": True,
                     "reason": f"{type(exc).__name__}:{str(exc)[:160]}",
                 })
-        elif owner == "chatgpt" and inventory.get(owner, {}).get("sessions", 0):
-            merged = chatgpt_result
+        elif owner in pathless_results:
+            merged = pathless_results[owner]
             family_results[owner] = merged
             cap = capability_for(owner)
             manifest = _digest(
@@ -136,7 +172,10 @@ def build_live_native_shadow(
                 dispositions=merged.field_dispositions, warnings=merged.warnings,
             ))
             item.update({
-                "status": "partial", "snapshot_count": 1,
+                "status": "partial", "snapshot_count": len(merged.artifacts),
+                "native_snapshot_count": 0,
+                "compatibility_observation_count": len(merged.artifacts),
+                "compatibility_observation_session_count": len(merged.sessions),
                 "event_count": len(merged.events),
                 "session_count": len(merged.sessions),
                 "artifact_hashes": [a.content_hash for a in merged.artifacts],
@@ -193,12 +232,17 @@ def build_live_native_shadow(
     report["gates"] = {
         "all_available_files_captured": all(
             item["status"] == "blocked" or
-            (owner == "chatgpt" and inventory.get(owner, {}).get("unique_files", 0) == 0) or
-            item["snapshot_count"] == inventory.get(owner, {}).get("unique_files", 0)
+            item["native_snapshot_count"] == inventory.get(owner, {}).get("unique_files", 0)
             for owner, item in entries.items()
         ),
         "detected_families_unblocked": not any(
             item["status"] == "blocked" for item in entries.values()
+        ),
+        "all_unavailable_sessions_observed": all(
+            entries[family]["status"] == "blocked" or
+            entries[family]["compatibility_observation_session_count"]
+            == len(unavailable_session_ids[family])
+            for family in ("chatgpt", "grok")
         ),
         "paid_calls_zero": True,
     }
@@ -234,37 +278,24 @@ def _capture_adapt(family: str, source: Path, store: Path) -> AdaptationResult:
     )
 
 
-def _chatgpt_observation(agentsview_db: Path, store: Path) -> AdaptationResult:
-    """Capture metadata-only ChatGPT session identifiers, never message bodies."""
-    source = sqlite3.connect(
-        f"file:{agentsview_db.as_posix()}?mode=ro", uri=True
+def _pathless_observation(
+    agentsview_db: Path,
+    store: Path,
+    *,
+    family: str,
+    session_ids: tuple[str, ...],
+) -> AdaptationResult:
+    """Capture one family's declared pathless AgentsView rows and columns."""
+    artifact, blob = capture_pathless_agent_snapshot(
+        agentsview_db, store / family, family=family,
+        session_ids=session_ids,
     )
-    try:
-        ids = [str(row[0]) for row in source.execute(
-            "SELECT id FROM sessions WHERE agent='chatgpt' AND deleted_at IS NULL "
-            "ORDER BY id"
-        )]
-    finally:
-        source.close()
-    payload = json.dumps({"session_ids": ids}, sort_keys=True).encode("utf-8")
-    temp = store / ".chatgpt-agentsview-metadata.json"
-    temp.parent.mkdir(parents=True, exist_ok=True)
-    temp.write_bytes(payload)
-    try:
-        artifact, blob = capture_file(
-            temp, store / "chatgpt", relative_path="agentsview_metadata.json",
-            byte_limit=max(len(payload) + 1, 1_000_000), count_limit=1,
-        )
-    finally:
-        temp.unlink(missing_ok=True)
     root_blob = store / "artifacts" / artifact.artifact_id
     root_blob.parent.mkdir(parents=True, exist_ok=True)
     if not root_blob.exists():
         shutil.copy2(blob, root_blob)
-    # The adapter deliberately creates one compatibility-observation marker;
-    # inventory counts remain in the report and are not fabricated as native.
-    return chatgpt.adapt(
-        SourceArtifactSet((artifact,)), artifact_root=root_blob.parent
+    return adapt_for(
+        family, SourceArtifactSet((artifact,)), artifact_root=root_blob.parent
     )
 
 

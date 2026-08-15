@@ -1,0 +1,6 @@
+{"type":"assistant","uuid":"assistant-envelope","parentUuid":null,"sessionId":"session-live","timestamp":"2026-08-01T00:00:00Z","message":{"content":[{"type":"thinking","thinking":"reasoning body"},{"type":"text","text":"assistant body"},{"type":"tool_use","id":"call-1","name":"Read","input":{"path":"README.md"}}]}}
+{"type":"user","uuid":"result-envelope","parentUuid":"assistant-envelope","sessionId":"session-live","message":{"content":[{"type":"tool_result","tool_use_id":"call-1","content":"tool output"},{"type":"text","text":"post-tool user body"}]}}
+{"type":"user","uuid":"empty-envelope","parentUuid":"result-envelope","sessionId":"session-live","message":{"content":[{"type":"text","text":""}]}}
+{"type":"assistant","uuid":"orphan-envelope","parentUuid":"empty-envelope","sessionId":"session-live","message":{"content":[{"type":"tool_use","name":"Unmatched"}]}}
+{"type":"system","subtype":"turn_duration","uuid":"duration-envelope","parentUuid":"orphan-envelope","sessionId":"session-live","durationMs":1250}
+{"type":"system","subtype":"api_error","uuid":"error-envelope","parentUuid":"duration-envelope","sessionId":"session-live","error":{"code":"fixture-error"}}

@@ -34,6 +34,10 @@ from personal_knowledge.core.conversation_events import (
     TypedEvent,
     make_event_id,
 )
+from personal_knowledge.core.conversation_repository import (
+    ConversationRepository,
+    SOURCE_CANONICAL,
+)
 from personal_knowledge.adapters.conversation_sources.contracts import SourceArtifact
 from personal_knowledge.application.conversation.event_repository import (
     EventRepository,
@@ -446,6 +450,13 @@ def test_activation_preserves_legacy_rows(tmp_path: Path) -> None:
             " evidence_scope TEXT)"
         )
         con.execute(
+            "CREATE TABLE IF NOT EXISTS session_source_links ("
+            " link_id TEXT PRIMARY KEY, canonical_session_id TEXT NOT NULL,"
+            " source TEXT NOT NULL, source_session_id TEXT NOT NULL,"
+            " source_raw_file TEXT, match_method TEXT NOT NULL,"
+            " match_confidence TEXT)"
+        )
+        con.execute(
             "INSERT INTO canonical_sessions (canonical_session_id, primary_source,"
             " message_count, user_message_count) VALUES ('legacy-session-1',"
             " 'legacy', 1, 1)"
@@ -454,6 +465,11 @@ def test_activation_preserves_legacy_rows(tmp_path: Path) -> None:
             "INSERT INTO canonical_messages (canonical_message_id, canonical_session_id,"
             " source, role, content) VALUES ('legacy-msg-1', 'legacy-session-1',"
             " 'legacy', 'user', 'pre-existing legacy message')"
+        )
+        con.execute(
+            "INSERT INTO session_source_links VALUES ("
+            " 'legacy-link-1', 'legacy-session-1', 'legacy', 'source-legacy-1',"
+            " 'legacy.jsonl', 'single_source', 'strong')"
         )
         con.commit()
     finally:
@@ -480,3 +496,18 @@ def test_activation_preserves_legacy_rows(tmp_path: Path) -> None:
     assert legacy_sessions == [("legacy-session-1", "legacy")]
     assert legacy_msgs == [("legacy-msg-1", "pre-existing legacy message")]
     assert v2_msgs, "v2 projection rows must be written alongside legacy rows"
+
+    consumer = ConversationRepository(
+        source=SOURCE_CANONICAL, canonical_db=db, legacy_db=db,
+    )
+    visible_sessions = list(consumer.iter_sessions())
+    assert len(visible_sessions) == 1
+    assert visible_sessions[0]["canonical_session_id"].startswith("v2|")
+    assert consumer.session_count() == 1
+    assert consumer.user_turn_count() == 1
+    assert consumer.session_source_refs("legacy-session-1") == []
+    assert all(
+        turn.content != "pre-existing legacy message"
+        for session in visible_sessions
+        for turn in consumer.iter_turns(session["canonical_session_id"])
+    )

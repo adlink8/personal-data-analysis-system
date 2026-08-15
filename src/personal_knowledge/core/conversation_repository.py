@@ -28,6 +28,10 @@ import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from personal_knowledge.core.canonical_visibility import (
+    canonical_projection_predicate,
+)
 from typing import Iterable
 
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
@@ -175,10 +179,14 @@ class ConversationRepository:
     def _iter_canonical_sessions(self) -> Iterable[dict]:
         con = self._connect()
         try:
+            predicate, params = canonical_projection_predicate(
+                con, "canonical_session_id"
+            )
             for r in con.execute(
                 "SELECT canonical_session_id, primary_source, agent, started_at, "
                 "ended_at, message_count, evidence_eligible, evidence_scope "
-                "FROM canonical_sessions ORDER BY started_at"
+                f"FROM canonical_sessions WHERE {predicate} ORDER BY started_at",
+                params,
             ):
                 yield dict(r)
         finally:
@@ -187,12 +195,15 @@ class ConversationRepository:
     def _iter_canonical_turns(self, canonical_session_id: str) -> Iterable[ConversationTurn]:
         con = self._connect()
         try:
+            predicate, predicate_params = canonical_projection_predicate(
+                con, "canonical_session_id"
+            )
             for r in con.execute(
                 "SELECT canonical_message_id, source, source_message_ref, ordinal, "
                 "role, content, timestamp, is_system, is_sidechain, evidence_scope "
-                "FROM canonical_messages WHERE canonical_session_id=? "
-                "ORDER BY ordinal",
-                (canonical_session_id,),
+                "FROM canonical_messages WHERE canonical_session_id=? AND "
+                f"{predicate} ORDER BY ordinal",
+                (canonical_session_id, *predicate_params),
             ):
                 yield ConversationTurn(
                     session_id=canonical_session_id,
@@ -213,11 +224,15 @@ class ConversationRepository:
     def _iter_canonical_tools(self, canonical_session_id: str) -> Iterable[ToolEvent]:
         con = self._connect()
         try:
+            predicate, predicate_params = canonical_projection_predicate(
+                con, "canonical_session_id"
+            )
             for r in con.execute(
                 "SELECT canonical_tool_id, source, source_kind, tool_name, category, "
                 "status, call_index, timestamp FROM canonical_tool_events "
-                "WHERE canonical_session_id=? ORDER BY call_index",
-                (canonical_session_id,),
+                "WHERE canonical_session_id=? AND "
+                f"{predicate} ORDER BY call_index",
+                (canonical_session_id, *predicate_params),
             ):
                 yield ToolEvent(
                     session_id=canonical_session_id,
@@ -265,8 +280,12 @@ class ConversationRepository:
                     "SELECT COUNT(DISTINCT session_id) FROM agent_sessions_meta"
                 ).fetchone()[0]
             else:
+                predicate, params = canonical_projection_predicate(
+                    con, "canonical_session_id"
+                )
                 return con.execute(
-                    "SELECT COUNT(*) FROM canonical_sessions"
+                    f"SELECT COUNT(*) FROM canonical_sessions WHERE {predicate}",
+                    params,
                 ).fetchone()[0]
         finally:
             con.close()
@@ -280,8 +299,13 @@ class ConversationRepository:
                     "SELECT COUNT(*) FROM agent_messages WHERE role='user'"
                 ).fetchone()[0]
             else:
+                predicate, params = canonical_projection_predicate(
+                    con, "canonical_session_id"
+                )
                 return con.execute(
-                    "SELECT COUNT(*) FROM canonical_messages WHERE role='user'"
+                    "SELECT COUNT(*) FROM canonical_messages WHERE role='user' "
+                    f"AND {predicate}",
+                    params,
                 ).fetchone()[0]
         finally:
             con.close()
@@ -295,12 +319,15 @@ class ConversationRepository:
             return []
         con = self._connect()
         try:
+            predicate, predicate_params = canonical_projection_predicate(
+                con, "canonical_session_id"
+            )
             return [
                 dict(r) for r in con.execute(
                     "SELECT source, source_session_id, source_raw_file, "
                     "match_method FROM session_source_links "
-                    "WHERE canonical_session_id=?",
-                    (session_id,),
+                    f"WHERE canonical_session_id=? AND {predicate}",
+                    (session_id, *predicate_params),
                 )
             ]
         finally:

@@ -27,7 +27,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = "v2.0.0"
+SCHEMA_VERSION = "v2.1.0"
 
 V2_TABLES = (
     "ce_source_artifacts",
@@ -109,6 +109,7 @@ _DDL: tuple[str, ...] = (
         occurred_at        TEXT,
         ordinal            INTEGER,
         native_payload_ref TEXT,
+        content            TEXT,
         summary            TEXT,
         contract_version   TEXT NOT NULL,
         fidelity_json      TEXT NOT NULL,
@@ -174,12 +175,17 @@ _DDL: tuple[str, ...] = (
 
 
 def create_v2_schema(db: Path) -> None:
-    """Apply the additive v2 DDL. Safe to call repeatedly (IF NOT EXISTS)."""
+    """Apply the additive v2 DDL and idempotent column migrations."""
     con = sqlite3.connect(str(db), timeout=30)
     try:
         con.execute("PRAGMA foreign_keys=ON")
         for statement in _DDL:
             con.execute(statement)
+        event_columns = {
+            row[1] for row in con.execute("PRAGMA table_info(ce_events)")
+        }
+        if "content" not in event_columns:
+            con.execute("ALTER TABLE ce_events ADD COLUMN content TEXT")
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

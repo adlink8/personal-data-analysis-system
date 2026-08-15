@@ -298,6 +298,11 @@ class TypedEvent:
     occurred_at: str | None = None
     ordinal: int | None = None
     native_payload_ref: str | None = None
+    # Exact mapped message text when the native source exposes it.  ``summary``
+    # remains a bounded semantic synopsis and must not be used to carry full
+    # source bodies.  The field is optional because tool-only/native records can
+    # legitimately have no text.
+    content: str | None = None
     summary: str | None = None
 
     def __post_init__(self) -> None:
@@ -440,6 +445,7 @@ def dataset_digest(
             "occurred_at": value.occurred_at,
             "ordinal": value.ordinal,
             "native_payload_ref": value.native_payload_ref,
+            "content": value.content,
             "summary": value.summary,
             "provenance": provenance(value.provenance),
             "fidelity": fidelity(value.fidelity),

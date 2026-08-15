@@ -113,7 +113,7 @@ def detect(artifact: SourceArtifact, *, artifact_root: Path) -> bool:
 
 
 def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=None,
-           summary=None, fidelity=None, native_session=None) -> TypedEvent:
+           content=None, summary=None, fidelity=None, native_session=None) -> TypedEvent:
     return TypedEvent(
         event_id=make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
                                native_id or locator, kind=kind, session_id=session_id,
@@ -124,7 +124,8 @@ def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=N
             native_locator=locator, native_session_id=native_session or None,
             native_event_id=native_id, contract_version=CONTRACT_VERSION,
         ),
-        fidelity=fidelity or _fidelity(), occurred_at=occurred_at, summary=summary,
+        fidelity=fidelity or _fidelity(), occurred_at=occurred_at,
+        content=content, summary=summary,
     )
 
 
@@ -151,10 +152,24 @@ def _adapt_record(record: dict, artifact, *, session_id, locator) -> TypedEvent 
         # start and complete share the native tool_id; make_event_id omits
         # kind when a native id is present, so disambiguate the completion.
         native_id = f"{tool_id}#complete"
-    return _event(artifact, session_id=session_id, kind=kind, locator=locator,
-                  native_id=native_id, occurred_at=ts,
-                  summary=str(data.get("content") or data.get("name") or "")[:2048] or None,
-                  native_session=sid)
+    is_message = kind in {
+        EventKind.USER_MESSAGE,
+        EventKind.ASSISTANT_MESSAGE,
+        EventKind.DEVELOPER_MESSAGE,
+        EventKind.SYSTEM_MESSAGE,
+    }
+    raw_content = data.get("content")
+    content = None if raw_content is None else str(raw_content)
+    return _event(
+        artifact, session_id=session_id, kind=kind, locator=locator,
+        native_id=native_id, occurred_at=ts,
+        content=content if is_message else None,
+        summary=(
+            None if is_message else
+            str(raw_content or data.get("name") or "")[:2048] or None
+        ),
+        native_session=sid,
+    )
 
 
 def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> AdaptationResult:

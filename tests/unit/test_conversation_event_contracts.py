@@ -69,6 +69,7 @@ def _event(
     fidelity: FidelityProfile | None = None,
     field_dispositions: tuple[FieldDispositionRecord, ...] = (),
     native_payload_ref: str | None = None,
+    content: str | None = None,
 ) -> TypedEvent:
     return TypedEvent(
         event_id=event_id,
@@ -79,6 +80,7 @@ def _event(
         field_dispositions=field_dispositions,
         ordinal=ordinal,
         native_payload_ref=native_payload_ref,
+        content=content,
     )
 
 
@@ -306,6 +308,7 @@ def test_adaptation_result_rejects_events_without_resolvable_provenance() -> Non
     object.__setattr__(bad, "occurred_at", None)
     object.__setattr__(bad, "ordinal", None)
     object.__setattr__(bad, "native_payload_ref", None)
+    object.__setattr__(bad, "content", None)
     object.__setattr__(bad, "summary", None)
     with pytest.raises(EventContractError):
         _result((bad,))
@@ -443,6 +446,20 @@ def test_dataset_digest_changes_when_semantics_change_but_native_id_does_not() -
     )
     assert _result((original,), artifacts=(_artifact(),)).dataset_digest != (
         _result((lossy,), artifacts=(_artifact(),)).dataset_digest
+    )
+
+
+def test_dataset_digest_changes_when_exact_content_changes() -> None:
+    prov = _prov("stable-message-id")
+    event_id = make_event_id("chatgpt", "art-a", "1", "stable-message-id")
+    before = _event(
+        event_id, EventKind.USER_MESSAGE, prov, content="source body before",
+    )
+    after = _event(
+        event_id, EventKind.USER_MESSAGE, prov, content="source body after",
+    )
+    assert _result((before,), artifacts=(_artifact(),)).dataset_digest != (
+        _result((after,), artifacts=(_artifact(),)).dataset_digest
     )
 
 

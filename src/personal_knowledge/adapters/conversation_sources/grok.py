@@ -18,6 +18,9 @@ from personal_knowledge.adapters.conversation_sources.contracts import (
     SourceArtifact,
     SourceArtifactSet,
 )
+from personal_knowledge.adapters.conversation_sources.agentsview_pathless import (
+    adapt_pathless_observation,
+)
 from personal_knowledge.core.conversation_events import (
     AdaptedSession,
     EventContractError,
@@ -33,7 +36,7 @@ from personal_knowledge.core.conversation_events import (
 )
 
 FAMILY = "grok"
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "1.1.0"
 CONTRACT_VERSION = "1"
 
 # Declared allowlist for the directory capture (D-08): conversation files only.
@@ -74,13 +77,14 @@ def capability() -> CapabilityDescriptor:
         family=FAMILY, adapter_version=ADAPTER_VERSION, contract_version=CONTRACT_VERSION,
         supported_event_kinds=(
             EventKind.SESSION_LIFECYCLE, EventKind.USER_MESSAGE,
-            EventKind.ASSISTANT_MESSAGE, EventKind.COMPACTION_SUMMARY,
+            EventKind.ASSISTANT_MESSAGE, EventKind.DEVELOPER_MESSAGE,
+            EventKind.SYSTEM_MESSAGE, EventKind.COMPACTION_SUMMARY,
             EventKind.SUBAGENT_BOUNDARY, EventKind.UNKNOWN_NATIVE,
         ),
         supported_relation_kinds=(RelationKind.SOURCE_SESSION_CROSSWALK,),
         fidelity_dimensions=tuple(FidelityDimension),
         capabilities={
-            "native_shape": "multi_file_session_directory",
+            "native_shape": "multi_file_session_directory|agentsview_pathless_observation",
             "allowlist": ",".join(ALLOWED_RELATIVE_PATHS),
             "summary_only_fidelity": "partial",
         },
@@ -89,6 +93,9 @@ def capability() -> CapabilityDescriptor:
 
 def detect(artifact: SourceArtifact, *, artifact_root: Path) -> bool:
     """True when the artifact set contains the Grok summary marker."""
+    if artifact.source_kind == "sqlite":
+        relative = (artifact.relative_path or "").lower()
+        return "sessions.db" in relative or "agentsview" in relative
     if artifact.source_kind != "file":
         return False
     if Path(artifact.relative_path).name not in (
@@ -114,13 +121,14 @@ def _provenance(artifact: SourceArtifact, locator: str, *, session: str | None, 
 
 
 def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=None,
-           summary=None, fidelity=None, native_session=None) -> TypedEvent:
+           content=None, summary=None, fidelity=None, native_session=None) -> TypedEvent:
     return TypedEvent(
         event_id=make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
                                native_id or locator, kind=kind, session_id=session_id),
         session_id=session_id, kind=kind,
         provenance=_provenance(artifact, locator, session=native_session, native_id=native_id),
-        fidelity=fidelity or _fidelity(), occurred_at=occurred_at, summary=summary,
+        fidelity=fidelity or _fidelity(), occurred_at=occurred_at,
+        content=content, summary=summary,
     )
 
 
@@ -147,6 +155,14 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
     """Adapt one captured Grok session directory into typed events/relations."""
     if not artifact_set.artifacts:
         raise EventContractError(f"{FAMILY} adapter requires at least one artifact")
+    if (
+        len(artifact_set.artifacts) == 1
+        and artifact_set.artifacts[0].source_kind == "sqlite"
+    ):
+        return adapt_pathless_observation(
+            artifact_set, artifact_root=artifact_root, family=FAMILY,
+            adapter_version=ADAPTER_VERSION, contract_version=CONTRACT_VERSION,
+        )
     artifacts = artifact_set.artifacts
     by_path = {Path(a.relative_path).name: a for a in artifacts}
 
@@ -219,10 +235,12 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
                                                         CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
                                      native_session=native_session))
                 continue
+            source_content = row.get("content")
+            exact_content = None if source_content is None else str(source_content)
             events.append(_event(chat, session_id=session_id, kind=kind, locator=locator,
                                  native_id=row.get("id") or f"row-{index}",
                                  occurred_at=row.get("timestamp"),
-                                 summary=str(row.get("content") or "")[:2048] or None,
+                                 content=exact_content,
                                  native_session=native_session))
 
     # Compaction: a markdown/checkpoint file is a typed compaction summary.

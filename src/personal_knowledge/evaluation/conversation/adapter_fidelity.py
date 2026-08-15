@@ -578,6 +578,7 @@ def _typed_event(row: dict) -> TypedEvent:
         occurred_at=row.get("occurred_at"),
         ordinal=row.get("ordinal"),
         native_payload_ref=row.get("native_payload_ref"),
+        content=row.get("content"),
         summary=row.get("summary"),
     )
 

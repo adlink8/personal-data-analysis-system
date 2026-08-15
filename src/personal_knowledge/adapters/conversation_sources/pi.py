@@ -36,7 +36,7 @@ from personal_knowledge.core.conversation_events import (
 )
 
 FAMILY = "pi"
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "1.1.0"
 CONTRACT_VERSION = "1"
 
 _COMPLETE = {
@@ -93,7 +93,7 @@ def detect(artifact: SourceArtifact, *, artifact_root: Path) -> bool:
 
 
 def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=None,
-           summary=None, fidelity=None, native_session=None) -> TypedEvent:
+           content=None, summary=None, fidelity=None, native_session=None) -> TypedEvent:
     return TypedEvent(
         event_id=make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
                                native_id or locator, kind=kind, session_id=session_id),
@@ -103,7 +103,8 @@ def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=N
             native_locator=locator, native_session_id=native_session or None,
             native_event_id=native_id, contract_version=CONTRACT_VERSION,
         ),
-        fidelity=fidelity or _fidelity(), occurred_at=occurred_at, summary=summary,
+        fidelity=fidelity or _fidelity(), occurred_at=occurred_at,
+        content=content, summary=summary,
     )
 
 
@@ -131,7 +132,10 @@ def _adapt_record(record: dict, artifact, *, session_id, locator, native_session
         return _event(
             artifact, session_id=session_id, kind=message_kind,
             locator=locator, native_id=record.get("id"), occurred_at=ts,
-            summary=_message_text(message.get("content")),
+            content=(
+                _message_text(message.get("content"))
+                if message_kind is not EventKind.UNKNOWN_NATIVE else None
+            ),
             fidelity=(None if message_kind is not EventKind.UNKNOWN_NATIVE else _fidelity(
                 STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
                 RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
@@ -139,13 +143,17 @@ def _adapt_record(record: dict, artifact, *, session_id, locator, native_session
             native_session=native_session,
         )
     if kind == "user_message":
+        raw_content = record.get("content")
         return _event(artifact, session_id=session_id, kind=EventKind.USER_MESSAGE,
                       locator=locator, native_id=mid, occurred_at=ts,
-                      summary=str(record.get("content") or "")[:2048] or None, native_session=native_session)
+                      content=None if raw_content is None else str(raw_content),
+                      native_session=native_session)
     if kind == "assistant_message":
+        raw_content = record.get("content")
         return _event(artifact, session_id=session_id, kind=EventKind.ASSISTANT_MESSAGE,
                       locator=locator, native_id=mid, occurred_at=ts,
-                      summary=str(record.get("content") or "")[:2048] or None, native_session=native_session)
+                      content=None if raw_content is None else str(raw_content),
+                      native_session=native_session)
     if kind == "compaction":
         return _event(artifact, session_id=session_id, kind=EventKind.COMPACTION_SUMMARY,
                       locator=locator, native_id=mid or record.get("id"), occurred_at=ts,
@@ -238,13 +246,18 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
 
 def _message_text(content) -> str | None:
     if isinstance(content, str):
-        return content[:2048] or None
+        return content
     if isinstance(content, list):
-        values = []
+        values: list[str] = []
+        saw_text = False
         for item in content:
             if isinstance(item, dict):
-                value = item.get("text") or item.get("content")
-                if value:
+                if "text" in item and item.get("text") is not None:
+                    value = item.get("text")
+                else:
+                    value = item.get("content")
+                if value is not None:
+                    saw_text = True
                     values.append(str(value))
-        return " ".join(values)[:2048] or None
+        return " ".join(values) if saw_text else None
     return None

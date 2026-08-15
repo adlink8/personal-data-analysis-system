@@ -36,7 +36,7 @@ from personal_knowledge.core.conversation_events import (
     make_event_id,
 )
 
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "1.1.0"
 CONTRACT_VERSION = "1"
 
 _COMPLETE = {
@@ -80,15 +80,18 @@ def _text_blocks(value) -> str | None:
     if value is None:
         return None
     if isinstance(value, str):
-        return value[:2048] or None
+        return value
     if isinstance(value, list):
-        parts = []
+        parts: list[str] = []
+        saw_text = False
         for block in value:
-            if isinstance(block, dict) and block.get("type") in ("text", "input_text"):
-                text = str(block.get("text") or "")
-                if text:
-                    parts.append(text)
-        return (" ".join(parts))[:2048] or None
+            if isinstance(block, dict) and block.get("type") in (
+                "text", "input_text", "output_text",
+            ):
+                saw_text = True
+                raw = block.get("text")
+                parts.append("" if raw is None else str(raw))
+        return " ".join(parts) if saw_text else None
     return None
 
 
@@ -139,7 +142,8 @@ class _Family:
         return False
 
     def _event(self, artifact, *, session_id, kind, locator, native_id=None,
-               occurred_at=None, summary=None, fidelity=None, native_session=None) -> TypedEvent:
+               occurred_at=None, content=None, summary=None, fidelity=None,
+               native_session=None) -> TypedEvent:
         return TypedEvent(
             event_id=make_event_id(self.family, artifact.artifact_id, CONTRACT_VERSION,
                                    native_id or locator, kind=kind, session_id=session_id,
@@ -150,7 +154,8 @@ class _Family:
                 native_locator=locator, native_session_id=native_session or None,
                 native_event_id=native_id, contract_version=CONTRACT_VERSION,
             ),
-            fidelity=fidelity or _fidelity(), occurred_at=occurred_at, summary=summary,
+            fidelity=fidelity or _fidelity(), occurred_at=occurred_at,
+            content=content, summary=summary,
         )
 
     def _record_kind(self, record: dict) -> EventKind | None:
@@ -166,6 +171,12 @@ class _Family:
         rtype = record.get("type")
         nested = record.get("event") if isinstance(record.get("event"), dict) else {}
         nested_type = nested.get("type")
+        if rtype == "context.append_loop_event" and nested_type == "content.part":
+            part = nested.get("part") if isinstance(nested.get("part"), dict) else {}
+            return {
+                "text": EventKind.ASSISTANT_MESSAGE,
+                "think": EventKind.REASONING,
+            }.get(part.get("type"), EventKind.UNKNOWN_NATIVE)
         return {
             "metadata": EventKind.SESSION_LIFECYCLE,
             "turn_start": EventKind.TURN_BOUNDARY,
@@ -179,7 +190,6 @@ class _Family:
             "context.append_loop_event": {
                 "step.begin": EventKind.LOOP_BOUNDARY,
                 "step.end": EventKind.LOOP_BOUNDARY,
-                "content.part": EventKind.ASSISTANT_MESSAGE,
                 "tool.call": EventKind.TOOL_CALL,
                 "tool.result": EventKind.TOOL_RESULT,
             }.get(nested_type, EventKind.UNKNOWN_NATIVE),
@@ -222,8 +232,13 @@ class _Family:
             summary = _text_blocks(message.get("content"))
         if summary is None:
             summary = _text_blocks(nested.get("content"))
+        if summary is None:
+            summary = _text_blocks(record.get("input"))
+        part = nested.get("part") if isinstance(nested.get("part"), dict) else {}
+        if summary is None:
+            summary = _text_blocks(part.get("text"))
         if summary is None and isinstance(nested.get("text"), str):
-            summary = nested["text"][:2048] or None
+            summary = nested["text"][:2048]
         if kind is EventKind.COMPACTION_SUMMARY:
             summary = str(
                 record.get("summary") or record.get("contextSummary") or ""
@@ -234,8 +249,19 @@ class _Family:
                 kind = EventKind.USER_MESSAGE
             elif role == "assistant":
                 kind = EventKind.ASSISTANT_MESSAGE
-        return self._event(artifact, session_id=session_id, kind=kind, locator=locator,
-                           native_id=mid, occurred_at=ts, summary=summary, native_session=sid)
+        is_message = kind in {
+            EventKind.USER_MESSAGE,
+            EventKind.ASSISTANT_MESSAGE,
+            EventKind.DEVELOPER_MESSAGE,
+            EventKind.SYSTEM_MESSAGE,
+        }
+        return self._event(
+            artifact, session_id=session_id, kind=kind, locator=locator,
+            native_id=mid, occurred_at=ts,
+            content=summary if is_message else None,
+            summary=None if is_message else summary,
+            native_session=sid,
+        )
 
     def adapt(self, artifact_set: SourceArtifactSet, *, artifact_root: Path) -> AdaptationResult:
         if len(artifact_set.artifacts) != 1:

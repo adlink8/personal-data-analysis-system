@@ -272,6 +272,46 @@ def test_search_dialogue_canonical_messages_snippet(tmp_path: Path) -> None:
     assert hits[0]["collection"] == "canonical_messages"
 
 
+def test_search_dialogue_uses_only_active_v2_projection_when_legacy_coexists(
+    tmp_path: Path,
+) -> None:
+    import personal_knowledge.retrieval.unified_search as us
+
+    db = tmp_path / "coexist-canon.sqlite"
+    con = sqlite3.connect(db)
+    try:
+        con.execute(
+            "CREATE TABLE canonical_messages ("
+            "canonical_message_id TEXT PRIMARY KEY, role TEXT, content TEXT, "
+            "timestamp TEXT, source TEXT, is_system INTEGER)"
+        )
+        con.execute(
+            "CREATE TABLE ce_generation_authority ("
+            "generation_id TEXT PRIMARY KEY, active INTEGER, updated_at TEXT)"
+        )
+        body = "shared searchable projection marker with enough stable tokens"
+        con.executemany(
+            "INSERT INTO canonical_messages VALUES (?,?,?,?,?,?)",
+            (
+                ("legacy-message", "user", body, "2026-08-03", "legacy", 0),
+                ("v2|gen|message", "user", body, "2026-08-02", "legacy", 0),
+            ),
+        )
+        con.execute(
+            "INSERT INTO ce_generation_authority VALUES "
+            "('gen', 1, '2026-08-15')"
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    hits = us._search_dialogue_canonical_messages(
+        "shared searchable projection marker", top_k=5, db_path=db,
+    )
+
+    assert [hit["unit_id"] for hit in hits] == ["v2|gen|message"]
+
+
 def test_layered_tags_dialogue_vs_event(monkeypatch: pytest.MonkeyPatch) -> None:
     """layered path: conversation_turns -> retrieval_unit=dialogue; Google PE -> event."""
     import types

@@ -24,6 +24,9 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB  # noqa: E402
+from personal_knowledge.core.canonical_visibility import (  # noqa: E402
+    canonical_projection_predicate,
+)
 
 # system-reminder 预处理（唯一权威定义；build_knowledge_units /
 # build_knowledge_inventory 均从此处 re-export）
@@ -101,8 +104,20 @@ def compute_source_checksum(db_path: Path) -> str:
     schema_text = "\n;;;".join(sql or "" for _name, sql in ddl)
     schema_hash = hashlib.sha256(schema_text.encode("utf-8")).hexdigest()[:16]
     # counts
-    session_count = con.execute("SELECT COUNT(*) FROM canonical_sessions").fetchone()[0]
-    message_count = con.execute("SELECT COUNT(*) FROM canonical_messages").fetchone()[0]
+    session_filter, session_params = canonical_projection_predicate(
+        con, "canonical_session_id"
+    )
+    message_filter, message_params = canonical_projection_predicate(
+        con, "canonical_session_id"
+    )
+    session_count = con.execute(
+        f"SELECT COUNT(*) FROM canonical_sessions WHERE {session_filter}",
+        session_params,
+    ).fetchone()[0]
+    message_count = con.execute(
+        f"SELECT COUNT(*) FROM canonical_messages WHERE {message_filter}",
+        message_params,
+    ).fetchone()[0]
     con.close()
     payload = f"{schema_hash}|{session_count}|{message_count}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
@@ -175,17 +190,20 @@ def compute_eligible_messages(
     scope_select = ", m.evidence_scope" if has_scope_col else ""
 
     placeholders = ",".join("?" * len(roles))
+    projection_filter, projection_params = canonical_projection_predicate(
+        con, "s.canonical_session_id"
+    )
     coarse_rows = con.execute(
         "SELECT m.canonical_message_id, m.canonical_session_id, m.content, "
         "m.source, m.role, s.agent, s.started_at, s.evidence_eligible"
         f"{scope_select} "
         "FROM canonical_messages m JOIN canonical_sessions s "
         "ON m.canonical_session_id=s.canonical_session_id "
-        "WHERE s.evidence_eligible=1 "
+        f"WHERE {projection_filter} AND s.evidence_eligible=1 "
         "AND m.content IS NOT NULL AND length(m.content) > 20 "
         f"AND m.role IN ({placeholders}) "
         "ORDER BY s.started_at DESC, m.canonical_message_id",
-        tuple(roles),
+        (*projection_params, *roles),
     ).fetchall()
     stats["coarse_count"] = len(coarse_rows)
 

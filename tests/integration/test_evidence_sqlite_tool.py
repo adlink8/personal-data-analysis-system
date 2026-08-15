@@ -189,6 +189,54 @@ def test_approved_query_returns_bounded_rows_and_complete_receipt(tmp_path: Path
     assert receipt["status"] == "success"
 
 
+def test_active_v2_authority_denies_legacy_session_and_scopes_freshness(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "coexist-canonical.sqlite"
+    _make_canonical_fixture(db, message_count=2)
+    v2_session = "v2|gen|session"
+    con = sqlite3.connect(db)
+    try:
+        con.execute(
+            "INSERT INTO canonical_sessions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                v2_session, "legacy", "chatgpt", "2026-07-01", None, 1, 1,
+                "v2-file", None, "main", None, None, None, 1, "user", 0,
+                "active", None,
+            ),
+        )
+        con.execute(
+            "INSERT INTO canonical_messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "v2|gen|message", v2_session, "legacy", "v2:1", 1, "user",
+                "safe v2 body", 12, "2026-07-01T00:01:00Z", None, 0, 0,
+                "v2-hash", "user",
+            ),
+        )
+        con.execute(
+            "CREATE TABLE ce_generation_authority ("
+            "generation_id TEXT PRIMARY KEY, active INTEGER, updated_at TEXT)"
+        )
+        con.execute(
+            "INSERT INTO ce_generation_authority VALUES ('gen', 1, '2026-08-15')"
+        )
+        con.commit()
+    finally:
+        con.close()
+    tool = EvidenceSqliteTool(db_path=db)
+
+    with pytest.raises(EvidenceSqliteError) as exc:
+        tool.invoke(_descriptor())
+    assert exc.value.code == "scope_denied"
+
+    result = tool.invoke(_descriptor(
+        parameters={"session_id": v2_session, "after": None, "limit": 5},
+        scope={"session_id": v2_session},
+    ))
+    assert [row["message_id"] for row in result["rows"]] == ["v2|gen|message"]
+    assert result["receipt"]["freshness"] == "2026-07-01T00:01:00Z"
+
+
 def test_result_envelope_contains_no_physical_schema_or_sentinel(tmp_path: Path) -> None:
     db = tmp_path / "canonical.sqlite"
     _make_canonical_fixture(db, message_count=5)

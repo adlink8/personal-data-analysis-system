@@ -34,7 +34,7 @@ from personal_knowledge.core.conversation_events import (
     make_event_id,
 )
 
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "1.1.0"
 CONTRACT_VERSION = "1"
 
 ALLOWED_TABLES: tuple[str, ...] = ("sessions", "messages", "message_parts")
@@ -117,7 +117,7 @@ class _Family:
         return bool(rows)
 
     def _event(self, artifact, *, session_id, kind, locator, native_id=None, occurred_at=None,
-               summary=None, fidelity=None, native_session=None) -> TypedEvent:
+               content=None, summary=None, fidelity=None, native_session=None) -> TypedEvent:
         return TypedEvent(
             event_id=make_event_id(self.family, artifact.artifact_id, CONTRACT_VERSION,
                                    native_id or locator, kind=kind, session_id=session_id),
@@ -127,7 +127,8 @@ class _Family:
                 native_locator=locator, native_session_id=native_session or None,
                 native_event_id=native_id, contract_version=CONTRACT_VERSION,
             ),
-            fidelity=fidelity or _fidelity(), occurred_at=occurred_at, summary=summary,
+            fidelity=fidelity or _fidelity(), occurred_at=occurred_at,
+            content=content, summary=summary,
         )
 
     def adapt(self, artifact_set: SourceArtifactSet, *, artifact_root: Path) -> AdaptationResult:
@@ -209,11 +210,14 @@ class _Family:
                 events.append(ev)
                 by_message[str(msg["id"])] = ev
                 continue
-            ev = self._event(artifact, session_id=session_id, kind=kind, locator=locator,
-                             native_id=msg["id"],
-                             occurred_at=msg["time_created"] if live else msg["created_at"],
-                             summary=(None if live else str(msg["content"] or "")[:2048] or None),
-                             native_session=sid)
+            raw_content = data.get("content")
+            ev = self._event(
+                artifact, session_id=session_id, kind=kind, locator=locator,
+                native_id=msg["id"],
+                occurred_at=msg["time_created"] if live else msg["created_at"],
+                content=None if raw_content is None else str(raw_content),
+                native_session=sid,
+            )
             events.append(ev)
             by_message[str(msg["id"])] = ev
 
@@ -229,14 +233,27 @@ class _Family:
             if kind is None:
                 unknown += 1
                 kind = EventKind.UNKNOWN_NATIVE
-            ev = self._event(artifact, session_id=parent.session_id, kind=kind,
-                             locator=f"{artifact.relative_path}#part:{part['id']}",
-                             native_id=part["id"],
-                             occurred_at=part["time_created"] if live else part["created_at"],
-                             summary=str(
-                                 part_data.get("text") or part_data.get("content") or ""
-                             )[:2048] or None,
-                             native_session=parent.provenance.native_session_id)
+            raw_content = (
+                part_data.get("text")
+                if "text" in part_data
+                else part_data.get("content")
+            )
+            text = None if raw_content is None else str(raw_content)
+            is_message = kind in {
+                EventKind.USER_MESSAGE,
+                EventKind.ASSISTANT_MESSAGE,
+                EventKind.DEVELOPER_MESSAGE,
+                EventKind.SYSTEM_MESSAGE,
+            }
+            ev = self._event(
+                artifact, session_id=parent.session_id, kind=kind,
+                locator=f"{artifact.relative_path}#part:{part['id']}",
+                native_id=part["id"],
+                occurred_at=part["time_created"] if live else part["created_at"],
+                content=text if is_message else None,
+                summary=None if is_message else (text[:2048] if text else None),
+                native_session=parent.provenance.native_session_id,
+            )
             events.append(ev)
             relations.append(EventRelation(
                 relation_id=make_event_id(self.family, artifact.artifact_id, CONTRACT_VERSION,

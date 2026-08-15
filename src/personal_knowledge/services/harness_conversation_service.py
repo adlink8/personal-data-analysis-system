@@ -22,6 +22,9 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from personal_knowledge.application.conversation.harness_freshness import DualFreshness  # noqa: F401
+from personal_knowledge.core.canonical_visibility import (
+    canonical_projection_predicate,
+)
 from personal_knowledge.core.conversation_repository import SOURCE_CANONICAL, ConversationRepository  # noqa: F401
 from personal_knowledge.intelligence.schema import SnapshotBinding, checksum
 from personal_knowledge.intelligence.state_projection import (
@@ -128,25 +131,34 @@ class HarnessConversationService:
     @staticmethod
     def _sessions(con: sqlite3.Connection) -> list[dict]:
         """Canonical sessions plus per-session last message activity (metadata only)."""
+        projection_filter, projection_params = canonical_projection_predicate(
+            con, "s.canonical_session_id"
+        )
         rows = con.execute(
             "SELECT s.canonical_session_id AS session_id, s.cwd, s.message_count, "
             "MAX(CASE WHEN m.role IN ('user', 'assistant') THEN m.timestamp END) AS last_activity "
             "FROM canonical_sessions s "
             "LEFT JOIN canonical_messages m ON m.canonical_session_id = s.canonical_session_id "
+            f"WHERE {projection_filter} "
             "GROUP BY s.canonical_session_id "
-            "ORDER BY last_activity DESC"
+            "ORDER BY last_activity DESC",
+            projection_params,
         ).fetchall()
         return [dict(row) for row in rows]
 
     @staticmethod
     def _normalized_messages(con: sqlite3.Connection, session_id: str, *, limit: int, offset: int) -> tuple[list[dict], bool]:
         """Project only normalized user/assistant display messages with stable identity."""
+        projection_filter, projection_params = canonical_projection_predicate(
+            con, "canonical_session_id"
+        )
         rows = con.execute(
             "SELECT canonical_message_id, role, content, timestamp, source_message_ref, content_hash "
             "FROM canonical_messages "
-            "WHERE canonical_session_id = ? AND role IN ('user', 'assistant') "
+            "WHERE canonical_session_id = ? AND "
+            f"{projection_filter} AND role IN ('user', 'assistant') "
             "ORDER BY ordinal ASC",
-            (session_id,),
+            (session_id, *projection_params),
         ).fetchall()
         total = len(rows)
         page = rows[offset : offset + limit]
@@ -274,10 +286,16 @@ class HarnessConversationService:
             return self._envelope_error("cursor_invalid")
         try:
             with self._connect() as con:
+                projection_filter, projection_params = (
+                    canonical_projection_predicate(
+                        con, "canonical_session_id"
+                    )
+                )
                 row = con.execute(
                     "SELECT canonical_session_id AS session_id, cwd, message_count "
-                    "FROM canonical_sessions WHERE canonical_session_id = ?",
-                    (conversation_id,),
+                    "FROM canonical_sessions WHERE canonical_session_id = ? AND "
+                    f"{projection_filter}",
+                    (conversation_id, *projection_params),
                 ).fetchone()
                 if row is None:
                     return self._envelope_error("conversation_unknown")

@@ -44,7 +44,7 @@ from personal_knowledge.core.conversation_events import (
 )
 
 FAMILY = "codex"
-ADAPTER_VERSION = "1.1.0"
+ADAPTER_VERSION = "1.2.0"
 CONTRACT_VERSION = "1"
 
 _COMPLETE = {
@@ -78,15 +78,18 @@ def _text(record: dict) -> str | None:
     """Text from a content block list (real shape) or a flat string."""
     content = _inner(record).get("content")
     if isinstance(content, str):
-        return content[:2048] or None
+        return content
     if isinstance(content, list):
-        parts = []
+        parts: list[str] = []
+        saw_text = False
         for block in content:
-            if isinstance(block, dict) and block.get("type") in ("text", "input_text"):
-                text = str(block.get("text") or "")
-                if text:
-                    parts.append(text)
-        return (" ".join(parts))[:2048] or None
+            if isinstance(block, dict) and block.get("type") in (
+                "text", "input_text", "output_text",
+            ):
+                saw_text = True
+                raw = block.get("text")
+                parts.append("" if raw is None else str(raw))
+        return " ".join(parts) if saw_text else None
     return None
 
 
@@ -149,7 +152,7 @@ def _provenance(artifact: SourceArtifact, locator: str, *, session: str | None, 
 
 
 def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=None,
-           summary=None, fidelity=None, native_session=None) -> TypedEvent:
+           content=None, summary=None, fidelity=None, native_session=None) -> TypedEvent:
     return TypedEvent(
         event_id=make_event_id(
             FAMILY, artifact.artifact_id, CONTRACT_VERSION,
@@ -161,6 +164,7 @@ def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=N
         provenance=_provenance(artifact, locator, session=native_session or "", native_id=native_id),
         fidelity=fidelity or _fidelity(),
         occurred_at=occurred_at,
+        content=content,
         summary=summary,
     )
 
@@ -188,7 +192,7 @@ def _adapt_record(record: dict, artifact, *, session_id, locator) -> TypedEvent 
         if ev is not None:
             return _event(artifact, session_id=session_id, kind=ev, locator=locator,
                           native_id=inner.get("id") or inner.get("item_id"), occurred_at=ts,
-                          summary=_text(record), native_session=sid)
+                          content=_text(record), native_session=sid)
         if item_type in ("function_call", "custom_tool_call", "tool_search_call"):
             return _event(
                 artifact, session_id=session_id, kind=EventKind.TOOL_CALL,
@@ -224,10 +228,11 @@ def _adapt_record(record: dict, artifact, *, session_id, locator) -> TypedEvent 
                 native_session=sid,
             )
         if hint == "user_message":
+            raw_message = inner.get("message")
             return _event(
                 artifact, session_id=session_id, kind=EventKind.USER_MESSAGE,
                 locator=locator, native_id=inner.get("id"), occurred_at=ts,
-                summary=str(inner.get("message") or "")[:2048] or None,
+                content=None if raw_message is None else str(raw_message),
                 native_session=sid,
             )
         if hint == "token_count":

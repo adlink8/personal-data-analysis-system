@@ -37,7 +37,7 @@ from personal_knowledge.core.conversation_events import (
 )
 
 FAMILY = "zcode"
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "1.1.0"
 CONTRACT_VERSION = "1"
 
 ALLOWED_TABLES: tuple[str, ...] = ("conversation_traces", "conversation_parts")
@@ -127,13 +127,14 @@ def _provenance(artifact: SourceArtifact, locator: str, *, session: str | None, 
 
 
 def _event(artifact, *, session_id, kind, locator, native_id=None, occurred_at=None,
-           summary=None, fidelity=None, native_session=None) -> TypedEvent:
+           content=None, summary=None, fidelity=None, native_session=None) -> TypedEvent:
     return TypedEvent(
         event_id=make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
                                native_id or locator, kind=kind, session_id=session_id),
         session_id=session_id, kind=kind,
         provenance=_provenance(artifact, locator, session=native_session, native_id=native_id),
-        fidelity=fidelity or _fidelity(), occurred_at=occurred_at, summary=summary,
+        fidelity=fidelity or _fidelity(), occurred_at=occurred_at,
+        content=content, summary=summary,
     )
 
 
@@ -225,12 +226,22 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
                 events.append(ev)
                 by_part[part_id] = ev
                 continue
-        ev = _event(artifact, session_id=session_id, kind=kind, locator=locator,
-                    native_id=part["id"] if live else part["part_id"],
-                    occurred_at=part["time_created"] if live else part["created_at"],
-                    summary=str(
-                        data.get("text") or data.get("content") or ""
-                    )[:2048] or None, native_session=sid)
+        raw_content = data.get("text") if "text" in data else data.get("content")
+        text = None if raw_content is None else str(raw_content)
+        is_message = kind in {
+            EventKind.USER_MESSAGE,
+            EventKind.ASSISTANT_MESSAGE,
+            EventKind.DEVELOPER_MESSAGE,
+            EventKind.SYSTEM_MESSAGE,
+        }
+        ev = _event(
+            artifact, session_id=session_id, kind=kind, locator=locator,
+            native_id=part["id"] if live else part["part_id"],
+            occurred_at=part["time_created"] if live else part["created_at"],
+            content=text if is_message else None,
+            summary=None if is_message else (text[:2048] or None if text else None),
+            native_session=sid,
+        )
         events.append(ev)
         by_part[str(part["id"] if live else part["part_id"])] = ev
 

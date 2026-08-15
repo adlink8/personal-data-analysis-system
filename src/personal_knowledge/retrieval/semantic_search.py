@@ -39,6 +39,9 @@ from personal_knowledge.retrieval.merge_cluster import _merge_layer_ready, _dedu
 from personal_knowledge.retrieval.serving import ServingSnapshotResolver, member_version  # noqa: E402
 from personal_knowledge.retrieval.relevance import annotate_candidate_support  # noqa: E402
 from personal_knowledge.retrieval.layers.base import SearchState  # noqa: E402
+from personal_knowledge.core.canonical_visibility import (  # noqa: E402
+    canonical_projection_predicate,
+)
 
 def search_semantic(
     query: str,
@@ -283,7 +286,9 @@ def _search_dialogue_canonical_messages(
             con.close()
             return []
 
-        base_where = "1=1"
+        base_where, projection_params = canonical_projection_predicate(
+            con, "canonical_message_id"
+        )
         if "is_system" in cols:
             base_where += " AND COALESCE(is_system,0)=0"
 
@@ -300,7 +305,9 @@ def _search_dialogue_canonical_messages(
                     "AND content LIKE ? ESCAPE '\\' LIMIT ?"
                 )
                 try:
-                    found = con.execute(sql, (f"%{esc}%", top_k * 2)).fetchall()
+                    found = con.execute(
+                        sql, (*projection_params, f"%{esc}%", top_k * 2)
+                    ).fetchall()
                 except Exception:
                     found = []
                 if found:
@@ -315,7 +322,7 @@ def _search_dialogue_canonical_messages(
                     "COALESCE(timestamp,''), COALESCE(source,'') "
                     f"FROM canonical_messages WHERE {base_where}"
                 )
-                params: list[Any] = []
+                params: list[Any] = list(projection_params)
                 for t in toks:
                     sql += " AND content LIKE ? ESCAPE '\\'"
                     params.append(f"%{_like_escape(t)}%")
@@ -802,7 +809,6 @@ def search_knowledge_units(
         versions=versions,
         ku_collection=ku_collection or "personal_events",
     )
-
 
 
 
