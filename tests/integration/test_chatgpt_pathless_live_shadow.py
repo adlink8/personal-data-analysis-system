@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-import tempfile
 from pathlib import Path
 
 import pytest
 
 from personal_knowledge.application.conversation import chatgpt_snapshot
+from personal_knowledge.application.conversation import (
+    agentsview_unavailable_snapshot,
+)
 from personal_knowledge.adapters.conversation_sources.snapshots import CaptureError
 from personal_knowledge.application.conversation.live_native_shadow import (
     build_live_native_shadow,
 )
+from personal_knowledge.core.project_paths import ROOT
 
 
 def _agentsview_fixture(path: Path) -> None:
@@ -359,15 +362,17 @@ def test_live_shadow_merges_native_and_pathless_grok_without_counting_observatio
 
 
 def test_chatgpt_capture_never_stages_full_source_and_cleans_failed_temp(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     agentsview_db = tmp_path / "sessions.db"
     artifact_store = tmp_path / "artifact-store"
     _agentsview_fixture(agentsview_db)
     source_digest = hashlib.sha256(agentsview_db.read_bytes()).hexdigest()
     secret = b"non-chatgpt-secret-marker-must-not-be-captured"
-    system_temp = Path(tempfile.gettempdir())
-    before = set(system_temp.glob("pk-chatgpt-filtered-*"))
+    project_temp = tmp_path / "project" / "var" / "tmp" / "conversation-capture"
+    monkeypatch.setattr(
+        agentsview_unavailable_snapshot, "_CAPTURE_TEMP_ROOT", project_temp
+    )
 
     # The byte policy fails naturally only after the filtered SQLite has been
     # built, exercising cleanup without a private hook or implementation mock.
@@ -378,10 +383,16 @@ def test_chatgpt_capture_never_stages_full_source_and_cleans_failed_temp(
             byte_limit=1,
         )
 
-    assert set(system_temp.glob("pk-chatgpt-filtered-*")) == before
+    assert project_temp.exists()
+    assert not any(project_temp.iterdir())
     assert not any(
         secret in candidate.read_bytes()
         for candidate in artifact_store.rglob("*")
         if candidate.is_file()
     )
     assert hashlib.sha256(agentsview_db.read_bytes()).hexdigest() == source_digest
+
+
+def test_live_capture_default_temp_root_is_inside_project() -> None:
+    capture_root = agentsview_unavailable_snapshot._CAPTURE_TEMP_ROOT.resolve()
+    assert capture_root.is_relative_to(ROOT.resolve())

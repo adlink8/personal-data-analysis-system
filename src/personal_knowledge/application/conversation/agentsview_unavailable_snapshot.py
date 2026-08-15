@@ -14,6 +14,10 @@ from personal_knowledge.adapters.conversation_sources.snapshots import (
     CaptureError,
     capture_file,
 )
+from personal_knowledge.core.project_paths import VAR_TMP
+
+
+_CAPTURE_TEMP_ROOT = VAR_TMP / "conversation-capture"
 
 
 def capture_pathless_agent_snapshot(
@@ -27,9 +31,10 @@ def capture_pathless_agent_snapshot(
     """Publish only declared unavailable-native rows for one agent family.
 
     The source is held in one read-only SQLite transaction while the filtered
-    database is built.  Staging lives in a system temporary directory, never
-    under the artifact store, and the whole directory (including SQLite
-    sidecars) is removed before this function returns or raises.  When
+    database is built. Staging lives under the project's private ``var/tmp``
+    tree, never under the system drive or artifact store, and the whole
+    directory (including SQLite sidecars) is removed before this function
+    returns or raises. When
     ``session_ids`` is supplied, it is the exact inventory-derived set whose
     native locators could not be resolved; the legacy default remains strict
     NULL/blank ``file_path`` selection for the ChatGPT wrapper.
@@ -38,8 +43,9 @@ def capture_pathless_agent_snapshot(
     if family not in {"chatgpt", "grok"}:
         raise CaptureError(f"unsupported pathless observation family {family!r}")
     try:
+        _CAPTURE_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(
-            prefix=f"pk-{family}-filtered-"
+            prefix=f"pk-{family}-filtered-", dir=_CAPTURE_TEMP_ROOT,
         ) as temp_dir:
             filtered = Path(temp_dir) / f"{family}.sqlite"
             return _build_and_publish(

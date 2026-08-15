@@ -44,6 +44,7 @@ from personal_knowledge.adapters.conversation_sources.registry import (
 from personal_knowledge.application.conversation.compatibility_projection import (
     build_compatibility_projection,
 )
+from personal_knowledge.core.project_paths import VAR_TMP
 from personal_knowledge.application.conversation.event_repository import (
     EventRepository,
 )
@@ -676,7 +677,11 @@ def _replay_digest(
     if status in ("no_source", "blocked") or not hashes or store is None:
         return {"digest": None, "stable": "n/a"}
     try:
-        with tempfile.TemporaryDirectory(prefix="pk-fidelity-replay-") as td:
+        replay_temp = VAR_TMP / "conversation-fidelity"
+        replay_temp.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix="pk-fidelity-replay-", dir=replay_temp,
+        ) as td:
             root = Path(td)
             results = []
             for index, content_hash in enumerate(hashes):
@@ -945,7 +950,11 @@ def _consumer_evidence(
         }.items()
     )
     try:
-        with tempfile.TemporaryDirectory(prefix="pk-fidelity-consumer-") as td:
+        consumer_temp = VAR_TMP / "conversation-fidelity"
+        consumer_temp.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix="pk-fidelity-consumer-", dir=consumer_temp,
+        ) as td:
             consumer_db = Path(td) / "consumer.sqlite"
             _write_consumer_projection(generation_db, consumer_db, entries)
             repo = ConversationRepository(

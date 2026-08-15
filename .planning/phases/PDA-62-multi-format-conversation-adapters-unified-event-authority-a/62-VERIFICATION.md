@@ -68,6 +68,10 @@ active canonical conversation authority.
   projection had 57,623 empty message bodies.
 - The AgentsView source database remained byte-identical across capture:
   SHA-256 `823707bc2be2520f529c1f076032d49c6fd864bc1edaa7b58ff93f3a853852c6`.
+- Runtime capture, probe and fidelity scratch space is rooted under project
+  `var/tmp`; retained diagnostic replays are archived under
+  `archive/phase62/diagnostic-replays`. No Phase 62 replay directory remains
+  under the system drive temporary directory.
 
 ## Requirement verification
 

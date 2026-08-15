@@ -37,7 +37,10 @@ _SCRIPTS_DIR = _THIS_DIR.parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
-from personal_knowledge.core.project_paths import AGENTSVIEW_DB  # noqa: E402
+from personal_knowledge.core.project_paths import (  # noqa: E402
+    AGENTSVIEW_DB,
+    VAR_TMP,
+)
 
 # 受支持的最小 schema：adapter/normalized 需要这些表存在。
 # 缺表即 pre-flight abort。FTS/config 内部表不在其中。
@@ -246,7 +249,12 @@ def backup_snapshot(
     if not probe.ok:
         raise SchemaGateError(probe)
 
-    dest_dir = dest_dir or Path(tempfile.mkdtemp(prefix="agentsview_snap_"))
+    if dest_dir is None:
+        snapshot_temp = VAR_TMP / "agentsview-snapshots"
+        snapshot_temp.mkdir(parents=True, exist_ok=True)
+        dest_dir = Path(tempfile.mkdtemp(
+            prefix="agentsview_snap_", dir=snapshot_temp,
+        ))
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     schema_h = _config_hash()  # 配置 hash（静态）

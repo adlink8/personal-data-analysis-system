@@ -43,6 +43,7 @@ from personal_knowledge.application.conversation.event_generations import (
 from personal_knowledge.application.conversation.event_repository import (
     GenerationInput,
 )
+from personal_knowledge.core.project_paths import VAR_TMP
 from personal_knowledge.core.conversation_events import FidelityProfile
 
 ACTIVATION_APPROVAL = "APPROVE_PHASE62_ACTIVATION"
@@ -81,7 +82,9 @@ def probe_conversation_sources(
     detected = _detect_families(source_root)
 
     items: list[dict] = []
-    with tempfile.TemporaryDirectory(prefix="pk-v2-probe-") as td:
+    probe_temp = VAR_TMP / "conversation-probe"
+    probe_temp.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="pk-v2-probe-", dir=probe_temp) as td:
         store = Path(td)
         for name in known_families():
             owner = resolve_family(name)

@@ -37,6 +37,7 @@ VAR_RUNTIME = VAR_DIR / "runtime"
 VAR_REPORTS = VAR_DIR / "reports"
 VAR_LOGS = VAR_DIR / "logs"
 VAR_CACHE = VAR_DIR / "cache"
+VAR_TMP = VAR_DIR / "tmp"
 
 INTEGRATION_DIR = ROOT / "integration"
 # Prefer Phase 20 var layout when present; keep legacy as fallback.
