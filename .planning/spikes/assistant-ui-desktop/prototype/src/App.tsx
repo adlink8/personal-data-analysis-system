@@ -5,7 +5,7 @@ import {
   type DataMessagePartProps,
   type TextMessagePartProps,
 } from "@assistant-ui/react";
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import {
   HarnessRuntimeProvider,
   type AdapterEvent,
@@ -15,6 +15,7 @@ import {
 } from "./harness-adapter";
 import { createFakeHarnessBridge } from "./fake-harness";
 import { SettingsView } from "./SettingsView";
+import { CodexSidebar } from "./CodexSidebar";
 
 type Panel = "history" | "evidence" | "command" | "settings" | null;
 
@@ -44,12 +45,12 @@ function ToolReceiptPart({ data }: DataMessagePartProps<SafeEvidenceReceipt>) {
   const openEvidence = useContext(EvidenceActionContext);
   return (
     <button className="tool-inline" type="button" onClick={openEvidence} aria-label="打开 Tool 与 SQLite 回执">
-      <span className="tool-pulse" aria-hidden="true" />
+      <span className="tool-icon" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M5 4.5h10v11H5zM7.5 8h5M7.5 11h3" /></svg></span>
       <span>
-        <strong>已使用受限能力</strong>
+        <strong>SQLite 查询完成</strong>
         <small>{data.queryId} · {data.rowCount} 行 · {data.durationMs ?? "—"} ms</small>
       </span>
-      <span className="tool-open">查看回执</span>
+      <svg className="tool-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5" /></svg>
     </button>
   );
 }
@@ -90,27 +91,12 @@ function Composer() {
           submitMode="enter"
         />
         <div className="composer-footer">
-          <div className="composer-context"><span>数据分析</span><span>Pi · 自动路由</span></div>
-          <ComposerPrimitive.Send className="send-button" aria-label="发送">↑</ComposerPrimitive.Send>
+          <div className="composer-context"><button type="button" aria-label="添加附件">+</button><span className="access-badge">只读证据</span></div>
+          <div className="composer-actions"><span>Terra · 自动</span><button type="button" aria-label="语音输入" className="mic-button"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="3" width="6" height="9" rx="3" /><path d="M4.8 9.8a5.2 5.2 0 0 0 10.4 0M10 15v2" /></svg></button><ComposerPrimitive.Send className="send-button" aria-label="发送">↑</ComposerPrimitive.Send></div>
         </div>
       </ComposerPrimitive.Root>
       <div className="composer-note">Enter 发送 · Shift+Enter 换行 · 只通过 named DesktopBridge</div>
     </div>
-  );
-}
-
-function RailButton({ label, active, badge, onClick, children }: {
-  label: string;
-  active?: boolean;
-  badge?: number;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button className={`rail-button${active ? " active" : ""}`} type="button" aria-label={label} title={label} onClick={onClick}>
-      <span aria-hidden="true">{children}</span>
-      {badge ? <span className="badge">{badge}</span> : null}
-    </button>
   );
 }
 
@@ -119,7 +105,7 @@ function HistoryDrawer({ open, onClose, bridge }: { open: boolean; onClose: () =
   const visible = bridge.recentConversations.filter((item) => item.title.toLowerCase().includes(filter.toLowerCase()));
   return (
     <aside className={`drawer drawer-left${open ? " open" : ""}`} aria-hidden={!open} aria-label="AgentsView 会话历史">
-      <header className="drawer-header"><div><strong>所有会话</strong><small>AgentsView 只读聚合</small></div><button onClick={onClose} aria-label="关闭历史">×</button></header>
+      <header className="drawer-header"><strong>所有会话</strong><button onClick={onClose} aria-label="关闭历史"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg></button></header>
       <div className="drawer-search"><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="搜索 Codex、ZCode…" /></div>
       <div className="session-list">
         {visible.map((item, index) => (
@@ -132,7 +118,6 @@ function HistoryDrawer({ open, onClose, bridge }: { open: boolean; onClose: () =
           </button>
         ))}
       </div>
-      <div className="drawer-foot">历史投影不是执行权威 · 当前 fixture 仅用于 Spike</div>
     </aside>
   );
 }
@@ -146,11 +131,11 @@ function EvidenceDrawer({ open, onClose, receipts, candidate, events }: {
 }) {
   return (
     <aside className={`drawer drawer-right${open ? " open" : ""}`} aria-hidden={!open} aria-label="Tool、SQLite 与候选审核">
-      <header className="drawer-header"><div><strong>受控能力</strong><small>Tool · SQLite · Candidate</small></div><button onClick={onClose} aria-label="关闭证据">×</button></header>
+      <header className="drawer-header"><strong>Tool 与证据</strong><button onClick={onClose} aria-label="关闭证据"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg></button></header>
       <div className="drawer-content">
         <section className="inspector-section">
-          <div className="section-kicker">TOOL RECEIPT</div>
-          {receipts.length === 0 ? <p className="empty-copy">尚无 Tool 回执。发送一条消息后，只显示 checksum 验证通过的 allowlisted 结果。</p> : receipts.map((receipt) => (
+          <div className="section-kicker">查询回执</div>
+          {receipts.length === 0 ? <p className="empty-copy">暂无回执</p> : receipts.map((receipt) => (
             <div className="receipt-card" key={receipt.receiptId}>
               <div className="receipt-title"><span className="status-dot" /><strong>SQLite · 只读查询</strong><span>{receipt.status}</span></div>
               <dl>
@@ -164,17 +149,16 @@ function EvidenceDrawer({ open, onClose, receipts, candidate, events }: {
           ))}
         </section>
         <section className="inspector-section">
-          <div className="section-kicker">REVIEW INBOX</div>
+          <div className="section-kicker">候选审核</div>
           {candidate ? (
             <div className="candidate-card">
               <span className="candidate-state">待你审核</span><h3>{candidate.title}</h3><p>{candidate.summary}</p>
               <div className="candidate-actions"><button>接受</button><button>编辑</button><button className="quiet">忽略</button></div>
-              <small>此 Spike 不执行审核写入；正式版仍调用 reviewCandidate。</small>
             </div>
-          ) : <p className="empty-copy">没有待审核 Candidate。AI 只提示入口，不自动打开本面板。</p>}
+          ) : <p className="empty-copy">暂无候选</p>}
         </section>
         <section className="inspector-section audit-section">
-          <div className="section-kicker">ADAPTER EVENTS · METADATA ONLY</div>
+          <div className="section-kicker">事件</div>
           {events.slice(-6).map((event, index) => <div className="audit-row" key={`${event.at}-${index}`}><span>{event.type}</span><time>{event.at.slice(11, 19)}</time></div>)}
         </section>
       </div>
@@ -187,11 +171,13 @@ function CommandPalette({ open, onClose, openHistory, openEvidence, openSettings
   return (
     <div className="palette-backdrop" role="presentation" onMouseDown={onClose}>
       <div className="palette" role="dialog" aria-modal="true" aria-label="命令面板" onMouseDown={(event) => event.stopPropagation()}>
-        <input autoFocus placeholder="输入命令或搜索…" aria-label="命令搜索" />
-        <button onClick={openHistory}><span>打开所有会话</span><kbd>Ctrl H</kbd></button>
-        <button onClick={openEvidence}><span>查看 Tool 与证据</span><kbd>Ctrl E</kbd></button>
-        <button onClick={openSettings}><span>打开设置</span><kbd>Ctrl ,</kbd></button>
-        <button onClick={onClose}><span>回到当前对话</span><kbd>Esc</kbd></button>
+        <div className="palette-search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="4.8" /><path d="m12 12 4 4" /></svg><input autoFocus placeholder="搜索命令…" aria-label="命令搜索" /></div>
+        <div className="palette-list">
+          <button onClick={openHistory}><span><i aria-hidden="true">H</i>所有会话</span><kbd>Ctrl H</kbd></button>
+          <button onClick={openEvidence}><span><i aria-hidden="true">E</i>Tool 与证据</span><kbd>Ctrl E</kbd></button>
+          <button onClick={openSettings}><span><i aria-hidden="true">S</i>设置</span><kbd>Ctrl ,</kbd></button>
+          <button onClick={onClose}><span><i aria-hidden="true">↵</i>返回对话</span><kbd>Esc</kbd></button>
+        </div>
       </div>
     </div>
   );
@@ -230,23 +216,13 @@ export default function App() {
       onAdapterEvent={(event) => setEvents((current) => [...current, event])}
     >
       <EvidenceActionContext.Provider value={() => { setPanel("evidence"); setHint(false); }}>
-        <div className="app-shell">
-          <nav className="rail" aria-label="主导航">
-            <div className="brand-mark" title="Harness">H</div>
-            <RailButton label="当前对话" active={panel === null} onClick={() => setPanel(null)}>◇</RailButton>
-            <RailButton label="所有会话" active={panel === "history"} onClick={() => setPanel(panel === "history" ? null : "history")}>≡</RailButton>
-            <RailButton label="Tool 与证据" active={panel === "evidence"} badge={receipts.length + (candidate ? 1 : 0)} onClick={() => { setPanel(panel === "evidence" ? null : "evidence"); setHint(false); }}>⌘</RailButton>
-            <div className="rail-spacer" />
-            <RailButton label="命令面板" active={panel === "command"} onClick={() => setPanel("command")}>K</RailButton>
-            <RailButton label="设置" active={panel === "settings"} onClick={() => setPanel("settings")}>
-              <svg className="rail-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M8.2 2.5h3.6l.5 2a6.2 6.2 0 0 1 1.2.7l2-.6 1.8 3.1-1.5 1.4a6 6 0 0 1 0 1.8l1.5 1.4-1.8 3.1-2-.6a6.2 6.2 0 0 1-1.2.7l-.5 2H8.2l-.5-2a6.2 6.2 0 0 1-1.2-.7l-2 .6-1.8-3.1 1.5-1.4a6 6 0 0 1 0-1.8L2.7 7.7l1.8-3.1 2 .6a6.2 6.2 0 0 1 1.2-.7l.5-2Z" /><circle cx="10" cy="10" r="2.4" /></svg>
-            </RailButton>
-          </nav>
+        {panel === "settings" ? <SettingsView onBack={() => setPanel(null)} /> : <div className={`app-shell${panel === "history" || panel === "evidence" ? " context-open" : ""}`}>
+          <CodexSidebar bridge={bridge} panel={panel} evidenceCount={receipts.length + (candidate ? 1 : 0)} onPanel={(next) => { setPanel(next); if (next === "evidence") setHint(false); }} />
 
-          {panel === "settings" ? <SettingsView onBack={() => setPanel(null)} /> : <main className="workspace">
+          <main className="workspace">
             <header className="topbar">
-              <div className="thread-heading"><strong>Agent 桌面 UI 复用方案</strong><small><span className="live-dot" /> 数据分析 · 本地 Harness</small></div>
-              <div className="top-actions"><button onClick={() => setPanel("history")}>历史</button><button onClick={() => setPanel("evidence")}>证据</button><button className="command-button" onClick={() => setPanel("command")}>⌘ K</button></div>
+              <div className="thread-heading"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5.5h5l1.6 2H17v7.2a1.8 1.8 0 0 1-1.8 1.8H4.8A1.8 1.8 0 0 1 3 14.7V5.5Z" /></svg><strong>Agent 桌面 UI 复用方案</strong><button type="button" aria-label="对话菜单">…</button></div>
+              <div className="top-actions"><button aria-label="切换历史侧栏" onClick={() => setPanel(panel === "history" ? null : "history")}>历史</button><button aria-label="切换证据侧栏" onClick={() => setPanel(panel === "evidence" ? null : "evidence")}>证据</button><button className="command-button" onClick={() => setPanel("command")}>⌘ K</button></div>
             </header>
             <ThreadPrimitive.Root className="thread-root">
               <ThreadPrimitive.Viewport className="thread-viewport">
@@ -255,14 +231,13 @@ export default function App() {
               </ThreadPrimitive.Viewport>
               <Composer />
             </ThreadPrimitive.Root>
-          </main>}
+          </main>
 
           <HistoryDrawer open={panel === "history"} onClose={() => setPanel(null)} bridge={bridge} />
           <EvidenceDrawer open={panel === "evidence"} onClose={() => setPanel(null)} receipts={receipts} candidate={candidate} events={events} />
           <CommandPalette open={panel === "command"} onClose={() => setPanel(null)} openHistory={() => setPanel("history")} openEvidence={() => setPanel("evidence")} openSettings={() => setPanel("settings")} />
-          {(panel === "history" || panel === "evidence") ? <button className="drawer-scrim" aria-label="关闭抽屉" onClick={() => setPanel(null)} /> : null}
-          {hint ? <button className="ai-hint" onClick={() => { setPanel("evidence"); setHint(false); }}><span>受控查询已完成</span><strong>查看 1 个回执与 1 个建议 →</strong></button> : null}
-        </div>
+          {hint ? <button className="ai-hint" aria-live="polite" aria-label="查询完成，查看证据" onClick={() => { setPanel("evidence"); setHint(false); }}><span className="ai-hint-icon" aria-hidden="true">✓</span><span className="ai-hint-copy"><strong>查询完成</strong><small>查看证据</small></span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5" /></svg></button> : null}
+        </div>}
       </EvidenceActionContext.Provider>
     </HarnessRuntimeProvider>
   );

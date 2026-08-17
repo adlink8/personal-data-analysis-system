@@ -38,7 +38,7 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
 
 export function SettingsSidebar({ activeSection, onSelect }: SettingsSidebarProps) {
   return (
-    <aside className="settings-index" aria-label="设置分类">
+    <nav className="settings-index" aria-label="设置分类">
       <strong className="settings-index-title">设置</strong>
       {groups.map((group) => (
         <div className="settings-nav-group" key={group.label}>
@@ -50,6 +50,6 @@ export function SettingsSidebar({ activeSection, onSelect }: SettingsSidebarProp
           ))}
         </div>
       ))}
-    </aside>
+    </nav>
   );
 }
