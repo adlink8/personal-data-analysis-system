@@ -1,0 +1,138 @@
+<!-- generated-by: gsd-doc-writer -->
+# 测试指南
+
+## 测试框架与准备
+
+Python 测试使用 pytest `9.0.2`，异步测试使用 pytest-asyncio `1.4.0`；精确版本由 [`constraints.txt`](../../constraints.txt) 锁定，[`requirements-dev.txt`](../../requirements-dev.txt) 引用该约束并安装测试依赖。项目要求 Python 3.11 或更高版本，CI 当前验证 Python 3.12 和 3.14。
+
+从仓库根目录准备 Python 测试环境：
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pip install -e .
+```
+
+[`pytest.ini`](../../pytest.ini) 将发现范围限制到 `tests/`，匹配 `test_*.py`、`Test*` 和 `test_*`，以 `importlib` 模式导入，并把 `src/` 加入 Python 路径。pytest 缓存写入 `var/cache/pytest`；归档、私有导入、日志、Node modules 和构建产物不会被递归收集。
+
+仓库还包含三类 JavaScript 测试：
+
+| 包 | 框架 | 版本或运行时 | 测试命令 |
+|---|---|---|---|
+| `apps/personal_data_chatgpt` | Node.js 内置 `node:test` | Node.js >= 20 | `npm test` |
+| `apps/personal_intelligence_kernel` | Node.js 内置 `node:test` | Node.js >= 22.19.0 | `npm test` |
+| `apps/personal_intelligence_desktop` | Node.js 内置 `node:test` | Node.js >= 22.19.0 | `npm test` |
+| `apps/personal_decision_cockpit` | Vitest | `^3.0.2` | `npm test` |
+
+每个包都有自己的 `package-lock.json`。进入对应包目录后运行 `npm ci` 安装依赖；CI 对 ChatGPT MCP 包使用 `npm ci --ignore-scripts`。
+
+## 运行测试
+
+### Python
+
+运行完整 Python 测试集：
+
+```bash
+python -m pytest
+```
+
+`pytest.ini` 已默认加入 `-q`。CI 会先验证收集，再运行完整测试：
+
+```bash
+python -m pytest --collect-only -q
+python -m pytest -q
+```
+
+按测试层运行子集：
+
+```bash
+python -m pytest tests/unit/
+python -m pytest tests/contract/
+python -m pytest tests/integration/
+python -m pytest tests/e2e/
+python -m pytest tests/governance/
+python -m pytest tests/security/
+python -m pytest tests/ops/
+python -m pytest tests/eval/
+```
+
+运行单个文件、单个测试或按名称筛选：
+
+```bash
+python -m pytest tests/unit/test_budget_config.py
+python -m pytest tests/unit/test_budget_config.py::test_budget_env_beats_config_file
+python -m pytest tests/contract/ -k privacy
+```
+
+仓库没有配置 pytest watch 命令。需要快速反馈时，重复运行最小的文件或 node id，而不是先跑整个套件。
+
+### JavaScript
+
+在各包目录运行其锁定的测试命令：
+
+```bash
+cd apps/personal_data_chatgpt
+npm ci --ignore-scripts
+npm test
+```
+
+其他包使用相同方式，将目录替换为 `apps/personal_intelligence_kernel`、`apps/personal_intelligence_desktop` 或 `apps/personal_decision_cockpit`。Kernel 的 `npm test` 只匹配 `test/*.test.mjs`，不会运行 `test/manual/` 下的人工外部-provider 测试。
+
+ChatGPT MCP 还提供一个定向 widget 命令：
+
+```bash
+cd apps/personal_data_chatgpt
+npm run test:widgets
+```
+
+## 编写新测试
+
+新 Python 测试放在与行为层级对应的目录中：
+
+| 目录 | 适用范围 |
+|---|---|
+| `tests/unit/` | 纯规则、状态转换和数据变换。 |
+| `tests/contract/` | schema、receipt、状态、错误，以及 provider/consumer 兼容性。 |
+| `tests/integration/` | 真实本地 adapter、临时 SQLite 和事件 journal 的组合行为。 |
+| `tests/e2e/` | 关键能力的一条完整用户路径。 |
+| `tests/governance/` | 机器可读策略、目录边界、入口和仓库约束。 |
+| `tests/security/` | 隐私、授权、隔离和工具 containment。 |
+| `tests/ops/` | PowerShell 启动栈及运维脚本。 |
+| `tests/eval/` | 数据技能与个人技能的评估行为。 |
+
+文件和测试函数必须使用 `test_*.py` / `test_*` 命名。仓库当前未设置顶层共享 conftest 或共享 helper 模块；fixture 通常在拥有行为的测试文件内定义。优先使用 pytest 的 `tmp_path`、`monkeypatch`、临时 SQLite、确定性 replay provider 和本地 stand-in。`tests/fixtures/` 只存放最小、脱敏、确定性的公共夹具；不得复制真实个人数据。
+
+对生产行为的修改遵循 [`governance/policies/testing.yaml`](../../governance/policies/testing.yaml)：
+
+1. 先声明公开 seam、可观察行为、不变量和定向测试命令。
+2. 先让定向测试因预期的行为原因失败，再实施最小改动使同一测试通过。
+3. 运行相关回归测试和 `git diff --check`。
+4. Bug 修复必须新增回归测试；公共接口修改需要 provider contract、consumer contract 和真实 adapter integration 测试。
+5. Mock 只用于外部 API、模型 provider、时钟、随机性和文件系统边界。不要 mock 项目内部模块、私有方法、调用次数或调用顺序。
+6. 新增 `skip` 或 `xfail` 必须写明原因、跟踪引用和移除条件；不能用重试掩盖 flaky failure。
+
+Node 内置测试使用 `*.test.mjs`；Cockpit 使用 Vitest 的 `*.test.ts` 或 `*.test.tsx`。测试名称应描述公开可观察行为和结果，而不是实现细节。
+
+## 覆盖率要求
+
+仓库策略定义了以下变更级覆盖目标：
+
+| 类型 | 阈值 | 当前自动化执行 |
+|---|---:|---|
+| 变更行覆盖率 | 85% | 未在 pytest/CI 中测量 |
+| 关键策略分支覆盖率 | 100% | 未在 pytest/CI 中测量 |
+| 仓库总体覆盖率 | 不得下降 | 未配置基线比较 |
+
+这些目标来自 `governance/policies/testing.yaml`，并被 governance 测试校验为策略值；它们是行为映射的辅助门槛，不能代替 requirement、decision 和 negative case 的测试映射。
+
+当前仓库没有 `pytest-cov`、Coverage.py、c8 或 Vitest coverage 配置，也没有 `--cov` CI 步骤。因此不存在由测试运行器自动强制的覆盖率阈值；提交者需要用定向行为测试满足策略目标，直到覆盖率采集接入 CI。
+
+## CI 集成
+
+唯一的 GitHub Actions 工作流是 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)，名称为 `governed-ci`，在每次 `push` 和 `pull_request` 时运行。
+
+| Job | 运行环境 | 主要步骤 |
+|---|---|---|
+| `python` | `windows-latest`，Python 3.12 与 3.14 matrix | 安装受约束开发依赖；运行 `python integration/scripts/governance/preflight.py --ci`；执行 pytest 收集和完整测试。 |
+| `node` | `windows-latest`，Node.js 20 | 在 `apps/personal_data_chatgpt` 执行 `npm ci --ignore-scripts` 和 `npm test`。 |
+
+CI 的 Python matrix 设置 `fail-fast: false`，因此一个版本失败不会取消另一个版本的结果。当前 CI 不运行 PI Kernel、Electron desktop 或 Decision Cockpit 的 npm 测试；修改这些包时，应在本地运行对应 `npm test` 并在变更验证中记录结果。
