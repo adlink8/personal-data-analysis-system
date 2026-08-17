@@ -23,6 +23,9 @@ from personal_knowledge.adapters.conversation_sources.contracts import (
     SourceArtifact,
     SourceArtifactSet,
 )
+from personal_knowledge.adapters.conversation_sources.time_utils import (
+    normalize_timestamp,
+)
 from personal_knowledge.core.conversation_events import (
     AdaptedSession,
     EventContractError,
@@ -40,7 +43,7 @@ from personal_knowledge.core.conversation_events import (
 )
 
 FAMILY = "zcode"
-ADAPTER_VERSION = "1.4.0"
+ADAPTER_VERSION = "1.5.0"
 CONTRACT_VERSION = "1"
 
 ALLOWED_TABLES: tuple[str, ...] = ("conversation_traces", "conversation_parts")
@@ -334,13 +337,17 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             fidelity=_fidelity(
                 RELATION_COMPLETENESS=FidelityLevel.PARTIAL if live else FidelityLevel.COMPLETE
             ), native_session_id=sid,
-            started_at=trace["time_created"] if live else trace["created_at"],
-            ended_at=last_activity_by_sid.get(sid),
+            started_at=normalize_timestamp(
+                trace["time_created"] if live else trace["created_at"]
+            ),
+            ended_at=normalize_timestamp(last_activity_by_sid.get(sid)),
             title=title, cwd=cwd,
         ))
         events.append(_event(artifact, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
                              locator=f"{artifact.relative_path}#trace:{sid}", native_id=sid,
-                             occurred_at=trace["time_created"] if live else trace["created_at"],
+                             occurred_at=normalize_timestamp(
+                                 trace["time_created"] if live else trace["created_at"]
+                             ),
                              summary=title, native_session=sid))
 
     message_roles = {}
@@ -376,7 +383,7 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             call_ev = _event(
                 artifact, session_id=session_id, kind=EventKind.TOOL_CALL,
                 locator=locator, native_id=part_id,
-                occurred_at=part["time_created"],
+                occurred_at=normalize_timestamp(part["time_created"]),
                 content=input_text, summary=tool_name,
                 field_dispositions=input_disp, native_session=sid,
             )
@@ -392,7 +399,9 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
                 result_ev = _event(
                     artifact, session_id=session_id, kind=EventKind.TOOL_RESULT,
                     locator=f"{locator}#result", native_id=f"{part_id}:result",
-                    occurred_at=part["time_updated"] or part["time_created"],
+                    occurred_at=normalize_timestamp(
+                        part["time_updated"] or part["time_created"]
+                    ),
                     content=output_text, summary=tool_name,
                     field_dispositions=output_disp, native_session=sid,
                 )
@@ -413,7 +422,9 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
                 unknown += 1
                 ev = _event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
                             locator=locator, native_id=part_id,
-                            occurred_at=part["time_created"] if live else part["created_at"],
+                            occurred_at=normalize_timestamp(
+                                part["time_created"] if live else part["created_at"]
+                            ),
                             fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
                                                RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
                                                CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
@@ -443,7 +454,9 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             ev = _event(
                 artifact, session_id=session_id, kind=kind, locator=locator,
                 native_id=part["id"] if live else part["part_id"],
-                occurred_at=part["time_created"] if live else part["created_at"],
+                occurred_at=normalize_timestamp(
+                    part["time_created"] if live else part["created_at"]
+                ),
                 content=content, summary=summary,
                 field_dispositions=reasoning_disp, native_session=sid,
             )
@@ -451,7 +464,9 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             ev = _event(
                 artifact, session_id=session_id, kind=kind, locator=locator,
                 native_id=part["id"] if live else part["part_id"],
-                occurred_at=part["time_created"] if live else part["created_at"],
+                occurred_at=normalize_timestamp(
+                    part["time_created"] if live else part["created_at"]
+                ),
                 content=text if is_message else None,
                 summary=None if is_message else (text[:2048] or None if text else None),
                 native_session=sid,
@@ -466,7 +481,9 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             events.append(_event(
                 artifact, session_id=session_id, kind=EventKind.USAGE,
                 locator=f"{locator}#usage", native_id=f"{part_id}:usage",
-                occurred_at=part["time_created"] if live else part["created_at"],
+                occurred_at=normalize_timestamp(
+                    part["time_created"] if live else part["created_at"]
+                ),
                 summary=usage_summary, native_session=sid,
             ))
 

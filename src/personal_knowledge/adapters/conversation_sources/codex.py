@@ -47,7 +47,7 @@ from personal_knowledge.core.conversation_events import (
 )
 
 FAMILY = "codex"
-ADAPTER_VERSION = "1.4.0"
+ADAPTER_VERSION = "1.5.0"
 CONTRACT_VERSION = "1"
 
 _COMPLETE = {
@@ -72,6 +72,7 @@ _LOOP_HINTS = ("turn_started", "agent_turn_started")
 # summary truncation) and flag truncation explicitly via a field disposition.
 _CONTENT_CAP = 100_000
 _TOOL_OUTPUT_REASON = "tool output truncated; full text exceeds content cap"
+_REASONING_ENCRYPTED_REASON = "reasoning content is encrypted; plaintext not available"
 
 
 def _fidelity(**overrides) -> FidelityProfile:
@@ -255,10 +256,16 @@ def _adapt_record_impl(record: dict, artifact, *, session_id, locator) -> TypedE
                 native_session=sid,
             )
         if item_type == "reasoning":
+            # F11a: plaintext reasoning rides in content; encrypted-only
+            # content stays truly unavailable (never complete with content None).
+            content, dispositions, availability = _reasoning_content(inner)
             return _event(
                 artifact, session_id=session_id, kind=EventKind.REASONING,
                 locator=locator, native_id=inner.get("id"), occurred_at=ts,
+                content=content,
                 summary=_summary_text(inner.get("summary")) or _payload_text(inner),
+                fidelity=_fidelity(CONTENT_AVAILABILITY=availability),
+                field_dispositions=dispositions,
                 native_session=sid,
             )
         if item_type == "agent_message":
@@ -344,12 +351,18 @@ def _adapt_record_impl(record: dict, artifact, *, session_id, locator) -> TypedE
                 occurred_at=ts, summary=summary, native_session=sid,
             )
         if hint in ("agent_reasoning", "reasoning"):
-            # streamed reasoning text on the event stream.
+            # streamed reasoning text on the event stream; content carries the
+            # plaintext part when readable, encrypted-only reasoning stays truly
+            # unavailable (never complete with content None).
+            content, dispositions, availability = _reasoning_content(inner)
             return _event(
                 artifact, session_id=session_id, kind=EventKind.REASONING,
                 locator=locator, native_id=inner.get("id") or inner.get("turn_id") or hint,
                 occurred_at=ts,
+                content=content,
                 summary=_summary_text(inner.get("summary")) or _payload_text(inner),
+                fidelity=_fidelity(CONTENT_AVAILABILITY=availability),
+                field_dispositions=dispositions,
                 native_session=sid,
             )
         if hint in (
@@ -614,6 +627,45 @@ def _capped(text: str) -> tuple[str, bool]:
     if len(text) <= _CONTENT_CAP:
         return text, False
     return text[:_CONTENT_CAP], True
+
+
+def _reasoning_content(inner: dict) -> tuple[str | None, tuple, FidelityLevel]:
+    """Plaintext reasoning from a reasoning response-item / event-msg payload.
+
+    F11a: real Codex reasoning records come in three native shapes:
+
+      (a) plaintext on payload.text (or payload.content, string or
+          content-block list) - readable;
+      (b) only payload.encrypted_content (+ summary) - not readable;
+      (c) a mix of plaintext and encrypted content.
+
+    Returns (content, dispositions, content_availability) where the
+    fidelity level truthfully matches the returned content: COMPLETE for full
+    plaintext, PARTIAL when capped, UNAVAILABLE when no plaintext exists
+    (encrypted-only reasoning is not readable and never claims complete).
+    """
+    for key in ("content", "text"):
+        text = _coerce_text(inner.get(key))
+        if text is not None:
+            capped, truncated = _capped(text)
+            if truncated:
+                return capped, (
+                    FieldDispositionRecord(
+                        field_name=key,
+                        disposition=FieldDisposition.REDACTED,
+                        reason="reasoning truncated; full text exceeds content cap",
+                    ),
+                ), FidelityLevel.PARTIAL
+            return capped, (), FidelityLevel.COMPLETE
+    if inner.get("encrypted_content") is not None:
+        return None, (
+            FieldDispositionRecord(
+                field_name="encrypted_content",
+                disposition=FieldDisposition.UNAVAILABLE,
+                reason=_REASONING_ENCRYPTED_REASON,
+            ),
+        ), FidelityLevel.UNAVAILABLE
+    return None, (), FidelityLevel.UNAVAILABLE
 
 
 _TOKEN_FIELD_KEYS = {

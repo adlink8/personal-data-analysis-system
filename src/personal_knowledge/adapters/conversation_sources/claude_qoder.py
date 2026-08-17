@@ -40,7 +40,7 @@ from personal_knowledge.core.conversation_events import (
     make_event_id,
 )
 
-ADAPTER_VERSION = "1.3.0"
+ADAPTER_VERSION = "1.4.0"
 
 # Round-4 fix: attachment payloads are projected as bounded event content.
 _ATTACHMENT_CAP = 50_000
@@ -55,6 +55,12 @@ CONTRACT_VERSION = "1"
 _TOOL_RESULT_CONTENT_LIMIT = 100_000
 _TOOL_CALL_INPUT_LIMIT = 50_000
 _TOOL_SUMMARY_LIMIT = 2_048
+
+# F11b: thinking/reasoning text is projected into content up to a high bound;
+# beyond it the tail is dropped and the loss is declared through
+# CONTENT_AVAILABILITY=partial plus a REDACTED field disposition, mirroring the
+# tool-block policy. summary stays a bounded synopsis.
+_REASONING_CONTENT_LIMIT = 100_000
 
 _COMPLETE = {
     FidelityDimension.SOURCE_AVAILABILITY: FidelityLevel.COMPLETE,
@@ -541,6 +547,33 @@ class _Family:
                 block_kind = EventKind.REASONING
                 raw = block.get("thinking", block.get("text"))
                 text = None if raw is None else str(raw)
+                if text is None:
+                    # no native text: content stays None and the absence is
+                    # declared explicitly (never reported as complete).
+                    block_fidelity = block_fidelity.with_at_least(
+                        FidelityDimension.CONTENT_AVAILABILITY,
+                        FidelityLevel.UNAVAILABLE,
+                    )
+                    dispositions = dispositions + (FieldDispositionRecord(
+                        "reasoning_content", FieldDisposition.UNAVAILABLE,
+                        "reasoning block has no recoverable text",
+                    ),)
+                elif len(text) > _REASONING_CONTENT_LIMIT:
+                    block_content = text[:_REASONING_CONTENT_LIMIT]
+                    block_fidelity = block_fidelity.with_at_least(
+                        FidelityDimension.CONTENT_AVAILABILITY,
+                        FidelityLevel.PARTIAL,
+                    )
+                    dispositions = dispositions + (FieldDispositionRecord(
+                        "reasoning_content", FieldDisposition.REDACTED,
+                        "reasoning text truncated to 100000 chars",
+                    ),)
+                else:
+                    block_content = text
+                    dispositions = dispositions + (FieldDispositionRecord(
+                        "reasoning_content", FieldDisposition.MAPPED,
+                        "reasoning text mapped exactly to content",
+                    ),)
                 block_summary = text[:2048] if text else None
             elif block_type == "tool_use":
                 block_kind = EventKind.TOOL_CALL

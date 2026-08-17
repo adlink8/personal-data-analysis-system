@@ -20,6 +20,9 @@ from personal_knowledge.adapters.conversation_sources.contracts import (
     SourceArtifact,
     SourceArtifactSet,
 )
+from personal_knowledge.adapters.conversation_sources.time_utils import (
+    normalize_timestamp,
+)
 from personal_knowledge.core.conversation_events import (
     AdaptedSession,
     EventContractError,
@@ -36,7 +39,7 @@ from personal_knowledge.core.conversation_events import (
     make_event_id,
 )
 
-ADAPTER_VERSION = "1.3.0"
+ADAPTER_VERSION = "1.4.0"
 CONTRACT_VERSION = "1"
 
 ALLOWED_TABLES: tuple[str, ...] = ("sessions", "messages", "message_parts")
@@ -388,18 +391,24 @@ class _Family:
                 fidelity=_fidelity(
                     COMPACTION_VISIBILITY=FidelityLevel.PARTIAL if live else FidelityLevel.COMPLETE
                 ), native_session_id=sid,
-                started_at=row["time_created"] if live else row["created_at"],
+                started_at=normalize_timestamp(
+                    row["time_created"] if live else row["created_at"]
+                ),
                 # Round-4 fix: native session.time_updated was never mapped, so
                 # ended_at was always NULL despite the source having the value.
-                ended_at=(row["time_updated"] if live and row["time_updated"]
-                          else (row["updated_at"] if "updated_at" in row.keys() else None)),
+                ended_at=normalize_timestamp(
+                    (row["time_updated"] if live and row["time_updated"]
+                     else (row["updated_at"] if "updated_at" in row.keys() else None))
+                ),
                 title=_session_title(row, live),
                 cwd=_session_cwd_field(row) or msg_cwd_by_session.get(sid),
                 model=_session_model_field(row) or msg_model_by_session.get(sid),
             ))
             events.append(self._event(artifact, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
                                       locator=f"{artifact.relative_path}#session:{sid}", native_id=sid,
-                                      occurred_at=row["time_created"] if live else row["created_at"],
+                                      occurred_at=normalize_timestamp(
+                                          row["time_created"] if live else row["created_at"]
+                                      ),
                                       summary=str(row["title"] or "")[:256] or None, native_session=sid))
 
         for msg in messages:
@@ -415,7 +424,9 @@ class _Family:
                 unknown += 1
                 ev = self._event(artifact, session_id=session_id, kind=EventKind.UNKNOWN_NATIVE,
                                  locator=locator, native_id=msg["id"],
-                                 occurred_at=msg["time_created"] if live else msg["created_at"],
+                                 occurred_at=normalize_timestamp(
+                                     msg["time_created"] if live else msg["created_at"]
+                                 ),
                                  fidelity=_fidelity(STRUCTURE_COMPLETENESS=FidelityLevel.PARTIAL,
                                                     RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
                                                     CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
@@ -427,7 +438,9 @@ class _Family:
             ev = self._event(
                 artifact, session_id=session_id, kind=kind, locator=locator,
                 native_id=msg["id"],
-                occurred_at=msg["time_created"] if live else msg["created_at"],
+                occurred_at=normalize_timestamp(
+                    msg["time_created"] if live else msg["created_at"]
+                ),
                 content=None if raw_content is None else str(raw_content),
                 native_session=sid,
             )
@@ -439,7 +452,9 @@ class _Family:
                     artifact, session_id=session_id, kind=EventKind.USAGE,
                     locator=f"{artifact.relative_path}#message:{msg['id']}:usage",
                     native_id=f"{msg['id']}:usage",
-                    occurred_at=msg["time_created"] if live else msg["created_at"],
+                    occurred_at=normalize_timestamp(
+                        msg["time_created"] if live else msg["created_at"]
+                    ),
                     content=None, summary=usage_summary,
                     fidelity=_fidelity(CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
                     native_session=sid,
@@ -461,7 +476,9 @@ class _Family:
                 tool_events, tool_relations = self._tool_part_events(
                     artifact, parent=parent, part=part, part_data=part_data,
                     live=live,
-                    occurred_at=part["time_created"] if live else part["created_at"],
+                    occurred_at=normalize_timestamp(
+                        part["time_created"] if live else part["created_at"]
+                    ),
                     locator_base=artifact.relative_path,
                 )
                 events.extend(tool_events)
@@ -480,7 +497,9 @@ class _Family:
                         artifact, session_id=parent.session_id, kind=EventKind.USAGE,
                         locator=f"{artifact.relative_path}#part:{part['id']}:usage",
                         native_id=f"{part['id']}:usage",
-                        occurred_at=part["time_created"] if live else part["created_at"],
+                        occurred_at=normalize_timestamp(
+                            part["time_created"] if live else part["created_at"]
+                        ),
                         content=None, summary=tool_usage,
                         fidelity=_fidelity(CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
                         native_session=parent.provenance.native_session_id,
@@ -512,14 +531,18 @@ class _Family:
                 ev = self._reasoning_part_event(
                     artifact, parent=parent, part=part, part_data=part_data,
                     text=text, live=live,
-                    occurred_at=part["time_created"] if live else part["created_at"],
+                    occurred_at=normalize_timestamp(
+                        part["time_created"] if live else part["created_at"]
+                    ),
                 )
             else:
                 ev = self._event(
                     artifact, session_id=parent.session_id, kind=kind,
                     locator=f"{artifact.relative_path}#part:{part['id']}",
                     native_id=part["id"],
-                    occurred_at=part["time_created"] if live else part["created_at"],
+                    occurred_at=normalize_timestamp(
+                        part["time_created"] if live else part["created_at"]
+                    ),
                     content=text if is_message else None,
                     summary=None if is_message else (text[:2048] if text else None),
                     native_session=parent.provenance.native_session_id,
@@ -540,7 +563,9 @@ class _Family:
                     artifact, session_id=parent.session_id, kind=EventKind.USAGE,
                     locator=f"{artifact.relative_path}#part:{part['id']}:usage",
                     native_id=f"{part['id']}:usage",
-                    occurred_at=part["time_created"] if live else part["created_at"],
+                    occurred_at=normalize_timestamp(
+                        part["time_created"] if live else part["created_at"]
+                    ),
                     content=None, summary=part_usage,
                     fidelity=_fidelity(CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
                     native_session=parent.provenance.native_session_id,
