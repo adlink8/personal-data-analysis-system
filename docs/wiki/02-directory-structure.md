@@ -156,7 +156,7 @@ src/personal_knowledge/
 ├── external_context/       ← 外部上下文摄入（Python/Node.js 版本等元数据，见 08-数据治理）
 │   ├── ingest.py / registry.py / lifecycle.py / doctor.py / snapshots.py
 │
-└── cli.py                  # CLI 入口（6 个命令注册）
+└── cli.py                  # CLI 入口（7 个命令注册）
 ```
 
 ### 分层依赖规则（对照 `governance/policies/architecture.yaml`）

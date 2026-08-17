@@ -237,6 +237,53 @@ items) remain **audit-only/non-executable**; `pk-ku extract` refuses them
 separate explicit user cost-approval checkpoint — the v2 activation approval
 does NOT authorize paid LLM extraction.
 
+## Native client-directory discovery (Phase 62 seam, 不经过 AgentsView 中转)
+
+`pk-sync conversations` 的 v2 seam 支持**直接扫描本机 AI 客户端目录**：
+
+```powershell
+# 1) metadata-only 发现报告（零写入、零付费）
+pk-sync conversations --v2-native-dry-run
+
+# 2) 发现 -> 增量 stage（按 content hash 去重）-> NON-active shadow
+pk-sync conversations --v2-native
+#    stage 根: data/staging/v2/native/<family>/<relative-path>
+#    shadow 报告: data/staging/v2/report.json (metadata-only)
+#    大件（zcode 实时库快照 ~313MB）默认已覆盖（--v2-byte-limit 600MB）
+
+# 3) 人工确认后显式激活（永不自动激活，D-18）
+pk-sync conversations --v2-activate <generation-id> --write \
+    --v2-db data/canonical/agent/structured/db/agent_conversations.sqlite
+```
+
+### 发现层（新增）
+
+- `src/personal_knowledge/adapters/conversation_sources/discovery.py`：
+  - `FAMILY_CLIENT_ROOTS`：家族 -> 本机候选根（可用 `PK_CLIENT_ROOT_<FAMILY>` 覆盖）。
+  - `discover_client_sources()`：用**家族自己的 detector** 探测候选根下文件（不重造解析器）。
+  - `stage_client_sources()`：按 content hash 增量复制到 stage 根（`<family>/<relative>`），幂等。
+  - `SQLITE_ALLOWLISTS`：SQLite 家族（zcode/mimo/opencode/antigravity/chatgpt）的 LIVE allowlist，
+    单一数据源引用各适配器模块常量。
+- `v2_sync.py` 修复（62-07 记录的环境缺口）：探测文件头识别 SQLite 魔数（`source_kind="sqlite"`），
+  SQLite 家族捕获走 `capture_sqlite`（WAL-safe online backup + allowlist），不再 `no_source`。
+- `AdaptedSession` 会话上下文字段（additive）：`cwd` / `git_branch` / `model` / `title` / `stop_reason`，
+  各家族适配器从原生工件提取（Codex `session_meta.cwd`、Claude `cwd`/`gitBranch`/`slug`/`stop_reason` 等）；
+  `ce_sessions` 同名列持久化；compatibility projection 已把 `cwd/git_branch/model` 映射到
+  legacy `canonical_sessions`（此前硬编码 None）。
+
+
+### 定时同步
+
+```powershell
+# 注册每日 23:00 计划任务（仅 shadow，永不激活）
+pwsh -File tools\register-native-sync.ps1
+# 立即执行一次 / 删除任务
+pwsh -File tools\register-native-sync.ps1 -RunNow
+pwsh -File tools\register-native-sync.ps1 -Unregister
+```
+
+日志：`var/logs/native-sync.log`。任务只做 discover→stage→shadow；
+激活始终是人工显式步骤，与 Phase 62 D-18/D-31 一致（零付费）。
 ## Related docs
 
 - Agent operating manual: [../AGENTS.md](../AGENTS.md)

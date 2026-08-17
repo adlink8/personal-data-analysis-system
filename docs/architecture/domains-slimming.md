@@ -16,7 +16,7 @@ coupling in `build_conversation_summary`.
 src/personal_knowledge/
   core/llm.py                          # generic LLM client + retry (D-01)
   application/
-    conversation/   # build + summary orchestration
+    conversation/   # typed-event builds, generations, projections, and views
     graph/
     knowledge/      # includes migrate_add_knowledge_unit_tables (SCHEMA_SQL canonical)
     memory/
@@ -39,7 +39,7 @@ src/personal_knowledge/
 | Need | Import from |
 |------|-------------|
 | LLM client / retry | `personal_knowledge.core.llm` |
-| Conversation summary build | `personal_knowledge.application.conversation.summary` |
+| Conversation generation build and activation | `personal_knowledge.application.conversation.v2_sync` |
 | Any build / lifecycle script | `personal_knowledge.application.<subdomain>.…` |
 | Any eval / compare / audit | `personal_knowledge.evaluation.<subdomain|vector>.…` |
 | **Schema SQL / migrate** | **`personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables`** |
@@ -69,7 +69,7 @@ src/personal_knowledge/
 | Item | Status |
 |------|--------|
 | Remove `domains/` package entirely | Optional after consumer graph is empty (was 2026-08-13 window) |
-| `retrieval/memory.py` lazy graph imports | Residual non-application path |
+| `retrieval/memory.py` direct graph imports | Uses the canonical `personal_knowledge.application.graph.query_graph` path |
 | `*.bak-phase20` | **Moved** to `archive/quarantine/bak-phase20-20260716/` (2026-07-16) |
 | `tools/compat/v1_1` shims | Separate compat budget (not application facade debt) |
 

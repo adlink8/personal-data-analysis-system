@@ -24,7 +24,7 @@ Architecture, operational contracts, and runbooks for the personal knowledge sys
 | [runbooks/tooling/tools.md](runbooks/tooling/tools.md) | Tooling notes |
 | [../data/README.md](../data/README.md) | Private data tree |
 | [../var/README.md](../var/README.md) | Runtime / DB / reports tree |
-| [../.planning/ROADMAP.md](../.planning/ROADMAP.md) | Authoritative roadmap (through Phase 22) |
+| [../.planning/ROADMAP.md](../.planning/ROADMAP.md) | Authoritative roadmap (currently through Phase 62) |
 | [../.planning/PRODUCT-READINESS.md](../.planning/PRODUCT-READINESS.md) | Daily product readiness scorecard |
 | [../.planning/STATE.md](../.planning/STATE.md) | Live active index / watermark / checkpoints |
 

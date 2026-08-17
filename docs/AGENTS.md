@@ -232,7 +232,7 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 7. **Planning:** multi-phase work uses `.planning/`; small fixes do not need GSD.  
 8. **Windows + PowerShell** is the default environment.  
 9. **Imports:** new code uses `application.*` / `evaluation.*` / `core.llm` only. `domains/*` is optional re-export; **application→domains debt = 0** (`pk-ku doctor`).  
-10. **Engineering contract:** before adding behavior, fixing a bug, or changing an interface, read [`architecture/engineering-and-testing-contract.md`](architecture/engineering-and-testing-contract.md). Declare the public seam, observable behavior, invariants, and focused command; then use Red → Green → focused regression.
+10. **Engineering contract:** before adding behavior, fixing a bug, or changing an interface, read `docs/architecture/engineering-and-testing-contract.md`. Declare the public seam, observable behavior, invariants, and focused command; then use Red → Green → focused regression.
 11. **Module cohesion:** one module has one primary reason to change. Split before adding a second independent behavior, lifecycle/state machine, authority owner, or a mixed UI/transport/domain/persistence responsibility.
 12. If services are down: restart via `start-services.ps1`; check all three health URLs.
 

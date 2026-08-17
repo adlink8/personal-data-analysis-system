@@ -18,13 +18,15 @@ own phase's PLAN/SUMMARY/VERIFICATION.
 ## What actually owns what
 
 - **rag-api (`http://127.0.0.1:8000`)** is the only backend process. It hosts
-  the built Cockpit at `/app` (same-origin static files, SPA fallback to
-  `index.html`), the read-only `/ui/*` Projection endpoints, and the guarded
-  `/agent/session/*` write endpoints. Start/stop it the same way as any other
-  Phase 32+ REST consumer — see [`../AGENTS.md`](../AGENTS.md) §3.3
+  the guarded `/agent/session/*` write endpoints. **Current status:** the
+  Cockpit `/app` static hosting and the read-only `/ui/*` Projection dispatch
+  blocks in `src/personal_knowledge/services/api_server.py` are commented out,
+  so those routes currently return 404 even though the frontend build and docs
+  exist. Start/stop it the same way as any other Phase 32+ REST consumer — see
+  `docs/AGENTS.md` §3.3
   (`apps\personal_data_chatgpt\scripts\start-services.ps1`, or run
-  `rag-api`/`python -m personal_knowledge.services.api_server` directly for a
-  Cockpit-only session).
+    `rag-api`/`python -m personal_knowledge.services.api_server` directly for a
+    Cockpit-only session).
 - **The Cockpit itself owns nothing.** It never opens SQLite/Chroma directly,
   never starts/stops/restarts REST, MCP (`8789`) or Tunnel (`8081`), and never
   computes lifecycle/current state, Serving Snapshot, Active Pointer or
@@ -67,14 +69,14 @@ python -m pytest `
 ```
 
 Real command output and pass/fail counts for this baseline are recorded in
-[`../../.planning/phases/PDA-36-secure-projection-and-cockpit-baseline/36-VERIFICATION.md`](../../.planning/phases/PDA-36-secure-projection-and-cockpit-baseline/36-VERIFICATION.md),
+`.planning/phases/PDA-36-secure-projection-and-cockpit-baseline/36-VERIFICATION.md`,
 not repeated here — this runbook describes how to reproduce them, not what a
 specific past run returned.
 
 ## Transport and mutation safety (what to expect, not just what to trust)
 
-- Production Cockpit at `/app` and every `/ui/*`/`/agent/session/*` call from
-  it are **same-origin** — no `Access-Control-Allow-Origin: *`, no ambient CORS
+- Production Cockpit `/app` and `/ui/*` routes are currently disabled (404); when re-enabled, every call from
+  the Cockpit is **same-origin** — no `Access-Control-Allow-Origin: *`, no ambient CORS
   trust.
 - Dev-only cross-origin access (`npm run dev` on `5173` talking to rag-api on
   `8000`) is allowed only for an explicit allowlist: the built-in
@@ -116,7 +118,8 @@ real incident, not a routine recovery step.
   Phase 38 (guarded decision workspace pages), Phase 39 (feedback/proactive/
   runtime truthfulness) or Phase 40 (hardening + a real browser UAT) as
   completed — those phases have their own PLAN/SUMMARY/VERIFICATION and are
-  pending per `.planning/ROADMAP.md`.
+  marked complete in `.planning/ROADMAP.md` (UAT accepted 2026-07-28); note
+  the live `/app`/`/ui/*` routes are currently disabled in the dispatcher.
 - Personal Knowledge Wiki / Topic Pages / backlinks / LLM Wiki narrative are a
   v1.5 candidate; they are not shipped, not read, not written by anything
   described here.
@@ -126,7 +129,7 @@ real incident, not a routine recovery step.
 
 ## Related docs
 
-- Phase 36 evidence: [`../../.planning/phases/PDA-36-secure-projection-and-cockpit-baseline/36-VERIFICATION.md`](../../.planning/phases/PDA-36-secure-projection-and-cockpit-baseline/36-VERIFICATION.md)
-- Cockpit README: [`../../apps/personal_decision_cockpit/README.md`](../../apps/personal_decision_cockpit/README.md)
-- Write-flow contract: [`../../apps/personal_decision_cockpit/docs/write-flow.md`](../../apps/personal_decision_cockpit/docs/write-flow.md)
-- Agent operating manual (service start/stop): [`../AGENTS.md`](../AGENTS.md)
+- Phase 36 evidence: `.planning/phases/PDA-36-secure-projection-and-cockpit-baseline/36-VERIFICATION.md`
+- Cockpit README: `apps/personal_decision_cockpit/README.md`
+- Write-flow contract: `apps/personal_decision_cockpit/docs/write-flow.md`
+- Agent operating manual (service start/stop): `docs/AGENTS.md`

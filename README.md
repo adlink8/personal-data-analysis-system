@@ -92,3 +92,50 @@ are named `*.bak-phase20` and remain only for the recovery window.
 python -m personal_knowledge.governance.preflight --ci
 python -m pytest -q tests/governance/
 ```
+
+## Installation
+
+Requires Python 3.11 or newer. Install the constrained runtime dependencies and
+the local package from the repository root:
+
+```bash
+python -m pip install -c constraints.txt -r requirements.txt
+python -m pip install -e .
+```
+
+For development and tests, install the development requirements instead:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pip install -e .
+```
+
+## Usage examples
+
+Preview new local conversations without publishing changes:
+
+```bash
+pk-sync conversations
+```
+
+The command reports the dry-run inventory and normalized/canonical sync work. Add
+`--write` only when you intend to publish the conversation SSOT.
+
+Inspect the knowledge-unit delta without an LLM call or writes:
+
+```bash
+pk-ku inspect
+```
+
+The report shows whether source data changed and which references are new. Follow
+the incremental workflow in `docs/runbooks/ku-incremental.md` before preparing or
+extracting a run.
+
+Read retrieval statistics as machine-readable JSON:
+
+```bash
+rag-search stats --json
+```
+
+The result is a JSON summary of the currently configured consolidated knowledge
+index.

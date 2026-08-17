@@ -7,7 +7,7 @@
 
 | 层 | SSOT | 用途 |
 |---|---|---|
-| **对话采集** | AgentsView `sessions.db`（**只读**）→ canonical `data/canonical/agent/structured/db/agent_conversations.sqlite` | 原文、工具、密钥、message 级证据 |
+| **对话采集** | AgentsView `sessions.db`（**只读**）→ canonical `data/canonical/agent/structured/db/agent_conversations.sqlite` | 允许保留的原文、工具元数据、provenance 与 message 级证据；secret、排除或删除会话不进入 canonical messages |
 | **个人知识** | `var/db/personal_system.sqlite` 中 `canonical_knowledge_units` + active KU Chroma collection | 偏好 / 决策 / 可答断言；供 career-os 取证 |
 | **跨源非对话** | `unified_events` / `personal_events`（过渡；库在 `var/db/`） | Google 等非对话；遗留语义兜底 |
 
@@ -60,10 +60,10 @@ Wave 4 frozen 评测（gold evidence）：**layered R@5 = 1.00**（legacy 约 0.
 
 | 值 | 行为 | 何时 |
 |---|---|---|
-| **`layered`**（**当前默认**） | KU → `conversation_turns` dialogue → Google `personal_events` → 可选 legacy_pad | Phase 15 Wave 2 已落地 |
+| **`layered`**（**当前默认**） | KU → `canonical_messages` → `conversation_turns` dialogue → `non_dialogue_raw`（含 Google）→ 可选 legacy_pad | 当前分层检索链路 |
 | **`legacy`** | KU 后全量 `personal_events` 补洞 | 回滚 / 对比评测：`--fallback-policy legacy` 或 env `PERSONAL_DATA_FALLBACK_POLICY=legacy` |
 
-`route_policy` 字符串仍为人类可读摘要：`knowledge-first + raw fallback`，与 `fallback_policy` 机器枚举并存，不破坏既有契约。
+`route_policy` 字符串是人类可读摘要：默认分层策略返回 `knowledge-first + layered fallback (dialogue->non_dialogue_raw)`；仅 legacy 策略返回 `knowledge-first + raw fallback`。它与 `fallback_policy` 机器枚举并存。
 
 ### 2.2 `allow_legacy_pad` 默认与滚动（Phase 15-02）
 
@@ -158,7 +158,7 @@ pk-ku history --subject "Shell" --include-all-lifecycle --json
 
 - 本仓库是**个人数据仓库**，通过 MCP / REST / CLI 提供只读证据。
 - **career-os 经 LLM 中介消费 KU**（取证 → 提案 → 确认 → 写入 career-os），**不做**批量同步写库。
-- 详见 [integration/README.md](../README.md)「下游消费：Career OS」。
+- 详见 [integration/README.md](../../integration/README.md)「下游消费：Career OS」。
 
 ## 4. 消费入口（只读）
 

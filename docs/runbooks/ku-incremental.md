@@ -1,6 +1,6 @@
 # Knowledge Unit (KU) incremental runbook
 
-**Status:** supported operator contract (2026-07-16)  
+**Status:** supported inspection and prepare contract; paid extraction is intentionally blocked in Phase 62  
 **Audience:** humans and coding agents  
 **Authority:** Phase 14 plans (KU-05 backfill vs KU-08 incremental) + module contracts in  
 `application/knowledge/refresh_knowledge_units.py`
@@ -18,7 +18,7 @@ Never start a full frozen inventory production run as a substitute.**
 |--------|----------|--------|
 | See if source changed | Yes | **`pk-ku inspect`** |
 | Freeze **delta** preflight (no LLM) | Yes when it works | **`pk-ku prepare …`** (policy flags) |
-| Extract **only delta queue** | Yes (design goal) | **`pk-ku extract --run <ir_…>`** |
+| Extract a prepared queue | **No in Phase 62** | `ir_*` is superseded; `vc_*` remains blocked pending explicit cost approval and a representative pilot |
 | Run status | Yes | **`pk-ku status --run …`** |
 | Extraction gate | Yes | **`pk-ku extract-gate --run … [--min-yield 0.7]`** |
 | Canonical units | Yes after extract | **`pk-ku canonical --run … --write`** |
@@ -151,21 +151,13 @@ Expect non-paid: `production_llm_calls=0`, `active_changed=false`.
 | `source_changed=True` | non-empty `delta_inventory_id`, `fresh_run_id`, `new_count`/`delta_count` > 0 | Continue to Step C |
 | `no_op` / unchanged | anything | Stop; no paid run |
 
-Known implementation note (2026-07): when a committed watermark exists, `prepare_production_delta` may call `prepare_delta` with the **same** canonical DB as before/after, so content delta is empty even though inspect sees inventory drift. Treat that as **defect**, not as permission to full-backfill.
+`prepare_production_delta` compares the live canonical inventory with a durable baseline inventory at or before the committed watermark. It must not self-diff the same live database as both before and after. A mismatch between inspect and prepare remains a defect, not permission to full-backfill.
 
-### Step C — Paid extraction (only delta / approved run)
+### Step C — Paid extraction (blocked in Phase 62)
 
-**Preferred (when prepare produced a fresh run bound to delta):**
+Do not invoke `pk-ku extract` for the current prepare outputs. Legacy `ir_*` runs are preserved as `superseded_policy` audit history and are always non-executable. View-policy `vc_*` runs remain `blocked_pending_user_cost_approval`; the CLI rejects both classes before importing the paid executor or calling a provider. Enabling a paid path requires separate user cost approval and a representative LLM pilot.
 
-```powershell
-pk-ku extract --run <fresh_run_id> --model gemini-3.5-flash-lite `
-  --max-items <batch> --workers 4 --min-request-interval 2.5
-```
-
-`pk-ku extract` only accepts incremental `ir_*` run ids by default (full-inventory run ids require `PK_KU_ALLOW_NON_INCREMENTAL_RUN=1` forensics).
-
-Use small `--max-items` first (e.g. 20–50) to smoke Vertex, then larger batches.  
-Monitor:
+Status inspection remains read-only:
 
 ```powershell
 pk-ku status --run <run_id>
@@ -264,7 +256,7 @@ python -m personal_knowledge.application.serving.snapshots repair-pointer --writ
 
 ### Step F — Lifecycle reconcile (optional; never DELETE)
 
-Subject-level **growth line** on `canonical_knowledge_units`: detect near-duplicate answers (supersede older) and contradictory answers (mark conflict). Default is **dry-run** (report only). Writes only update `lifecycle` / `supersedes_id` — **never hard-delete** rows.
+Subject-level **growth line** on `canonical_knowledge_units`: detect near-duplicate answers (supersede older) and contradictory answers (mark conflict). `reconcile` is report-only. Direct heuristic writes are retired; persistence must use a bounded proposal, explicit human review, registration, and atomic apply. The governed flow never hard-deletes rows.
 
 ```powershell
 # Report only (safe)
@@ -274,10 +266,11 @@ pk-ku reconcile --dry-run --max-subjects 50
 pk-ku reconcile --subject "Shell" --dry-run
 pk-ku reconcile --since 2026-07-01 --max-subjects 20 --dry-run
 
-# Persist (fail-closed: requires --i-know)
-pk-ku reconcile --write --i-know --max-subjects 20
-# optional full artifact:
-# pk-ku reconcile --write --i-know --artifact var\reports\analysis\ai_context\ku_lifecycle_reconcile.json
+# Governed persistence (review/finalize artifacts are explicit inputs)
+pk-ku lifecycle-propose --max-subjects 20 --artifact <proposal.json>
+pk-ku lifecycle-finalize --proposal <proposal.json> --review <review.json> --artifact <reviewed.json>
+pk-ku lifecycle-register --manifest <reviewed.json> --write --i-know
+pk-ku lifecycle-apply --manifest <reviewed.json> --actor <actor> --write --i-know
 ```
 
 | Rule (v1 heuristic, no paid LLM) | Action |
@@ -359,7 +352,8 @@ Does **not** promote active index, advance watermark, or call paid extract.
 | `build_knowledge_unit_vector_store --write` | Embed cost | No (candidate) | Rebuild candidate | After extract |
 | `promote_knowledge_index --promote` | No | **Yes** | N/A | After eval |
 | `pk-ku reconcile` (dry-run) | No | No | No (lifecycle report) | Yes |
-| `pk-ku reconcile --write --i-know` | No | No | No (lifecycle cols only) | Careful; never DELETE |
+| `pk-ku reconcile --write --i-know` | No | No | Rejected | Retired; use the governed lifecycle flow |
+| `pk-ku lifecycle-propose/finalize/register/apply` | No | Register/apply only | Reviewed lifecycle manifest | Human review required; never DELETE |
 
 ---
 
@@ -383,8 +377,8 @@ Do **not** rewrite extraction to another LLM provider as a “quick fix” witho
 [ ] pk-ku inspect recorded; new_refs_count known
 [ ] Human approval if paid batch is large
 [ ] pk-ku prepare; if no_op but inspect shows change → STOP (do not full inventory)
-[ ] pk-ku extract --run ir_* only — never invent full inventory fallback
-[ ] pk-ku status shows pending decreasing on the CORRECT run
+[ ] Do not run paid extraction: ir_* is superseded and vc_* awaits explicit cost approval plus pilot
+[ ] pk-ku status is used only to inspect an existing run
 [ ] No promote until eval gate
 [ ] Report before/after: active pointer, unit counts, run_id, new_refs
 [ ] Policy changes → CLI flags only; do not patch prepare defaults for one-off runs

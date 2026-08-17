@@ -79,7 +79,7 @@ services (外部服务)   ← 可以引用下面全部
 governance (控制面)   ← 只能引用自己
 ```
 
-**典型违规：** `core/llm.py` 导入了 `application/sync.py` → preflight 报 P1。
+**典型违规：** core 层模块反向导入 application 层模块 → preflight 报 P1。
 
 ## 六、自动合规检查
 

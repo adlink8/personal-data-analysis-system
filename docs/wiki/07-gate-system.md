@@ -135,10 +135,10 @@ REST 用 `guard_jsonable()` 扫描 JSON 中所有值，MCP 用 `guard_mcp_payloa
 
 | HTTP 状态码 | 分类 | 行为 |
 |------------|------|------|
-| 429 | retryable | 重试（最多 6 次） |
-| 500, 502, 503 | retryable | 重试 |
-| 400, 401, 403, 404 | terminal | 立即失败，标记为 terminal_failed |
-| 超过 6 次重试 | → 升格 terminal | 防止死循环 |
+| 401 | retryable | 刷新 token 后重试 |
+| 429, 500, 502, 503 | retryable | 重试；默认 `max_retries=4` |
+| 400, 403, 404 | terminal | 立即失败，标记为 terminal_failed |
+| 重试耗尽 | retryable | 返回 `max retries exceeded`，attempts 为 `max_retries + 1`，由上层决定后续状态 |
 
 ---
 

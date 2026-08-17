@@ -178,4 +178,4 @@ L3 保留原样:   2,486 条
 | `L2_COS_LO` | 0.88 | L2 余弦下界 | L2 减少 | L2 增加 |
 | `L2_MAX_SIZE` | 50 | 超大簇保护阈值 | 更多大簇被合并 | 更多大簇被保护 |
 
-代码位置：`application/graph/build_merge_layer.py`（阈值常量 + `detect_l1()` / `detect_l2()`）。
+代码位置：`src/personal_knowledge/application/graph/build_merge_layer.py`（阈值常量 + `detect_l1()` / `detect_l2()`）。

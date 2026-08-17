@@ -99,7 +99,7 @@ Wave 4 frozen 评测（gold evidence）：**layered R@5 = 1.00**（legacy 约 0.
 ```
 
 Holdout 套件（独立于 frozen 20）：`assets/evals/knowledge_units/holdout_15_02.synthetic.jsonl`  
-评测：`python integration/scripts/_tools/phase15_02_holdout_eval.py`
+评测：`python tools/forensics/phase15_02_holdout_eval.py`
 
 ## 3. 明确边界
 
@@ -131,8 +131,8 @@ Holdout 套件（独立于 frozen 20）：`assets/evals/knowledge_units/holdout_
   - REST：`GET /google/assertions`、`GET /google/assertions/<id>`
   - MCP：`list_google_assertions`、`get_google_assertion`
   - 响应含 `not_knowledge_unit: true`、`kind: google_light_assertion`
-- 报告：`integration/analysis/ai_context/google_light_structure_report.json`
-- 活跃指针：`Google/structured/db/google_structure_active_run.txt`
+- 报告：`var/reports/analysis/ai_context/google_light_structure_report.json`
+- 活跃指针：`data/canonical/google/structured/db/google_structure_active_run.txt`
 
 ### 3.3 career-os 消费方式
 
