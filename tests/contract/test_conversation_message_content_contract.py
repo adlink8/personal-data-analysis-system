@@ -138,14 +138,15 @@ def test_live_sqlite_part_adapters_preserve_null_vs_explicit_empty_string(
         if family == "zcode":
             con.executescript(
                 "CREATE TABLE session (id TEXT,parent_id TEXT,title TEXT,"
-                "time_created TEXT,time_updated TEXT,time_compacting TEXT,trace_id TEXT);"
+                "time_created TEXT,time_updated TEXT,time_compacting TEXT,trace_id TEXT,"
+                "directory TEXT,path TEXT);"
                 "CREATE TABLE message (id TEXT,session_id TEXT,time_created TEXT,"
                 "time_updated TEXT,data TEXT,sequence INTEGER);"
                 "CREATE TABLE part (id TEXT,message_id TEXT,session_id TEXT,"
                 "time_created TEXT,time_updated TEXT,data TEXT,sequence INTEGER);"
             )
-            con.execute("INSERT INTO session VALUES (?,?,?,?,?,?,?)", (
-                "s1", None, "session", "2026-08-01", None, None, None,
+            con.execute("INSERT INTO session VALUES (?,?,?,?,?,?,?,?,?)", (
+                "s1", None, "session", "2026-08-01", None, None, None, None, None,
             ))
             con.execute("INSERT INTO message VALUES (?,?,?,?,?,?)", (
                 "m1", "s1", "2026-08-01", None,
@@ -332,9 +333,11 @@ def test_claude_dag_content_blocks_are_typed_individually_and_replay_stably(
         EventKind.USER_MESSAGE,
         EventKind.TOOL_CALL,
         EventKind.USAGE,
-        EventKind.UNKNOWN_NATIVE,
+        EventKind.SYSTEM_MESSAGE,
     ]
-    assert [event.content for event in first.events if event.kind in MESSAGE_KINDS] == [
+    # the api_error system_message has no content; only the real messages carry bodies
+    assert [event.content for event in first.events
+            if event.kind in MESSAGE_KINDS and event.content is not None] == [
         "assistant body", "post-tool user body", "",
     ]
     assert [event.event_id for event in first.events] == [
@@ -367,11 +370,14 @@ def test_claude_dag_content_blocks_are_typed_individually_and_replay_stably(
         for disposition in orphan.field_dispositions
     )
     api_error = first.events[-1]
-    assert api_error.kind is EventKind.UNKNOWN_NATIVE
+    # DEEP-3: api_error system records are now classified as system_message
+    assert api_error.kind is EventKind.SYSTEM_MESSAGE
     assert api_error.content is None
+    # its recovered summary is non-empty and the record is tracked as mapped
+    assert api_error.summary and "api_error" in api_error.summary
     assert any(
-        disposition.field_name == "error"
-        and disposition.disposition is FieldDisposition.PRESERVED_BY_REFERENCE
+        disposition.field_name == "type:system"
+        and disposition.disposition is FieldDisposition.MAPPED
         for disposition in api_error.field_dispositions
     )
 
