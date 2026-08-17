@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from personal_knowledge.adapters.conversation_sources.contracts import (
     AdaptationResult,
@@ -62,7 +62,8 @@ def capability() -> CapabilityDescriptor:
     return CapabilityDescriptor(
         family=FAMILY, adapter_version=ADAPTER_VERSION, contract_version=CONTRACT_VERSION,
         supported_event_kinds=(EventKind.SESSION_LIFECYCLE, EventKind.USER_MESSAGE,
-                               EventKind.ASSISTANT_MESSAGE, EventKind.UNKNOWN_NATIVE),
+                               EventKind.ASSISTANT_MESSAGE, EventKind.USAGE,
+                               EventKind.UNKNOWN_NATIVE),
         supported_relation_kinds=(),
         fidelity_dimensions=tuple(FidelityDimension),
         capabilities={
@@ -158,6 +159,10 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             sessions=(), relations=(), warnings=("threads table is empty (partial)",),
         )
 
+    message_timestamps = [
+        m["created_at"] for m in messages if "created_at" in m.keys() and m["created_at"] is not None
+    ]
+
     for thread in threads:
         tid = str(thread["id"] if "id" in thread.keys() else thread[0])
         locator = f"{artifact.relative_path}#thread:{tid}"
@@ -169,6 +174,12 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
                 contract_version=CONTRACT_VERSION,
             ),
             fidelity=_fidelity(), native_session_id=tid,
+            started_at=(
+                thread["created_at"]
+                if "created_at" in thread.keys() and thread["created_at"] is not None
+                else None
+            ),
+            ended_at=message_timestamps[-1] if message_timestamps else None,
         ))
         events.append(TypedEvent(
             event_id=session_id,
@@ -229,6 +240,99 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         artifacts=(artifact,), events=tuple(events), fidelity=_fidelity(),
         sessions=tuple(sessions), relations=(), warnings=(),
     )
+
+
+_USAGE_KEYS = (
+    "input_tokens", "output_tokens", "prompt_tokens", "completion_tokens",
+    "cache_read", "cache_write",
+)
+
+
+def _usage_event(artifact, *, row, nested_usage=None, native_session, session_id,
+                 partial, index) -> TypedEvent:
+    """Emit a machine-parseable USAGE event for a Cursor jsonl row with token data."""
+    usage = nested_usage
+    if usage is None:
+        usage = {
+            key: row[key] for key in _USAGE_KEYS
+            if key in row and isinstance(row[key], (int, float))
+        }
+    parts = []
+    for key, value in (usage.items() if isinstance(usage, dict) else ()):
+        if isinstance(value, (int, float)):
+            parts.append(f"{key}={int(value)}")
+    locator = f"{artifact.relative_path}#usage:{index}"
+    return TypedEvent(
+        event_id=make_event_id(
+            FAMILY, artifact.artifact_id, CONTRACT_VERSION, None,
+            kind=EventKind.USAGE, session_id=session_id, native_locator=locator,
+        ),
+        session_id=session_id, kind=EventKind.USAGE,
+        provenance=Provenance(
+            artifact_id=artifact.artifact_id,
+            artifact_hash=artifact.content_hash,
+            native_locator=locator, native_session_id=native_session,
+            contract_version=CONTRACT_VERSION,
+        ),
+        fidelity=_fidelity(
+            RELATION_COMPLETENESS=FidelityLevel.UNKNOWN,
+            COMPACTION_VISIBILITY=FidelityLevel.UNKNOWN,
+            NATIVE_ID_STABILITY=FidelityLevel.PARTIAL,
+            CONTENT_AVAILABILITY=FidelityLevel.PARTIAL,
+        ),
+        ordinal=index,
+        content=None,
+        summary=" ".join(parts) or None,
+        native_payload_ref=f"{artifact.artifact_id}:{locator}",
+    )
+
+
+def _jsonl_project_cwd(relative_path):
+    """Restore the Cursor project dir name encoded in the transcript path."""
+    parts = PurePosixPath(relative_path.replace("\\", "/")).parts
+    for i, part in enumerate(parts):
+        if part == "agent-transcripts" and (i + 1) < len(parts):
+            return parts[i + 1]
+    parent = PurePosixPath(relative_path.replace("\\", "/")).parent
+    return parent.name or None
+
+
+def _first_model(rows):
+    """Best-effort first model id observed in the transcript records (if any).
+
+    Cursor transcripts expose the model name under a few variant keys at the
+    record level ("model" / "model_id" / "modelID") or nested inside the
+    "message" object. Extraction is best-effort: transcripts that carry no
+    model leave AdaptedSession.model as None rather than guessing.
+    """
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        candidate = row.get("model")
+        if candidate is None:
+            candidate = row.get("model_id") or row.get("modelID")
+        if candidate is None:
+            message = row.get("message")
+            if isinstance(message, dict):
+                candidate = (message.get("model") or message.get("model_id")
+                             or message.get("modelID") or message.get("model_name"))
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()[:256]
+        if isinstance(candidate, (int, float)):
+            return str(candidate)[:256]
+    return None
+
+
+def _first_user_message(rows):
+    """Use the first user message as the session title (bounded)."""
+    for row in rows:
+        if row.get("role") != "user":
+            continue
+        message = row.get("message")
+        content = message.get("content") if isinstance(message, dict) else message
+        if isinstance(content, str) and content.strip():
+            return content.strip()[:256]
+    return None
 
 
 def _adapt_jsonl(artifact: SourceArtifact, *, artifact_root: Path) -> AdaptationResult:
@@ -308,15 +412,31 @@ def _adapt_jsonl(artifact: SourceArtifact, *, artifact_root: Path) -> Adaptation
             ),
             native_payload_ref=f"{artifact.artifact_id}:{locator}",
         ))
+        usage = row.get("usage")
+        if isinstance(usage, dict) or isinstance(usage, (int, float)) or any(
+            k in row for k in ("input_tokens", "output_tokens", "prompt_tokens",
+                               "completion_tokens", "cache_read", "cache_write")
+        ):
+            events.append(_usage_event(
+                artifact=artifact, row=row, nested_usage=usage,
+                native_session=native_session, session_id=session_id,
+                partial=partial, index=index,
+            ))
     warnings = (
         (f"{unknown} unknown native record(s) preserved",) if unknown else ()
     )
+    project_cwd = _jsonl_project_cwd(artifact.relative_path)
+    row_timestamps = [r.get("timestamp") for r in rows if r.get("timestamp")]
     return AdaptationResult(
         family=FAMILY, adapter_version="1.1.0",
         contract_version=CONTRACT_VERSION, artifacts=(artifact,),
         sessions=(AdaptedSession(
             session_id=session_id, provenance=provenance,
             fidelity=partial, native_session_id=native_session,
+            started_at=row_timestamps[0] if row_timestamps else None,
+            ended_at=row_timestamps[-1] if row_timestamps else None,
+            cwd=project_cwd, model=_first_model(rows),
+            title=_first_user_message(rows),
         ),), events=tuple(events), relations=(), fidelity=partial,
         warnings=warnings,
     )

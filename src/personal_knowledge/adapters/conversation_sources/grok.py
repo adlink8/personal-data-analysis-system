@@ -26,6 +26,8 @@ from personal_knowledge.core.conversation_events import (
     EventContractError,
     EventKind,
     EventRelation,
+    FieldDisposition,
+    FieldDispositionRecord,
     FidelityDimension,
     FidelityLevel,
     FidelityProfile,
@@ -79,9 +81,13 @@ def capability() -> CapabilityDescriptor:
             EventKind.SESSION_LIFECYCLE, EventKind.USER_MESSAGE,
             EventKind.ASSISTANT_MESSAGE, EventKind.DEVELOPER_MESSAGE,
             EventKind.SYSTEM_MESSAGE, EventKind.COMPACTION_SUMMARY,
-            EventKind.SUBAGENT_BOUNDARY, EventKind.UNKNOWN_NATIVE,
+            EventKind.SUBAGENT_BOUNDARY, EventKind.USAGE,
+            EventKind.UNKNOWN_NATIVE,
         ),
-        supported_relation_kinds=(RelationKind.SOURCE_SESSION_CROSSWALK,),
+        supported_relation_kinds=(
+            RelationKind.SOURCE_SESSION_CROSSWALK,
+            RelationKind.COMPACTED_RANGE,
+        ),
         fidelity_dimensions=tuple(FidelityDimension),
         capabilities={
             "native_shape": "multi_file_session_directory|agentsview_pathless_observation",
@@ -242,6 +248,17 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
                                  occurred_at=row.get("timestamp"),
                                  content=exact_content,
                                  native_session=native_session))
+            usage_summary = _row_usage_summary(row)
+            if usage_summary:
+                events.append(_event(
+                    chat, session_id=session_id, kind=EventKind.USAGE,
+                    locator=f"chat_history.jsonl#usage:{index}",
+                    native_id=f"{row.get('id') or f'row-{index}'}:usage",
+                    occurred_at=row.get("timestamp"), content=None,
+                    summary=usage_summary,
+                    fidelity=_fidelity(CONTENT_AVAILABILITY=FidelityLevel.PARTIAL),
+                    native_session=native_session,
+                ))
 
     # Compaction: a markdown/checkpoint file is a typed compaction summary.
     for name in ("compaction.md", "checkpoint.json", "recap.md"):
@@ -252,9 +269,28 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             text = (artifact_root / artifact.artifact_id).read_text(encoding="utf-8")
         except OSError:
             continue
-        events.append(_event(artifact, session_id=session_id, kind=EventKind.COMPACTION_SUMMARY,
-                             locator=f"{name}#doc", native_id=name,
-                             summary=text[:2048] or None, native_session=native_session))
+        compactor = _event(artifact, session_id=session_id, kind=EventKind.COMPACTION_SUMMARY,
+                           locator=f"{name}#doc", native_id=name,
+                           summary=text[:2048] or None, native_session=native_session)
+        events.append(compactor)
+        # Best-effort COMPACTED_RANGE: link the compaction to the last preceding
+        # non-compaction event so the range references real, known endpoints.
+        prior = _last_preceding_non_compaction(events, compactor.event_id)
+        if prior is not None:
+            relations.append(EventRelation(
+                relation_id=make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
+                                          f"rel-compact:{compactor.event_id}:{prior.event_id}"),
+                source_event_id=prior.event_id, target_event_id=compactor.event_id,
+                relation_kind=RelationKind.COMPACTED_RANGE,
+            ))
+        else:
+            compactor = _with_disposition(
+                compactor,
+                field_name="compacted_range",
+                disposition=FieldDisposition.UNSUPPORTED,
+                reason="no preceding event locatable to anchor a compacted range",
+            )
+            events[-1] = compactor
 
     # Subagents: cross-file relation from subagent entries to the parent session.
     sub_artifact = by_path.get("subagents.json")
@@ -311,6 +347,10 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             native_session_id=native_session,
             started_at=doc.get("created_at") if isinstance(doc, dict) else None,
             ended_at=doc.get("updated_at") if isinstance(doc, dict) else None,
+            cwd=_grok_cwd(info),
+            model=_grok_model(doc, info, artifact_root, chat),
+            git_branch=_grok_branch(info, doc),
+            title=_grok_title(info, doc),
         ))
 
     return AdaptationResult(
@@ -319,6 +359,148 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         events=tuple(events),
         fidelity=_fidelity(CONTENT_AVAILABILITY=content_level, STRUCTURE_COMPLETENESS=structure_level),
         sessions=tuple(sessions), relations=tuple(relations), warnings=tuple(warnings),
+    )
+
+
+_USAGE_ALIASES = {
+    "input_tokens": ("input_tokens", "inputTokens", "prompt_tokens", "input"),
+    "output_tokens": ("output_tokens", "outputTokens", "completion_tokens", "output"),
+    "cache_read": ("cache_read", "cacheRead"),
+    "cache_write": ("cache_write", "cacheWrite"),
+    "total_tokens": ("total_tokens", "totalTokens"),
+}
+
+
+def _grok_cwd(info: dict) -> str | None:
+    """Working directory from summary.json ``info``.
+
+    The native Grok export puts the project path in ``info.cwd``; older/other
+    variants use ``info.project``. Support both so a schema rename does not
+    silently drop the session working directory.
+    """
+    if not isinstance(info, dict):
+        return None
+    candidate = info.get("cwd")
+    if candidate is None:
+        candidate = info.get("project")
+    return candidate if isinstance(candidate, str) and candidate.strip() else None
+
+
+def _grok_model(doc: dict, info: dict, artifact_root: Path, chat) -> str | None:
+    """Model id for the session.
+
+    Prefer the native summary.json ``current_model_id`` (top-level, confirmed
+    in real exports) over an ``info.model`` variant; fall back to the first
+    model id observed in the chat_history transcript
+    (``model_id``/``model``/``modelID``). The summary-native source is the
+    authoritative current model, so it wins over a possibly-stale row-level
+    model.
+    """
+    for source in (doc, info):
+        if not isinstance(source, dict):
+            continue
+        candidate = source.get("current_model_id") or source.get("model")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()[:256]
+    if chat is None:
+        return None
+    try:
+        rows = _read_jsonl_blob(artifact_root, chat)
+    except Exception:
+        return None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        candidate = row.get("model_id") or row.get("model") or row.get("modelID")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()[:256]
+    return None
+
+
+def _grok_branch(info: dict, doc: dict) -> str | None:
+    """Git branch for the session from summary.json ``head_branch``.
+
+    Real Grok exports put the branch at top-level ``head_branch``; some
+    variants keep it under ``info``. Support both so a schema rename never
+    silently drops the branch.
+    """
+    for source in (doc, info):
+        if not isinstance(source, dict):
+            continue
+        candidate = source.get("head_branch")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()[:256]
+    return None
+
+
+
+def _grok_title(info: dict, doc: dict) -> str | None:
+    """Session title: explicit title, else a bounded session_summary fallback."""
+    title = info.get("title") if isinstance(info, dict) else None
+    if isinstance(title, str) and title.strip():
+        return title.strip()[:256]
+    summary = doc.get("session_summary") if isinstance(doc, dict) else None
+    if isinstance(summary, str) and summary.strip():
+        return summary.strip()[:256]
+    return None
+
+
+def _row_usage_summary(row: dict) -> str | None:
+    # Machine-parseable canonical usage summary from a chat_history row.
+    # Surfaces a top-level "usage" dict and/or token fields directly on the
+    # row, mapping native counters onto the canonical grammar input_tokens=X
+    # output_tokens=Y [cache_read=Z cache_write=W] (only present, integers).
+    usage = row.get("usage")
+    data = {}
+    if isinstance(usage, dict):
+        data = usage
+    elif isinstance(usage, (int, float)):
+        data = {"usage": usage}
+    for key in row:
+        if key in _USAGE_ALIASES or any(
+            key in aliases for aliases in _USAGE_ALIASES.values()
+        ):
+            if key not in data and isinstance(row[key], (int, float)):
+                data[key] = row[key]
+    counters: dict[str, int] = {}
+    for native, value in data.items():
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        for canonical, aliases in _USAGE_ALIASES.items():
+            if native in aliases:
+                counters.setdefault(canonical, int(value))
+                break
+    if not counters:
+        return None
+    return " ".join(
+        f"{key}={counters[key]}" for key in _USAGE_ALIASES if key in counters
+    )
+
+
+def _last_preceding_non_compaction(events, current_id):
+    """Return the last event emitted before ``current_id`` that is not a compaction."""
+    for ev in reversed(events):
+        if ev.event_id == current_id:
+            continue
+        if ev.kind is EventKind.COMPACTION_SUMMARY:
+            continue
+        return ev
+    return None
+
+
+def _with_disposition(event, *, field_name, disposition, reason):
+    """Rebuild a frozen TypedEvent adding one field disposition."""
+    return TypedEvent(
+        event_id=event.event_id, session_id=event.session_id, kind=event.kind,
+        provenance=event.provenance, fidelity=event.fidelity,
+        field_dispositions=event.field_dispositions + (
+            FieldDispositionRecord(
+                field_name=field_name, disposition=disposition, reason=reason,
+            ),
+        ),
+        occurred_at=event.occurred_at, ordinal=event.ordinal,
+        native_payload_ref=event.native_payload_ref,
+        content=event.content, summary=event.summary,
     )
 
 

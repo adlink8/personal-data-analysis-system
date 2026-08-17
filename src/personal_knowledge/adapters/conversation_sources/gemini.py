@@ -1,10 +1,13 @@
-"""Phase 62-02: Gemini single-JSON adapter (family ``gemini``).
+"""Phase 62-02: Gemini single-JSON adapter (family `gemini`).
 
 Gemini exports one JSON document with ordered ``messages`` plus metadata.
 The whole file is one immutable snapshot; ordered messages map to typed
 user/assistant events and unknown top-level fields are preserved by
 reference (never silently dropped). ``native_payload_ref`` records the
-source slice for unmodeled fields (D-07).
+source slice for unmodeled fields (D-07). Session-context fields are
+restored from the document: ``model`` (top-level or per-message) and
+``title`` from the first user content (first 120 chars); token/usage
+fields on any message surface as ``usage`` events.
 """
 
 from __future__ import annotations
@@ -23,6 +26,8 @@ from personal_knowledge.core.conversation_events import (
     EventContractError,
     EventKind,
     EventRelation,
+    FieldDisposition,
+    FieldDispositionRecord,
     FidelityDimension,
     FidelityLevel,
     FidelityProfile,
@@ -32,7 +37,7 @@ from personal_knowledge.core.conversation_events import (
 )
 
 FAMILY = "gemini"
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "1.1.0"
 CONTRACT_VERSION = "1"
 
 _COMPLETE = {
@@ -45,6 +50,20 @@ _COMPLETE = {
     FidelityDimension.NATIVE_ID_STABILITY: FidelityLevel.COMPLETE,
 }
 
+# Flat token fields surfaced as a machine-parsable USAGE summary.
+_FLAT_TOKEN_FIELDS = (
+    ("input_tokens", "input_tokens"),
+    ("output_tokens", "output_tokens"),
+    ("cache_read", "cache_read"),
+    ("cache_write", "cache_write"),
+)
+_NESTED_TOKEN_FIELDS = (
+    ("input_tokens", "input_tokens"),
+    ("output_tokens", "output_tokens"),
+    ("cache_read", "cache_read"),
+    ("cache_write", "cache_write"),
+)
+
 
 def _fidelity(**overrides) -> FidelityProfile:
     levels = dict(_COMPLETE)
@@ -53,18 +72,35 @@ def _fidelity(**overrides) -> FidelityProfile:
     return FidelityProfile.from_levels(levels)
 
 
+def _usage_tokens(message: dict) -> str | None:
+    """Any token/usage fields on a message -> machine-parsable summary."""
+    parts: list[str] = []
+    usage = message.get("usage")
+    if isinstance(usage, dict):
+        for src, dst in _NESTED_TOKEN_FIELDS:
+            if src in usage and usage[src] is not None:
+                parts.append(f"{dst}={usage[src]}")
+    for src, dst in _FLAT_TOKEN_FIELDS:
+        if message.get(src) is not None:
+            parts.append(f"{dst}={message[src]}")
+    return " ".join(parts) if parts else None
+
+
 def capability() -> CapabilityDescriptor:
     return CapabilityDescriptor(
         family=FAMILY, adapter_version=ADAPTER_VERSION, contract_version=CONTRACT_VERSION,
         supported_event_kinds=(
             EventKind.SESSION_LIFECYCLE, EventKind.USER_MESSAGE,
-            EventKind.ASSISTANT_MESSAGE, EventKind.UNKNOWN_NATIVE,
+            EventKind.ASSISTANT_MESSAGE, EventKind.USAGE,
+            EventKind.UNKNOWN_NATIVE,
         ),
         supported_relation_kinds=(),
         fidelity_dimensions=tuple(FidelityDimension),
         capabilities={
             "native_shape": "single_json",
             "unmodeled_fields": "preserved_by_reference",
+            "session_context": "model_and_title_from_document",
+            "usage": "token_fields_as_usage_events",
         },
     )
 
@@ -121,6 +157,7 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
     session_id = make_event_id(FAMILY, artifact.artifact_id, CONTRACT_VERSION,
                                None, kind=EventKind.SESSION_LIFECYCLE, native_locator="session")
     events: list[TypedEvent] = []
+    warnings: list[str] = []
     native_session = doc.get("session_id") or doc.get("sessionId") or doc.get("id")
 
     events.append(_event(
@@ -160,15 +197,63 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
             native_session=native_session, payload_ref=locator,
         ))
 
+    # Usage events from any token/usage fields on individual messages.
+    for index, message in enumerate(doc["messages"]):
+        if not isinstance(message, dict):
+            continue
+        usage_summary = _usage_tokens(message)
+        if not usage_summary:
+            continue
+        locator = f"{artifact.relative_path}#messages[{index}]"
+        base_id = message.get("id") or f"msg-{index}"
+        usage_occurred = message.get("timestamp") or doc.get("created_at")
+        events.append(_event(
+            artifact, session_id=session_id, kind=EventKind.USAGE,
+            locator=f"{locator}#usage", native_id=f"{base_id}#usage",
+            occurred_at=usage_occurred, summary=usage_summary,
+            native_session=native_session, payload_ref=locator,
+        ))
     unknown = sum(1 for e in events if e.kind is EventKind.UNKNOWN_NATIVE)
+
+    # Session-context fields: model (top-level or first message) and title
+    # from the first user content, truncated to 120 chars.
+    model = doc.get("model")
+    for message in doc["messages"]:
+        if isinstance(message, dict) and message.get("model"):
+            model = model or message.get("model")
+            break
+    title = None
+    for message in doc["messages"]:
+        if not isinstance(message, dict):
+            continue
+        role = message.get("role") or message.get("type")
+        if role not in ("user", "human"):
+            continue
+        raw = message.get("content")
+        if raw is not None:
+            title = str(raw)[:120] or None
+            break
 
     sessions: list[AdaptedSession] = []
     if native_session:
+        session_dispositions: list[FieldDispositionRecord] = []
+        if not model:
+            session_dispositions.append(FieldDispositionRecord(
+                field_name="model", disposition=FieldDisposition.UNAVAILABLE,
+                reason="no model field at top level or on messages",
+            ))
+        if not title:
+            session_dispositions.append(FieldDispositionRecord(
+                field_name="title", disposition=FieldDisposition.UNAVAILABLE,
+                reason="no user message content to derive a title",
+            ))
         sessions.append(AdaptedSession(
             session_id=session_id,
             provenance=_provenance(artifact, f"{artifact.relative_path}#root",
                                    session=str(native_session), native_id=str(native_session)),
             fidelity=_fidelity(), native_session_id=str(native_session),
+            model=model, title=title,
+            field_dispositions=tuple(session_dispositions),
         ))
 
     return AdaptationResult(
@@ -178,4 +263,18 @@ def adapt(artifact_set: SourceArtifactSet, *, artifact_root: Path) -> Adaptation
         sessions=tuple(sessions), relations=(), warnings=(
             (f"{unknown} unknown message role(s) preserved",) if unknown else ()
         ),
+        field_dispositions=(FieldDispositionRecord(
+            field_name="messages[*].usage", disposition=FieldDisposition.MAPPED,
+            reason="token/usage fields mapped to usage events",
+        ),) if _any_usage(doc["messages"]) else (),
     )
+
+
+def _any_usage(messages) -> bool:
+    """True if any message carries token/usage fields."""
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        if _usage_tokens(message) is not None:
+            return True
+    return False

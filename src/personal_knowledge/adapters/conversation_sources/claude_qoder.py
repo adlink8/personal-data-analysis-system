@@ -11,6 +11,7 @@ keeps its own detector, schema gate and capability/fidelity outcomes.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -39,8 +40,21 @@ from personal_knowledge.core.conversation_events import (
     make_event_id,
 )
 
-ADAPTER_VERSION = "1.1.0"
+ADAPTER_VERSION = "1.3.0"
+
+# Round-4 fix: attachment payloads are projected as bounded event content.
+_ATTACHMENT_CAP = 50_000
 CONTRACT_VERSION = "1"
+
+# P1-F4 content-fidelity limits for tool blocks.
+# tool_result carries the full native output into ``content`` up to a high
+# bound; tool_call carries its JSON-serialised input parameters. When the
+# native value exceeds a limit the tail is dropped and the loss is declared
+# through CONTENT_AVAILABILITY=partial plus a REDACTED field disposition, so
+# truncation is never silent. ``summary`` always stays a bounded synopsis.
+_TOOL_RESULT_CONTENT_LIMIT = 100_000
+_TOOL_CALL_INPUT_LIMIT = 50_000
+_TOOL_SUMMARY_LIMIT = 2_048
 
 _COMPLETE = {
     FidelityDimension.SOURCE_AVAILABILITY: FidelityLevel.COMPLETE,
@@ -60,6 +74,24 @@ def _fidelity(**overrides) -> FidelityProfile:
     return FidelityProfile.from_levels(levels)
 
 
+# Standalone operational / system-metadata record types emitted by Claude
+# Code as top-level DAG records (no message envelope).  They carry no
+# user/assistant content but encode session state, provenance or tooling
+# bookkeeping; we classify them as system_message and surface their fields
+# through summary so the information is never lost.
+_META_RECORD_TYPES = {
+    "last-prompt",
+    "mode",
+    "permission-mode",
+    "ai-title",
+    "attachment",
+    "queue-operation",
+    "file-history-snapshot",
+    "pr-link",
+    "file-history-delta",
+}
+
+
 def _record_kind(record: dict) -> EventKind | None:
     """Typed kind for a DAG record; None means unknown native."""
     if record.get("isCompactSummary"):
@@ -73,14 +105,16 @@ def _record_kind(record: dict) -> EventKind | None:
         return EventKind.TOOL_CALL
     if rtype == "tool_result":
         return EventKind.TOOL_RESULT
+    if rtype in _META_RECORD_TYPES:
+        return EventKind.SYSTEM_MESSAGE
     if rtype in ("system", "system_message"):
         subtype = record.get("subtype")
         if subtype == "turn_duration":
             return EventKind.USAGE
         if subtype == "compact_boundary":
             return EventKind.COMPACTION_SUMMARY
-        if subtype == "api_error":
-            return None
+        # api_error and any other system subtype carry operational state
+        # and are surfaced as a system_message (previously unknown native).
         return EventKind.SYSTEM_MESSAGE
     return None
 
@@ -103,6 +137,68 @@ def _text_content(record: dict) -> str | None:
         return " ".join(parts) if saw_text else None
     return None
 
+
+_TOKEN_FIELD_KEYS = {
+    "input_tokens": ("input_tokens",),
+    "output_tokens": ("output_tokens",),
+    "cache_read": ("cache_read", "cache_read_input_tokens", "cache_creation_input_tokens"),
+    "cache_write": ("cache_write", "cache_write_input_tokens"),
+}
+
+
+def _usage_summary(value) -> str | None:
+    """Machine-parseable usage summary from a token-count dict.
+
+    Maps native token fields onto the canonical USAGE summary grammar
+    ``input_tokens=X output_tokens=Y [cache_read=Z cache_write=W]`` (only
+    fields that are actually present).  Returns ``None`` when no token field is
+    present so adapters never emit an empty usage event.
+    """
+    if not isinstance(value, dict):
+        return None
+    parts: list[str] = []
+    for label, keys in _TOKEN_FIELD_KEYS.items():
+        for key in keys:
+            raw = value.get(key)
+            if isinstance(raw, (int, float)):
+                parts.append(f"{label}={int(raw)}")
+                break
+    return " ".join(parts) or None
+
+
+def _message_usage(record: dict):
+    """Recover the token-count dict for a DAG record, if any.
+
+    The native assistant/user envelope nests usage under ``message`` (or under
+    ``message.message`` in some exports); ``message.tokens`` is also accepted.
+    A top-level ``usage``/``tokens`` is honoured as a fallback.
+    """
+    message = record.get("message")
+    if isinstance(message, dict):
+        for candidate in ("usage", "tokens"):
+            value = message.get(candidate)
+            if isinstance(value, dict):
+                return value
+        nested = message.get("message")
+        if isinstance(nested, dict):
+            for candidate in ("usage", "tokens"):
+                value = nested.get(candidate)
+                if isinstance(value, dict):
+                    return value
+    for candidate in ("usage", "tokens"):
+        value = record.get(candidate)
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _first_user_text_default(events) -> str | None:
+    """First user-message text (bounded) as a session-title fallback."""
+    for event in events:
+        if event.kind is EventKind.USER_MESSAGE and event.content:
+            text = event.content.strip()
+            return text[:120] or None
+    return None
 
 def _content_blocks(record: dict):
     message = record.get("message")
@@ -128,6 +224,113 @@ def _nested_text(value) -> str | None:
                 raw = item.get("text")
                 parts.append("" if raw is None else str(raw))
         return " ".join(parts) if saw_text else None
+    return None
+
+
+def _metadata_summary(record: dict) -> str | None:
+    """Surface a non-empty summary for standalone operational/metadata records.
+
+    Returns ``None`` for ordinary message envelopes and for metadata records
+    whose identifying field is absent, so callers fall through to the normal
+    message/content path.  Every returned summary is non-empty and carries at
+    least one native field value, so a classified system_message never loses
+    the underlying information.
+    """
+    rtype = record.get("type")
+    if rtype == "last-prompt":
+        v = record.get("lastPrompt")
+        return f"last-prompt: {v}" if isinstance(v, str) and v else None
+    if rtype == "mode":
+        m = record.get("mode")
+        return f"mode={m}" if isinstance(m, str) and m else None
+    if rtype == "permission-mode":
+        p = record.get("permissionMode")
+        return f"permission-mode={p}" if isinstance(p, str) and p else None
+    if rtype == "ai-title":
+        t = record.get("aiTitle")
+        return f"ai-title: {t}" if isinstance(t, str) and t else None
+    if rtype == "attachment":
+        att = record.get("attachment")
+        if isinstance(att, list) and att:
+            kinds = [
+                str(b.get("type"))
+                for b in att
+                if isinstance(b, dict) and b.get("type")
+            ]
+            return "attachment: " + (", ".join(kinds) if kinds else "list")
+        # Round-4 fix: file-diff style attachments carry a dict payload
+        # (addedNames/addedLines/...); name them by their native type instead
+        # of falling through to an empty message envelope.
+        if isinstance(att, dict) and att:
+            return f"attachment: {att.get('type') or 'record'}"
+        return None
+    if rtype == "queue-operation":
+        parts: list[str] = []
+        op = record.get("operation")
+        if isinstance(op, str) and op:
+            parts.append(f"queue-operation={op}")
+        c = record.get("content")
+        if isinstance(c, str) and c:
+            parts.append(str(c)[:256])
+        return " ".join(parts)[:512] if parts else None
+    if rtype == "file-history-snapshot":
+        snap = record.get("snapshot")
+        n = len(snap) if isinstance(snap, list) else 1
+        return f"file-history-snapshot: {n} snapshot(s)"
+    if rtype == "pr-link":
+        parts = []
+        if record.get("prRepository"):
+            parts.append("pr=" + str(record.get("prRepository"))
+                         + "#" + str(record.get("prNumber", "")))
+        if record.get("prUrl"):
+            parts.append(str(record.get("prUrl")))
+        return " ".join(parts) if parts else "pr-link"
+    if rtype == "file-history-delta":
+        tp = record.get("trackingPath")
+        return f"file-history-delta: {tp}" if isinstance(tp, str) and tp else None
+    if rtype == "system" and record.get("subtype") == "api_error":
+        err = record.get("error")
+        if isinstance(err, dict):
+            msg = err.get("formatted") or err.get("message") or err.get("code")
+            if isinstance(msg, str) and msg:
+                return f"api_error: {msg}"
+        elif isinstance(err, str) and err:
+            return f"api_error: {err}"
+        # fall back to a compact serialisation so the summary is never empty
+        return f"api_error: {json.dumps(err, ensure_ascii=False)}" if err else None
+    return None
+
+
+def _is_synthetic_model(value: str) -> bool:
+    """True when a model string is a synthetic placeholder, not a real id.
+
+    Claude Code fills message.model with "<synthetic>" for API-error and
+    short-circuit messages; such values must not shadow a real model name.
+    """
+    return value.strip().startswith("<") and value.strip().endswith(">")
+
+
+def _record_model_name(record: dict) -> str | None:
+    """Best-effort resolution of the real model id from one DAG record.
+
+    P1-F4: the slug field on a record is a deployment codename (for example
+    vivid-forging-sloth); the human-visible model id (for example
+    claude-fable-5) tends to appear in message.model or a top-level
+    model-like field.  This returns the real model id when present and not a
+    synthetic placeholder, and None otherwise so callers can fall back to slug
+    without dropping the codename.
+    """
+    message = record.get("message")
+    if isinstance(message, dict):
+        for candidate in (message, message.get("message")):
+            if isinstance(candidate, dict):
+                value = candidate.get("model")
+                if isinstance(value, str) and value and not _is_synthetic_model(value):
+                    return value
+    for key in ("model", "model_id", "modelID", "modelName", "model_name"):
+        value = record.get(key)
+        if isinstance(value, str) and value and not _is_synthetic_model(value):
+            return value
     return None
 
 
@@ -228,6 +431,39 @@ class _Family:
             EventKind.ASSISTANT_MESSAGE,
             EventKind.SYSTEM_MESSAGE,
         }
+        # Standalone operational/metadata records (mode, ai-title, pr-link,
+        # api_error, ...) map to system_message and carry a non-empty summary
+        # recovered from their own fields rather than a message envelope.
+        meta_summary = _metadata_summary(record) if kind is EventKind.SYSTEM_MESSAGE else None
+        if meta_summary is not None:
+            # Round-4 fix: attachment records carry their payload (file diff
+            # blocks etc.) on record.attachment; project it as bounded content
+            # instead of a type-list-only summary.
+            meta_content = None
+            meta_disp = (FieldDispositionRecord(
+                f"type:{record.get('type')}", FieldDisposition.MAPPED,
+                "operational metadata record classified as system_message",
+            ),)
+            if record.get("type") == "attachment" and record.get("attachment") is not None:
+                try:
+                    att_text = json.dumps(record["attachment"], ensure_ascii=False, sort_keys=True)
+                except (TypeError, ValueError):
+                    att_text = str(record["attachment"])
+                if att_text:
+                    if len(att_text) > _ATTACHMENT_CAP:
+                        att_text = att_text[:_ATTACHMENT_CAP]
+                        meta_disp = meta_disp + (FieldDispositionRecord(
+                            "attachment", FieldDisposition.MAPPED,
+                            "attachment truncated; bounded preservation",
+                        ),)
+                    meta_content = att_text
+            return [self._event(
+                artifact, session_id=session_id, kind=EventKind.SYSTEM_MESSAGE,
+                locator=locator, native_id=record.get("uuid"), occurred_at=ts,
+                ordinal=ordinal_start, content=meta_content, summary=meta_summary,
+                native_session=sid, native_payload_ref=locator,
+                field_dispositions=meta_disp,
+            )], []
         if not is_message:
             text = _text_content(record)
             return [self._event(
@@ -317,15 +553,43 @@ class _Family:
                         FidelityDimension.RELATION_COMPLETENESS,
                         FidelityLevel.PARTIAL,
                     )
-                    dispositions = (FieldDispositionRecord(
+                    dispositions = dispositions + (FieldDispositionRecord(
                         "tool_call_id", FieldDisposition.UNAVAILABLE,
                         "native tool call block has no recoverable call id",
+                    ),)
+                # P1-F4: carry the tool-call input parameters into content
+                # (JSON-serialised and bounded) so they are never dropped.
+                input_value = block.get("input")
+                if input_value is not None and input_value != "":
+                    serialised = json.dumps(
+                        input_value, ensure_ascii=False, sort_keys=True,
+                    )
+                    if len(serialised) > _TOOL_CALL_INPUT_LIMIT:
+                        block_content = serialised[:_TOOL_CALL_INPUT_LIMIT]
+                        block_fidelity = block_fidelity.with_at_least(
+                            FidelityDimension.CONTENT_AVAILABILITY,
+                            FidelityLevel.PARTIAL,
+                        )
+                        dispositions = dispositions + (FieldDispositionRecord(
+                            "tool_call_input", FieldDisposition.REDACTED,
+                            f"tool call input truncated to {_TOOL_CALL_INPUT_LIMIT} chars",
+                        ),)
+                    else:
+                        block_content = serialised
+                        dispositions = dispositions + (FieldDispositionRecord(
+                            "tool_call_input", FieldDisposition.MAPPED,
+                            "tool call input parameters mapped to content",
+                        ),)
+                else:
+                    dispositions = dispositions + (FieldDispositionRecord(
+                        "tool_call_input", FieldDisposition.UNAVAILABLE,
+                        "tool call block has no recoverable input parameters",
                     ),)
             elif block_type == "tool_result":
                 block_kind = EventKind.TOOL_RESULT
                 call_id = block.get("tool_use_id") or block.get("call_id")
                 text = _nested_text(block.get("content"))
-                block_summary = text[:2048] if text else None
+                block_summary = text[:_TOOL_SUMMARY_LIMIT] if text else None
                 if call_id:
                     call_link = (str(call_id), "result")
                 else:
@@ -333,9 +597,34 @@ class _Family:
                         FidelityDimension.RELATION_COMPLETENESS,
                         FidelityLevel.PARTIAL,
                     )
-                    dispositions = (FieldDispositionRecord(
+                    dispositions = dispositions + (FieldDispositionRecord(
                         "tool_call_id", FieldDisposition.UNAVAILABLE,
                         "native tool result block has no recoverable call id",
+                    ),)
+                # P1-F4: map the full native output into content so tool results
+                # longer than the old 2048-char summary are recoverable, not just
+                # preserved-by-locator. Truncation beyond the high bound is flagged.
+                if text is not None:
+                    if len(text) > _TOOL_RESULT_CONTENT_LIMIT:
+                        block_content = text[:_TOOL_RESULT_CONTENT_LIMIT]
+                        block_fidelity = block_fidelity.with_at_least(
+                            FidelityDimension.CONTENT_AVAILABILITY,
+                            FidelityLevel.PARTIAL,
+                        )
+                        dispositions = dispositions + (FieldDispositionRecord(
+                            "tool_result_content", FieldDisposition.REDACTED,
+                            "tool output truncated; full output preserved by native locator",
+                        ),)
+                    else:
+                        block_content = text
+                        dispositions = dispositions + (FieldDispositionRecord(
+                            "tool_result_content", FieldDisposition.MAPPED,
+                            "tool output mapped exactly to content",
+                        ),)
+                else:
+                    dispositions = dispositions + (FieldDispositionRecord(
+                        "tool_result_content", FieldDisposition.UNAVAILABLE,
+                        "tool result block has no recoverable content",
                     ),)
             else:
                 block_fidelity = _fidelity(
@@ -391,6 +680,15 @@ class _Family:
             if not record_events:
                 continue
             events.extend(record_events)
+            usage = _usage_summary(_message_usage(record))
+            if usage:
+                events.append(self._event(
+                    artifact, session_id=session_id, kind=EventKind.USAGE,
+                    locator=f"{artifact.relative_path}#usage:{lineno}",
+                    native_id=f"usage:{record.get('uuid') or lineno}",
+                    occurred_at=record.get("timestamp"),
+                    ordinal=len(events), summary=usage, native_session=native_session,
+                ))
             for call_id, role, event in call_links:
                 by_call_id.setdefault(
                     call_id, {"call": [], "result": []}
@@ -482,8 +780,104 @@ class _Family:
         if unknown:
             warnings.append(f"{unknown} unknown native record(s) preserved")
 
+        # Session-context + sub-agent extraction (Agent B extension).
+        # The "main" session is the shared sessionId whose records carry no
+        # agentId.  Records carrying an agentId belong to a sub-agent session;
+        # when a main session is resolvable we link a SUBAGENT relation from
+        # the sub-session lifecycle event to the main lifecycle event, otherwise
+        # we fall back to a SUBAGENT_BOUNDARY event named by the agentId.
+        main_records = [r for r in records if not r.get("agentId")]
+        context_records = main_records or records
+        cwd = git_branch = model = title = stop_reason = None
+        file_cwd = None
+        file_git_branch = None
+        for r in context_records:
+            if cwd is None and isinstance(r.get("cwd"), str) and r.get("cwd"):
+                cwd = r.get("cwd")
+            if git_branch is None and isinstance(r.get("gitBranch"), str) and r.get("gitBranch"):
+                git_branch = r.get("gitBranch")
+            if model is None:
+                real = _record_model_name(r)
+                if real is not None:
+                    model = real
+        if model is None:  # fall back to the slug codename when no real id is recoverable
+            for r in context_records:
+                if isinstance(r.get("slug"), str) and r.get("slug"):
+                    model = r.get("slug")
+                    break
+        for r in records:  # file-level fallback shared by sub-agent sessions
+            if file_cwd is None and isinstance(r.get("cwd"), str) and r.get("cwd"):
+                file_cwd = r.get("cwd")
+            if file_git_branch is None and isinstance(r.get("gitBranch"), str) and r.get("gitBranch"):
+                file_git_branch = r.get("gitBranch")
+        for r in reversed(context_records):
+            if _record_kind(r) is EventKind.ASSISTANT_MESSAGE:
+                msg = r.get("message")
+                sr = msg.get("stop_reason") if isinstance(msg, dict) else r.get("stop_reason")
+                if isinstance(sr, str) and sr:
+                    stop_reason = sr
+                break
+
+        # Session-context timestamps: started_at = first record timestamp,
+        # ended_at = last record timestamp (native DAG order, not calendar sort).
+        main_timestamps = [r.get("timestamp") for r in context_records if r.get("timestamp")]
+
+        _MESSAGE_KINDS = {
+            EventKind.USER_MESSAGE, EventKind.ASSISTANT_MESSAGE,
+            EventKind.DEVELOPER_MESSAGE, EventKind.SYSTEM_MESSAGE,
+        }
+        main_has_messages = any(
+            _record_kind(r) in _MESSAGE_KINDS for r in main_records)
+        agent_ids: list[str] = []
+        seen: set[str] = set()
+        for r in records:
+            a = r.get("agentId")
+            if isinstance(a, str) and a and a not in seen:
+                seen.add(a)
+                agent_ids.append(a)
+
+        # Per-sub-agent timestamps (native DAG order) bound each sub-session.
+        agent_timestamps = {
+            agent: [r.get("timestamp") for r in records
+                    if r.get("agentId") == agent and r.get("timestamp")]
+            for agent in agent_ids
+        }
+        # F8: the sub-agent model id may sit on any record of the agent session
+        # (not just the first). Scan every record carrying this agentId and take
+        # the first real model name, mirroring the main-session logic; fall back
+        # to the agent's slug codename only when no real id is recoverable.
+        def _agent_model(agent: str) -> str | None:
+            for r in records:
+                if r.get("agentId") != agent:
+                    continue
+                real = _record_model_name(r)
+                if real is not None:
+                    return real
+            for r in records:
+                if r.get("agentId") != agent:
+                    continue
+                if isinstance(r.get("slug"), str) and r.get("slug"):
+                    return r.get("slug")
+            return None
+
+        agent_models = {agent: _agent_model(agent) for agent in agent_ids}
+
+        # Main session lifecycle event is only materialised when this artifact
+        # contains sub-agent records, so the SUBAGENT relation can anchor on it;
+        # the plain single-session export keeps its original event stream.
+        main_lifecycle = None
+        if agent_ids:
+            main_lifecycle = self._event(
+                artifact, session_id=session_id, kind=EventKind.SESSION_LIFECYCLE,
+                locator=f"{artifact.relative_path}#session", native_id=native_session,
+                occurred_at=next((r.get("timestamp") for r in records if r.get("timestamp")), None),
+                ordinal=len(events), native_session=native_session,
+            )
+            events.append(main_lifecycle)
+
         sessions: list[AdaptedSession] = []
         if native_session:
+            title = _first_user_text_default(events)
             sessions.append(AdaptedSession(
                 session_id=session_id,
                 provenance=Provenance(
@@ -493,7 +887,96 @@ class _Family:
                     contract_version=CONTRACT_VERSION,
                 ),
                 fidelity=_fidelity(), native_session_id=native_session,
+                started_at=main_timestamps[0] if main_timestamps else None,
+                ended_at=main_timestamps[-1] if main_timestamps else None,
+                cwd=cwd, git_branch=git_branch, model=model,
+                title=title, stop_reason=stop_reason,
             ))
+
+        for agent in agent_ids:
+            # Round-4 fix: a standalone sub-agent file (main records exist but
+            # none of them is a message; every message belongs to an agent)
+            # already yields its own full session — an extra 1-event
+            # placeholder session would duplicate it, so skip the placeholder
+            # and its self-referential relation. Files with NO main records at
+            # all keep the SUBAGENT_BOUNDARY fallback below.
+            if main_records and not main_has_messages:
+                continue
+            agent_record = next(r for r in records if r.get("agentId") == agent)
+            sub_session_id = make_event_id(
+                self.family, artifact.artifact_id, CONTRACT_VERSION, None,
+                kind=EventKind.SESSION_LIFECYCLE, session_id=session_id,
+                native_locator=f"session-agent:{agent}",
+            )
+            agent_msg = agent_record.get("message")
+            agent_sr = agent_msg.get("stop_reason") if isinstance(agent_msg, dict) else None
+            if bool(main_records):
+                sub_lifecycle = self._event(
+                    artifact, session_id=sub_session_id, kind=EventKind.SESSION_LIFECYCLE,
+                    locator=f"{artifact.relative_path}#session-agent:{agent}",
+                    native_id=f"agent:{agent}", occurred_at=agent_record.get("timestamp"),
+                    ordinal=len(events), native_session=native_session,
+                )
+                events.append(sub_lifecycle)
+                relations.append(EventRelation(
+                    relation_id=make_event_id(
+                        self.family, artifact.artifact_id, CONTRACT_VERSION,
+                        f"rel-subagent:{sub_lifecycle.event_id}:{main_lifecycle.event_id}",
+                    ),
+                    source_event_id=sub_lifecycle.event_id,
+                    target_event_id=main_lifecycle.event_id,
+                    relation_kind=RelationKind.SUBAGENT,
+                ))
+                sub_native_session = agent_record.get("sessionId") or agent_record.get("session_id")
+                sessions.append(AdaptedSession(
+                    session_id=sub_session_id,
+                    provenance=Provenance(
+                        artifact_id=artifact.artifact_id, artifact_hash=artifact.content_hash,
+                        native_locator=f"{artifact.relative_path}#session-agent:{agent}",
+                        native_session_id=sub_native_session or native_session,
+                        native_event_id=f"agent:{agent}", contract_version=CONTRACT_VERSION,
+                    ),
+                    fidelity=_fidelity(), native_session_id=sub_native_session or native_session,
+                    started_at=agent_ts[0] if (agent_ts := agent_timestamps.get(agent)) else None,
+                    ended_at=agent_ts[-1] if agent_ts else None,
+                    cwd=agent_record.get("cwd") if isinstance(agent_record.get("cwd"), str) else file_cwd,
+                    git_branch=(
+                        agent_record.get("gitBranch")
+                        if isinstance(agent_record.get("gitBranch"), str) else file_git_branch
+                    ),
+                    model=agent_models.get(agent),
+                    stop_reason=agent_sr if isinstance(agent_sr, str) else None,
+                ))
+            else:
+                # No main session resolvable: at least signal the sub-agent start.
+                events.append(self._event(
+                    artifact, session_id=sub_session_id, kind=EventKind.SUBAGENT_BOUNDARY,
+                    locator=f"{artifact.relative_path}#agent:{agent}",
+                    native_id=f"agent:{agent}", occurred_at=agent_record.get("timestamp"),
+                    ordinal=len(events), summary=agent, native_session=native_session,
+                ))
+                # The boundary event references sub_session_id: the session row
+                # must exist for the ce_events FK (orphan events fail staging).
+                sub_native_session = agent_record.get("sessionId") or agent_record.get("session_id")
+                sessions.append(AdaptedSession(
+                    session_id=sub_session_id,
+                    provenance=Provenance(
+                        artifact_id=artifact.artifact_id, artifact_hash=artifact.content_hash,
+                        native_locator=f"{artifact.relative_path}#agent:{agent}",
+                        native_session_id=sub_native_session or native_session,
+                        native_event_id=f"agent:{agent}", contract_version=CONTRACT_VERSION,
+                    ),
+                    fidelity=_fidelity(), native_session_id=sub_native_session or native_session,
+                    started_at=agent_ts[0] if (agent_ts := agent_timestamps.get(agent)) else None,
+                    ended_at=agent_ts[-1] if agent_ts else None,
+                    cwd=agent_record.get("cwd") if isinstance(agent_record.get("cwd"), str) else file_cwd,
+                    git_branch=(
+                        agent_record.get("gitBranch")
+                        if isinstance(agent_record.get("gitBranch"), str) else file_git_branch
+                    ),
+                    model=agent_models.get(agent),
+                    stop_reason=agent_sr if isinstance(agent_sr, str) else None,
+                ))
 
         return AdaptationResult(
             family=self.family, adapter_version=ADAPTER_VERSION, contract_version=CONTRACT_VERSION,
