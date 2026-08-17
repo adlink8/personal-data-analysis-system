@@ -356,6 +356,14 @@ class AdaptedSession:
     native_session_id: str | None = None
     started_at: str | None = None
     ended_at: str | None = None
+    # Session-context attributes extracted from native artifacts. All are
+    # optional and additive: existing adapters/fixtures keep working with
+    # None, and the dataset digest includes them only when present.
+    cwd: str | None = None
+    git_branch: str | None = None
+    model: str | None = None
+    title: str | None = None
+    stop_reason: str | None = None
     field_dispositions: tuple[FieldDispositionRecord, ...] = ()
 
     def __post_init__(self) -> None:
@@ -434,6 +442,11 @@ def dataset_digest(
             "native_session_id": value.native_session_id,
             "started_at": value.started_at,
             "ended_at": value.ended_at,
+            "cwd": value.cwd,
+            "git_branch": value.git_branch,
+            "model": value.model,
+            "title": value.title,
+            "stop_reason": value.stop_reason,
             "provenance": provenance(value.provenance),
             "fidelity": fidelity(value.fidelity),
             "field_dispositions": dispositions(value.field_dispositions),

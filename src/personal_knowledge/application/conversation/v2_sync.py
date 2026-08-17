@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,11 +32,15 @@ from personal_knowledge.adapters.conversation_sources.contracts import (
 from personal_knowledge.adapters.conversation_sources.registry import (
     adapt_for,
     capability_for,
+    detect_family,
     known_families,
     resolve_family,
     select_adapter,
 )
-from personal_knowledge.adapters.conversation_sources.snapshots import capture_file
+from personal_knowledge.adapters.conversation_sources.snapshots import (
+    capture_file,
+    capture_sqlite,
+)
 from personal_knowledge.application.conversation.event_generations import (
     GenerationActivationError,
     GenerationLifecycle,
@@ -52,12 +57,29 @@ ACTIVATION_APPROVAL = "APPROVE_PHASE62_ACTIVATION"
 # --------------------------------------------------------------------- probe
 
 
-def _probe_artifact(relative: str, size: int) -> SourceArtifact:
+_SQLITE_MAGIC = b"SQLite format 3\x00"
+
+
+def _probe_kind(head: bytes) -> str:
+    """Detect sqlite (Phase 62 D-05) vs generic file for adapter probing.
+
+    Fixes the 62-07 seam gap: cursor/zcode/mimo/opencode/antigravity/chatgpt
+    detectors require ``source_kind == "sqlite"``, yet the shadow probe hard-coded
+    ``source_kind="file"`` and therefore reported every SQLite family as
+    ``no_source`` in the v2 shadow seam.
+    """
+    if head.startswith(_SQLITE_MAGIC):
+        return "sqlite"
+    return "file"
+
+
+def _probe_artifact(relative: str, size: int, head: bytes = b"") -> SourceArtifact:
     """A minimal artifact used only by ``select_adapter`` detection."""
+    kind = _probe_kind(head) if head else "file"
     return SourceArtifact(
         artifact_id=relative,
         family="",
-        source_kind="file",
+        source_kind=kind,
         content_hash="probe",
         capture_method="probe",
         relative_path=relative,
@@ -114,14 +136,52 @@ def probe_conversation_sources(
 
 
 def _detect_families(source_root: Path) -> dict[str, list[Path]]:
-    """Map each source file to its detected family (no generic fallback)."""
+    """Map each source file to its detected family (no generic fallback).
+
+    Recurses the source root so family-mirrored staging trees
+    (``<stage>/<family>/<relative>`` from native discovery) are probed too.
+    Reads a bounded file head so SQLite stores (cursor/zcode/mimo/opencode/
+    antigravity/chatgpt) probe with ``source_kind="sqlite"`` instead of being
+    misjudged as generic files (62-07 seam gap).
+    """
     detected: dict[str, list[Path]] = {}
-    for f in sorted(p for p in source_root.iterdir() if p.is_file()):
-        family = select_adapter(
-            _probe_artifact(f.name, f.stat().st_size), artifact_root=source_root
+    known = set(known_families())
+    for dirpath, dirnames, filenames in os.walk(source_root):
+        dirnames[:] = sorted(
+            d for d in dirnames if d not in (".staging", "artifacts", ".hashes.json")
         )
-        if family:
-            detected.setdefault(family, []).append(f)
+        parent = Path(dirpath)
+        # Native staging trees mirror <stage>/<family>/<relative>: a first-level
+        # directory name that is a known family scopes probing to that family,
+        # so SQLite stores never bleed across families via select_adapter order.
+        hint = None
+        try:
+            rel = parent.relative_to(source_root)
+            if rel.parts and rel.parts[0] in known:
+                hint = rel.parts[0]
+        except ValueError:
+            hint = None
+        for name in sorted(filenames):
+            if name == ".hashes.json":
+                continue
+            f = parent / name
+            head = b""
+            try:
+                with f.open("rb") as handle:
+                    head = handle.read(16)
+            except OSError:
+                continue
+            probe = _probe_artifact(name, f.stat().st_size, head=head)
+            if hint is not None:
+                try:
+                    if detect_family(hint, probe, artifact_root=parent):
+                        detected.setdefault(hint, []).append(f)
+                except Exception:  # noqa: BLE001 - probe failure excludes the file
+                    continue
+                continue
+            family = select_adapter(probe, artifact_root=parent)
+            if family:
+                detected.setdefault(family, []).append(f)
     return detected
 
 
@@ -148,10 +208,32 @@ def _estimate_events(
 def _adapt_source_file(
     path: Path, store: Path, *, byte_limit: int, count_limit: int, family: str,
 ) -> tuple[SourceArtifact, AdaptationResult]:
-    artifact, blob = capture_file(
-        path, store, relative_path=path.name,
-        byte_limit=byte_limit, count_limit=count_limit,
+    """Capture one source file (file or WAL-safe SQLite) then adapt it.
+
+    SQLite families use :func:`capture_sqlite` with the family LIVE allowlist
+    (62-01 D-05/D-08) instead of a loose file copy; the probe head decides.
+    """
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(len(_SQLITE_MAGIC))
+    except OSError:
+        head = b""
+    from personal_knowledge.adapters.conversation_sources.discovery import (
+        SQLITE_ALLOWLISTS,
     )
+
+    allowlist = SQLITE_ALLOWLISTS.get(family)
+    if head.startswith(_SQLITE_MAGIC) and allowlist is not None:
+        tables, columns = allowlist
+        artifact, blob = capture_sqlite(
+            path, store, allowed_tables=tables, allowed_columns=columns,
+            byte_limit=byte_limit, count_limit=count_limit,
+        )
+    else:
+        artifact, blob = capture_file(
+            path, store, relative_path=path.name,
+            byte_limit=byte_limit, count_limit=count_limit,
+        )
     result = adapt_for(
         family, SourceArtifactSet((artifact,)), artifact_root=blob.parent
     )
@@ -588,6 +670,30 @@ def add_conversations_v2_args(parser: argparse.ArgumentParser) -> None:
              "estimate (metadata-only, no canonical writes)",
     )
     parser.add_argument(
+        "--v2-native",
+        action="store_true",
+        help="Phase 62 v2: discover machine-local client directories, stage new "
+             "and changed files, then run a NON-active shadow (never activates)",
+    )
+    parser.add_argument(
+        "--v2-native-dry-run",
+        action="store_true",
+        help="Phase 62 v2: metadata-only discovery report (no capture, no staging)",
+    )
+    parser.add_argument(
+        "--v2-stage",
+        type=Path,
+        default=Path("data") / "staging" / "v2" / "native",
+        help="Phase 62 v2: native staging root (family-mirrored files)",
+    )
+    parser.add_argument(
+        "--v2-byte-limit",
+        type=int,
+        default=600_000_000,
+        help="Phase 62 v2: per-artifact byte limit for capture (default 600MB, "
+             "covers the zcode live store snapshot)",
+    )
+    parser.add_argument(
         "--v2-shadow",
         action="store_true",
         help="Phase 62 v2: capture sources, adapt, and stage NON-active v2 "
@@ -643,6 +749,49 @@ def cmd_conversations_v2(args) -> int:
 
     Metadata-only outputs; writes only to the caller-supplied shadow database
     (D-15/D-31, zero-paid)."""
+    if args.v2_native_dry_run:
+        from personal_knowledge.adapters.conversation_sources.discovery import (
+            discover_client_sources,
+        )
+
+        found = discover_client_sources()
+        report = {
+            "mode": "native-dry-run",
+            "detected": {
+                family: sorted(str(p) for p in paths)
+                for family, paths in sorted(found.items()) if paths
+            },
+            "no_source": sorted(
+                family for family, paths in found.items() if not paths
+            ),
+        }
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.v2_native:
+        from personal_knowledge.adapters.conversation_sources.discovery import (
+            stage_client_sources,
+        )
+
+        staged = stage_client_sources(
+            stage_root=args.v2_stage, byte_limit=args.v2_byte_limit,
+        )
+        print(json.dumps(staged, ensure_ascii=False, indent=2))
+        if staged["staged"] == 0 and staged["skipped"] == 0:
+            print("[native] nothing discovered to stage; no shadow run.")
+            return 0
+        report = shadow_conversation_generation(
+            source_root=args.v2_stage,
+            db=args.v2_db,
+            artifact_store=args.v2_artifact_store,
+            report_path=args.v2_report,
+            byte_limit=args.v2_byte_limit,
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        print(f"\n[native] metadata-only shadow report: {args.v2_report}")
+        print("[native] no generation activated; use --v2-activate explicitly.")
+        return 0
+
     if args.v2_dry_run:
         report = probe_conversation_sources(source_root=args.v2_source)
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -654,6 +803,7 @@ def cmd_conversations_v2(args) -> int:
             db=args.v2_db,
             artifact_store=args.v2_artifact_store,
             report_path=args.v2_report,
+            byte_limit=args.v2_byte_limit,
         )
         print(json.dumps(report, ensure_ascii=False, indent=2))
         print(f"\n[shadow] metadata-only report: {args.v2_report}")

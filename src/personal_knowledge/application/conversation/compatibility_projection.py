@@ -243,9 +243,9 @@ def _project_sessions(
             "file_hash": None,
             "parent_canonical_id": None,
             "relationship_type": None,
-            "cwd": None,
-            "git_branch": None,
-            "model": None,
+            "cwd": srow.get("cwd"),
+            "git_branch": srow.get("git_branch"),
+            "model": srow.get("model"),
             "evidence_eligible": 1,
             "evidence_scope": "user",
             "merged": 0,
@@ -368,7 +368,8 @@ def _read_generation(db: Path, generation_id: str) -> tuple[list[dict], list[dic
         sessions = [
             dict(r) for r in con.execute(
                 "SELECT session_id, family, native_session_id, started_at, "
-                "ended_at, native_locator, contract_version, fidelity_json "
+                "ended_at, native_locator, contract_version, fidelity_json, "
+                "cwd, git_branch, model, title, stop_reason "
                 "FROM ce_sessions WHERE generation_id=? ORDER BY session_id",
                 (generation_id,),
             )

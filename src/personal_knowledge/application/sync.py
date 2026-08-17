@@ -180,7 +180,8 @@ def _cmd_conversations(write: bool, args) -> int:
     # Phase 62-04: explicit v2 dry-run / shadow / activation. These modes are
     # opt-in and never change the default canonical service behavior (62-04
     # Task 3: default stays as-is until Plan 62-08).
-    if args.v2_dry_run or args.v2_shadow or args.v2_activate:
+    if (args.v2_dry_run or args.v2_shadow or args.v2_activate or
+            args.v2_native or args.v2_native_dry_run):
         from personal_knowledge.application.conversation.v2_sync import (
             cmd_conversations_v2,
         )

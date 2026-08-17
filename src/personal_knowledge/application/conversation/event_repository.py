@@ -167,8 +167,9 @@ def _insert_sessions(
         con.execute(
             "INSERT OR IGNORE INTO ce_sessions "
             "(generation_id, session_id, family, native_session_id, started_at, "
-            " ended_at, artifact_id, native_locator, contract_version, fidelity_json) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " ended_at, artifact_id, native_locator, contract_version, fidelity_json, "
+            " cwd, git_branch, model, title, stop_reason) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 generation_id,
                 session.session_id,
@@ -180,6 +181,11 @@ def _insert_sessions(
                 session.provenance.native_locator,
                 session.provenance.contract_version or gen.contract_version,
                 _fidelity_json(session.fidelity),
+                session.cwd,
+                session.git_branch,
+                session.model,
+                session.title,
+                session.stop_reason,
             ),
         )
 
