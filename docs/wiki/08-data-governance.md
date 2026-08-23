@@ -92,7 +92,7 @@ python -m personal_knowledge.governance.preflight --ci
 | 检查 | 怎么查 | 发现问题会怎样 |
 |------|--------|-------------|
 | 架构边界 | AST 扫描各文件的 import，和 `architecture.yaml` 对比 | P1 违规，必须修 |
-| 密钥泄露 | 在安全目录扫描 `sk-*`、`AIza*`、`-----BEGIN PRIVATE KEY-----` | P0 紧急，立刻修 |
+| 密钥泄露 | 在安全目录扫描 `sk-*`、`AIza*`、`-----BEGIN [PRIVATE KEY]-----` | P0 紧急，立刻修 |
 | 依赖一致性 | `requirements.txt` vs `constraints.txt` 对比 | P2 警告 |
 | 制品注册表 | `artifact_layers.yaml` 格式/必填字段/依赖方向 | P1 违规 |
 

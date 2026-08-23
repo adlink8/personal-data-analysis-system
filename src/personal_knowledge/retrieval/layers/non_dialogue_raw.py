@@ -17,6 +17,8 @@ class NonDialogueRawLayer(RetrieverLayer):
     role = "google_normalized"
 
     def retrieve(self, query: str, state: SearchState) -> list[dict[str, Any]]:
+        if not state.vector_available:
+            return []
         # Look up through the owning module at call time so tests that patch
         # semantic_search._semantic_search keep working (the helper reads the
         # module-global _semantic_search at call time too).

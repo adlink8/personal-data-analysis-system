@@ -119,7 +119,7 @@ Python 根项目使用 setuptools，但没有仓库级 build、lint 或 format �
 - 从最新 `main` 创建范围单一的分支，避免混入无关重构、格式化或私有运行产物。
 - 在 PR 描述中说明公开 seam、用户可观察行为、不变量、修改范围和实际运行的验证命令。
 - Bug 修复附上修复前可失败、修复后通过的回归测试；公共接口变更同时覆盖 Provider、Consumer 和一个真实适配器。
-- 本地运行受影响的 Python/Node 套件、治理预检和 `git diff --check`。远程 CI 会在 push 和 pull request 上运行 Python `3.12`/`3.14` 全套测试与治理预检，并运行 ChatGPT MCP 包的 Node.js `20` 测试。
+- 本地运行受影响的 Python/Node 套件、治理预检和 `git diff --check`。远程 CI 会在 push 和 pull request 上运行 Python `3.12`/`3.14` 全部离线测试与治理预检（`live` 私有数据/服务验收单独执行），并覆盖 ChatGPT MCP、Decision Cockpit、Electron Desktop 和 PI Kernel 的锁定依赖测试；Cockpit 还执行生产构建。
 - 确认差异不包含 `data/`、`var/` 私有内容、数据库、凭据、原始 SQL、个人正文或私有评测案例，再请求审查。
 
-评审重点是正确性、权限与隐私边界、数据权威一致性、失败语义、回归风险和测试证据。Kernel、Desktop 或 Decision Cockpit 的改动不会被当前 CI Node job 自动覆盖，因此相应本地命令及结果应明确写入 PR。
+评审重点是正确性、权限与隐私边界、数据权威一致性、失败语义、回归风险和测试证据。Kernel 的联网依赖资格检查仍需单独执行并记录结果。

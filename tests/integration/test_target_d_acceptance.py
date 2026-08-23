@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from personal_knowledge.core.project_paths import KNOWLEDGE_ACTIVE_POINTER, UNIFIED_DB
 from personal_knowledge.intelligence.proactive.cli import build_parser, run_acceptance, _guard, _product_uat_status, _technical_sandbox
 
 
+@pytest.mark.live
 def test_live_target_d_acceptance_is_metadata_only_and_two_verdict() -> None:
     result = run_acceptance(UNIFIED_DB, pointer_path=KNOWLEDGE_ACTIVE_POINTER)
     assert result["technical_status"] == "passed"

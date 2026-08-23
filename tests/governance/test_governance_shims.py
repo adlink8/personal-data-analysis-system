@@ -18,8 +18,8 @@ def _checker():
 
 def test_all_legacy_shims_resolve_to_existing_static_targets() -> None:
     shims = _checker().discover_shims()
-    # Live shim inventory after Phase 20–21 retirements (was 86 pre-cleanup).
-    assert len(shims) == 85
+    # Live shim inventory after the later Phase 20–21 retirements.
+    assert len(shims) == 78
     assert all(item["target_exists"] and item["static_parity"] for item in shims)
     assert all(item["owner"] and item["consumer"] and item["remove_after"] for item in shims)
 

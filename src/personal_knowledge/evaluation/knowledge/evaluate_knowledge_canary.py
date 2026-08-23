@@ -56,7 +56,11 @@ def search_knowledge_units(
 
     # 验证 collection 存在
     client = ChromaClient(port=8001)
-    cols = client.list_collections()
+    try:
+        cols = client.list_collections()
+    except ChromaError:
+        return {"route": "fallback_raw", "reason": "vector service unavailable",
+                "results": [], "versions": {}}
     col_names = {c if isinstance(c, str) else c.get("name", "") for c in cols}
     if collection_name not in col_names:
         return {"route": "fallback_raw", "reason": f"collection not found: {collection_name}",

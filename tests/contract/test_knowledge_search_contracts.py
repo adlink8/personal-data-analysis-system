@@ -319,7 +319,7 @@ def test_layered_tags_dialogue_vs_event(monkeypatch: pytest.MonkeyPatch) -> None
     import personal_knowledge.retrieval.semantic_search as ss
     from personal_knowledge.retrieval.evidence import EvidenceResolver
 
-    monkeypatch.setattr(ss, "_read_knowledge_active_collection", lambda: "")
+    monkeypatch.setattr(ss, "_read_knowledge_active_collection", lambda: "test_collection")
     monkeypatch.setattr(
         EvidenceResolver,
         "resolve",
@@ -334,7 +334,7 @@ def test_layered_tags_dialogue_vs_event(monkeypatch: pytest.MonkeyPatch) -> None
 
     class _FakeClient:
         def list_collections(self):
-            return []
+            return ["test_collection"]
 
         def get_or_create_collection(self, name):
             return _FakeColl()
@@ -349,6 +349,10 @@ def test_layered_tags_dialogue_vs_event(monkeypatch: pytest.MonkeyPatch) -> None
         "local_embed",
         types.SimpleNamespace(embed=lambda q: [0.1] * 8),
     )
+    import personal_knowledge.core.chroma_client as chroma_mod
+    import personal_knowledge.core.local_embed as embed_mod
+    monkeypatch.setattr(chroma_mod, "ChromaClient", lambda port=None: _FakeClient())
+    monkeypatch.setattr(embed_mod, "embed", lambda q: [0.1] * 8)
 
     turns = [
         {
@@ -431,7 +435,7 @@ def test_legacy_policy_uses_raw_event_reason(monkeypatch: pytest.MonkeyPatch) ->
     import personal_knowledge.retrieval.unified_search as us
     import personal_knowledge.retrieval.semantic_search as ss
 
-    monkeypatch.setattr(ss, "_read_knowledge_active_collection", lambda: "")
+    monkeypatch.setattr(ss, "_read_knowledge_active_collection", lambda: "test_collection")
 
     class _FakeColl:
         def query(self, **kwargs):
@@ -439,7 +443,7 @@ def test_legacy_policy_uses_raw_event_reason(monkeypatch: pytest.MonkeyPatch) ->
 
     class _FakeClient:
         def list_collections(self):
-            return []
+            return ["test_collection"]
 
         def get_or_create_collection(self, name):
             return _FakeColl()
@@ -454,6 +458,10 @@ def test_legacy_policy_uses_raw_event_reason(monkeypatch: pytest.MonkeyPatch) ->
         "local_embed",
         types.SimpleNamespace(embed=lambda q: [0.1] * 8),
     )
+    import personal_knowledge.core.chroma_client as chroma_mod
+    import personal_knowledge.core.local_embed as embed_mod
+    monkeypatch.setattr(chroma_mod, "ChromaClient", lambda port=None: _FakeClient())
+    monkeypatch.setattr(embed_mod, "embed", lambda q: [0.1] * 8)
 
     events = [
         {
@@ -484,11 +492,11 @@ def test_layered_legacy_pad_reason(monkeypatch: pytest.MonkeyPatch) -> None:
     import personal_knowledge.retrieval.unified_search as us
     import personal_knowledge.retrieval.semantic_search as ss
 
-    monkeypatch.setattr(ss, "_read_knowledge_active_collection", lambda: "")
+    monkeypatch.setattr(ss, "_read_knowledge_active_collection", lambda: "test_collection")
 
     class _FakeClient:
         def list_collections(self):
-            return []
+            return ["test_collection"]
 
         def get_or_create_collection(self, name):
             return types.SimpleNamespace(
@@ -510,6 +518,10 @@ def test_layered_legacy_pad_reason(monkeypatch: pytest.MonkeyPatch) -> None:
         "local_embed",
         types.SimpleNamespace(embed=lambda q: [0.1] * 4),
     )
+    import personal_knowledge.core.chroma_client as chroma_mod
+    import personal_knowledge.core.local_embed as embed_mod
+    monkeypatch.setattr(chroma_mod, "ChromaClient", lambda port=None: _FakeClient())
+    monkeypatch.setattr(embed_mod, "embed", lambda q: [0.1] * 4)
 
     import personal_knowledge.retrieval.search_vectors as sv
 

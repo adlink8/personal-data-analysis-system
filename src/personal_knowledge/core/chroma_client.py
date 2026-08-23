@@ -177,7 +177,10 @@ class ChromaClient:
 
     def list_collections(self, timeout: int = 30) -> list[dict]:
         """列出所有 collection。返回 [{name, id, dimension}, ...]。"""
-        r = self._session.get(f"{self._base}/collections?limit=1000", timeout=timeout)
+        try:
+            r = self._session.get(f"{self._base}/collections?limit=1000", timeout=timeout)
+        except requests.RequestException as exc:
+            raise ChromaError("list_collections unavailable") from exc
         if r.status_code != 200:
             raise ChromaError(f"list_collections failed: {r.status_code} {r.text[:200]}")
         return r.json()

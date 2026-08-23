@@ -715,12 +715,24 @@ def search_knowledge_units(
         # Compatibility hook retained for tests and pre-snapshot installations.
         ku_collection = resolved_active
 
-    # embedding（一次 embed，两路复用）
-    embedding = local_embed.embed(query)
-    if embedding is None:
-        return _pack(route="fallback_raw", results=[], reason="embedding failed")
-
     client = ChromaClient(port=_KU_PORT)
+    # Probe the optional vector service before loading the optional local
+    # embedding stack. Offline/CI environments must still reach the layered
+    # SQLite fallback instead of failing on a missing model or port 8001.
+    embedding = None
+    if ku_collection:
+        try:
+            collections = client.list_collections()
+            names = {item if isinstance(item, str) else item.get("name", "") for item in collections}
+            if ku_collection in names:
+                embedding = local_embed.embed(query)
+            else:
+                ku_collection = ""
+        except Exception:
+            ku_collection = ""
+        if ku_collection and embedding is None:
+            ku_collection = ""
+
     from personal_knowledge.retrieval.evidence import EvidenceResolver  # noqa: E402
     support_resolver = EvidenceResolver(
         unified_db=_C.UNIFIED_DB,
@@ -753,6 +765,7 @@ def search_knowledge_units(
     state.ku_collection = ku_collection
     state.embedding = embedding
     state.client = client
+    state.vector_available = bool(ku_collection and embedding is not None)
     state.resolve_support_ref = _resolve_support_ref
 
     # --- Phase 1: 知识层检索（top-KU_SLOTS） ---
@@ -809,6 +822,4 @@ def search_knowledge_units(
         versions=versions,
         ku_collection=ku_collection or "personal_events",
     )
-
-
 

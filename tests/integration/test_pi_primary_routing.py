@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import json
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
@@ -9,7 +10,9 @@ from personal_knowledge.services.pi_runtime_activation import RuntimeActivation,
 
 
 def test_primary_is_blocked_without_phase53_proceed_evidence(tmp_path):
-    runtime = RuntimeActivation(tmp_path / "activation.sqlite")
+    policy = tmp_path / "policy.json"
+    policy.write_text(json.dumps({"phase53_decision": "revise"}), encoding="utf-8")
+    runtime = RuntimeActivation(tmp_path / "activation.sqlite", policy_path=policy)
     preview = runtime.prepare("shadow", evidence_checksum="phase53-replay")
     runtime.confirm(preview, confirmation_phrase=preview["confirmation_phrase"], idempotency_key="shadow-1")
     try:

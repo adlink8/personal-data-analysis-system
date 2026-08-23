@@ -11,6 +11,7 @@ from typing import Iterable
 
 from personal_knowledge.application.knowledge.build_knowledge_units_prod import _evidence_supported
 from personal_knowledge.application.knowledge.eligibility import compute_eligible_messages
+from personal_knowledge.core.sqlite import connect_rw
 from personal_knowledge.core.project_paths import AGENT_CONVERSATIONS_DB, UNIFIED_DB
 
 
@@ -61,8 +62,8 @@ def promote_units(
     ids = [item for item in unit_ids if item]
     unit_uri = f"file:{Path(unified_db).resolve().as_posix()}?mode={'rw' if write else 'ro'}"
     agent_uri = f"file:{Path(agent_db).resolve().as_posix()}?mode=ro"
-    unit_con = sqlite3.connect(unit_uri, uri=True)
-    agent_con = sqlite3.connect(agent_uri, uri=True)
+    unit_con = connect_rw(unit_uri, uri=True)
+    agent_con = connect_rw(agent_uri, uri=True)
     unit_con.row_factory = sqlite3.Row
     try:
         if eligible_refs is None:

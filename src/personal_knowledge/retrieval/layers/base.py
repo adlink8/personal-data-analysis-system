@@ -40,6 +40,10 @@ class SearchState:
         self.ku_collection: str = ""
         self.embedding: list[float] | None = None
         self.client: Any = None
+        # False when the optional Chroma/embedding path is unavailable. The
+        # assembler still runs SQLite-backed canonical fallback layers, while
+        # vector-only layers must not invoke the optional model stack again.
+        self.vector_available: bool = True
         self.resolve_support_ref: Callable[..., Any] | None = None
         # Shared mutable results / signals.
         self.route: str = "knowledge"

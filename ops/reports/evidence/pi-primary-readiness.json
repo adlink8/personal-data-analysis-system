@@ -1,9 +1,9 @@
 {
   "schema": "pi-primary-readiness-v1",
-  "status": "READY",
-  "ready": true,
+  "status": "BLOCKED",
+  "ready": false,
   "run_at": "2026-08-12T01:33:26Z",
-  "reason_codes": [],
+  "reason_codes": ["readiness_status_not_ready"],
   "production_entrypoint_count": 10,
   "entrypoint_receipts": {
     "analysis.providers.PiKernelProvider": {
@@ -63,5 +63,5 @@
   },
   "authority_mutations": 0,
   "raw_bodies_committed": false,
-  "primary_activated": true
+  "primary_activated": false
 }

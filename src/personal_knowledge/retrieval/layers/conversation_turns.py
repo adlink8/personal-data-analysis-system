@@ -17,6 +17,8 @@ class ConversationTurnsLayer(RetrieverLayer):
     role = "turn_retrieval"
 
     def retrieve(self, query: str, state: SearchState) -> list[dict[str, Any]]:
+        if not state.vector_available:
+            return []
         # Look up through the owning module at call time so tests that patch
         # search_vectors.search_conversation_turns keep working.
         import personal_knowledge.retrieval.search_vectors as _sv  # noqa: E402

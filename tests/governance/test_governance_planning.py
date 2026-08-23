@@ -14,7 +14,9 @@ def test_planning_truth_hierarchy():
 
 def test_phase17_remains_open_and_consistent():
     assert planning.check(ROOT) == []
-    roadmap = (ROOT / ".planning/ROADMAP.md").read_text(encoding="utf-8")
+    # Phase 17 is kept in the v1.1 milestone archive; the active roadmap
+    # intentionally contains only the current milestone ordering.
+    roadmap = (ROOT / ".planning/milestones/v1.1-ROADMAP.md").read_text(encoding="utf-8")
     assert "17 | 4/4 code" in roadmap
     assert "Executing" in roadmap
 

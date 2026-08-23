@@ -132,7 +132,10 @@ Node 内置测试使用 `*.test.mjs`；Cockpit 使用 Vitest 的 `*.test.ts` 或
 
 | Job | 运行环境 | 主要步骤 |
 |---|---|---|
-| `python` | `windows-latest`，Python 3.12 与 3.14 matrix | 安装受约束开发依赖；运行 `python integration/scripts/governance/preflight.py --ci`；执行 pytest 收集和完整测试。 |
+| `python` | `windows-latest`，Python 3.12 与 3.14 matrix | 安装受约束开发依赖；运行 `python integration/scripts/governance/preflight.py --ci`；执行 pytest 收集和全部离线测试（排除标记为 `live` 的私有数据/服务验收）。 |
 | `node` | `windows-latest`，Node.js 20 | 在 `apps/personal_data_chatgpt` 执行 `npm ci --ignore-scripts` 和 `npm test`。 |
+| `cockpit` | `windows-latest`，Node.js 20 | 在 `apps/personal_decision_cockpit` 执行 `npm ci --ignore-scripts`、`npm test` 和生产 `npm run build`。 |
+| `desktop` | `windows-latest`，Node.js 22.19.0 | 在 `apps/personal_intelligence_desktop` 执行 `npm ci --ignore-scripts` 和 `npm test`。 |
+| `kernel` | `windows-latest`，Node.js 22.19.0 | 在 `apps/personal_intelligence_kernel` 执行 `npm ci --ignore-scripts` 和 `npm test`。 |
 
-CI 的 Python matrix 设置 `fail-fast: false`，因此一个版本失败不会取消另一个版本的结果。当前 CI 不运行 PI Kernel、Electron desktop 或 Decision Cockpit 的 npm 测试；修改这些包时，应在本地运行对应 `npm test` 并在变更验证中记录结果。
+CI 的 Python matrix 设置 `fail-fast: false`，因此一个版本失败不会取消另一个版本的结果。Kernel 的 `npm run qualify` 仍是联网的依赖资格检查，不属于上述离线 PR 测试 job。

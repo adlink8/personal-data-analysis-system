@@ -45,6 +45,7 @@ from personal_knowledge.application.conversation.extraction_views import (
     ViewBuildResult,
     ViewType,
 )
+from personal_knowledge.core.sqlite import connect_rw
 
 LEGACY_MESSAGE_RUN_PREFIX = "ir_"
 VIEW_POLICY_RUN_PREFIX = "vc_"
@@ -288,7 +289,7 @@ class CandidateRunRepository:
     # ------------------------------------------------------------ schema
 
     def create_schema(self) -> None:
-        con = sqlite3.connect(str(self.db))
+        con = connect_rw(self.db)
         try:
             con.execute("PRAGMA foreign_keys=ON")
             for statement in _CANDIDATE_DDL:
@@ -299,9 +300,9 @@ class CandidateRunRepository:
 
     def _connect(self, *, readonly: bool = False) -> sqlite3.Connection:
         if readonly:
-            con = sqlite3.connect(f"file:{self.db.as_posix()}?mode=ro", uri=True)
+            con = connect_rw(f"file:{self.db.as_posix()}?mode=ro", uri=True)
         else:
-            con = sqlite3.connect(str(self.db))
+            con = connect_rw(self.db)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA foreign_keys=ON")
         return con

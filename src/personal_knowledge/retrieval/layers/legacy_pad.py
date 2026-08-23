@@ -22,6 +22,8 @@ class LegacyPersonalEventsLayer(RetrieverLayer):
     layer_name = "legacy_personal_events"
 
     def retrieve(self, query: str, state: SearchState) -> list[dict[str, Any]]:
+        if not state.vector_available:
+            return []
         # Look up through the owning module at call time so tests that patch
         # semantic_search._semantic_search keep working.
         from personal_knowledge.retrieval import semantic_search as _ss_module  # noqa: E402
@@ -47,6 +49,8 @@ class LegacyPadLayer(RetrieverLayer):
     layer_name = "legacy_pad"
 
     def retrieve(self, query: str, state: SearchState) -> list[dict[str, Any]]:
+        if not state.vector_available:
+            return []
         from personal_knowledge.retrieval import semantic_search as _ss_module  # noqa: E402
 
         need = state.remaining()

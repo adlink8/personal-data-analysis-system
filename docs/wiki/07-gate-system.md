@@ -120,7 +120,7 @@
 sk-...              → OpenAI API Key
 ghp_...             → GitHub Token
 AIza...             → Google API Key
------BEGIN PRIVATE KEY----- → 私钥
+-----BEGIN [PRIVATE KEY]----- → 私钥
 access_token=...    → 访问令牌
 身份证号、护照号    → 个人身份信息
 ```

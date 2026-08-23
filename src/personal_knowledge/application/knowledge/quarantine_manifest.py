@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from personal_knowledge.core.sqlite import connect_rw
+
 
 MANIFEST_FORMAT = "personal-knowledge-quarantine-v1"
 MANIFEST_PRODUCER = "personal_knowledge.application.knowledge.isolate_legacy_knowledge"
@@ -139,8 +141,8 @@ def online_backup(source: Path, destination: Path) -> dict[str, Any]:
     temporary = destination.with_suffix(destination.suffix + ".tmp")
     if temporary.exists():
         temporary.unlink()
-    src = sqlite3.connect(f"file:{source.as_posix()}?mode=ro", uri=True, timeout=60)
-    dst = sqlite3.connect(temporary, timeout=60)
+    src = connect_rw(f"file:{source.as_posix()}?mode=ro", uri=True, timeout=60)
+    dst = connect_rw(temporary, timeout=60)
     try:
         src.backup(dst)
         dst.commit()
@@ -262,8 +264,8 @@ def restore_from_manifest(
     if pointer_path is not None and pointer_path.resolve() != expected_pointer:
         raise ManifestError("manifest pointer path mismatch")
     backup_path = Path(document["backup"]["path"]).resolve()
-    source = sqlite3.connect(f"file:{backup_path.as_posix()}?mode=ro", uri=True, timeout=60)
-    destination = sqlite3.connect(expected_db, timeout=60)
+    source = connect_rw(f"file:{backup_path.as_posix()}?mode=ro", uri=True, timeout=60)
+    destination = connect_rw(expected_db, timeout=60)
     try:
         source.backup(destination)
         destination.commit()
@@ -288,4 +290,3 @@ def restore_from_manifest(
         "pointer_restored": True,
         "database_fingerprint": restored,
     }
-

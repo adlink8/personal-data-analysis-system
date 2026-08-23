@@ -88,7 +88,14 @@ def test_canonical_preview_is_exact_and_records_phase17_conflicts() -> None:
     frozen = json.loads((ROOT / "governance/manifests/source/canonical-src.json").read_text(encoding="utf-8"))
     # Historical manifest may list targets later retired after the cohort freeze.
     known_retired_targets = {
+        "src/personal_knowledge/domains/conversation/build_conversation_segments.py",
+        "src/personal_knowledge/domains/conversation/build_conversation_summary.py",
+        "src/personal_knowledge/domains/conversation/build_gpt_conversation_summary.py",
         "src/personal_knowledge/domains/graph/build_graph_relation_candidates_v2.py",
+        "src/personal_knowledge/domains/memory/build_mem0_candidate_memory.py",
+        "src/personal_knowledge/application/build_integrated_system.py",
+        "src/personal_knowledge/application/enrich_unified_events.py",
+        "src/personal_knowledge/application/run_import_pipeline.py",
     }
     assert all(
         (ROOT / item["target"]).is_file() or item["target"] in known_retired_targets
@@ -205,7 +212,20 @@ def test_root_shim_and_tool_cohorts_are_fully_applied() -> None:
     tools = json.loads((ROOT / "governance/manifests/source/tools.json").read_text(encoding="utf-8"))
     assert len(shims["entries"]) == 87
     assert not list((ROOT / "integration/scripts").glob("*.py"))
-    assert all((ROOT / item["target"]).is_file() and not (ROOT / item["source"]).exists() for item in shims["entries"])
+    retired_sources = {
+        "integration/scripts/build_conversation_segments.py",
+        "integration/scripts/build_conversation_summary.py",
+        "integration/scripts/build_gpt_conversation_summary.py",
+        "integration/scripts/build_integrated_system.py",
+        "integration/scripts/build_mem0_candidate_memory.py",
+        "integration/scripts/enrich_unified_events.py",
+        "integration/scripts/run_import_pipeline.py",
+    }
+    assert all(
+        item["source"] in retired_sources
+        or ((ROOT / item["target"]).is_file() and not (ROOT / item["source"]).exists())
+        for item in shims["entries"]
+    )
     assert len(tools["entries"]) == len(tools["registry"]) == 16
     # documentation cohort retired; remaining tool registry categories.
     assert {item["category"] for item in tools["registry"]} == {"supported", "migrations", "forensics"}
