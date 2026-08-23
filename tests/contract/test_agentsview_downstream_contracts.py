@@ -20,7 +20,7 @@ _SCRIPTS = _ROOT / "integration" / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from personal_knowledge.domains.conversation.evaluate_agent_conversation_cutover import (  # noqa: E402
+from personal_knowledge.evaluation.conversation.evaluate_agent_conversation_cutover import (  # noqa: E402
     CutoverReport,
     evaluate,
     _check_secret_searchable,

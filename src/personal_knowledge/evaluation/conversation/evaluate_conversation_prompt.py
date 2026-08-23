@@ -343,7 +343,7 @@ def _compute_refs_coverage(results: list[SampleResult]) -> float:
 def run(write: bool, limit: int) -> int:
     if not EVAL_SET.exists():
         print(f"[error] 缺少评测样本集: {EVAL_SET.relative_to(ROOT)}")
-        print("        先运行: python -m personal_knowledge.domains.conversation.build_conversation_eval_set --write")
+        print("        先运行: python -m personal_knowledge.evaluation.conversation.build_conversation_eval_set --write")
         return 1
 
     samples = json.loads(EVAL_SET.read_text(encoding="utf-8"))

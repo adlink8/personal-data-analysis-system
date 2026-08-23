@@ -11,7 +11,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from personal_knowledge.domains.memory.build_memory_relation_candidates import ALLOWED_RELATION_TYPES, DB_PATH
+from personal_knowledge.application.memory.build_memory_relation_candidates import ALLOWED_RELATION_TYPES, DB_PATH
 
 
 ROOT = Path(__file__).resolve().parents[4]

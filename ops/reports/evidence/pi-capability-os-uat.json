@@ -4,11 +4,11 @@
   "evidence_class": "synthetic_replay",
   "status": "PASS_DETERMINISTIC_BLOCKED_REAL",
   "run_at": "2026-08-05T00:00:00Z",
-  "preregistration_checksum": "3fea6a2259821f6365b80ea17f8e2444f792a44e08ba6407124488e782a3452c",
+  "preregistration_checksum": "0a95cf7565067cceeb4c13e0760936fb2aca2c94961b879b4823a428bfa419c5",
   "registry_checksum": "419b7a7bd23951c7ad0cb610e080576f7c4c960f8cf5ad88b3795e111fe13eba",
   "skill_manifest_checksum": "0085782a3131904627e86dd8d198ab2513e84f421a752d302874ead88ba0aeef",
   "runtime_policy_checksum": "e9c8ba42e85e566818334430f0b2071f8519f35438cbfa337d0b3b6d372ade85",
-  "entrypoints_checksum": "6fb915c0df2946fd62fdcdcf7e4f597a55167c8a84490546b29ad22ac372c7ce",
+  "entrypoints_checksum": "0ea9e24b735a74d1b3bb14074abcf40bae0504dae450e3a69cd1ed1cc0532919",
   "case_count": 16,
   "cases": [
     {

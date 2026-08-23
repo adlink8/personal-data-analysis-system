@@ -43,12 +43,14 @@ src/personal_knowledge/
 | Any build / lifecycle script | `personal_knowledge.application.<subdomain>.…` |
 | Any eval / compare / audit | `personal_knowledge.evaluation.<subdomain|vector>.…` |
 | **Schema SQL / migrate** | **`personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables`** |
-| Legacy path (tests / `tools/compat` / old scripts) | `personal_knowledge.domains.<subdomain>.…` (**facade only**) |
+| Legacy path (external callers / `tools/compat`) | `personal_knowledge.domains.<subdomain>.…` (**facade only**) |
 
 ### Application tree policy (2026-07-16)
 
 - **`application/**` must not `from personal_knowledge.domains…` import** (count **0**; verified by `pk-ku doctor`).
 - Product CLI (`pk-ku`, `pk-sync`) never imports domains.
+- Evaluation, tests and forensics tools import canonical application/evaluation
+  modules directly as of 2026-08-23.
 - `domains/*` may remain as **re-export shims** for external/compat callers until package removal.
 - Optional later: delete entire `domains/` package when external consumers are zero.
 
@@ -68,7 +70,7 @@ src/personal_knowledge/
 
 | Item | Status |
 |------|--------|
-| Remove `domains/` package entirely | Optional after consumer graph is empty (was 2026-08-13 window) |
+| Remove `domains/` package entirely | Internal consumer graph is empty; external consumer telemetry is still unknown, so the package remains supported compatibility |
 | `retrieval/memory.py` direct graph imports | Uses the canonical `personal_knowledge.application.graph.query_graph` path |
 | `*.bak-phase20` | **Moved** to `archive/quarantine/bak-phase20-20260716/` (2026-07-16) |
 | `tools/compat/v1_1` shims | Separate compat budget (not application facade debt) |

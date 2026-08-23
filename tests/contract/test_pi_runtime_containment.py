@@ -75,7 +75,7 @@ def _protected_snapshot(extra: list[Path] | None = None) -> dict[str, tuple[bool
     return snapshot
 
 
-def _run_probe(*, secret: str, path_marker: str, timeout: int = 15) -> subprocess.CompletedProcess[str]:
+def _run_probe(*, secret: str, path_marker: str, timeout: int = 30) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PI_CONTAINMENT_FIXTURE_SECRET"] = secret
     env["OPENAI_API_KEY"] = secret

@@ -19,8 +19,8 @@
 | KU 全链路 | **`pk-ku`**（`inspect` → `prepare` → `extract` → … → `canary` → `promote` → `watermark`） |
 | 流程说明 / 体检 | `pk-ku workflow` · `pk-ku doctor` |
 | 成长线 / 生命周期（不删行） | `pk-ku history --subject …` · `pk-ku reconcile --dry-run` |
-| 启动 REST + MCP + Tunnel | `apps/personal_data_chatgpt/scripts/启动服务.bat` 或 `start-services.ps1` |
-| Decision Cockpit（新前端） | `cd apps/personal_decision_cockpit && npm run build` 后由 rag-api 托管 `http://127.0.0.1:8000/app/`；开发用 `npm run dev`（代理到 8000） |
+| 启动 REST + Pi Kernel + MCP + Tunnel | `apps/personal_data_chatgpt/scripts/启动服务.bat` 或 `start-services.ps1` |
+| Decision Cockpit（冻结前端） | 源码与 CI 保留，但 `/app` 和 Cockpit 专用 `/ui/*` 已停用；当前可用统合层是 wiki `/ui/topics` 等只读路由 |
 | 检索 CLI | `rag-search …` |
 
 **已退役：** `rag-pipeline`（exit 2 → 改用 `pk-sync` / `pk-ku`）。取证：`PK_ALLOW_LEGACY_PIPELINE=1` + `--legacy-integrated`。
@@ -45,6 +45,7 @@
 | 服务 | 端口 | 进程 |
 |------|------|------|
 | REST API (rag-api) | 8000 | `personal_knowledge` API |
+| Pi Kernel | 8790 | `node apps/personal_intelligence_kernel/src/server.mjs` |
 | GPT Apps MCP | 8789 | `node apps/personal_data_chatgpt/server.mjs` |
 | Tunnel（接 ChatGPT） | 8081 | `tunnel-client.exe` |
 
@@ -60,8 +61,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "apps\personal_data_chatgpt\script
 
 ```powershell
 curl.exe --noproxy "*" http://127.0.0.1:8000/health
+curl.exe --noproxy "*" http://127.0.0.1:8790/ready
 curl.exe --noproxy "*" http://127.0.0.1:8789/health
-curl.exe --noproxy "*" http://127.0.0.1:8081/healthz
+curl.exe --noproxy "*" http://127.0.0.1:8081/readyz
 pk-ku doctor --skip-ports
 ```
 
@@ -82,11 +84,11 @@ pk-ku doctor --skip-ports
 | `src/personal_knowledge/evaluation/` | **canonical** 评测 |
 | `src/personal_knowledge/domains/` | 可选 re-export facade（application 已 0 引用） |
 | `apps/personal_data_chatgpt/` | ChatGPT MCP Apps |
-| `apps/personal_decision_cockpit/` | Decision Cockpit 前端（React/TS/Vite；构建产物由 rag-api 托管 `/app`，后端只读投影 `services/ui_projection.py` → `/ui/overview`、`/ui/system/status`） |
+| `apps/personal_decision_cockpit/` | 冻结的 Decision Cockpit 前端（React/TS/Vite；源码与 CI 保留，生产 `/app` 和 Cockpit 专用投影路由停用） |
 | `data/` | 私有数据（勿提交内容） |
 | `var/` | DB / runtime / reports / active pointer |
 | `docs/AGENTS.md` | **Agent 全流程手册** |
-| `.planning/` | GSD roadmap（当前 Phase 22 已落地代码） |
+| `.planning/` | GSD roadmap 与验证历史；当前 live 状态以 `.planning/STATE.md` 加现场命令复核 |
 
 路径 SSOT：`src/personal_knowledge/core/project_paths.py`。
 

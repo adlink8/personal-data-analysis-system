@@ -17,7 +17,7 @@ SCRIPTS_DIR = ROOT / "integration" / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import personal_knowledge.domains.memory.extract_memory_candidates_from_bundles as mod  # noqa: E402
+import personal_knowledge.application.memory.extract_memory_candidates_from_bundles as mod  # noqa: E402
 
 
 class TestMemoryCandidateExtraction(unittest.TestCase):

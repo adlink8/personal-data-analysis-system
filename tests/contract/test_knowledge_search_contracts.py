@@ -15,22 +15,22 @@ _SCRIPTS = _ROOT / "integration" / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
-from personal_knowledge.domains.knowledge.evaluate_knowledge_canary import (  # noqa: E402
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
+from personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary import (  # noqa: E402
     read_active_collection, search_knowledge_units, generate_canary_queries,
 )
 
 
 def test_read_active_collection_none(tmp_path: Path) -> None:
     """无 active pointer 时返回 None。"""
-    import personal_knowledge.domains.knowledge.evaluate_knowledge_canary as ec
+    import personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary as ec
     ec.ACTIVE_POINTER = tmp_path / "nonexistent.txt"
     assert read_active_collection() is None
 
 
 def test_read_active_collection_reads(tmp_path: Path) -> None:
     """active pointer 存在时返回内容。"""
-    import personal_knowledge.domains.knowledge.evaluate_knowledge_canary as ec
+    import personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary as ec
     ec.ACTIVE_POINTER = tmp_path / "active.txt"
     ec.ACTIVE_POINTER.write_text("test_collection", encoding="utf-8")
     assert read_active_collection() == "test_collection"
@@ -38,7 +38,7 @@ def test_read_active_collection_reads(tmp_path: Path) -> None:
 
 def test_search_knowledge_units_no_active(tmp_path: Path) -> None:
     """无 active 时 route=fallback_raw。"""
-    import personal_knowledge.domains.knowledge.evaluate_knowledge_canary as ec
+    import personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary as ec
     ec.ACTIVE_POINTER = tmp_path / "nonexistent.txt"
     result = search_knowledge_units("test query", collection_name="nonexistent")
     assert result["route"] == "fallback_raw"
@@ -67,7 +67,7 @@ def test_generate_canary_queries_hashes_only(tmp_path: Path) -> None:
     con.commit()
     con.close()
 
-    import personal_knowledge.domains.knowledge.evaluate_knowledge_canary as ec
+    import personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary as ec
     ec.UNIFIED_DB = db
     queries = generate_canary_queries(1)
     assert len(queries) == 1
@@ -131,7 +131,7 @@ def test_feedback_no_raw_query_fields(tmp_path: Path) -> None:
 
 def test_canary_report_privacy_safe(tmp_path: Path) -> None:
     """canary report 不含 raw query/evidence。"""
-    from personal_knowledge.domains.knowledge.evaluate_knowledge_canary import run_canary
+    from personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary import run_canary
     db = tmp_path / "test.sqlite"
     con = sqlite3.connect(str(db))
     con.executescript(SCHEMA_SQL)
@@ -147,7 +147,7 @@ def test_canary_report_privacy_safe(tmp_path: Path) -> None:
     con.commit()
     con.close()
 
-    import personal_knowledge.domains.knowledge.evaluate_knowledge_canary as ec
+    import personal_knowledge.evaluation.knowledge.evaluate_knowledge_canary as ec
     ec.UNIFIED_DB = db
     report = run_canary("nonexistent_collection", n_queries=3, report_path=tmp_path / "canary.json")
     assert "results" in report

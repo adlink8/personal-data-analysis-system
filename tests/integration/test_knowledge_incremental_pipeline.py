@@ -28,7 +28,7 @@ _SCRIPTS = _ROOT / "integration" / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +474,7 @@ def test_delta_new_ref_creates_fresh_run(tmp_path: Path):
 
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
     src_before = compute_source_checksum(canon_before)
     src_after = compute_source_checksum(canon_after)
 
@@ -511,7 +511,7 @@ def test_delta_no_op_same_checksum(tmp_path: Path):
     build_canonical_db(canon, refs)
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
     src = compute_source_checksum(canon)
 
     result = prepare_delta(
@@ -543,7 +543,7 @@ def test_delta_modified_ref_changes_content_hash(tmp_path: Path):
 
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
     src_before = compute_source_checksum(canon_before)
     src_after = compute_source_checksum(canon_after)
 
@@ -573,7 +573,7 @@ def test_delta_deleted_ref_detected(tmp_path: Path):
     build_canonical_db(canon_after, refs[:2])
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
     src_before = compute_source_checksum(canon_before)
     src_after = compute_source_checksum(canon_after)
 
@@ -598,7 +598,7 @@ def test_delta_model_required_fail_closed(tmp_path: Path):
     build_canonical_db(canon, refs)
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
     src = compute_source_checksum(canon)
 
     with pytest.raises((ValueError, RuntimeError)):
@@ -623,7 +623,7 @@ def test_delta_inventory_idempotent_preflight(tmp_path: Path):
     build_canonical_db(canon_after, refs_after)
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import prepare_delta, compute_source_checksum
     src_before = compute_source_checksum(canon_before)
     src_after = compute_source_checksum(canon_after)
 
@@ -654,7 +654,7 @@ def test_delta_inventory_idempotent_preflight(tmp_path: Path):
 
 def test_provider_model_mismatch_blocks():
     """gpt-5.6-luna 不能发往 Vertex Google endpoint → fail closed."""
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import validate_provider_model
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import validate_provider_model
     with pytest.raises((ValueError, RuntimeError)):
         validate_provider_model(
             provider="vertex_google",
@@ -665,7 +665,7 @@ def test_provider_model_mismatch_blocks():
 
 def test_provider_missing_auth_blocks():
     """缺 auth config → fail closed。"""
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import validate_provider_model
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import validate_provider_model
     with pytest.raises((ValueError, RuntimeError)):
         validate_provider_model(
             provider="vertex_google",
@@ -677,7 +677,7 @@ def test_provider_missing_auth_blocks():
 
 def test_provider_no_silent_fallback():
     """provider/model 不匹配时不尝试 fallback，直接 fail。"""
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import validate_provider_model, ProviderValidationResult
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import validate_provider_model, ProviderValidationResult
     # wrong model for vertex → should raise, not fallback
     with pytest.raises((ValueError, RuntimeError)):
         validate_provider_model(
@@ -689,7 +689,7 @@ def test_provider_no_silent_fallback():
 
 def test_provider_cache_key_includes_model():
     """cache key 包含 model — 不同 model 产生不同 cache key。"""
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import compute_cache_key
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import compute_cache_key
     key1 = compute_cache_key(
         model="gemini-2.5-flash", prompt_hash="p1", schema_hash="s1",
         input_hash="i1", config_hash="c1",
@@ -703,7 +703,7 @@ def test_provider_cache_key_includes_model():
 
 def test_provider_valid_vertex_passes():
     """合法 vertex + gemini model → 通过。"""
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import validate_provider_model
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import validate_provider_model
     result = validate_provider_model(
         provider="vertex_google",
         endpoint="https://us-central1-aiplatform.googleapis.com",
@@ -715,7 +715,7 @@ def test_provider_valid_vertex_passes():
 
 def test_provider_valid_openai_passes():
     """合法 openai + gpt model → 通过。"""
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import validate_provider_model
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import validate_provider_model
     result = validate_provider_model(
         provider="openai",
         endpoint="https://api.openai.com/v1",
@@ -737,7 +737,7 @@ def test_crash_resume_same_result(tmp_path: Path):
     build_canonical_db(canon, refs)
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import prepare_delta, execute_run, compute_source_checksum
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import prepare_delta, execute_run, compute_source_checksum
     src = compute_source_checksum(canon)
     # empty before → all new
     canon_empty = tmp_path / "canon_empty.sqlite"
@@ -787,7 +787,7 @@ def test_resume_no_duplicate_llm_calls(tmp_path: Path):
     build_canonical_db(canon, refs)
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import prepare_delta, execute_run, compute_source_checksum
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import prepare_delta, execute_run, compute_source_checksum
     canon_empty = tmp_path / "canon_empty.sqlite"
     build_canonical_db(canon_empty, [])
     src_empty = compute_source_checksum(canon_empty)
@@ -824,7 +824,7 @@ def test_affected_subject_replacement(tmp_path: Path):
          "source_message_ref": refs[1]["ref"]},
     ])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import compute_affected_subjects
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import compute_affected_subjects
     affected = compute_affected_subjects(db, [refs[0]["ref"]])
     assert "alpha" in affected
     assert "beta" not in affected
@@ -838,7 +838,7 @@ def test_unaffected_canonical_unchanged(tmp_path: Path):
     build_canonical_db(canon, refs)
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import compute_affected_subjects
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import compute_affected_subjects
     # Only refs[0] is affected → only "subject_of_refs[0]" changes
     affected = compute_affected_subjects(db, [refs[0]["ref"]])
     unaffected_subjects = compute_affected_subjects(db, [refs[2]["ref"]])
@@ -864,7 +864,7 @@ def test_candidate_actual_id_checksum(tmp_path: Path):
         for i in range(3)
     ])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import build_incremental_candidate
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import build_incremental_candidate
     fake_chroma = FakeChromaClient()
 
     result = build_incremental_candidate(
@@ -894,7 +894,7 @@ def test_candidate_six_residue_zero(tmp_path: Path):
         for i in range(5)
     ])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import build_incremental_candidate
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import build_incremental_candidate
     fake_chroma = FakeChromaClient()
 
     result = build_incremental_candidate(
@@ -923,7 +923,7 @@ def test_prepare_journal_durable(tmp_path: Path):
     build_canonical_db(after, refs + make_refs(1, prefix="cmn"))
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import (
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import (
         prepare_delta,
         compute_source_checksum,
         prepare_incremental_journal,
@@ -969,7 +969,7 @@ def test_commit_atomic_three_way(tmp_path: Path):
     build_canonical_db(after, refs + make_refs(1, prefix="cmn"))
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import (
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import (
         prepare_delta,
         compute_source_checksum,
         prepare_incremental_journal,
@@ -1008,7 +1008,7 @@ def test_rollback_restores_watermark(tmp_path: Path):
     build_canonical_db(after, refs + make_refs(1, prefix="cmn"))
     build_unified_db(db)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import (
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import (
         prepare_delta,
         compute_source_checksum,
         prepare_incremental_journal,
@@ -1036,7 +1036,7 @@ def test_rollback_restores_watermark(tmp_path: Path):
 
 def test_e2e_sandbox_new_ref_journal_watermark(tmp_path: Path):
     """Full isolated KU-08 path: non-empty delta → journal → watermark → no-op."""
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import run_sandbox_ku08_e2e
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import run_sandbox_ku08_e2e
 
     report = run_sandbox_ku08_e2e(tmp_path / "ku08")
     assert report["ok"] is True
@@ -1058,7 +1058,7 @@ def test_candidate_old_active_unchanged(tmp_path: Path):
         for i in range(3)
     ])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import build_incremental_candidate
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import build_incremental_candidate
     fake_chroma = FakeChromaClient()
     # Pre-populate "active" collection
     active_coll = fake_chroma.get_or_create_collection("old_active")
@@ -1115,7 +1115,7 @@ def test_candidate_covers_all_runs_current_units(tmp_path: Path):
         {"unit_id": "r2u1", "question": "Q3", "answer": "A3"},
     ])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import build_incremental_candidate
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import build_incremental_candidate
     fake_chroma = FakeChromaClient()
 
     result = build_incremental_candidate(
@@ -1146,7 +1146,7 @@ def test_candidate_reuses_active_embeddings(tmp_path: Path):
         {"unit_id": "u_new", "question": "Qnew", "answer": "Anew"},
     ])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import build_incremental_candidate
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import build_incremental_candidate
     fake_chroma = FakeChromaClient()
     active_coll = fake_chroma.get_or_create_collection("old_active")
     active_coll.add(ids=["u_old"], documents=["stale doc"], metadatas=[{"subject": "stale"}],
@@ -1187,7 +1187,7 @@ def test_candidate_active_missing_degrades_to_full_embed(tmp_path: Path):
         {"unit_id": "u1", "question": "Q1", "answer": "A1"},
     ])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import build_incremental_candidate
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import build_incremental_candidate
     fake_chroma = FakeChromaClient()
 
     result = build_incremental_candidate(
@@ -1211,7 +1211,7 @@ def test_candidate_actual_ids_paginated(tmp_path: Path, monkeypatch):
         for i in range(7)
     ])
 
-    import personal_knowledge.domains.knowledge.refresh_knowledge_units as rku
+    import personal_knowledge.application.knowledge.refresh_knowledge_units as rku
     monkeypatch.setattr(rku, "_CANDIDATE_GET_PAGE_SIZE", 3)
     fake_chroma = FakeChromaClient()
 
@@ -1242,7 +1242,7 @@ def test_candidate_excludes_non_current_units(tmp_path: Path):
         {"unit_id": "rej", "question": "Qe", "answer": "Ae", "status": "rejected"},
     ])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import build_incremental_candidate
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import build_incremental_candidate
     fake_chroma = FakeChromaClient()
 
     result = build_incremental_candidate(

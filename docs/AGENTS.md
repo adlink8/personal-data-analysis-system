@@ -17,7 +17,7 @@ AgentsView / Google / … (upstream)
         → canonical evidence (conversation, light Google, …)
         → knowledge units (KU) + active vector index
         → hybrid retrieval
-        → REST :8000 / MCP :8789 / ChatGPT tunnel :8081
+        → REST :8000 / Pi Kernel :8790 / MCP :8789 / ChatGPT tunnel :8081
 ```
 
 **Core value:** personal history → evidence-backed, queryable knowledge with promote/rollback.
@@ -127,8 +127,13 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File apps\personal_data_chatgpt\scripts
 | Service | Port | Health |
 |---------|------|--------|
 | REST | 8000 | `http://127.0.0.1:8000/health` |
+| Pi Kernel | 8790 | `http://127.0.0.1:8790/ready` |
 | MCP Apps | 8789 | `http://127.0.0.1:8789/health` · endpoint `/mcp` |
-| Tunnel (ChatGPT) | 8081 | `http://127.0.0.1:8081/healthz` · UI `/ui` |
+| Tunnel (ChatGPT) | 8081 | `http://127.0.0.1:8081/readyz` · UI `/ui` |
+
+Decision Cockpit 源码与 CI 保留，但生产 `/app` 及 Cockpit 专用 `/ui/*`
+路由已冻结；wiki `/ui/topics`、`/ui/topic*` 仍可用。见
+`apps/personal_decision_cockpit/FROZEN.md`。
 
 - Tunnel needs proxy `http://127.0.0.1:7897` for OpenAI control plane.  
 - REST/MCP are localhost only; `NO_PROXY` must include localhost for tunnel→MCP.  
@@ -216,7 +221,7 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
    unified_search (layered hybrid)
              │
              ▼
-   rag-api :8000  ←  MCP :8789  ←  tunnel :8081 → ChatGPT
+   rag-api :8000  ↔  Pi Kernel :8790  ←  MCP :8789  ←  tunnel :8081 → ChatGPT
 ```
 
 ---
@@ -243,7 +248,7 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 ```text
 [ ] Confirm cwd = project root; PYTHONPATH or pip install -e .
 [ ] For conversation growth: pk-sync conversations [--write]
-[ ] For MCP tools: 8000 + 8789 up; for ChatGPT: also 8081 healthz=live
+[ ] For MCP tools: 8000 + 8790 + 8789 up; for ChatGPT: also 8081 readyz=ready
 [ ] Do not write ~/.agentsview/sessions.db
 [ ] Do not run rag-pipeline for product sync
 [ ] Do not commit data/var private artifacts
@@ -272,7 +277,7 @@ See `governance/policies/architecture.yaml`, `docs/architecture/domains-slimming
 | Product readiness | [`.planning/PRODUCT-READINESS.md`](../.planning/PRODUCT-READINESS.md) |
 | Legacy pipeline help | `pk-sync help-legacy` |
 | Start REST+MCP+tunnel | `apps\...\scripts\start-services.ps1` |
-| Health | `curl.exe --noproxy "*" http://127.0.0.1:8000/health` (8789, 8081/healthz) |
+| Health | `curl.exe --noproxy "*" http://127.0.0.1:8000/health` (8790/ready, 8789/health, 8081/readyz) |
 | Search CLI | `rag-search …` |
 | Preflight | `python -m personal_knowledge.governance.preflight --ci` |
 | Tests | `python -m pytest -q tests/` |

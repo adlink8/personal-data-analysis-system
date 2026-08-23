@@ -11,7 +11,7 @@ import pytest
 _THIS_DIR = Path(__file__).resolve().parent
 _ROOT = _THIS_DIR.parent
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
 
 
 def _setup_db_with_units(db: Path, n_units: int = 3) -> str:
@@ -56,7 +56,7 @@ def _setup_db_with_units(db: Path, n_units: int = 3) -> str:
 
 def test_vector_store_stats_gate_pass(tmp_path: Path) -> None:
     """stats gate：missing=0, orphan=0, duplicate=0 → PASS。"""
-    from personal_knowledge.domains.knowledge.build_knowledge_unit_vector_store import VectorStoreStats
+    from personal_knowledge.application.knowledge.build_knowledge_unit_vector_store import VectorStoreStats
     stats = VectorStoreStats(
         eligible_units=3, indexed=3, missing=0, orphan=0, duplicate=0,
         gate_passed=True,
@@ -66,7 +66,7 @@ def test_vector_store_stats_gate_pass(tmp_path: Path) -> None:
 
 def test_vector_store_stats_gate_fail_on_missing(tmp_path: Path) -> None:
     """missing > 0 → gate FAIL。"""
-    from personal_knowledge.domains.knowledge.build_knowledge_unit_vector_store import VectorStoreStats
+    from personal_knowledge.application.knowledge.build_knowledge_unit_vector_store import VectorStoreStats
     stats = VectorStoreStats(
         eligible_units=3, indexed=2, missing=1, orphan=0, duplicate=0,
     )
@@ -75,7 +75,7 @@ def test_vector_store_stats_gate_fail_on_missing(tmp_path: Path) -> None:
 
 def test_vector_store_stats_gate_fail_on_orphan(tmp_path: Path) -> None:
     """orphan > 0 → gate FAIL。"""
-    from personal_knowledge.domains.knowledge.build_knowledge_unit_vector_store import VectorStoreStats
+    from personal_knowledge.application.knowledge.build_knowledge_unit_vector_store import VectorStoreStats
     stats = VectorStoreStats(
         eligible_units=3, indexed=4, missing=0, orphan=1, duplicate=0,
     )
@@ -84,7 +84,7 @@ def test_vector_store_stats_gate_fail_on_orphan(tmp_path: Path) -> None:
 
 def test_vector_store_stats_gate_fail_on_duplicate(tmp_path: Path) -> None:
     """duplicate > 0 → gate FAIL。"""
-    from personal_knowledge.domains.knowledge.build_knowledge_unit_vector_store import VectorStoreStats
+    from personal_knowledge.application.knowledge.build_knowledge_unit_vector_store import VectorStoreStats
     stats = VectorStoreStats(
         eligible_units=3, indexed=3, missing=0, orphan=0, duplicate=1,
     )
@@ -105,7 +105,7 @@ def test_load_eligible_units_only_current(tmp_path: Path) -> None:
     con.commit()
     con.close()
 
-    from personal_knowledge.domains.knowledge.build_knowledge_unit_vector_store import load_eligible_units
+    from personal_knowledge.application.knowledge.build_knowledge_unit_vector_store import load_eligible_units
     units, sealed_spans = load_eligible_units(db, tmp_path / "missing-conversations.sqlite")
     # 不含 rejected
     unit_ids = [u["unit_id"] for u in units]
@@ -119,7 +119,7 @@ def test_get_current_run_id(tmp_path: Path) -> None:
     db = tmp_path / "test.sqlite"
     _setup_db_with_units(db, 1)
 
-    from personal_knowledge.domains.knowledge.build_knowledge_unit_vector_store import _get_current_run_id
+    from personal_knowledge.application.knowledge.build_knowledge_unit_vector_store import _get_current_run_id
     run_id = _get_current_run_id(db)
     assert run_id == "run1"
 
@@ -132,13 +132,13 @@ def test_get_current_run_id_none(tmp_path: Path) -> None:
     con.commit()
     con.close()
 
-    from personal_knowledge.domains.knowledge.build_knowledge_unit_vector_store import _get_current_run_id
+    from personal_knowledge.application.knowledge.build_knowledge_unit_vector_store import _get_current_run_id
     assert _get_current_run_id(db) is None
 
 
 def test_collection_name_contains_build_id(tmp_path: Path) -> None:
     """collection name 包含 build ID。"""
-    from personal_knowledge.domains.knowledge.build_knowledge_unit_vector_store import COLLECTION_PREFIX
+    from personal_knowledge.application.knowledge.build_knowledge_unit_vector_store import COLLECTION_PREFIX
     assert COLLECTION_PREFIX == "knowledge_units"
 
 
@@ -147,7 +147,7 @@ def test_dry_run_does_not_write(tmp_path: Path) -> None:
     db = tmp_path / "test.sqlite"
     _setup_db_with_units(db, 2)
 
-    from personal_knowledge.domains.knowledge.build_knowledge_unit_vector_store import build_candidate_index
+    from personal_knowledge.application.knowledge.build_knowledge_unit_vector_store import build_candidate_index
     stats, coll_name = build_candidate_index(db, write=False)
     assert coll_name is None
     assert stats.eligible_units == 2

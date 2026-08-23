@@ -7,8 +7,8 @@
 4. 输出 inventory JSON / Markdown，给后续对比和删减提供事实基线。
 
 用法:
-  python -m personal_knowledge.domains.memory.audit_memory_experiments
-  python -m personal_knowledge.domains.memory.audit_memory_experiments --write
+  python -m personal_knowledge.evaluation.memory.audit_memory_experiments
+  python -m personal_knowledge.evaluation.memory.audit_memory_experiments --write
 """
 
 from __future__ import annotations
@@ -540,7 +540,7 @@ def scan_duckdb_tables() -> dict:
         report["status"] = "blocked"
         report["issues"].append(f"duckdb_import_error:{DUCKDB_IMPORT_ERROR}")
         report["actions"].append(
-            "DuckDB Python 模块不可用；先恢复 duckdb 运行环境，再重跑 `python -m personal_knowledge.domains.memory.audit_memory_experiments --write`。"
+            "DuckDB Python 模块不可用；先恢复 duckdb 运行环境，再重跑 `python -m personal_knowledge.evaluation.memory.audit_memory_experiments --write`。"
         )
         return report
     if not DUCKDB_DB.exists():
@@ -644,7 +644,7 @@ def scan_chroma_collections() -> dict:
                 rebuild = (
                     "python -m personal_knowledge.retrieval.build_vector_store --write"
                     if name == "personal_events"
-                    else "python -m personal_knowledge.domains.conversation.build_conversation_vector_store --write"
+                    else "python -m personal_knowledge.application.conversation.build_conversation_vector_store --write"
                 )
                 report["actions"].append(f"缺少 Chroma collection `{name}`，需重建：`{rebuild}`。")
             report["objects"].append(row)
@@ -653,7 +653,7 @@ def scan_chroma_collections() -> dict:
         report["blocked"] = True
         report["issues"].append(f"chroma_error:{exc}")
         report["actions"].append(
-            "Chroma 不可用；先恢复 127.0.0.1:8001 服务，再重跑 `python -m personal_knowledge.domains.memory.audit_memory_experiments --write`。"
+            "Chroma 不可用；先恢复 127.0.0.1:8001 服务，再重跑 `python -m personal_knowledge.evaluation.memory.audit_memory_experiments --write`。"
         )
     except Exception as exc:  # pragma: no cover - safety net
         report["status"] = "blocked"

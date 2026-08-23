@@ -140,7 +140,7 @@ def reconcile(db_path: Path = UNIFIED_DB) -> dict:
     # Active index
     active = ""
     try:
-        from personal_knowledge.domains.knowledge.promote_knowledge_index import read_active
+        from personal_knowledge.application.knowledge.promote_knowledge_index import read_active
 
         active = read_active()
     except Exception:

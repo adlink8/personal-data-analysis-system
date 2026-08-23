@@ -7,8 +7,8 @@ r"""Wave 2: compare first-gen memory items with second-gen graph judgments.
 4. 没有 LLM key 或调用失败时，走 deterministic fallback，但必须显式标明 llm_status。
 
 用法:
-  python -m personal_knowledge.domains.memory.compare_memory_experiments --dry-run --limit 5
-  python -m personal_knowledge.domains.memory.compare_memory_experiments --write
+  python -m personal_knowledge.evaluation.memory.compare_memory_experiments --dry-run --limit 5
+  python -m personal_knowledge.evaluation.memory.compare_memory_experiments --write
 """
 
 from __future__ import annotations

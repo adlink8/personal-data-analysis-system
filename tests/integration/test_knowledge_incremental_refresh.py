@@ -14,7 +14,7 @@ _SCRIPTS = _ROOT / "integration" / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
 
 
 def _setup_db(db: Path) -> None:
@@ -69,7 +69,7 @@ def test_no_change_is_noop(tmp_path: Path) -> None:
     _setup_db(db)
     _make_canonical_db(canon, ["cm0", "cm1", "cm2"])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import find_affected_evidence, compute_source_checksum
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import find_affected_evidence, compute_source_checksum
     checksum = compute_source_checksum(canon)
     result = find_affected_evidence(db, canon, last_source_checksum=checksum)
     assert result["no_op"] is True
@@ -84,7 +84,7 @@ def test_new_evidence_detected(tmp_path: Path) -> None:
     # canonical 有 4 个 refs（inventory 只有 3）
     _make_canonical_db(canon, ["cm0", "cm1", "cm2", "cm_new"])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import find_affected_evidence
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import find_affected_evidence
     result = find_affected_evidence(db, canon, last_source_checksum="")
     assert result["new_refs_count"] >= 1
     assert "cm_new" in result.get("new_refs", [])
@@ -98,7 +98,7 @@ def test_deleted_evidence_detected(tmp_path: Path) -> None:
     # canonical 只有 2 个 refs（inventory 有 3）
     _make_canonical_db(canon, ["cm0", "cm1"])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import find_affected_evidence
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import find_affected_evidence
     result = find_affected_evidence(db, canon, last_source_checksum="")
     assert result["deleted_refs_count"] >= 1
 
@@ -134,7 +134,7 @@ def test_large_delta_keeps_full_execution_lists_and_batched_subjects(
     con.close()
     _make_canonical_db(canon, ["cm0", "cm1", "cm2"])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import (
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import (
         find_affected_evidence,
         refresh,
     )
@@ -157,7 +157,7 @@ def test_large_new_delta_has_full_input_and_bounded_preview(tmp_path: Path) -> N
     refs = ["cm0", "cm1", "cm2"] + [f"cm-new-{i:03d}" for i in range(150)]
     _make_canonical_db(canon, refs)
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import (
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import (
         find_affected_evidence,
     )
 
@@ -175,7 +175,7 @@ def test_deprecated_propagation(tmp_path: Path) -> None:
     _setup_db(db)
     _make_canonical_db(canon, ["cm0", "cm1"])  # cm2 消失
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import refresh
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import refresh
     stats, detail = refresh(db, canon, last_source_checksum="", dry_run=False)
     assert stats.deprecated_count >= 1
 
@@ -193,7 +193,7 @@ def test_source_checksum_stable(tmp_path: Path) -> None:
     canon = tmp_path / "canon.sqlite"
     _make_canonical_db(canon, ["cm0", "cm1"])
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import compute_source_checksum
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import compute_source_checksum
     cs1 = compute_source_checksum(canon)
     cs2 = compute_source_checksum(canon)
     assert cs1 == cs2
@@ -203,7 +203,7 @@ def test_get_committed_watermark_does_not_create_schema(tmp_path: Path) -> None:
     db = tmp_path / "empty.sqlite"
     sqlite3.connect(db).close()
 
-    from personal_knowledge.domains.knowledge.refresh_knowledge_units import (
+    from personal_knowledge.application.knowledge.refresh_knowledge_units import (
         get_committed_watermark,
     )
 

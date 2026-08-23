@@ -130,7 +130,7 @@ def test_full_entrypoint_offline_dry_run(
     )
     if not cfg.exists():
         pytest.skip("eval_v1.yaml missing")
-    from personal_knowledge.domains.knowledge.promote_knowledge_index import read_active
+    from personal_knowledge.application.knowledge.promote_knowledge_index import read_active
 
     before = read_active()
     from personal_knowledge.evaluation.run_knowledge_eval import EVAL_ROOT

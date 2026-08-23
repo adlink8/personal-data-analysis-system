@@ -14,9 +14,9 @@ _SCRIPTS = _ROOT / "integration" / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
-import personal_knowledge.domains.knowledge.promote_knowledge_index as pk  # noqa: E402
-import personal_knowledge.domains.knowledge.rollback_knowledge_checkpoint as rkc  # noqa: E402
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
+import personal_knowledge.application.knowledge.promote_knowledge_index as pk  # noqa: E402
+import personal_knowledge.application.knowledge.rollback_knowledge_checkpoint as rkc  # noqa: E402
 
 
 def _setup(tmp_path: Path) -> Path:

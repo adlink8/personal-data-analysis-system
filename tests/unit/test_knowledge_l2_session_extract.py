@@ -10,7 +10,7 @@ _SCRIPTS = _ROOT / "integration" / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from personal_knowledge.domains.knowledge.extract_knowledge_units_l2_session import (  # noqa: E402
+from personal_knowledge.application.knowledge.extract_knowledge_units_l2_session import (  # noqa: E402
     build_window,
     list_l2_sessions,
     _best_message_for_quote,

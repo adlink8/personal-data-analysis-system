@@ -15,7 +15,7 @@ _SCRIPTS = _ROOT / "integration" / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
 
 
 def _setup_db(db: Path) -> None:
@@ -39,7 +39,7 @@ def _setup_db(db: Path) -> None:
 
 def test_promote_writes_active_pointer(tmp_path: Path) -> None:
     """promote 写入 active pointer 文件。"""
-    import personal_knowledge.domains.knowledge.promote_knowledge_index as pk
+    import personal_knowledge.application.knowledge.promote_knowledge_index as pk
     db = tmp_path / "db.sqlite"
     _setup_db(db)
     pk.DB_DIR = tmp_path
@@ -62,7 +62,7 @@ def test_promote_writes_active_pointer(tmp_path: Path) -> None:
 
 def test_rollback_restores_previous(tmp_path: Path) -> None:
     """rollback 恢复上一个 active。"""
-    import personal_knowledge.domains.knowledge.promote_knowledge_index as pk
+    import personal_knowledge.application.knowledge.promote_knowledge_index as pk
     db = tmp_path / "db.sqlite"
     _setup_db(db)
     pk.DB_DIR = tmp_path
@@ -89,7 +89,7 @@ def test_rollback_restores_previous(tmp_path: Path) -> None:
 
 def test_rollback_no_previous_errors(tmp_path: Path) -> None:
     """没有上一个可回滚时报错。"""
-    import personal_knowledge.domains.knowledge.promote_knowledge_index as pk
+    import personal_knowledge.application.knowledge.promote_knowledge_index as pk
     db = tmp_path / "db.sqlite"
     _setup_db(db)
     pk.DB_DIR = tmp_path
@@ -103,7 +103,7 @@ def test_rollback_no_previous_errors(tmp_path: Path) -> None:
 
 def test_list_versions(tmp_path: Path) -> None:
     """list_versions 返回所有 version。"""
-    import personal_knowledge.domains.knowledge.promote_knowledge_index as pk
+    import personal_knowledge.application.knowledge.promote_knowledge_index as pk
     db = tmp_path / "db.sqlite"
     _setup_db(db)
     pk.DB_DIR = tmp_path
@@ -126,7 +126,7 @@ def test_list_versions(tmp_path: Path) -> None:
 
 def test_promote_log_appended(tmp_path: Path) -> None:
     """promote 和 rollback 都追加到 log。"""
-    import personal_knowledge.domains.knowledge.promote_knowledge_index as pk
+    import personal_knowledge.application.knowledge.promote_knowledge_index as pk
     db = tmp_path / "db.sqlite"
     _setup_db(db)
     pk.DB_DIR = tmp_path
@@ -195,7 +195,7 @@ def _preset_active_snapshot(db: Path) -> dict:
 
 def test_promote_preserves_other_roles_of_active_snapshot(tmp_path: Path) -> None:
     """有多角色活跃快照时，promote 只替换 knowledge_retrieval，其余角色原样保留。"""
-    import personal_knowledge.domains.knowledge.promote_knowledge_index as pk
+    import personal_knowledge.application.knowledge.promote_knowledge_index as pk
     from personal_knowledge.application.serving import snapshots as snap
 
     db = tmp_path / "db.sqlite"
@@ -240,7 +240,7 @@ def test_promote_preserves_other_roles_of_active_snapshot(tmp_path: Path) -> Non
 
 def test_promote_without_active_snapshot_stays_single_role(tmp_path: Path) -> None:
     """无活跃快照（首次 promote）时维持单角色 fallback。"""
-    import personal_knowledge.domains.knowledge.promote_knowledge_index as pk
+    import personal_knowledge.application.knowledge.promote_knowledge_index as pk
     from personal_knowledge.application.serving import snapshots as snap
 
     db = tmp_path / "db.sqlite"

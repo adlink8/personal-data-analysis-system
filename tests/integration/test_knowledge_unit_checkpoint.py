@@ -7,7 +7,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
 from personal_knowledge.application.knowledge.knowledge_unit_pipeline import (
     RunManifest,
     StagingPublisher,

@@ -20,13 +20,13 @@ import pytest
 _THIS_DIR = Path(__file__).resolve().parent
 _ROOT = _THIS_DIR.parent
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
-from personal_knowledge.domains.knowledge.build_knowledge_units_prod import (  # noqa: E402
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
+from personal_knowledge.application.knowledge.build_knowledge_units_prod import (  # noqa: E402
     classify_error, compute_cache_key, get_cached_response, put_cached_response,
     init_run_items, get_pending_items, get_run_stats, recover_expired_leases,
 )
-from personal_knowledge.domains.knowledge.build_pilot_sample import build_stratified_sample  # noqa: E402
-from personal_knowledge.domains.knowledge.evaluate_knowledge_unit_extraction import evaluate_run  # noqa: E402
+from personal_knowledge.application.knowledge.build_pilot_sample import build_stratified_sample  # noqa: E402
+from personal_knowledge.evaluation.knowledge.evaluate_knowledge_unit_extraction import evaluate_run  # noqa: E402
 
 
 def _setup_inventory(db: Path, n_items: int = 10) -> str:
@@ -335,7 +335,7 @@ def test_active_pointer_unchanged_on_failure(tmp_path: Path) -> None:
 
 def test_error_classification_matrix() -> None:
     """完整错误分类矩阵。"""
-    from personal_knowledge.domains.knowledge.build_knowledge_units_prod import classify_error
+    from personal_knowledge.application.knowledge.build_knowledge_units_prod import classify_error
     assert classify_error(429, None) == "retryable"
     assert classify_error(500, None) == "retryable"
     assert classify_error(502, None) == "retryable"

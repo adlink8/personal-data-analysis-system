@@ -11,7 +11,7 @@ import pytest
 _THIS_DIR = Path(__file__).resolve().parent
 _ROOT = _THIS_DIR.parent
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
 
 
 def _setup_db(db: Path) -> None:
@@ -50,7 +50,7 @@ def test_migrate_adds_columns(tmp_path: Path) -> None:
     db = tmp_path / "test.sqlite"
     _setup_db(db)
 
-    from personal_knowledge.domains.memory.sync_memory_lifecycle import migrate
+    from personal_knowledge.application.memory.sync_memory_lifecycle import migrate
     result = migrate(db, write=True)
     assert result["migrated"] is True
     assert len(result["added_columns"]) >= 3  # ku_status, ku_version, canonical_unit_id 等
@@ -68,7 +68,7 @@ def test_migrate_idempotent(tmp_path: Path) -> None:
     db = tmp_path / "test.sqlite"
     _setup_db(db)
 
-    from personal_knowledge.domains.memory.sync_memory_lifecycle import migrate
+    from personal_knowledge.application.memory.sync_memory_lifecycle import migrate
     migrate(db, write=True)
     result = migrate(db, write=True)
     assert result["added_columns"] == []  # 第二次无新列
@@ -79,7 +79,7 @@ def test_preview_no_db_diff(tmp_path: Path) -> None:
     db = tmp_path / "test.sqlite"
     _setup_db(db)
 
-    from personal_knowledge.domains.memory.sync_memory_lifecycle import build_preview, migrate
+    from personal_knowledge.application.memory.sync_memory_lifecycle import build_preview, migrate
     migrate(db, write=True)  # 先 migrate
 
     # 记录 DB 状态
@@ -102,7 +102,7 @@ def test_write_links_matching(tmp_path: Path) -> None:
     db = tmp_path / "test.sqlite"
     _setup_db(db)
 
-    from personal_knowledge.domains.memory.sync_memory_lifecycle import migrate, build_preview, apply_write
+    from personal_knowledge.application.memory.sync_memory_lifecycle import migrate, build_preview, apply_write
     migrate(db, write=True)
     preview = build_preview(db)
     result = apply_write(db, preview.preview_hash)
@@ -122,7 +122,7 @@ def test_write_no_physical_delete(tmp_path: Path) -> None:
     db = tmp_path / "test.sqlite"
     _setup_db(db)
 
-    from personal_knowledge.domains.memory.sync_memory_lifecycle import migrate, build_preview, apply_write
+    from personal_knowledge.application.memory.sync_memory_lifecycle import migrate, build_preview, apply_write
     migrate(db, write=True)
     preview = build_preview(db)
     apply_write(db, preview.preview_hash)
@@ -138,7 +138,7 @@ def test_write_hash_mismatch_rejected(tmp_path: Path) -> None:
     db = tmp_path / "test.sqlite"
     _setup_db(db)
 
-    from personal_knowledge.domains.memory.sync_memory_lifecycle import migrate, apply_write
+    from personal_knowledge.application.memory.sync_memory_lifecycle import migrate, apply_write
     migrate(db, write=True)
     result = apply_write(db, "wrong_hash")
     assert "error" in result
@@ -149,7 +149,7 @@ def test_write_idempotent(tmp_path: Path) -> None:
     db = tmp_path / "test.sqlite"
     _setup_db(db)
 
-    from personal_knowledge.domains.memory.sync_memory_lifecycle import migrate, build_preview, apply_write
+    from personal_knowledge.application.memory.sync_memory_lifecycle import migrate, build_preview, apply_write
     migrate(db, write=True)
     preview = build_preview(db)
     r1 = apply_write(db, preview.preview_hash)
@@ -166,7 +166,7 @@ def test_preview_hash_stable(tmp_path: Path) -> None:
     db = tmp_path / "test.sqlite"
     _setup_db(db)
 
-    from personal_knowledge.domains.memory.sync_memory_lifecycle import migrate, build_preview
+    from personal_knowledge.application.memory.sync_memory_lifecycle import migrate, build_preview
     migrate(db, write=True)
     p1 = build_preview(db)
     p2 = build_preview(db)

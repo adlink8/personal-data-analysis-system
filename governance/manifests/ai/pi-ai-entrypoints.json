@@ -1,6 +1,6 @@
 {
   "schema": "pi-ai-entrypoints-v1",
-  "version": "54.02.3",
+  "version": "54.02.4",
   "phase": 54,
   "policy": {"normal_mode_controller": "pi_kernel", "legacy_mode": "rollback_only", "comparison_harness": "explicit_only", "provider_calls": 0},
   "entrypoints": [
@@ -13,8 +13,6 @@
     {"id":"application.knowledge.build_knowledge_units","file":"src/personal_knowledge/application/knowledge/build_knowledge_units.py","purpose":"extraction_summary","target_route":"extraction_summary","status":"migrated","owner":"knowledge"},
     {"id":"application.knowledge.extract_knowledge_units_l2_session","file":"src/personal_knowledge/application/knowledge/extract_knowledge_units_l2_session.py","purpose":"extraction_summary","target_route":"extraction_summary","status":"migrated","owner":"knowledge"},
     {"id":"core.llm.make_llm_client","file":"src/personal_knowledge/core/llm.py","purpose":"generic_generation","target_route":"pi_kernel_task","status":"migrated","owner":"personal-intelligence"},
-    {"id":"application.conversation.summary","file":"archive/legacy-pipeline/src/personal_knowledge/application/conversation/summary.py","purpose":"conversation_summary","target_route":null,"status":"archived","owner":"conversation","archived_from":"src/personal_knowledge/application/conversation/summary.py"},
-    {"id":"application.conversation.build_gpt_conversation_summary","file":"archive/legacy-pipeline/src/personal_knowledge/application/conversation/build_gpt_conversation_summary.py","purpose":"conversation_summary","target_route":null,"status":"archived","owner":"conversation","archived_from":"src/personal_knowledge/application/conversation/build_gpt_conversation_summary.py"},
     {"id":"application.memory.extract_memory_candidates_from_bundles","file":"src/personal_knowledge/application/memory/extract_memory_candidates_from_bundles.py","purpose":"memory_candidate_extraction","target_route":"pi_kernel_task","status":"migrated","owner":"memory"},
     {"id":"application.memory.repair_memory_promotion_candidates","file":"src/personal_knowledge/application/memory/repair_memory_promotion_candidates.py","purpose":"memory_repair","target_route":"pi_kernel_task","status":"migrated","owner":"memory"},
     {"id":"application.memory.build_memory_relation_candidates","file":"src/personal_knowledge/application/memory/build_memory_relation_candidates.py","purpose":"generic_generation","target_route":"pi_kernel_task","status":"migrated","owner":"memory"},

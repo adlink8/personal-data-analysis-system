@@ -13,7 +13,7 @@ from pydantic import ValidationError
 _THIS_DIR = Path(__file__).resolve().parent
 _ROOT = _THIS_DIR.parent
 
-from personal_knowledge.domains.knowledge.build_knowledge_units import (  # noqa: E402
+from personal_knowledge.application.knowledge.build_knowledge_units import (  # noqa: E402
     KnowledgeUnit,
     ExtractionResult,
     strip_system_injections,

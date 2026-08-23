@@ -17,8 +17,8 @@ SCRIPTS_DIR = ROOT / "integration" / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import personal_knowledge.domains.memory.build_memory_relation_candidates as build_mod  # noqa: E402
-import personal_knowledge.domains.memory.evaluate_memory_relation_candidates as eval_mod  # noqa: E402
+import personal_knowledge.application.memory.build_memory_relation_candidates as build_mod  # noqa: E402
+import personal_knowledge.evaluation.memory.evaluate_memory_relation_candidates as eval_mod  # noqa: E402
 
 
 def make_package() -> dict:

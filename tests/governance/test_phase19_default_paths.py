@@ -5,9 +5,9 @@ from personal_knowledge.core.project_paths import (
     KNOWLEDGE_EVAL_DIR,
     PACKAGE_DIR,
 )
-from personal_knowledge.domains.knowledge import build_canonical_knowledge_units as canonical
-from personal_knowledge.domains.knowledge import evaluate_knowledge_unit_rag as rag
-from personal_knowledge.domains.memory import audit_memory_experiments as memory_audit
+from personal_knowledge.application.knowledge import build_canonical_knowledge_units as canonical
+from personal_knowledge.evaluation.knowledge import evaluate_knowledge_unit_rag as rag
+from personal_knowledge.evaluation.memory import audit_memory_experiments as memory_audit
 from personal_knowledge.retrieval import compare_vector_generations as vector_compare
 
 

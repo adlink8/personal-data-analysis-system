@@ -14,7 +14,7 @@ _SCRIPTS = _ROOT / "integration" / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-import personal_knowledge.domains.knowledge.evaluate_knowledge_unit_rag as rag  # noqa: E402
+import personal_knowledge.evaluation.knowledge.evaluate_knowledge_unit_rag as rag  # noqa: E402
 
 
 def test_percentile_edges() -> None:

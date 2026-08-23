@@ -18,7 +18,7 @@ _SCRIPTS = _ROOT / "integration" / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from personal_knowledge.domains.conversation.rollback_agent_conversation_source import (  # noqa: E402
+from personal_knowledge.application.conversation.rollback_agent_conversation_source import (  # noqa: E402
     read_current_source,
     write_source_pointer,
     list_canonical_backups,
@@ -87,7 +87,7 @@ def _make_canonical(dest: Path, *, eligible: bool = True) -> Path:
 def test_full_rollback_flow(tmp_path: Path) -> None:
     """PLAN 固定流程：shadow → promote → rollback → legacy → restore。"""
     # 用 tmp 目录隔离指针文件
-    import personal_knowledge.domains.conversation.rollback_agent_conversation_source as rb
+    import personal_knowledge.application.conversation.rollback_agent_conversation_source as rb
     db_dir = tmp_path / "db"
     db_dir.mkdir()
     rb.SOURCE_POINTER = db_dir / "conversation_source.txt"
@@ -125,7 +125,7 @@ def test_full_rollback_flow(tmp_path: Path) -> None:
 
 def test_dry_run_no_modification(tmp_path: Path) -> None:
     """dry-run 不修改 source 指针。"""
-    import personal_knowledge.domains.conversation.rollback_agent_conversation_source as rb
+    import personal_knowledge.application.conversation.rollback_agent_conversation_source as rb
     db_dir = tmp_path / "db"
     db_dir.mkdir()
     rb.SOURCE_POINTER = db_dir / "conversation_source.txt"
@@ -141,7 +141,7 @@ def test_dry_run_no_modification(tmp_path: Path) -> None:
 
 def test_switch_to_canonical_requires_db(tmp_path: Path) -> None:
     """canonical DB 不存在时不能切到 canonical。"""
-    import personal_knowledge.domains.conversation.rollback_agent_conversation_source as rb
+    import personal_knowledge.application.conversation.rollback_agent_conversation_source as rb
     db_dir = tmp_path / "db"
     db_dir.mkdir()
     rb.SOURCE_POINTER = db_dir / "conversation_source.txt"
@@ -182,7 +182,7 @@ def test_list_backups(tmp_path: Path) -> None:
     backups = list_canonical_backups()
     # list_canonical_backups 用默认路径，这里直接验证逻辑
     # 在隔离环境下重新指向 tmp
-    import personal_knowledge.domains.conversation.rollback_agent_conversation_source as rb
+    import personal_knowledge.application.conversation.rollback_agent_conversation_source as rb
     rb.AGENT_CONVERSATIONS_DB = canonical
     backups = rb.list_canonical_backups()
     assert "current" in backups
@@ -190,7 +190,7 @@ def test_list_backups(tmp_path: Path) -> None:
 
 def test_rollback_log_appended(tmp_path: Path) -> None:
     """--write 操作追加到 rollback log。"""
-    import personal_knowledge.domains.conversation.rollback_agent_conversation_source as rb
+    import personal_knowledge.application.conversation.rollback_agent_conversation_source as rb
     db_dir = tmp_path / "db"
     db_dir.mkdir()
     rb.SOURCE_POINTER = db_dir / "conversation_source.txt"

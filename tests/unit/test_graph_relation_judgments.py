@@ -12,8 +12,8 @@ UNIFIED_SCRIPTS = ROOT / 'integration' / 'scripts'
 if str(UNIFIED_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(UNIFIED_SCRIPTS))
 
-import personal_knowledge.domains.graph.judge_graph_relations as judge_mod  # noqa: E402
-import personal_knowledge.domains.graph.evaluate_graph_relation_judgments as eval_mod  # noqa: E402
+import personal_knowledge.application.graph.judge_graph_relations as judge_mod  # noqa: E402
+import personal_knowledge.evaluation.graph.evaluate_graph_relation_judgments as eval_mod  # noqa: E402
 
 
 class TestGraphRelationJudgments(unittest.TestCase):

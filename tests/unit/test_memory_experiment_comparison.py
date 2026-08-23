@@ -11,7 +11,7 @@ UNIFIED_SCRIPTS = ROOT / "integration" / "scripts"
 if str(UNIFIED_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(UNIFIED_SCRIPTS))
 
-import personal_knowledge.domains.memory.compare_memory_experiments as mod  # noqa: E402
+import personal_knowledge.evaluation.memory.compare_memory_experiments as mod  # noqa: E402
 
 
 class TestMemoryExperimentComparison(unittest.TestCase):

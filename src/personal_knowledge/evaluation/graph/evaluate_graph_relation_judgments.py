@@ -8,8 +8,8 @@ import sqlite3
 import time
 from pathlib import Path
 
-from personal_knowledge.domains.graph.build_graph_relation_candidates import SQLITE_DB, canonical_pair
-from personal_knowledge.domains.graph.judge_graph_relations import ALLOWED_RELATIONS
+from personal_knowledge.application.graph.build_graph_relation_candidates import SQLITE_DB, canonical_pair
+from personal_knowledge.application.graph.judge_graph_relations import ALLOWED_RELATIONS
 
 ROOT = Path(__file__).resolve().parents[4]
 OUT_JSON = ROOT / "integration" / "analysis" / "ai_context" / "graph_relation_eval_report.json"

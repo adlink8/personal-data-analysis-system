@@ -1,5 +1,12 @@
 # Product readiness scorecard
 
+> **Historical score snapshot (2026-07-17), not current live status.** The
+> 2026-08-23 read-only audit found an empty active KU generation, unavailable
+> Chroma collection listing, no committed watermark and 34,941 new source refs.
+> Use `.planning/STATE.md`, `pk-ku doctor --skip-ports`, `pk-ku inspect` and
+> `rag-search stats --json` for current truth. Scores below are retained only
+> for historical comparison until they are re-baselined.
+
 **Updated:** 2026-07-17 (post Phase 22 and Phase 17 eval re-audit)
 **Product definition (local personal knowledge):** privacy-safe, evidence-backed, CLI/MCP operable daily without code edits; promote/rollback safe; growth history retained without hard delete.
 

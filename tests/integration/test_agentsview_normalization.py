@@ -24,14 +24,14 @@ _SCRIPTS = _ROOT / "integration" / "scripts"
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from personal_knowledge.domains.conversation.build_agentsview_normalized import (  # noqa: E402
+from personal_knowledge.application.conversation.build_agentsview_normalized import (  # noqa: E402
     NORMALIZED_SCHEMA,
     NormalizationStats,
     RevisionGateError,
     build_normalized,
     local_secret_scan,
 )
-from personal_knowledge.domains.conversation.build_canonical_agent_conversations import (  # noqa: E402
+from personal_knowledge.application.conversation.build_canonical_agent_conversations import (  # noqa: E402
     run as build_canonical_run,
 )
 

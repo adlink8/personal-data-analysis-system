@@ -6,7 +6,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL
 
 
 def test_rag_feedback_tables_no_raw_query_fields(tmp_path: Path) -> None:

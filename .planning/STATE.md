@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Pi Personal Intelligence Kernel
 status: executing
-last_updated: "2026-08-13T08:30:00.000Z"
-last_activity: 2026-08-13
+last_updated: "2026-08-23T10:15:00.000Z"
+last_activity: 2026-08-23
 progress:
   total_phases: 72
   completed_phases: 48
@@ -26,9 +26,14 @@ progress:
 | Dialogue SSOT | `data/canonical/agent/structured/db/agent_conversations.sqlite` |
 | Knowledge SSOT | `canonical_knowledge_units` + **active** Chroma collection |
 | Active KU (live) | **`knowledge_units_empty_kg_20260812T025401Z_live`** — 0 vectors；旧 collections 保留为非活动隔离代，未删除 |
-| Active serving snapshot | **`ss_916f80a497db56ccab23b0fc`** — 空白知识代，Doctor 10/10 critical、pointer/index parity clean (2026-08-12) |
-| Watermark | matches current source checksum |
+| Active serving snapshot | **`ss_37041cc36becd1013056e9db`** — 现场 `rag-search stats --json` 所见；SQLite/pointer parity clean，但 Chroma 当前不可用 |
+| Watermark | **无 committed watermark；source drift=true，new_refs=34,941**（2026-08-23 read-only inspect） |
 | Product CLI | `pk-sync`, `pk-ku` (inspect…promote, watermark, **reconcile**, **history**, **doctor**) |
+
+> 2026-08-23 live audit: `pk-ku doctor --skip-ports` 当前 exit 1，失败项为
+> `serving_snapshot`（`list_collections unavailable`）和 `source_watermarks`
+> drift。REST/Pi Kernel/MCP 有界启动与健康检查通过；这不等于 KU/Chroma
+> 数据健康已经恢复。
 
 ## Phase 22 plan status
 
@@ -62,9 +67,9 @@ progress:
 ## Current Position
 
 Phase: 62 — Multi-format conversation adapters, unified event authority, and replaceable extraction views
-Plan: 0 of 8 planned
-Status: Ready to execute
-Last activity: 2026-08-12
+Plan: 8 of 8 executed
+Status: Verified 2026-08-15; live-state reconciliation and repository cleanup active
+Last activity: 2026-08-23
 
 ### Quick Tasks Completed
 
@@ -77,7 +82,7 @@ Last activity: 2026-08-12
 See: `.planning/PROJECT.md` (updated 2026-07-19)
 
 **Core value:** Local, evidence-bound and uncertainty-aware personal decision support.
-**Current focus:** Phase 62 — Multi-format conversation adapters, unified event authority, and replaceable extraction views
+**Current focus:** reconcile live KU/Chroma state and remove confirmed repository residuals without changing the active conversation authority
 
 ## v2.0 execution snapshot (2026-08-04)
 
@@ -166,5 +171,9 @@ python -m personal_knowledge.governance.preflight
 
 ## Operator Next Steps
 
-- v1.5 P0 is ready for direct user testing at `http://127.0.0.1:8000/app/knowledge`; only the explicitly deferred expansion domains remain out of scope.
+- Wiki P0 read routes remain available under `/ui/topics` and `/ui/topic*`.
+  Decision Cockpit `/app` and Cockpit-specific `/ui/*` routes are frozen and
+  return 404; do not use `/app/knowledge` as an operator readiness check.
+- Restore Chroma collection visibility and reconcile the 34,941-source delta
+  before claiming `pk-ku doctor` healthy or advancing a watermark.
 - v2.0 next step is the separately authorized paired legacy/personal-cohort baseline and signed browser UAT; until those checkpoints pass, keep the runtime in `legacy`.

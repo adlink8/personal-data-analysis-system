@@ -17,8 +17,8 @@ SCRIPTS_DIR = ROOT / "integration" / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import personal_knowledge.domains.memory.evaluate_memory_promotion_candidates as eval_mod  # noqa: E402
-import personal_knowledge.domains.memory.repair_memory_promotion_candidates as repair_mod  # noqa: E402
+import personal_knowledge.evaluation.memory.evaluate_memory_promotion_candidates as eval_mod  # noqa: E402
+import personal_knowledge.application.memory.repair_memory_promotion_candidates as repair_mod  # noqa: E402
 
 
 class TestMemoryGateRepairLoop(unittest.TestCase):

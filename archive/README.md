@@ -34,6 +34,11 @@ Owner: platform. Status: quarantined.
 | `planning/.gsd/` | Historical GSD planning (read-only) |
 | `vendor-reference/.ai-bridge/` | Vendored bridge reference material |
 
+Tracked legacy-pipeline source was retired from the cleanup branch on
+2026-08-23. Its exact pre-cleanup state remains available on
+`codex/archive-pre-cleanup-20260823`; it is no longer duplicated in the active
+branch.
+
 Not an import source, not a test root, not a runtime dependency.
 
 ## Quarantine (2026-07-16)

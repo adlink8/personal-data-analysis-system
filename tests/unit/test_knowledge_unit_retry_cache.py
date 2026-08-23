@@ -17,8 +17,8 @@ import pytest
 _THIS_DIR = Path(__file__).resolve().parent
 _ROOT = _THIS_DIR.parent
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
-from personal_knowledge.domains.knowledge.build_knowledge_units_prod import (  # noqa: E402
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
+from personal_knowledge.application.knowledge.build_knowledge_units_prod import (  # noqa: E402
     classify_error,
     call_llm_with_retry,
     compute_cache_key,

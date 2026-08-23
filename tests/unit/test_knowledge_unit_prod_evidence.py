@@ -12,8 +12,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-from personal_knowledge.domains.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
-from personal_knowledge.domains.knowledge.build_knowledge_units_prod import (  # noqa: E402
+from personal_knowledge.application.knowledge.migrate_add_knowledge_unit_tables import SCHEMA_SQL  # noqa: E402
+from personal_knowledge.application.knowledge.build_knowledge_units_prod import (  # noqa: E402
     _commit_item_result,
     _evidence_supported,
 )
