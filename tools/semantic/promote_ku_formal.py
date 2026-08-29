@@ -35,10 +35,15 @@ def main():
     units = st.execute(
         "select unit_id, unit_type, question, answer, confidence, lifecycle, "
         "source_session_id, supersedes_id, status from knowledge_units_staging "
-        "order by unit_id").fetchall()
+        "where unit_type != 'unclassified' order by unit_id").fetchall()
+    skipped = st.execute(
+        "select count(*) from knowledge_units_staging where unit_type='unclassified'").fetchone()[0]
+    if skipped:
+        print(f"note: {skipped} unclassified rows stay in staging (formal CHECK rejects the type)")
     evidence = st.execute(
         "select s.unit_id, e.evidence_ref from knowledge_unit_evidence_staging e "
-        "join knowledge_units_staging s on s.unit_id=e.unit_id").fetchall()
+        "join knowledge_units_staging s on s.unit_id=e.unit_id "
+        "where s.unit_type != 'unclassified'").fetchall()
     if not units:
         print("staging empty — nothing to promote")
         return
