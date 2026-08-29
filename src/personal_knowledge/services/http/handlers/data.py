@@ -238,6 +238,31 @@ def handle_search_semantic(handler, ctx) -> None:
     handler._send(api_server._ok(result))
 
 
+def handle_search_cards(handler, ctx) -> None:
+    import personal_knowledge.retrieval.semantic_cards as semantic_cards
+    import personal_knowledge.services.api_server as api_server
+
+    body = ctx["body"]
+    # 详情模式：body 传 session_id 时返回单张完整会话卡 + active facts（含 evidence_refs）
+    session_id = str(body.get("session_id") or "").strip()
+    if session_id:
+        card = semantic_cards.get_card(session_id)
+        if card is None:
+            b, c = api_server._err(f"未找到 session_id={session_id}", 404)
+            handler._send(b, c)
+            return
+        handler._send(api_server._ok(card))
+        return
+    query = str(body.get("query") or "").strip()
+    if not query:
+        b, c = api_server._err("缺少 query 或 session_id 参数")
+        handler._send(b, c)
+        return
+    limit = int(body.get("limit", body.get("top_k", 8)) or 8)
+    results = semantic_cards.search_cards(query, limit=limit)
+    handler._send(api_server._ok(results))
+
+
 def handle_search_query(handler, ctx) -> None:
     import personal_knowledge.services.api_server as api_server
 

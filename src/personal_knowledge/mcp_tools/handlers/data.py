@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 
+import personal_knowledge.retrieval.semantic_cards as semantic_cards  # noqa: E402
 import personal_knowledge.retrieval.unified_search as backend  # noqa: E402
 
 from personal_knowledge.mcp_tools.handlers._format import (  # noqa: E402
@@ -21,6 +22,7 @@ from personal_knowledge.mcp_tools.handlers._format import (  # noqa: E402
     _format_memory_profile,
     _format_query,
     _format_semantic,
+    _format_semantic_cards,
     _format_stats,
     _json_contract,
 )
@@ -28,6 +30,7 @@ from personal_knowledge.mcp_tools.handlers._format import (  # noqa: E402
 # 本域负责的全部工具名（含历史 call 兼容别名 data_export_all/data_export_query）
 TOOL_NAMES = frozenset({
     "search_semantic",
+    "search_semantic_cards",
     "query_events",
     "get_event_detail",
     "stats",
@@ -61,6 +64,14 @@ def render(name: str, arguments: dict) -> str:
             source=arguments.get("source"),
         )
         return _format_semantic(results)
+
+    if name == "search_semantic_cards":
+        # MVP 会话卡检索：进程内直连 semantic_cards（var/db/semantic_mvp_v3.sqlite 只读）
+        rows = semantic_cards.search_cards(
+            query=arguments.get("query", ""),
+            limit=int(arguments.get("top_k", 8) or 8),
+        )
+        return _format_semantic_cards(rows)
 
     if name == "query_events":
         results = backend.query_events(

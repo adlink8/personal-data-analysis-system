@@ -17,6 +17,7 @@ GET  /categories            所有 category_v2 分布(?source=可选过滤)
 GET  /memory                长期记忆概览(?type=可选过滤)
 GET  /memory/<subject>      单条记忆详情 + 关系(?neighbors=N 可选)
 POST /search/semantic       语义检索(knowledge-first + raw fallback)
+POST /search/cards          MVP 会话卡检索(semantic_mvp_v3.sqlite 只读;body 传 session_id 则返回单卡详情)
 POST /search/query          精确查询(结构化条件过滤 sqlite)
 GET  /event/<event_id>      单条事件全字段
 GET  /profile               返回 AI 长期上下文文档内容(RAG 注入用)
@@ -670,6 +671,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/search/semantic":
                 data_handlers.handle_search_semantic(self, ctx)
                 return
+            if path == "/search/cards":
+                data_handlers.handle_search_cards(self, ctx)
+                return
             if path == "/search/query":
                 data_handlers.handle_search_query(self, ctx)
                 return
@@ -719,6 +723,7 @@ def main() -> None:
     print(f"[api]   GET  /memory               长期记忆概览(?type=可选)")
     print(f"[api]   GET  /memory/<subject>     单条记忆详情(+?neighbors=N)")
     print(f"[api]   POST /search/semantic      语义检索(knowledge-first)")
+    print(f"[api]   POST /search/cards         MVP 会话卡检索(semantic_cards 只读)")
     print(f"[api]   POST /search/query         精确查询(sqlite)")
     print(f"[api]   GET  /event/<id>           单条事件详情")
     print(f"[api]   GET  /profile              AI 长期上下文文档(RAG 注入)")

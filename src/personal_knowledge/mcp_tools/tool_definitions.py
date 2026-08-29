@@ -17,6 +17,7 @@ import mcp.types as types  # noqa: E402
 # core: KU-first 默认面；full: 含历史兼容别名与时间线
 CORE_TOOL_NAMES = frozenset({
     "search_semantic",
+    "search_semantic_cards",
     "stats",
     "knowledge_status",
     "list_google_assertions",
@@ -107,6 +108,32 @@ ALL_TOOLS = [
                     "type": "string",
                     "description": "过滤 raw 事件数据源:Google / GPT / Agent。不传则全源(不影响知识层)",
                     "enum": ["Google", "GPT", "Agent"],
+                },
+            },
+            "required": ["query"],
+        },
+    ),
+    types.Tool(
+        name="search_semantic_cards",
+        description=(
+            "语义检索 MVP 会话卡(var/db/semantic_mvp_v3.sqlite 只读,不写库)。"
+            "对 173 张会话卡与其 active 事实做关键词打分检索(purpose/summary_md/fact,"
+            "ASCII 标识符或中文 2-gram),返回 session_id、purpose、score 与命中事实。"
+            "与 search_semantic(知识单元/原始事件)互补,适合'哪次会话谈过 X'这类定位。"
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "关键词查询,如 'AI-Memory'、'Dockerfile 代理'",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "返回条数(默认 8)",
+                    "default": 8,
+                    "minimum": 1,
+                    "maximum": 20,
                 },
             },
             "required": ["query"],

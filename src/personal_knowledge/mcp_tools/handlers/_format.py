@@ -58,6 +58,32 @@ def _format_semantic(ku_result: dict) -> str:
     return "\n".join(lines)
 
 
+def _format_semantic_cards(rows: list[dict]) -> str:
+    """把 MVP 会话卡检索结果(semantic_cards.search_cards 摘要行)格式化。
+
+    rows: [{session_id, purpose, score, fact_hits, matched_facts}, ...]
+    """
+    if not rows:
+        return (
+            "无匹配结果。MVP 会话卡检索为关键词匹配"
+            "(ASCII 标识符取全词、中文取 2-gram),可换更具体的关键词重试。"
+        )
+    lines = [f"MVP 会话卡检索: 共召回 {len(rows)} 条(按相关度降序):", ""]
+    for i, r in enumerate(rows, 1):
+        sid = r.get("session_id", "")
+        parts = sid.split("|")
+        short = f"{parts[-2]}:{parts[-1][:12]}" if len(parts) >= 2 else sid[:15]
+        lines.append(f"#{i} [score={r.get('score', 0):.1f}] {short}")
+        lines.append(f"   session_id: {sid}")
+        lines.append(f"   目的: {(r.get('purpose') or '(无卡,仅事实命中)')[:80]}")
+        if r.get("fact_hits"):
+            lines.append(f"   命中事实 {r['fact_hits']} 条:")
+            for fact in r.get("matched_facts", []):
+                lines.append(f"   - {fact[:120]}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def _format_query(results: list[dict]) -> str:
     """把精确查询结果格式化。"""
     if not results:
