@@ -42,6 +42,7 @@ import os
 os.environ.setdefault("PERSONAL_DATA_EMBED_MODEL_PATH", r"D:\models\bge-small-zh-v1.5")
 
 import argparse
+import hashlib
 import json
 import sqlite3
 import sys
@@ -64,6 +65,19 @@ EMBEDDING_POLICY = "semantic-mvp-cards-facts-v1"
 ADD_BATCH = 500  # 单批 HTTP 写入上限，避免大 payload
 
 
+def _load_fact_types() -> dict[str, str]:
+    """fact_key -> unit_type，从 KU staging 库反查（staging unit_id 是
+    stg|sha256(fact_key) 的确定性函数）。staging 缺失时全部返回 unclassified。"""
+    path = VAR_DB / "semantic_ku_staging.sqlite"
+    if not path.exists():
+        return {}
+    st = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        return {r[0]: r[1] for r in st.execute("select unit_id, unit_type from knowledge_units_staging")}
+    finally:
+        st.close()
+
+
 def load_documents(db_path: Path) -> tuple[list[str], list[str], list[dict], dict]:
     """只读加载 active facts + 全部卡，返回 (ids, documents, metadatas, counts)。
 
@@ -83,6 +97,8 @@ def load_documents(db_path: Path) -> tuple[list[str], list[str], list[dict], dic
     finally:
         con.close()
 
+    type_by_stg = _load_fact_types()
+
     ids: list[str] = []
     documents: list[str] = []
     metadatas: list[dict] = []
@@ -92,12 +108,14 @@ def load_documents(db_path: Path) -> tuple[list[str], list[str], list[dict], dic
         if not (text or "").strip():
             skipped += 1
             continue
+        stg_id = "stg|" + hashlib.sha256(row["fact_key"].encode("utf-8")).hexdigest()
         ids.append(f"f|{row['fact_key']}")
         documents.append(text)
         metadatas.append({
             "kind": "fact",
             "session_id": row["session_id"],
             "fact_key": row["fact_key"],
+            "unit_type": type_by_stg.get(stg_id, "unclassified"),
             "confidence": row["confidence"] or "",
             "valid_from": row["valid_from"] or "",
         })

@@ -45,7 +45,9 @@ def main():
 
     content_hash = h(json.dumps([[u[0], u[3], u[1], u[5]] for u in units]))
     run_id = "pm_" + content_hash[:16]
-    idmap = {u[0]: "v1|" + h(f"{run_id}|{h(u[3])}|{i}")[:32] for i, u in enumerate(units)}
+    # formal unit ids derive from staging ids only (run-independent), so
+    # incremental staging refreshes keep the same identity across runs
+    idmap = {u[0]: "v1|" + u[0][4:36] for u in units}
 
     if dry:
         print(f"[dry-run] run={run_id} units={len(units)} evidence={len(evidence)}")
@@ -54,6 +56,19 @@ def main():
     uni = sqlite3.connect(UNIFIED)
     uni.execute("PRAGMA foreign_keys=ON")
     cur = uni.cursor()
+    # full idempotent refresh: formal unit ids are derived from staging ids
+    # (run-independent), so re-promotes upsert; wipe any previous promote-run
+    # data first so removed/retyped rows cannot linger
+    for (pr,) in cur.execute(
+            "select run_id from knowledge_build_runs where run_type='promote'").fetchall():
+        cur.execute("delete from knowledge_index_versions where build_id=?", (pr,))
+        cur.execute("delete from canonical_unit_members where member_unit_id in "
+                    "(select unit_id from knowledge_units where run_id=?)", (pr,))
+        cur.execute("delete from canonical_knowledge_units where run_id=?", (pr,))
+        cur.execute("delete from knowledge_unit_evidence where unit_id in "
+                    "(select unit_id from knowledge_units where run_id=?)", (pr,))
+        cur.execute("delete from knowledge_units where run_id=?", (pr,))
+        cur.execute("delete from knowledge_build_runs where run_id=?", (pr,))
     cur.execute(
         "insert or replace into knowledge_build_runs "
         "(run_id, run_type, generated_at, source_build_id, input_hash, prompt_version, "

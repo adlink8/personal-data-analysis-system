@@ -107,6 +107,13 @@ def export(db_path: Path, out_path: Path) -> int:
         }
 
         dst.executescript(STAGING_DDL)
+        # re-export keeps already-assigned classifications (unit_type is set by
+        # classify_ku_staging.py; the source ku_facts table has no type column)
+        try:
+            existing_types = {r[0]: r[1] for r in dst.execute(
+                "select unit_id, unit_type from knowledge_units_staging")}
+        except sqlite3.OperationalError:
+            existing_types = {}
         n_units = n_current = n_superseded = n_bad_status = 0
         n_evidence = n_bad_refs = 0
         supersedes_ids: set[str] = set()
@@ -130,7 +137,7 @@ def export(db_path: Path, out_path: Path) -> int:
                     "  version, created_at, supersedes_id)"
                     " values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
-                        uid, run_id, "unclassified", sid or "", "", fact,
+                        uid, run_id, existing_types.get(uid, "unclassified"), sid or "", "", fact,
                         CONFIDENCE_MAP.get(conf or "", 0.5), fact, lifecycle,
                         sid, None, None, "user", "staging", 1, valid_from or now,
                         supersedes,
