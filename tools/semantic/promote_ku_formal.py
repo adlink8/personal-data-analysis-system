@@ -113,30 +113,9 @@ def main():
             "insert or replace into knowledge_unit_evidence (unit_id, evidence_ref) values (?,?)",
             (idmap[stg_id], ref))
 
-    # canonical layer: safe exact-normalized grouping over current units only
-    current = [u for u in units if u[5] == "current"]
-    groups = {}
-    for u in current:
-        groups.setdefault((u[1], norm_answer(u[3])), []).append(u)
-    n_can = n_merged = 0
-    for (utype, na), members in groups.items():
-        cu = "cu|" + h(f"{utype}|{na}")[:32]
-        rep = members[0]
-        cur.execute(
-            "insert or replace into canonical_knowledge_units "
-            "(canonical_unit_id, subject, unit_type, question, answer, confidence, "
-            " lifecycle, status, version, run_id, merge_reason, created_at) "
-            "values (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (cu, rep[3][:60], utype, rep[2] or "", rep[3], rep[4],
-             "current", "current", len(members), run_id,
-             "exact_norm_dup" if len(members) > 1 else "single",
-             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
-        for m in members:
-            cur.execute(
-                "insert or replace into canonical_unit_members (canonical_unit_id, member_unit_id) "
-                "values (?,?)", (cu, idmap[m[0]]))
-        n_can += 1
-        n_merged += max(0, len(members) - 1)
+    # canonical layer is owned by dedup_canonical_ku.py (semantic grouping);
+    # promote deliberately does not touch it, so re-promotion cannot clobber
+    # the semantic consolidation with an exact-only rebuild.
 
     # index version (candidate; formal serving switch is a separate decision)
     try:
@@ -157,7 +136,8 @@ def main():
     n_units = cur.execute("select count(*) from knowledge_units where run_id=?", (run_id,)).fetchone()[0]
     n_ev = cur.execute("select count(*) from knowledge_unit_evidence").fetchone()[0]
     print(f"promoted: run={run_id} units={n_units} evidence={n_ev} "
-          f"canonical={n_can} (merged {n_merged} dups) supersedes={n_sup} dangling={n_dangling}")
+          f"supersedes={n_sup} dangling={n_dangling} "
+          f"(canonical layer untouched — owned by dedup_canonical_ku.py)")
 
 
 if __name__ == "__main__":
