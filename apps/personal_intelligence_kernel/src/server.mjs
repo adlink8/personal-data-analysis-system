@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { createKernelHost, DEFAULT_KERNEL_HOST, KernelHostError } from "./kernel-host.mjs";
 import { JOURNAL_SCHEMA_VERSION, PiKernelJournalError } from "./events/journal.mjs";
 import { CONVERSATION_DELTA_TYPE, createPiKernelEvent, PiKernelSchemaError, validatePiKernelEvent } from "./events/schema.mjs";
+import { RuntimeControlError } from "./control/runtime-control.mjs";
 import { streamJournalAsSse, SseTransportError } from "./transport/sse.mjs";
 
 export const ALLOWED_ROUTES = Object.freeze([
@@ -16,6 +17,11 @@ export const ALLOWED_ROUTES = Object.freeze([
   "POST /v1/tasks",
   "POST /v1/tasks/:task_id/cancel",
   "POST /v1/tasks/:task_id/resume",
+  "GET /v1/operations",
+  "GET /v1/operations/:operation_id",
+  "POST /v1/operations/:operation_id/cancel",
+  "POST /v1/operations/:operation_id/resume",
+  "POST /v1/operations/:operation_id/reconcile",
   "POST /internal/v1/candidates",
   "POST /internal/v1/conversation-deltas",
   "POST /v1/events",
@@ -54,6 +60,11 @@ export const SAFE_ERROR_CODES = Object.freeze([
   "task_not_resumable",
   "task_reconcile_state_required",
   "stale_version",
+  "operation_not_found",
+  "operation_identity_invalid",
+  "stale_expected_version",
+  "reconcile_state_required",
+  "reconcile_before_resume",
   "illegal_transition",
   "legacy_provider_rollback_only",
   "provider_mode_unknown",
@@ -118,6 +129,7 @@ function safeCode(error, fallback = "internal_error") {
     return "journal_unavailable";
   }
   if (error instanceof KernelHostError && SAFE_ERROR_CODES.includes(error.code)) return error.code;
+  if (error instanceof RuntimeControlError && SAFE_ERROR_CODES.includes(error.code)) return error.code;
   return fallback;
 }
 
@@ -138,6 +150,7 @@ function sendSafeError(response, statusCode, code) {
 function statusForError(code) {
   if (code === "route_not_found") return 404;
   if (code === "method_not_allowed") return 405;
+  if (code === "operation_not_found") return 404;
   if (code === "host_not_ready" || code === "journal_unavailable") return 503;
   if (code === "cursor_not_found" || code === "event_idempotency_conflict" || code === "event_checksum_conflict") return 409;
   return 400;

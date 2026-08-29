@@ -240,10 +240,11 @@ export class KernelHost {
     this.conversationSessionFactory = conversationSessionFactory;
     this.cwd = cwd;
     this.agentDir = agentDir;
-    // Provider bodies are kept only for the lifetime of this process so a
-    // trusted Python adapter can finish its existing parser contract. They
-    // are never written to Task/Session/Event/Candidate stores.
-    this.ephemeralResponses = new Map();
+    // Provider response reports are persisted in the bounded task-ledger
+    // response table so a duplicate request with include_response can be
+    // served from durable state after a kernel restart. The raw prompt
+    // remains memory-only and is never written to Task/Session/Event/
+    // Candidate stores.
     this.server = createServer((_request, response) => {
       response.statusCode = 404;
       response.end();
@@ -381,9 +382,9 @@ export class KernelHost {
     if (accepted.duplicate) {
       const result = { duplicate: true, task: accepted.task, session_id: actualSessionId, route: "skill", skill_id: skill.id, provider_calls: this.providerCalls };
       if (include_response) {
-        const cached = this.ephemeralResponses.get(actualTaskId);
-        if (!cached) throw safeError("skill_response_unavailable");
-        result.response = cached;
+        const persisted = this.taskLedger.getResponse(actualTaskId);
+        if (!persisted) throw safeError("skill_response_unavailable");
+        result.response = persisted;
       }
       return result;
     }
@@ -470,7 +471,7 @@ export class KernelHost {
         ...(modelReceipt ? { model_receipt: modelReceipt } : {}),
       };
       const reportChecksum = sha256(report);
-      this.ephemeralResponses.set(actualTaskId, report);
+      this.taskLedger.putResponse(actualTaskId, report);
       this.sessionStore.append(actualSessionId, { kind: "skill_receipt", task_id: actualTaskId, skill_id: skill.id, report_checksum: reportChecksum, state: skillResult.state }, { receipt: { kind: "skill", task_id: actualTaskId, skill_id: skill.id, report_checksum: reportChecksum } });
       if (skillResult.state === "completed") {
         const completedEvent = this.#appendLifecycle("task_completed", { taskId: actualTaskId, idempotencyKey, checksum: reportChecksum, causationId: startedEvent.event.event_id });
@@ -528,9 +529,9 @@ export class KernelHost {
     if (accepted.duplicate) {
       const result = { duplicate: true, task: accepted.task, session_id: actualSessionId, route: route.purpose, provider_calls: this.providerCalls };
       if (include_response) {
-        const cached = this.ephemeralResponses.get(actualTaskId);
-        if (!cached) throw safeError("provider_response_unavailable");
-        result.response = cached;
+        const persisted = this.taskLedger.getResponse(actualTaskId);
+        if (!persisted) throw safeError("provider_response_unavailable");
+        result.response = persisted;
       }
       return result;
     }
@@ -550,7 +551,7 @@ export class KernelHost {
       const startedEvent = this.#appendLifecycle("task_started", { taskId: actualTaskId, idempotencyKey, checksum: promptChecksum, causationId: acceptedEvent.event.event_id });
       const receipt = await this.providerAdapter.generate({ purpose, model: route.model, prompt, task_id: actualTaskId, session_id: actualSessionId, event_id: startedEvent.event.event_id, idempotency_key: idempotencyKey, max_output_tokens: route.max_output_tokens });
       const responseChecksum = receipt.response_checksum;
-      this.ephemeralResponses.set(actualTaskId, receipt.response);
+      this.taskLedger.putResponse(actualTaskId, receipt.response);
       this.sessionStore.append(actualSessionId, { kind: "model_receipt", task_id: actualTaskId, route_checksum: receipt.route_checksum, response_checksum: responseChecksum, usage_checksum: receipt.usage_checksum, status: receipt.telemetry.status }, { receipt: { kind: "model", task_id: actualTaskId, response_checksum: responseChecksum, route_checksum: receipt.route_checksum, usage_checksum: receipt.usage_checksum } });
       const completedEvent = this.#appendLifecycle("task_completed", { taskId: actualTaskId, idempotencyKey, checksum: responseChecksum, causationId: startedEvent.event.event_id });
       task = this.taskLedger.transition(actualTaskId, "succeeded", { expectedVersion: task.version, owner: "pi_kernel", output_ref: artifactRef(responseChecksum), event_ref: completedEvent.event.event_id });
@@ -1007,7 +1008,6 @@ export class KernelHost {
     try { this.taskLedger?.close(); } catch { /* bounded disposal continues */ }
     try { this.sessionStore?.close(); } catch { /* bounded disposal continues */ }
     try { this.candidateStore?.close(); } catch { /* bounded disposal continues */ }
-    this.ephemeralResponses.clear();
     this.journal.close();
     this.lifecycle = "disposed";
     return { lifecycle: this.lifecycle, timed_out: timedOut };

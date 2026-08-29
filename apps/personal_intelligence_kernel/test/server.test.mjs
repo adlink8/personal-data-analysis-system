@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  ALLOWED_ROUTES,
   startKernelServer,
 } from "../src/server.mjs";
 import { PHASE_48_DECISION_RUN_ID } from "../src/kernel-host.mjs";
@@ -108,6 +109,85 @@ test("server exposes only loopback health/readiness and the allowlisted routes",
   assert.equal(wrongMethod.status, 405);
   assert.deepEqual(wrongMethod.json, { ok: false, error: { code: "method_not_allowed" } });
   assert.equal(wrongMethod.text.includes("private-body-value"), false);
+});
+
+test("operations control routes serve the runtime control plane with safe error codes", async (t) => {
+  const { runtime, port } = await runningServer(t);
+  const operation = runtime.host.runtimeControl.register({
+    operation_kind: "kernel_task", task_id: "task:ops-routes", session_id: "session:ops-routes",
+    correlation_id: "corr:ops-routes", idempotency_key: "idem:ops-routes",
+    authority_class: "authority:kernel", snapshot_id: "snapshot:ops-routes", side_effect_class: "mutation",
+  });
+  const list = await requestJson(port, "GET", "/v1/operations");
+  assert.equal(list.status, 200);
+  assert.equal(list.json.ok, true);
+  assert.equal(list.json.operations.some((item) => item.operation_id === operation.operation_id), true);
+
+  const got = await requestJson(port, "GET", `/v1/operations/${operation.operation_id}`);
+  assert.equal(got.status, 200);
+  assert.equal(got.json.ok, true);
+  assert.equal(got.json.operation.operation_id, operation.operation_id);
+
+  const missing = await requestJson(port, "GET", "/v1/operations/op_missing");
+  assert.equal(missing.status, 404);
+  assert.deepEqual(missing.json, { ok: false, error: { code: "operation_not_found" } });
+
+  const cancelled = await requestJson(port, "POST", `/v1/operations/${operation.operation_id}/cancel`, {
+    expected_version: 0, idempotency_key: "idem:ops-cancel:1",
+  });
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.json.ok, true);
+  assert.equal(cancelled.json.operation.state, "cancel_requested");
+
+  const stale = await requestJson(port, "POST", `/v1/operations/${operation.operation_id}/resume`, {
+    expected_version: 0, idempotency_key: "idem:ops-resume:stale",
+  });
+  assert.equal(stale.status, 400);
+  assert.equal(stale.json.error.code, "stale_expected_version");
+
+  const resumed = await requestJson(port, "POST", `/v1/operations/${operation.operation_id}/resume`, {
+    expected_version: 1, idempotency_key: "idem:ops-resume:1",
+  });
+  assert.equal(resumed.status, 200);
+  assert.equal(resumed.json.ok, true);
+  assert.equal(resumed.json.operation.state, "running");
+
+  const unreconcilable = await requestJson(port, "POST", `/v1/operations/${operation.operation_id}/reconcile`, {
+    expected_version: 2, idempotency_key: "idem:ops-reconcile:early",
+  });
+  assert.equal(unreconcilable.status, 400);
+  assert.equal(unreconcilable.json.error.code, "reconcile_state_required");
+
+  runtime.host.runtimeControl._transition({
+    operationId: operation.operation_id, expectedVersion: 2, idempotencyKey: "idem:ops-unknown:1",
+    nextState: "outcome_unknown", reason: "provider_timeout",
+  });
+  const reconciled = await requestJson(port, "POST", `/v1/operations/${operation.operation_id}/reconcile`, {
+    expected_version: 3, idempotency_key: "idem:ops-reconcile:1",
+    receipt_refs: [{ ref: "receipt:ops-1", checksum: "a".repeat(64) }],
+    fingerprint_refs: [{ ref: "fingerprint:ops-1", checksum: "b".repeat(64) }],
+    receipt_status: "succeeded",
+  });
+  assert.equal(reconciled.status, 200);
+  assert.equal(reconciled.json.ok, true);
+  assert.equal(reconciled.json.operation.state, "succeeded");
+  assert.equal(reconciled.json.reconciled_before_retry, true);
+});
+
+test("ALLOWED_ROUTES declares the operations control-plane routes it dispatches", () => {
+  // Contract guard: these five dispatch branches existed before the whitelist
+  // declared them, which silently drifted the published route contract. Any
+  // future dispatch branch must be registered here in the same change.
+  const operationsRoutes = [
+    "GET /v1/operations",
+    "GET /v1/operations/:operation_id",
+    "POST /v1/operations/:operation_id/cancel",
+    "POST /v1/operations/:operation_id/resume",
+    "POST /v1/operations/:operation_id/reconcile",
+  ];
+  for (const route of operationsRoutes) {
+    assert.equal(ALLOWED_ROUTES.includes(route), true, `ALLOWED_ROUTES missing dispatched route: ${route}`);
+  }
 });
 
 test("event ingress validates metadata, preserves exact duplicate replay, and never leaks errors", async (t) => {

@@ -35,6 +35,23 @@ CREATE TABLE IF NOT EXISTS pi_kernel_migrations (
   id TEXT PRIMARY KEY, schema_version TEXT NOT NULL, migration_checksum TEXT NOT NULL, applied_at TEXT NOT NULL
 );`;
 
+// Bounded response reports backing include_response replay. Kept as a second
+// migration (mirroring events/journal.mjs) so existing v1 task ledgers stay
+// valid while gaining the persistent response store.
+const RESPONSES_MIGRATION_ID = "002_pi_kernel_task_responses_v1";
+const RESPONSES_SCHEMA_VERSION = "pi_kernel_task_responses_v1";
+const RESPONSES_MIGRATION_SQL = `
+CREATE TABLE IF NOT EXISTS pi_kernel_task_responses (
+  task_id TEXT PRIMARY KEY REFERENCES pi_kernel_tasks(task_id),
+  response_json TEXT NOT NULL,
+  response_checksum TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);`;
+// Responses are small JSON reports; oversized payloads are never persisted so
+// replay fails closed with the unchanged provider/skill_response_unavailable
+// contract instead of growing the ledger without bound.
+const MAX_RESPONSE_BYTES = 1024 * 1024;
+
 const checksum = (value) => createHash("sha256").update(value).digest("hex");
 const nowIso = () => new Date().toISOString();
 const json = (value) => JSON.stringify(value ?? null);
@@ -79,6 +96,11 @@ export class TaskLedger {
     const row = this.db.prepare("SELECT * FROM pi_kernel_migrations WHERE id=?").get(MIGRATION_ID);
     if (row && (row.schema_version !== "pi_kernel_tasks_v1" || row.migration_checksum !== migrationChecksum)) throw new TaskLedgerError("migration_checksum_mismatch");
     if (!row) this.db.prepare("INSERT INTO pi_kernel_migrations VALUES (?, ?, ?, ?)").run(MIGRATION_ID, "pi_kernel_tasks_v1", migrationChecksum, nowIso());
+    const responsesChecksum = checksum(RESPONSES_MIGRATION_SQL);
+    this.db.exec(RESPONSES_MIGRATION_SQL);
+    const responsesRow = this.db.prepare("SELECT * FROM pi_kernel_migrations WHERE id=?").get(RESPONSES_MIGRATION_ID);
+    if (responsesRow && (responsesRow.schema_version !== RESPONSES_SCHEMA_VERSION || responsesRow.migration_checksum !== responsesChecksum)) throw new TaskLedgerError("migration_checksum_mismatch");
+    if (!responsesRow) this.db.prepare("INSERT INTO pi_kernel_migrations VALUES (?, ?, ?, ?)").run(RESPONSES_MIGRATION_ID, RESPONSES_SCHEMA_VERSION, responsesChecksum, nowIso());
   }
   enqueue({ task_id, idempotency_key, input_ref = {}, now = nowIso(), event_ref = null } = {}) {
     this.#open();
@@ -131,6 +153,22 @@ export class TaskLedger {
     this.#open(); const result = this.db.prepare("PRAGMA integrity_check").get();
     const migration = this.db.prepare("SELECT * FROM pi_kernel_migrations WHERE id=?").get(MIGRATION_ID);
     return { ok: result?.integrity_check === "ok" && Boolean(migration), integrity_check: result?.integrity_check, schema_version: migration?.schema_version ?? null, task_count: Number(this.db.prepare("SELECT COUNT(*) AS count FROM pi_kernel_tasks").get().count) };
+  }
+  /** Persist one bounded response report so duplicate include_response replay survives restart. */
+  putResponse(taskId, response, { now = nowIso() } = {}) {
+    this.#open();
+    if (!taskId) throw new TaskLedgerError("missing_identity");
+    const serialized = JSON.stringify(response ?? null);
+    if (Buffer.byteLength(serialized, "utf8") > MAX_RESPONSE_BYTES) return { stored: false, reason: "response_too_large" };
+    const responseChecksum = checksum(serialized);
+    this.db.prepare("INSERT INTO pi_kernel_task_responses(task_id,response_json,response_checksum,created_at) VALUES(?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET response_json=excluded.response_json,response_checksum=excluded.response_checksum,created_at=excluded.created_at").run(taskId, serialized, responseChecksum, now);
+    return { stored: true, response_checksum: responseChecksum };
+  }
+  /** Read back a persisted response report; null when absent (replay fails closed). */
+  getResponse(taskId) {
+    this.#open();
+    const row = this.db.prepare("SELECT response_json FROM pi_kernel_task_responses WHERE task_id=?").get(taskId);
+    return row ? JSON.parse(row.response_json) : null;
   }
   close() { if (!this.closed) { this.closed = true; this.db.close(); } }
   dispose() { this.close(); }
