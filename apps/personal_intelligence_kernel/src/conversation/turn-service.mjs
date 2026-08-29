@@ -24,11 +24,14 @@ function projectSafeEvent(event) {
     case "tool_execution_start":
       return { category: "tool_call", turn_index: turnIndex(event), tool_name: toolName(event) };
     case "tool_execution_end":
+      // The Pi runtime emits { result: { content, details }, isError } on
+      // tool_execution_end — there is no `output` field. Success requires a
+      // clean execution (isError falsy) and the tool's own ok receipt.
       return {
         category: "tool_result",
         turn_index: turnIndex(event),
         tool_name: toolName(event),
-        status: event.output && typeof event.output === "object" && event.output.ok === true ? "ok" : "failed",
+        status: !event.isError && event?.result?.details?.ok === true ? "ok" : "failed",
       };
     case "agent_settled":
       return { category: "settled", turn_index: turnIndex(event) };

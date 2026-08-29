@@ -132,13 +132,13 @@ export function productionTool(operation, invokeTool) {
     label: operation.title,
     description: operation.description,
     parameters: Type.Record(Type.String(), Type.Unknown()),
-    execute: async (_toolCallId, params) => {
+    execute: async (toolCallId, params) => {
       if (typeof invokeTool !== "function") return {
         content: [{ type: "text", text: `${operation.id} requires a bound Kernel task invocation.` }],
         details: { ok: false, error: { code: "capability_binding_required" }, capability: operation.id },
       };
       try {
-        const result = await invokeTool(operation.id, params);
+        const result = await invokeTool(operation.id, params, toolCallId);
         return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
       } catch (error) {
         return { content: [{ type: "text", text: `${operation.id} failed.` }], details: { ok: false, error: { code: error?.code ?? "domain_unavailable" }, capability: operation.id } };

@@ -670,7 +670,27 @@ export class KernelHost {
         agentDir: this.agentDir,
         operations: leaseOperations,
         bridge: leaseBridge,
-        invokeTool: (operation, params) => leaseBridge.invoke(operation, params),
+        // Model-supplied params never carry the binding triad; the kernel owns
+        // task/binding identity and the per-call idempotency key derives from
+        // the toolCallId so repeated calls stay deterministic. Model params
+        // are opportunistic: when the gateway fails them closed as
+        // undeclared_input the call retries with the binding triad only, so
+        // parameterless read tools survive a chatty model without loosening
+        // the gateway's input allowlists.
+        invokeTool: async (operation, params, toolCallId) => {
+          const binding = {
+            task_id: actualTaskId,
+            idempotency_key: `${idempotencyKey}:${toolCallId ?? operation}`,
+            binding: "pi_kernel_conversation_turn",
+          };
+          const supplied = params && typeof params === "object" && !Array.isArray(params) ? params : {};
+          try {
+            return await leaseBridge.invoke(operation, { ...supplied, ...binding });
+          } catch (error) {
+            if (error?.code !== "undeclared_input") throw error;
+            return await leaseBridge.invoke(operation, binding);
+          }
+        },
       });
       if (!turnContext?.session) throw safeError("conversation_session_unavailable");
       // Plan 61-09 + Phase 6a-2: every real turn asks the fixed read-only
@@ -1071,7 +1091,9 @@ export async function createKernelHost(options = {}) {
         settingsManager: contained.settingsManager,
         sessionManager: contained.sessionManager,
         operations: leaseOperations,
-        invokeTool: (operation, params) => bridge.invoke(operation, params),
+        // A turn-supplied invokeTool carries the binding triad injection and
+        // must win; the inline fallback stays for callers without one.
+        invokeTool: turnOptions.invokeTool ?? ((operation, params) => bridge.invoke(operation, params)),
       });
     };
     hostInstance = new KernelHost({
