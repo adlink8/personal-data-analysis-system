@@ -72,7 +72,7 @@ src/personal_knowledge/
 |------|--------|
 | Remove `domains/` package entirely | Internal consumer graph is empty; external consumer telemetry is still unknown, so the package remains supported compatibility |
 | `retrieval/memory.py` direct graph imports | Uses the canonical `personal_knowledge.application.graph.query_graph` path |
-| `*.bak-phase20` | **Moved** to `archive/quarantine/bak-phase20-20260716/` (2026-07-16) |
+| `*.bak-phase20` | **Not moved** — 5 files still in `integration/`; `archive/quarantine/bak-phase20-20260716/` does not exist (verified 2026-08-30) |
 | `tools/compat/v1_1` shims | Separate compat budget (not application facade debt) |
 
 ## Verification

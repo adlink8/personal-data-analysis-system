@@ -1,8 +1,9 @@
 # Decision Cockpit runbook（个人决策驾驶舱运行手册）
 
-**Status:** Phase 36 baseline closed (transport/CORS security + safe Projection
-envelope + frontend DTO/vocabulary contract lock); Phase 37–40 (state/evidence,
-decision workspace, feedback/proactive, hardening + Live UAT) not shipped.
+**Status:** Phases 36–40 closed and UAT accepted 2026-07-28 (transport/CORS
+security, safe Projection envelope, frontend DTO/vocabulary contract lock,
+state/evidence, decision workspace, feedback/proactive, hardening + Live UAT);
+note the live `/app`/`/ui/*` routes are currently disabled in the dispatcher.
 **Audience:** humans and coding agents operating `apps/personal_decision_cockpit/`
 and the REST backend that serves it.
 
@@ -120,9 +121,11 @@ real incident, not a routine recovery step.
   completed — those phases have their own PLAN/SUMMARY/VERIFICATION and are
   marked complete in `.planning/ROADMAP.md` (UAT accepted 2026-07-28); note
   the live `/app`/`/ui/*` routes are currently disabled in the dispatcher.
-- Personal Knowledge Wiki / Topic Pages / backlinks / LLM Wiki narrative are a
-  v1.5 candidate; they are not shipped, not read, not written by anything
-  described here.
+- Personal Knowledge Wiki / Topic Pages / backlinks / LLM Wiki narrative are
+  shipped and active as v1.5 P0 (Phases 44–47 closed; WIKI-04 P0 authorized
+  read-only UAT passed): the projection store
+  `var/db/personal_wiki_projection.sqlite` has 1,595 pages materialized in
+  `wiki_projection_pages`; expansion domains are deferred by recorded decision.
 - No health/finance/relationship high-risk writes and no automatic external
   action or promotion exist behind the Cockpit — the only guarded write scope
   is the pre-existing `project + low` session contract.

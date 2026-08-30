@@ -1,6 +1,6 @@
 # Knowledge Unit (KU) incremental runbook
 
-**Status:** supported inspection and prepare contract; paid extraction is intentionally blocked in Phase 62  
+**Status:** supported inspection and prepare contract; paid extraction is intentionally blocked in Phase 62; **superseded/sealed (D-30)** — the current product path is the semantic pipeline in `tools/semantic/`, see `docs/architecture/semantic-knowledge-pipeline.md`  
 **Audience:** humans and coding agents  
 **Authority:** Phase 14 plans (KU-05 backfill vs KU-08 incremental) + module contracts in  
 `application/knowledge/refresh_knowledge_units.py`
@@ -17,7 +17,7 @@ Never start a full frozen inventory production run as a substitute.**
 | Intent | Allowed? | Entry |
 |--------|----------|--------|
 | See if source changed | Yes | **`pk-ku inspect`** |
-| Freeze **delta** preflight (no LLM) | Yes when it works | **`pk-ku prepare …`** (policy flags) |
+| Freeze **delta** preflight (no LLM) | Sealed (D-30) | **`pk-ku prepare …`** (policy flags) |
 | Extract a prepared queue | **No in Phase 62** | `ir_*` is superseded; `vc_*` remains blocked pending explicit cost approval and a representative pilot |
 | Run status | Yes | **`pk-ku status --run …`** |
 | Extraction gate | Yes | **`pk-ku extract-gate --run … [--min-yield 0.7]`** |

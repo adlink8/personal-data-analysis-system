@@ -77,12 +77,40 @@ npm test
 
 其他包使用相同方式，将目录替换为 `apps/personal_intelligence_kernel`、`apps/personal_intelligence_desktop` 或 `apps/personal_decision_cockpit`。Kernel 的 `npm test` 只匹配 `test/*.test.mjs`，不会运行 `test/manual/` 下的人工外部-provider 测试。
 
+Kernel 套件当前为 101 个用例，`node --test test/*.test.mjs` 全量通过（101 pass / 0 fail / 0 skipped；用例数会随开发增长）。两个契约守卫值得关注：
+
+- [`test/task-response-replay.test.mjs`](../../apps/personal_intelligence_kernel/test/task-response-replay.test.mjs)：重启重放回归。基于真实 `startKernelServer` 与 `KernelHost`，验证 task `include_response` 与 skill report 在 host 重启后从持久化 ledger 原样重放，且 ledger 重开后保留有界响应、跳过超限响应。
+- [`test/server.test.mjs`](../../apps/personal_intelligence_kernel/test/server.test.mjs) 中的 `ALLOWED_ROUTES declares the operations control-plane routes it dispatches`：白名单契约守卫。5 条 operations 分派路由（list/get/cancel/resume/reconcile）必须逐条出现在 `src/server.mjs` 导出的 `ALLOWED_ROUTES` 冻结数组中；新增分派分支必须在同一次变更中登记进白名单，防止发布路由契约静默漂移。
+
 ChatGPT MCP 还提供一个定向 widget 命令：
 
 ```bash
 cd apps/personal_data_chatgpt
 npm run test:widgets
 ```
+
+## 语义层与 wiki 物化测试
+
+语义检索（semantic cards）与 wiki 物化链路由以下测试覆盖，默认全部离线可跑（live 冒烟除外，见下文 [live 标记](#live-标记)）：
+
+| 文件 | 用例 | 覆盖内容 |
+|---|---:|---|
+| [`tests/unit/test_semantic_cards.py`](../../tests/unit/test_semantic_cards.py) | 13 | `search_cards` / `get_card` 的关键词打分与会话聚合；夹具库按 `tools/semantic/mvp_semantic_compress.py` 的 DDL 自建，不依赖真实卡库。 |
+| [`tests/unit/test_semantic_cards_vector.py`](../../tests/unit/test_semantic_cards_vector.py) | 12 | 向量打分、距离截断、端点解析，以及无登记、chroma 不可达、collection 或 embed 模型缺失、登记无 active build、登记损坏时的关键词回退。 |
+| [`tests/contract/test_semantic_cards_wiring.py`](../../tests/contract/test_semantic_cards_wiring.py) | 11 | `search_cards` 工具在 `ALL_TOOLS` 的 schema 注册，schema 面与 handler 分派表的双向一致性（反向多出的只能是文档化的 `data_export_all` / `data_export_query` 兼容别名），以及 MCP render 与 REST 分支的输出契约。 |
+| [`tests/unit/test_materialize_wiki.py`](../../tests/unit/test_materialize_wiki.py) | 14 | 实体归一化与非法主题键丢弃、KU 经卡到实体的主题绑定与噪声阈值、确定性 `wiki_page_body_v1` 正文、物化幂等（同内容重跑不新增版本/行，内容变化才追加 `pv_N` 版本）、dry-run 与 limit。 |
+| [`tests/unit/test_wiki_consolidation.py`](../../tests/unit/test_wiki_consolidation.py) | 11 | `wiki_projection_pages` schema 往返、bucket 归一化、`consolidate_wiki` 确定性与幂等、缺 store 时 fail-safe、page-first `topic_get` / `topic_list` 读取回退的回归。 |
+
+用例数以 `python -m pytest --collect-only -q` 为准（parametrize 展开计入）。
+
+语义层的离线稳定性来自 [`tests/conftest.py`](../../tests/conftest.py) 的 autouse 夹具：把 `semantic_cards.SEMANTIC_INDEX_REGISTRY` monkeypatch 到 `tmp_path` 下不存在的路径，使所有测试默认走关键词回退路径，不依赖 chroma 服务、登记文件或本机 embedding 模型。需要测向量路径的用例在测试体内再次 monkeypatch 该常量覆盖默认（后设置的生效）；`test_semantic_cards_vector.py` 的向量场景即按此方式构造。
+
+## live 标记
+
+`pytest.ini` 注册了 `live` marker：需要私有本地数据或运行中服务的用例。它的生效分两层：
+
+- CI 层：`ci.yml` 用 `python -m pytest -m "not live" -q` 显式排除，live 用例永不进入 CI。
+- 本地层：裸跑 `python -m pytest` 不会自动排除 live，是否执行由用例自行判断。`test_semantic_cards.py::test_real_db_smoke` 与 `test_semantic_cards_vector.py::test_real_vector_smoke` 都带 `@pytest.mark.skipif`，在真实产物（`var/db/semantic_mvp_v3.sqlite`、含 active build 的 `var/db/semantic_index_registry.json`）缺失时跳过；`tests/integration/test_target_d_acceptance.py` 的 live 用例不带 skipif，只在拥有真实产物的本机上执行。
 
 ## 编写新测试
 
@@ -99,7 +127,7 @@ npm run test:widgets
 | `tests/ops/` | PowerShell 启动栈及运维脚本。 |
 | `tests/eval/` | 数据技能与个人技能的评估行为。 |
 
-文件和测试函数必须使用 `test_*.py` / `test_*` 命名。仓库当前未设置顶层共享 conftest 或共享 helper 模块；fixture 通常在拥有行为的测试文件内定义。优先使用 pytest 的 `tmp_path`、`monkeypatch`、临时 SQLite、确定性 replay provider 和本地 stand-in。`tests/fixtures/` 只存放最小、脱敏、确定性的公共夹具；不得复制真实个人数据。
+文件和测试函数必须使用 `test_*.py` / `test_*` 命名。顶层共享 conftest 只有 [`tests/conftest.py`](../../tests/conftest.py)，且只承载语义层的 autouse 离线夹具（见下文[语义层与 wiki 物化测试](#语义层与-wiki-物化测试)）；其余 fixture 通常在拥有行为的测试文件内定义。优先使用 pytest 的 `tmp_path`、`monkeypatch`、临时 SQLite、确定性 replay provider 和本地 stand-in。`tests/fixtures/` 只存放最小、脱敏、确定性的公共夹具；不得复制真实个人数据。
 
 对生产行为的修改遵循 [`governance/policies/testing.yaml`](../../governance/policies/testing.yaml)：
 

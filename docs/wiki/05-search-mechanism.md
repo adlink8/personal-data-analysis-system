@@ -20,7 +20,7 @@ local_embed.embed(query)
 模型: bge-small-zh-v1.5 → 512 维向量 [0.123, 0.456, ..., -0.789]
 ```
 
-如果 embedding 失败（模型未加载等）→ 直接返回 `route=abstain`。
+如果 embedding 失败（模型未加载等）→ 跳过知识层向量检索，降级走分层 SQLite fallback（`route=fallback_raw`）；两层都无结果才返回 `route=abstain`。
 
 ### Step 2：确定去哪里搜
 
@@ -30,7 +30,7 @@ active knowledge collection 的优先级：
   ② serving snapshot 绑定的 collection ≠ None → 用它
   ③ knowledge_index_active.txt 读到的        → 用它（降级路径）
 
-结果: 去 knowledge_units_ir_4cd8af4ad_20260718054940 搜
+结果: 去 knowledge_units_empty_kg_20260812T025401Z_live 搜
 ```
 
 ### Step 3：知识层检索
@@ -184,7 +184,7 @@ LIMIT 10
 
 ### Q：MCP 搜索和 REST 搜索结果不同？
 
-MCP 内部是通过 `http://127.0.0.1:8000/search/semantic` 调 REST API 的。如果 REST API 没启动或版本不一致，MCP 会报错或返回旧结果。检查：`curl http://127.0.0.1:8000/health`。
+MCP 的 `search_semantic` 进程内直连 `backend.search_knowledge_units`，与 REST 走同一套检索逻辑（不再经 HTTP 回环调 REST API），结果应一致。若仍不一致，先确认两边绑定的 knowledge collection 是否相同。
 
 ---
 

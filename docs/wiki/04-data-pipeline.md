@@ -62,7 +62,7 @@ Google Takeout 原始事件
 ① inspect     ← 免费。比较当前对话 vs 上次处理到的位置，列出新增内容
 ② prepare     ← 免费。冻结增量清单，生成 run_id
 ③ extract     ← 付费！对每条新内容调 LLM，提取 Q&A
-④ extract-gate← 免费。检查 yield≥70%、隐私通过、schema 有效
+④ extract-gate← 免费。检查 yield 阈值（user 轨 0.7 / assistant 轨 0.3）、隐私通过、schema 有效
 ⑤ canonical   ← 免费。staging → canonical 表
 ⑥ publish     ← 免费。增量发布（additive，不覆盖旧的）
 ⑦ vector      ← 免费。候选向量索引构建

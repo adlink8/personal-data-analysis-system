@@ -94,7 +94,59 @@ Python 根项目使用 setuptools，但没有仓库级 build、lint 或 format �
 | `npm --prefix apps/personal_data_chatgpt run snapshot:tools` | ChatGPT MCP：校验/输出工具 descriptor snapshot。 |
 | `npm --prefix apps/personal_data_chatgpt run snapshot:tools:update` | ChatGPT MCP：更新工具 descriptor snapshot；提交前必须审查生成差异。 |
 
+`pytest.ini` 注册了 `live` 标记（"requires private local data or a running live service; excluded from offline CI"）。远程 CI 用 `python -m pytest -m "not live" -q` 排除它们；本地裸跑 `python -m pytest -q` 会包含这些用例——缺少对应私有产物时由 `skipif` 自动跳过，存在时对真实数据做只读冒烟。
+
 日常同步使用 `pk-sync conversations`，知识更新使用 `pk-ku` 增量流程。`rag-pipeline` 已退役，不是开发或产品主路径。
+
+## 语义层开发须知（tools/semantic/）
+
+2026-08-29 起仓库新增离线语义知识层：管线全貌与规模基线见 [`../architecture/overview.md`](../architecture/overview.md) 的"语义知识层管线"一节。修改 `tools/semantic/` 下脚本时遵守以下约定（均已在脚本头部 docstring 与实现中固化）。
+
+### 工具与读写边界
+
+| 脚本 | 作用 | LLM/内核依赖 | 读 | 写 |
+|---|---|---|---|---|
+| `mvp_semantic_compress.py` | 会话压缩为 session_cards + ku_facts | pilot/scale 需 pi 内核；`report` 纯只读 | canonical 会话库（`file:...?mode=ro`） | `var/db/semantic_mvp_v3.sqlite` |
+| `export_ku_staging.py` | ku_facts → staging 导出 | 无（纯本地） | `semantic_mvp_v3.sqlite` | `var/db/semantic_ku_staging.sqlite` |
+| `classify_ku_staging.py` | 九类枚举分类 | 需 pi 内核 | staging 库 | staging 库（仅 `unclassified` 行） |
+| `promote_ku_formal.py` | 正式层升格 | 无 | staging 库 | `var/db/personal_system.sqlite`（UNIFIED_DB）、`var/db/semantic_index_registry.json` |
+| `dedup_canonical_ku.py` | canonical 层语义收敛 | 无（本地 embedding） | UNIFIED_DB（只读阶段） | UNIFIED_DB 的 `canonical_knowledge_units` + members |
+| `build_semantic_vector_store.py` | 向量化 + 构建登记 | 无（本地 embedding） | `semantic_mvp_v3.sqlite` | Chroma collection、`var/db/semantic_index_registry.json` |
+| `materialize_wiki.py` | `subject:` 主题 wiki 物化 | 无（纯本地确定性） | UNIFIED_DB、`semantic_mvp_v3.sqlite`（均 `mode=ro`） | `var/db/personal_wiki_projection.sqlite` |
+
+硬边界：
+
+- `data/canonical/` 一律只读。`mvp_semantic_compress.py` 以 `file:...?mode=ro` URI 打开 canonical 会话库；任何脚本不得写 canonical。
+- UNIFIED_DB（`var/db/personal_system.sqlite`）只允许 `promote_ku_formal.py` 与 `dedup_canonical_ku.py` 两个脚本写入。promote 刻意不写 canonical 层（由 `dedup_canonical_ku.py` 独占语义收敛，避免升格用精确分组覆盖收敛结果）；dedup 只重写 promote 运行产出的行。
+- `materialize_wiki.py` 唯一可写库是可再生的 `var/db/personal_wiki_projection.sqlite`。
+
+### 幂等约定
+
+所有脚本必须可重跑且重跑不产生重复数据：
+
+- 确定性 id：staging 导出 `unit_id = 'stg|' + sha256(fact_key)`；promote 的 `run_id`（内容哈希前缀 `pm_`）与正式 `v1|` unit id 均由 staging 内容派生，与运行时间无关，增量刷新后重跑按同一身份 upsert。
+- Upsert 写入：promote 对 `knowledge_build_runs`、`knowledge_units`、`knowledge_unit_evidence`、`knowledge_index_versions`（status='candidate'）用 `insert or replace`；`materialize_wiki.py` 页面行主键 `(topic_id, projection_version)` 唯一并 INSERT OR REPLACE，永不产生同版本重复行。
+- 全量重建：`export_ku_staging.py` 在单事务内 DELETE 全量 + 重新 INSERT；promote 重跑前先清空历史 promote 运行的行（含旧 canonical 行）；`dedup_canonical_ku.py` 删除 promote 运行的 canonical 行后整体重建。
+- wiki 物化：重跑时与最新存储页 `page_checksum` 相同的主题整体跳过（不新增版本、行数不变）；只有源内容变化才追加新的不可变版本（`pv_N` 递增）——重跑产生新版本而非重复行。
+
+### 成本与模型护栏
+
+- LLM 调用（`mvp_semantic_compress.py` 的 pilot/scale、`classify_ku_staging.py`）经 `personal_knowledge.core.llm.make_llm_client`（purpose=`conversation_summary`）走 pi 内核通道：内核须在跑，且进程前设置 `PI_KERNEL_INTERNAL_CAPABILITY`。
+- scale 模式硬性成本上限：环境变量 `PK_MVP_COST_CAP`（默认 `8`，单位 ¥），达到即停，不为跑数调大代码里的预算。
+- embedding 一律本机模型（`personal_knowledge.core.local_embed`，bge-small-zh-v1.5，512 维），不经联网 LLM。`build_semantic_vector_store.py` 与 `dedup_canonical_ku.py` 在 import `local_embed` 之前用 `os.environ.setdefault("PERSONAL_DATA_EMBED_MODEL_PATH", r"D:\models\bge-small-zh-v1.5")` 兜底（runtime_config 默认候选路径指向 C 盘残缺缓存，实测加载失败；`setdefault` 不覆盖调用方已显式设置的值）。新脚本需要 embedding 时沿用同一兜底模式，且必须在 import 前设置。
+- Chroma collection 按 `semantic_mvp_v1_<UTC时间戳>` 版本化：每次构建产生新版本，旧版本一律保留、绝不删除（脚本无任何删除路径）。构建登记写 `var/db/semantic_index_registry.json`，status 取 candidate | active | superseded，`--activate` 保证 active 至多一个。
+
+### 测试指引
+
+语义层测试全部零 LLM、零网络、零真实模型：
+
+- [`tests/unit/test_semantic_cards.py`](../../tests/unit/test_semantic_cards.py)：检索适配器。夹具库用自建 DDL（复刻 `mvp_semantic_compress.py` 的 init_db）；真实库只留一条 `@pytest.mark.live` 冒烟（`var/db/semantic_mvp_v3.sqlite` 不存在时 skipif 跳过）。
+- [`tests/unit/test_semantic_cards_vector.py`](../../tests/unit/test_semantic_cards_vector.py)：向量优先路径。假登记文件 + monkeypatch 假 chroma 客户端与假 embedding；回退路径验证任一环节失败时无声回退且与关键词结果一致；真实向量层冒烟同样标记 `live`。
+- [`tests/contract/test_semantic_cards_wiring.py`](../../tests/contract/test_semantic_cards_wiring.py)：MCP render 分支 + REST `/search/cards` handler 接线；用桩 handler 直调函数，不启服务。
+- [`tests/unit/test_materialize_wiki.py`](../../tests/unit/test_materialize_wiki.py)：实体归一化、主题绑定与 `--min-claims` 阈值、`wiki_page_body_v1` 契约（确定性、无时间戳、无原始对话正文）、物化幂等与 page-first 读路径。直接把 `tools/semantic` 加入 `sys.path` 导入被测脚本。
+- [`tests/unit/test_wiki_consolidation.py`](../../tests/unit/test_wiki_consolidation.py)：Phase 4 wiki 统合页 page store、`consolidate_wiki` 分桶/确定性正文/幂等、page-first `topic_get`。
+
+离线夹具约定：[`tests/conftest.py`](../../tests/conftest.py) 的 autouse 夹具把 `semantic_cards.SEMANTIC_INDEX_REGISTRY` monkeypatch 到 `tmp_path` 下不存在的路径，使 `search_cards` 在所有测试里稳定走关键词回退——不依赖真实 chroma 服务、登记文件与本机 embedding 模型。需要测向量路径的用例在测试体内再次 monkeypatch 覆盖该默认（后设置的生效），真实登记冒烟即按此还原。
 
 ## Code style
 
@@ -123,3 +175,8 @@ Python 根项目使用 setuptools，但没有仓库级 build、lint 或 format �
 - 确认差异不包含 `data/`、`var/` 私有内容、数据库、凭据、原始 SQL、个人正文或私有评测案例，再请求审查。
 
 评审重点是正确性、权限与隐私边界、数据权威一致性、失败语义、回归风险和测试证据。Kernel 的联网依赖资格检查仍需单独执行并记录结果。
+
+## 提交纪律
+
+- 仓库规则：`data/`、`var/` 私有库、运行报告、凭据与个人对话正文不得提交（根 [`AGENTS.md`](../../AGENTS.md) Agent 硬约束第 4 条；`docs/AGENTS.md` 标准 checklist 同项）。
+- Agent 工作流约定：只在用户明确要求时执行 git commit / push，不由 Agent 自行提交。通过 `gsd:docs-update` 产生的文档变更，由该技能流程的 commit 步骤统一提交，不走临时散提交。

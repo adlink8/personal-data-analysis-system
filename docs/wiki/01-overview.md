@@ -40,7 +40,7 @@ pk-ku promote --collection knowledge_units_ir_xxxx --require-eval-pass --eval-su
 pk-ku watermark --advance --from-canonical --write
 
 # 搜一下看看有没有效果
-rag-search "Python 报错处理"
+rag-search semantic "Python 报错处理"
 
 # 想看统计数据
 rag-search stats
