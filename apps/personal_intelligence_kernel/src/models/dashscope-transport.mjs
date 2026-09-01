@@ -75,27 +75,33 @@ export function createDashScopeTransport({
     try {
       raw = await response.json();
     } catch {
+      console.error(JSON.stringify({ event: "provider_raw_body_unparseable", status: response.status }));
       throw new ProviderAdapterError("provider_response_invalid");
     }
     if (!response.ok) throw new ProviderAdapterError(safeHttpCode(response.status));
 
-    try {
-      const content = raw.choices[0].message.content;
-      // Thinking models (deepseek-v4-flash etc.) return natural-language text,
-      // not JSON. Prefer JSON when the model emits it; otherwise wrap the text
-      // so the payload stays an object (provider-adapter requires object).
-      let payload;
-      if (typeof content === "string") {
-        try {
-          payload = JSON.parse(content);
-        } catch {
-          payload = { content };
-        }
-      } else {
-        payload = content;
+    // Thinking models (deepseek-v4-flash etc.) return natural-language text,
+    // not JSON. Prefer JSON when the model emits it; otherwise wrap the text
+    // so the payload stays an object (provider-adapter requires object).
+    const content = raw?.choices?.[0]?.message?.content;
+    let payload;
+    if (typeof content === "string") {
+      try {
+        payload = JSON.parse(content);
+        // 模型偶发双重编码（JSON 字符串里还是 JSON）；解到对象为止。
+        if (typeof payload === "string") payload = JSON.parse(payload);
+      } catch {
+        payload = { content };
       }
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("payload");
-      const inputTokens = Number(raw.usage?.prompt_tokens ?? 0);
+    } else {
+      payload = content;
+    }
+    // 2026-08-30：模型偶发返回数组/标量（如 [user] 前缀窗口触发），原逻辑直接
+    // 抛 provider_response_invalid 毒化整轮压缩；包装为对象让下游自行解析。
+    if (payload === null || payload === undefined) payload = { content: "" };
+    else if (typeof payload !== "object") payload = { content: String(payload) };
+    else if (Array.isArray(payload)) payload = { content: JSON.stringify(payload) };
+    const inputTokens = Number(raw.usage?.prompt_tokens ?? 0);
       const outputTokens = Number(raw.usage?.completion_tokens ?? 0);
       const inputPrice = Number(route?.input_price_per_million ?? persisted.inputPricePerMillion ?? 0);
       const outputPrice = Number(route?.output_price_per_million ?? persisted.outputPricePerMillion ?? 0);
@@ -113,8 +119,5 @@ export function createDashScopeTransport({
         cost,
         currency: String(raw.cost_currency || route?.currency || persisted.currency || "CNY"),
       };
-    } catch {
-      throw new ProviderAdapterError("provider_response_invalid");
-    }
   };
 }

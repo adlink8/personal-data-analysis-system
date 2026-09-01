@@ -134,3 +134,19 @@ latest_logs/
 
 # Versioned provider/analysis budget configuration (operator-tunable, not code)
 !governance/config/pi-budget.json
+
+# Environment & local secrets (NEVER commit)
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+
+# Local temporary and scratch paths
+tmp/
+.planning/tmp/
+scratch/

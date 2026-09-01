@@ -334,7 +334,9 @@ def compress_session(sid, client, run_tag=""):
         if n_msgs <= LARGE_MSGS:
             # single window, one call (reduce not needed)
             window, truncated = assemble_window(lines, WINDOW_CAP)
-            r = call_llm(client, _tag(PROMPT_SMALL.format(sid=sid, window=window), run_tag), 1600)
+            # 3000：1600 会截断长卡（卡片 JSON 超 1600 token 时模型输出被切断，
+            # 2026-08-30 实测 427/1200 张废卡）
+            r = call_llm(client, _tag(PROMPT_SMALL.format(sid=sid, window=window), run_tag), 3000)
             _account(r, stats)
             card = parse_json(r.choices[0].message.content)
             chunk_count, visible = 1, len(window)
@@ -361,7 +363,7 @@ def compress_session(sid, client, run_tag=""):
             # reduce: merge all chunk summaries into the final card
             summaries_txt = "\n\n".join(
                 f"[块{ci + 1}] {json.dumps(cs, ensure_ascii=False)}" for ci, cs in payloads)
-            r = call_llm(client, _tag(PROMPT_MERGE.format(sid=sid, summaries=summaries_txt), run_tag), 1600)
+            r = call_llm(client, _tag(PROMPT_MERGE.format(sid=sid, summaries=summaries_txt), run_tag), 3000)
             _account(r, stats)
             card = parse_json(r.choices[0].message.content)
             if sampled:
@@ -615,6 +617,7 @@ def run_scale(limit=None, workers=3):
     (DB writes stay on the main thread), and stops at a hard cost cap."""
     import os
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    workers = int(os.environ.get("PK_MVP_WORKERS", str(workers or 3)))
     cap = float(os.environ.get("PK_MVP_COST_CAP", "8"))
     con = sqlite3.connect(CANON, uri=True)
     f, fp = canonical_projection_predicate(con, "s.canonical_session_id")

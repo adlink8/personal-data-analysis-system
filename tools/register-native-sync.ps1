@@ -33,7 +33,12 @@ if ($RunNow) {
 }
 
 $trigger = New-ScheduledTaskTrigger -Daily -At $At
-$psAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"$cmd 2>&1 | Out-File -FilePath '$log' -Append; exit `$LASTEXITCODE`"" -WorkingDirectory $repoRoot
+# 任务动作用 pwsh 7：powershell.exe 5.1 不认 cmd 的 cd /d、set、&&，且 UTF-8 无 BOM 中文注释会按 GBK 解析炸掉；
+# $cmd 里的 cmd 语法仅保留给 -RunNow 用。
+$pwshPath = (Get-Command pwsh -ErrorAction Stop).Source
+$psCmd = "Set-Location -LiteralPath '$repoRoot'; " + `
+    "`$env:PYTHONPATH='$repoRoot\src'; $inner 2>&1 | Out-File -FilePath '$log' -Append -Encoding utf8; exit `$LASTEXITCODE"
+$psAction = New-ScheduledTaskAction -Execute $pwshPath -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"$psCmd`"" -WorkingDirectory $repoRoot
 Register-ScheduledTask -TaskName $TaskName -Action $psAction -Trigger $trigger -Description "Phase 62 native client-directory conversation sync (discover->stage->shadow, never activates)" -Force | Out-Null
 Write-Host "[ok] registered scheduled task: $TaskName @ daily $At"
 Write-Host "     $inner"

@@ -38,7 +38,9 @@ export const ALLOWED_ROUTES = Object.freeze([
   "POST /v1/proactive/dismiss",
   "POST /v1/proactive/undo",
 ]);
-export const MAX_EVENT_BODY_BYTES = 64 * 1024;
+// 256KB：语义压缩器的单窗口为 22K 字符（中文 UTF-8 可达 ~66KB），64KB 会让
+// 中文重的会话全部 event_too_large（2026-08-30 实测）；loopback-only 内部服务。
+export const MAX_EVENT_BODY_BYTES = 256 * 1024;
 export const SAFE_ERROR_CODES = Object.freeze([
   "route_not_found",
   "method_not_allowed",

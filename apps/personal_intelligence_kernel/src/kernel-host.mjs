@@ -26,7 +26,9 @@ export const DEFAULT_KERNEL_HOST = Object.freeze({ host: "127.0.0.1", port: 8790
 export const PHASE_48_DECISION_RUN_ID = "piq_f7896e839999ed2eac87ebd4";
 export const RESOURCE_POLICY_VERSION = "pi_resource_policy_v1_exact";
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/_-]{0,255}$/;
-const MAX_PROMPT_BYTES = 48 * 1024;
+// 256KB：与 server.mjs 的 MAX_EVENT_BODY_BYTES 对齐，语义压缩器 22K 字符
+// 中文窗口（~66KB UTF-8）必须能通过（2026-08-30 实测 event_too_large）。
+const MAX_PROMPT_BYTES = 256 * 1024;
 
 // Phase 6a-2: every real conversation turn runs the governed projection
 // provider before prompt; an explicit caller scope wins, otherwise the
@@ -527,13 +529,20 @@ export class KernelHost {
       throw safeError("task_enqueue_failed");
     }
     if (accepted.duplicate) {
-      const result = { duplicate: true, task: accepted.task, session_id: actualSessionId, route: route.purpose, provider_calls: this.providerCalls };
-      if (include_response) {
-        const persisted = this.taskLedger.getResponse(actualTaskId);
-        if (!persisted) throw safeError("provider_response_unavailable");
-        result.response = persisted;
+      const persisted = this.taskLedger.getResponse(actualTaskId);
+      if (persisted) {
+        const result = { duplicate: true, task: accepted.task, session_id: actualSessionId, route: route.purpose, provider_calls: this.providerCalls };
+        if (include_response) result.response = persisted;
+        return result;
       }
-      return result;
+      // Response-less replay (historical failure or pre-responses-table run):
+      // a terminal row is cleared and executed fresh instead of dead-ending
+      // forever; an in-flight row (queued/claimed/running) still fails closed.
+      const existing = this.taskLedger.get(actualTaskId);
+      const replayable = ["failed", "outcome_unknown", "succeeded"].includes(existing?.state ?? "");
+      if (!replayable) throw safeError("provider_response_unavailable");
+      this.taskLedger.forget(actualTaskId);
+      accepted = this.taskLedger.enqueue({ task_id: actualTaskId, idempotency_key: idempotencyKey, input_ref: inputRef });
     }
 
     this.runtimeControl.register({

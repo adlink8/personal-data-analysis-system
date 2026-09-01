@@ -160,10 +160,10 @@ def compute_projection(
         generation_id, sessions_by_id, event_rows
     )
     projected_sessions = _project_sessions(
-        generation_id, sessions_by_id, family_by_session, messages
+        sessions_by_id, family_by_session, messages
     )
-    projected_messages = _project_messages(generation_id, messages)
-    projected_tools = _project_tools(generation_id, tools)
+    projected_messages = _project_messages(messages)
+    projected_tools = _project_tools(tools)
 
     fingerprint = _make_fingerprint(
         generation_id, projected_sessions, projected_messages, projected_tools
@@ -216,7 +216,6 @@ def _classify_events(
 
 
 def _project_sessions(
-    generation_id: str,
     sessions_by_id: dict[str, dict],
     family_by_session: dict[str, str],
     messages: dict[str, list[dict]],
@@ -229,10 +228,15 @@ def _project_sessions(
             1 for m in msgs if MESSAGE_KINDS[EventKind(m["kind"])] == "user"
         )
         projected.append({
-            "canonical_session_id": _norm_hash("v2|cs", "v2", generation_id, sid),
+            # Ids derive ONLY from generation-independent ce_* ids (session_id
+            # / event_id are deterministic across generations), so projection
+            # ids survive re-activation of a newer generation — otherwise
+            # every activation would invalidate downstream semantic-layer
+            # artifacts keyed by these ids.
+            "canonical_session_id": _norm_hash("v2|cs", sid),
             # Live canonical_sessions has CHECK(primary_source IN
             # ('agentsview','legacy')); 'v2' is not admissible, so projection
-            # rows are tagged 'legacy' (the v2|generation session-id prefix
+            # rows are tagged 'legacy' (the v2|cs| session-id prefix
             # keeps them distinguishable from legacy-era rows).
             "primary_source": "legacy",
             "agent": family_by_session.get(sid) or None,
@@ -256,7 +260,7 @@ def _project_sessions(
 
 
 def _project_messages(
-    generation_id: str, messages: dict[str, list[dict]]
+    messages: dict[str, list[dict]]
 ) -> list[dict]:
     """Map message-kind events to canonical_messages rows (documented lossy)."""
     projected: list[dict] = []
@@ -275,9 +279,9 @@ def _project_messages(
             role = MESSAGE_KINDS[EventKind(event["kind"])]
             projected.append({
                 "canonical_message_id": _norm_hash(
-                    "v2|cm", "v2", generation_id, event["event_id"]
+                    "v2|cm", event["event_id"]
                 ),
-                "canonical_session_id": _norm_hash("v2|cs", "v2", generation_id, sid),
+                "canonical_session_id": _norm_hash("v2|cs", sid),
                 # Live CHECK(source IN ('agentsview','legacy')); 'v2' is not
                 # admissible (see _project_sessions).
                 "source": "legacy",
@@ -297,7 +301,7 @@ def _project_messages(
 
 
 def _project_tools(
-    generation_id: str, tools: dict[str, list[dict]]
+    tools: dict[str, list[dict]]
 ) -> list[dict]:
     """Map tool-kind events to canonical_tool_events rows (documented lossy)."""
     projected: list[dict] = []
@@ -309,9 +313,9 @@ def _project_tools(
             summary = event.get("summary") or None
             projected.append({
                 "canonical_tool_id": _norm_hash(
-                    "v2|cte", "v2", generation_id, event["event_id"]
+                    "v2|cte", event["event_id"]
                 ),
-                "canonical_session_id": _norm_hash("v2|cs", "v2", generation_id, sid),
+                "canonical_session_id": _norm_hash("v2|cs", sid),
                 # Live CHECK(source IN ('agentsview','legacy')); 'v2' is not
                 # admissible (see _project_sessions).
                 "source": "legacy",

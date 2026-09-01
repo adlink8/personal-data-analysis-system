@@ -170,6 +170,13 @@ export class TaskLedger {
     const row = this.db.prepare("SELECT response_json FROM pi_kernel_task_responses WHERE task_id=?").get(taskId);
     return row ? JSON.parse(row.response_json) : null;
   }
+  /** Drop a response-less terminal row so a replay can execute fresh (2026-08-30). */
+  forget(taskId) {
+    this.#open();
+    this.db.prepare("DELETE FROM pi_kernel_task_outbox WHERE task_id=?").run(taskId);
+    this.db.prepare("DELETE FROM pi_kernel_task_responses WHERE task_id=?").run(taskId);
+    this.db.prepare("DELETE FROM pi_kernel_tasks WHERE task_id=?").run(taskId);
+  }
   close() { if (!this.closed) { this.closed = true; this.db.close(); } }
   dispose() { this.close(); }
 }
